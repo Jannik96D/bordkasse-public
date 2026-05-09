@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.python-version
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code lokal
+.claude/
+
+# Excel/Office Lockfiles
+~$*.xlsx
+~$*.xlsm
+~$*.docx

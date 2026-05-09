@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────
+   Bordkasse Design-Tokens — siehe docs/design-system.md
+   Marineblau-dominiertes Segel-Design.
+   ───────────────────────────────────────────────────────────────── */
+@theme {
+  /* Primärblau-Familie */
+  --color-primary:      #114884;  /* Hauptakzent — Texte, Linien, Rahmen */
+  --color-navy-dark:    #1D4281;
+  --color-navy-mid:     #587EA8;
+  --color-navy-light:   #D6E1EE;  /* Füllungen, Hintergrundboxen */
+
+  /* Akzent-Farben */
+  --color-gold:         #C8A51E;  /* Highlights, Info-Boxen */
+  --color-gold-soft:    #FDF6DC;
+  --color-success:      #1E8449;  /* positiver Saldo, "ok" */
+  --color-danger:       #A93226;  /* negativer Saldo, Fehler */
+
+  /* Neutralwerte (kein reines Schwarz/Weiß) */
+  --color-ink:          #1A1F2A;
+  --color-ink-soft:     #4A5468;
+  --color-paper:        #FAFBFC;
+  --color-paper-soft:   #F4F6F8;
+  --color-rule:         #E2E8EE;
+
+  /* Touch-Targets, Mobile-first */
+  --spacing-touch:      2.75rem;  /* 44px = iOS-empfohlene Touch-Target-Höhe */
+
+  /* Schriften */
+  --font-sans:          "Arial", "Helvetica Neue", system-ui, sans-serif;
+  --font-display:       "Campton", "Arial Black", "Arial", sans-serif;
+}
+
+/* Light-Modus only — kein Dark-Mode in v0.1 */
+:root {
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Standard-Touch-Target für Buttons/Inputs */
+button, [role="button"], input:not([type="checkbox"]):not([type="radio"]), select, textarea, a.button {
+  min-height: var(--spacing-touch);
+}

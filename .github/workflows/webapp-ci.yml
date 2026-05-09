@@ -1,0 +1,43 @@
+name: webapp-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "webapp/**"
+      - ".github/workflows/webapp-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "webapp/**"
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webapp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: webapp/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Tests (S1–S7)
+        run: pnpm test

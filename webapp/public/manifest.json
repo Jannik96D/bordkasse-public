@@ -1,0 +1,19 @@
+{
+  "name": "Bordkasse",
+  "short_name": "Bordkasse",
+  "description": "Faire Kostenaufteilung auf Segel-Törns",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FAFBFC",
+  "theme_color": "#114884",
+  "lang": "de",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

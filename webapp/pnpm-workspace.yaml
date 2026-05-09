@@ -1,0 +1,8 @@
+allowBuilds:
+  sharp: set this to true or false
+  unrs-resolver: set this to true or false
+# Local workspace config — kein Monorepo, nur damit pnpm v11
+# `onlyBuiltDependencies` erkennt und postinstall-Scripts erlaubt.
+onlyBuiltDependencies:
+  - sharp
+  - unrs-resolver
