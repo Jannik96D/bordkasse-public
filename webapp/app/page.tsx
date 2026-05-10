@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Plus, Anchor, Archive } from "lucide-react";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
@@ -11,7 +12,14 @@ export default async function Home() {
     return (
       <main className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
         <div className="max-w-md space-y-6">
-          <div className="text-5xl">⚓</div>
+          <Image
+            src="/logo.png"
+            alt="Bordkasse"
+            width={200}
+            height={154}
+            priority
+            className="mx-auto h-auto w-48"
+          />
           <h1 className="text-4xl font-bold text-primary">Bordkasse</h1>
           <p className="text-lg text-ink-soft">
             Faire Kostenaufteilung auf Segel-Törns mit wechselnden Crews.
