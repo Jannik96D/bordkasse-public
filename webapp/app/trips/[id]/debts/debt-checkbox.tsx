@@ -1,43 +1,54 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useOptimistic, useTransition } from "react";
+import { toggleDebtSettled } from "@/lib/actions/settled-debts";
 
 /**
- * "Erledigt"-Häkchen pro Schuldenzeile, persistiert via localStorage.
- * Nur lokal beim User — nicht crew-synchron in v0.1.
+ * "Erledigt"-Häkchen pro Schuldenzeile. Persistiert trip-übergreifend in
+ * der DB (Tabelle settled_debts) — andere Crew-Mitglieder sehen den Status
+ * live via Realtime-Sync (RealtimeTrip).
+ *
+ * useOptimistic gibt sofort UI-Feedback und resettet sich beim nächsten
+ * Server-Render auf den neuen `initialSettled`-Prop, falls der Server-
+ * Stand abweicht (z. B. wenn jemand parallel toggelt oder der Toggle
+ * fehlschlägt).
  */
-export function DebtCheckbox({ tripId, debtKey }: { tripId: string; debtKey: string }) {
-  const storageKey = `bordkasse:debt:${tripId}:${debtKey}`;
-
-  const subscribe = useCallback((callback: () => void) => {
-    const handler = (e: StorageEvent) => {
-      if (e.key === null || e.key === storageKey) callback();
-    };
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
-  }, [storageKey]);
-
-  const done = useSyncExternalStore(
-    subscribe,
-    () => localStorage.getItem(storageKey) === "1",
-    () => false,
-  );
-
-  const toggle = () => {
-    const next = !done;
-    if (next) localStorage.setItem(storageKey, "1");
-    else localStorage.removeItem(storageKey);
-    // Same-Tab-Update: storage-Event feuert nur cross-tab, also manuell.
-    window.dispatchEvent(new StorageEvent("storage", { key: storageKey }));
-  };
+export function DebtCheckbox({
+  tripId,
+  fromPersonId,
+  toPersonId,
+  amount,
+  initialSettled,
+}: {
+  tripId: string;
+  fromPersonId: string;
+  toPersonId: string;
+  amount: number;
+  initialSettled: boolean;
+}) {
+  const [optimisticSettled, setOptimisticSettled] = useOptimistic(initialSettled);
+  const [pending, startTransition] = useTransition();
 
   return (
     <input
       type="checkbox"
-      checked={done}
-      onChange={toggle}
-      className="h-5 w-5 cursor-pointer rounded border-rule"
-      aria-label="Als erledigt markieren"
+      checked={optimisticSettled}
+      disabled={pending}
+      onChange={(e) => {
+        const next = e.target.checked;
+        startTransition(async () => {
+          setOptimisticSettled(next);
+          await toggleDebtSettled({
+            tripId,
+            fromPersonId,
+            toPersonId,
+            amount,
+            settled: next,
+          });
+        });
+      }}
+      className="h-5 w-5 cursor-pointer rounded border-rule disabled:opacity-50"
+      aria-label={optimisticSettled ? "Als unbezahlt markieren" : "Als erledigt markieren"}
     />
   );
 }

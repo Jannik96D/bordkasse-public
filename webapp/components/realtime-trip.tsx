@@ -29,6 +29,11 @@ export function RealtimeTrip({ tripId }: { tripId: string }) {
         { event: "*", schema: "public", table: "trip_members", filter: `trip_id=eq.${tripId}` },
         () => router.refresh(),
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "settled_debts", filter: `trip_id=eq.${tripId}` },
+        () => router.refresh(),
+      )
       .subscribe();
 
     return () => {
