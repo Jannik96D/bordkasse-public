@@ -19,12 +19,14 @@ export function DebtCheckbox({
   toPersonId,
   amount,
   initialSettled,
+  canToggle,
 }: {
   tripId: string;
   fromPersonId: string;
   toPersonId: string;
   amount: number;
   initialSettled: boolean;
+  canToggle: boolean;
 }) {
   const [optimisticSettled, setOptimisticSettled] = useOptimistic(initialSettled);
   const [pending, startTransition] = useTransition();
@@ -33,8 +35,9 @@ export function DebtCheckbox({
     <input
       type="checkbox"
       checked={optimisticSettled}
-      disabled={pending}
+      disabled={pending || !canToggle}
       onChange={(e) => {
+        if (!canToggle) return;
         const next = e.target.checked;
         startTransition(async () => {
           setOptimisticSettled(next);
@@ -47,8 +50,9 @@ export function DebtCheckbox({
           });
         });
       }}
-      className="h-5 w-5 cursor-pointer rounded border-rule disabled:opacity-50"
+      className="h-5 w-5 cursor-pointer rounded border-rule disabled:cursor-not-allowed disabled:opacity-50"
       aria-label={optimisticSettled ? "Als unbezahlt markieren" : "Als erledigt markieren"}
+      title={canToggle ? undefined : "Nur Schuldner oder Gläubiger dürfen das Häkchen setzen."}
     />
   );
 }

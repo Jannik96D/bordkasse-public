@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireMember } from "@/lib/auth/authz";
+import { isAdmin, requireMember } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 
 const ToggleSchema = z.object({
@@ -41,6 +41,13 @@ export async function toggleDebtSettled(input: {
 
   const auth = await requireMember(trip_id);
   if (!auth.ok) return { ok: false, message: auth.message };
+
+  // Nur die direkt Beteiligten (Schuldner oder Gläubiger) oder Admin
+  // dürfen das Häkchen setzen — unbeteiligte Crew-Mitglieder nicht.
+  const admin = await isAdmin();
+  if (!admin && auth.personId !== from_person_id && auth.personId !== to_person_id) {
+    return { ok: false, message: "Nur Schuldner oder Gläubiger dürfen das Häkchen setzen." };
+  }
 
   const supabase = createAdminClient();
 

@@ -1,6 +1,8 @@
 import { ArrowRight } from "lucide-react";
 import { getSimplifiedDebts } from "@/lib/queries/balances";
 import { getSettledDebtKeys, debtKey } from "@/lib/queries/settled-debts";
+import { getCurrentPerson } from "@/lib/auth/get-current-person";
+import { isAdmin } from "@/lib/auth/authz";
 import { formatEuro } from "@/lib/utils";
 import { DebtCheckbox } from "./debt-checkbox";
 
@@ -10,9 +12,11 @@ export default async function DebtsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [debts, settled] = await Promise.all([
+  const [debts, settled, person, admin] = await Promise.all([
     getSimplifiedDebts(id),
     getSettledDebtKeys(id),
+    getCurrentPerson(),
+    isAdmin(),
   ]);
 
   if (debts.length === 0) {
@@ -70,6 +74,11 @@ export default async function DebtsPage({
                 toPersonId={d.to_person_id}
                 amount={d.amount}
                 initialSettled={isSettled}
+                canToggle={
+                  admin ||
+                  person?.id === d.from_person_id ||
+                  person?.id === d.to_person_id
+                }
               />
               <div className="flex flex-1 items-center gap-2">
                 <span className={isSettled ? "font-medium line-through" : "font-medium"}>

@@ -103,8 +103,30 @@ export default function DatenschutzPage() {
         <div>
           <h2 className="text-base font-semibold">5. Speicherdauer</h2>
           <p>
-            Trip-Daten und Profil-Informationen werden gespeichert, solange du Mitglied in
-            mindestens einem aktiven Trip bist. Auf Wunsch löschen wir deine Daten unverzüglich
+            Profil-Informationen werden gespeichert, solange du in mindestens einem
+            aktiven Törn als Mitglied geführt bist.
+          </p>
+          <p className="mt-2">
+            <strong>Automatische Löschung 30 Tage nach Törn-Ende:</strong> Sobald ein Törn
+            seit mehr als 30 Tagen beendet ist, werden alle personenbezogenen Daten zu
+            diesem Törn automatisch gelöscht — namentlich:
+          </p>
+          <ul className="ml-5 mt-2 list-disc">
+            <li>Crew-Liste (wer war wann an Bord, Alkohol-Flag, Notizen)</li>
+            <li>Buchungen mit Personen-Bezug (wer hat bezahlt, wer ist beteiligt)</li>
+            <li>Gutschriften und „Bezahlt“-Markierungen</li>
+            <li>Audit-Log-Einträge dieses Törns</li>
+            <li>Ghost-Personen, die nirgends mehr Mitglied sind</li>
+          </ul>
+          <p className="mt-2">
+            <strong>Was bleibt:</strong> Eine anonymisierte Statistik-Kopie (Datum,
+            Kategorie, Gesamtbetrag pro Tag und Kategorie) — ohne jeglichen Personenbezug.
+            Sie erlaubt dir, im Statistik-Tab auch Jahre später noch zu sehen, wie viel
+            insgesamt z. B. für „Sprit“ oder „Restaurant“ ausgegeben wurde, ohne dass
+            erkennbar ist, wer beteiligt war oder wer gezahlt hat.
+          </p>
+          <p className="mt-2">
+            Auf Wunsch löschen wir deine Daten auch vor Ablauf der 30 Tage unverzüglich
             (siehe „Deine Rechte“). Server-Logs werden nach maximal 30 Tagen gelöscht.
           </p>
         </div>

@@ -2,8 +2,8 @@
 
 > Tool zur fairen Aufteilung gemeinsamer Kosten auf Segel-Törns mit wechselnden Crews.
 > Zwei Implementationen parallel im Repo:
-> - **Sheets-Lösung** (Status: Apps Script v11) — pragmatisch, kein Login, sofort einsetzbar
-> - **Web-App** (Status: v0.1 in `webapp/`) — Next.js + Supabase + Vercel, Crew-fähig mit Magic-Link-Auth, Realtime-Sync
+> - **Sheets-Lösung** (Apps Script v11) — pragmatisch, kein Login, eingefroren.
+> - **Web-App** (`webapp/`) — Next.js + Supabase + Vercel, Crew-fähig, Magic-Link-Auth, Realtime, PWA-Offline, Statistik, Audit-Log, automatische DSGVO-Löschung 30 Tage nach Törn-Ende.
 
 ## Quick Context
 
@@ -239,34 +239,35 @@ Schriften: Campton Bold (Display) → Arial Bold (H2) → Arial Regular (Body).
 
 ## Web-App `webapp/`
 
-Status: v0.1 — Crew kann den nächsten Törn vollständig in der Web-App abwickeln.
-
-**Tech-Stack:** Next.js 16 (App Router) + Tailwind 4 + Supabase (Postgres + Auth + Realtime) + Vercel.
+**Tech-Stack:** Next.js 16 (App Router, Turbopack) + Tailwind 4 + Supabase (Postgres + Auth + Realtime) + Vercel.
 
 **Setup:** siehe `webapp/README.md`. Lokal: `cd webapp && pnpm install && supabase start && pnpm dev`. Magic-Link-Mails landen lokal im Mailpit unter http://127.0.0.1:54324.
 
-**Was ist drin (v0.1):**
-- Magic-Link-Auth (lokal über Inbucket, Production über Resend SMTP)
-- Trip-CRUD + Crew-Verwaltung (Email-Einladung mit Ghost-Personen)
-- Kategorien pro Trip (mit 7 Default-Kategorien)
-- Transaktionen mit allen 4 Aufteilungslogiken + Alkohol-Modifikator + Gutschriften (direkt + "An Alle")
-- Bilanz-View (live aggregiert in Postgres-View `v_balances`)
-- Schulden-Vereinfachung (`simplify_debts()`-Postgres-Function, Greedy)
-- Realtime-Sync via Supabase Channels — Crew sieht Updates anderer sofort
-- Mobile-first Marineblau-Design
-- PWA-Manifest (kein Service-Worker yet)
+**Aktueller Funktionsumfang:**
 
-**Was bewusst nicht in v0.1:**
-- PWA-Offline-Eingaben (v0.2)
-- CSV-Import aus Sheets (v0.2)
-- PDF/Excel-Export (v0.3)
-- Multi-Trip-Statistiken (v0.3)
+- **Auth:** Magic-Link per E-Mail (PKCE-Flow, Single-Use, 60 Min TTL), Resend-Button nach 30 s.
+- **Rollen:** Admin (`ADMIN_EMAILS`-Env), Original-Skipper (`trips.skipper_id`), Co-Skipper (`trip_members.is_skipper`), Crew-Member. Admin kann Törns für Freunde anlegen, ohne selbst in der Crew zu landen.
+- **Trips:** CRUD inkl. Archivierung; Admin sieht im Welcome-Screen zusätzlich „fremde" Törns als Admin-Ansicht.
+- **Crew-Verwaltung:** Email-Einladung mit Ghost-Personen, Inline-Edit-Form (Name/Email nur für Ghosts editierbar; Anwesenheit/Alkohol/Notiz für alle).
+- **Kategorien:** pro Trip mit Emoji-Icon (kuratierte 22er-Auswahl im Picker). Default-Kategorien: Lebensmittel 🛒, Restaurant 🍽️, Sprit ⛽, Yacht ⛵, Hafen ⚓, Ausrüstung 🛠️, Versicherung 🛡️, Sonstiges 📦.
+- **Buchungen:** alle 4 Aufteilungslogiken + Alkohol-Modifikator. Currency-Input akzeptiert deutsches Komma. Idempotency-Key auf jeder Row gegen Doppelklick / Outbox-Replay.
+- **Gutschriften** (direkt oder „An Alle") — nur Skipper/Admin.
+- **Bilanz** live aus `v_balances`.
+- **Schulden** vereinfacht via `simplify_debts()`-Greedy. Bezahlt-Häkchen Crew-weit synchron in `settled_debts`; nur Schuldner, Gläubiger oder Admin dürfen togglen.
+- **Statistik** pro Trip: Live-Aggregation nach Kategorie + Tag. Bleibt nach Purge anonymisiert in `trip_statistics`.
+- **PWA:** Service Worker (`public/sw.js`) cached App-Shell; IndexedDB-Outbox erfasst Buchungen offline und synchronisiert beim Reconnect.
+- **Audit-Log:** jede Schreib-Operation hinterlässt einen Eintrag, RLS-Lese-Schutz auf Skipper.
+- **Soft-Delete:** Buchungen tragen `deleted_at` statt physisch gelöscht zu werden.
+- **DSGVO-Datenlöschung:** 30 Tage nach Törn-Ende läuft `purge_expired_trip_data()` via täglichem Vercel-Cron (`/api/cron/purge`); personenbezogene Daten werden entfernt, aggregierte Statistik bleibt.
+- **Security:** RLS-Policies, Service-Role nur in Server Actions, Security-Header (HSTS/CSP/X-Frame/Referrer-Policy), `noindex`-Meta + `robots.txt`.
 
-**Berechnungslogik:** alle in `webapp/supabase/migrations/0002_views.sql` (`v_transaction_shares`) und `0003_functions.sql` (`simplify_debts()`). Es gibt einen TS-Mirror in `webapp/lib/calc/` — der ist nur für Vitest, nicht im Render-Pfad.
+**Berechnungslogik:** in `webapp/supabase/migrations/0002_views.sql` (`v_transaction_shares`) und `0003_functions.sql` (`simplify_debts()`). TS-Mirror in `webapp/lib/calc/` — nur für Vitest, nicht im Render-Pfad.
 
-**Deploy:** Anleitung in `webapp/README.md` §Deploy. Vercel mit Root Directory `webapp`. Subdomain via DNS-CNAME.
+**Wichtige Architektur-Entscheidung:** Server Actions schreiben mit dem Service-Role-Client (`lib/supabase/admin.ts`), weil das User-JWT in Next.js 16 Server Actions die DB nicht zuverlässig erreicht. Auth/Authz wandert dadurch ins App-Layer (`lib/auth/authz.ts` mit `requireAuth/Skipper/Admin/SkipperOrAdmin/Member`).
 
-**Spec:** `docs/web-app-spec.md` (geht teilweise weiter als v0.1 — Multi-Trip-Stats, PWA usw.).
+**Deploy:** Vercel mit Root Directory `webapp`. Pflicht-Env-Vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_EMAILS`, `CRON_SECRET`.
+
+**Tests:** Vitest (`__tests__/calc.test.ts` + `schema.test.ts`) gegen S1–S7, Playwright (`e2e/smoke.spec.ts`) für öffentliche Routes + Auth-Schutz + Security-Header.
 
 ## Projekt-Dateien
 
@@ -284,11 +285,14 @@ Status: v0.1 — Crew kann den nächsten Törn vollständig in der Web-App abwic
 │   ├── migrate_v8_to_v9.py              # Reproduzierbarer xlsx-Umbau v8→v9
 │   └── migrate_v9_to_v10.py             # Reproduzierbarer xlsx-Umbau v9→v10
 ├── webapp/                              # Web-App (Next.js + Supabase) — Setup in webapp/README.md
-│   ├── app/                             # App Router (Trips, Auth, Profile)
-│   ├── components/                      # bottom-nav, realtime-trip
-│   ├── lib/                             # supabase, auth, actions, queries, calc, validation
-│   ├── supabase/                        # config.toml + migrations + seed
-│   └── __tests__/                       # Vitest gegen S1–S7
+│   ├── app/                             # App Router (Trips, Auth, Profile, Stats, Cron)
+│   ├── components/                      # bottom-nav, realtime-trip, offline-banner, sw-register
+│   ├── lib/                             # supabase, auth (mit authz), actions, queries,
+│   │                                    # calc, validation, categories/icons, offline, db/audit
+│   ├── public/                          # Logo, Manifest, Service Worker, robots.txt
+│   ├── supabase/                        # config.toml + migrations + email-templates + seed
+│   ├── __tests__/                       # Vitest (calc + schema)
+│   └── e2e/                             # Playwright Smoke-Tests
 ├── .github/workflows/webapp-ci.yml      # CI für webapp/ (lint + typecheck + test)
 └── assets/
     ├── sheets-current/
