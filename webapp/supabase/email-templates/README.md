@@ -27,13 +27,19 @@ Mit dem Token-Hash-Flow umgehen wir das: der Link zeigt direkt auf unsere
 keine Verifier-Cookies nötig, der Token wird serverseitig gegen die
 Supabase-Auth-DB geprüft.
 
+**Wichtig: `type=email` wird hartkodiert**, nicht über `{{ .Type }}` —
+Supabase rendert `{{ .Type }}` für Magic-Links oft als leeren String,
+was unsere `verifyOtp({ token_hash, type })`-Validierung mit
+`missing_token` abbrechen lässt. `type=email` ist die offizielle
+Empfehlung der Supabase Next.js-SSR-Docs.
+
 Verfügbare Variablen:
 
 - `{{ .TokenHash }}` — Hash für `verifyOtp` (von uns genutzt)
-- `{{ .Type }}` — z.B. `magiclink`, `signup`, `recovery` (von uns genutzt)
 - `{{ .SiteURL }}` — Site-URL aus Supabase-Auth-Config (von uns genutzt)
 - `{{ .Email }}` — Empfänger-Adresse
 - `{{ .Token }}` — 6-stelliger OTP-Code
+- `{{ .Type }}` — bei Magic-Links oft leer, daher nicht verwendet
 - `{{ .ConfirmationURL }}` — PKCE-URL (NICHT verwenden, siehe oben)
 
 ## Bilder
