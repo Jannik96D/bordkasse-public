@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ShieldCheck } from "lucide-react";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
+import { isAdmin } from "@/lib/auth/authz";
 import { ProfileForm } from "./profile-form";
 import { signOut } from "./actions";
 
 export default async function ProfilePage() {
   const person = await getCurrentPerson();
   if (!person) redirect("/login");
+
+  const admin = await isAdmin();
 
   return (
     <main className="mx-auto w-full max-w-md px-6 py-10">
@@ -16,9 +20,22 @@ export default async function ProfilePage() {
         </Link>
       </div>
 
-      <h1 className="text-2xl font-bold text-primary">Mein Profil</h1>
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="text-2xl font-bold text-primary">Mein Profil</h1>
+        {admin && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-gold-soft px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gold"
+            title="Du bist Admin und darfst neue Törns anlegen."
+          >
+            <ShieldCheck className="h-3 w-3" />
+            Admin
+          </span>
+        )}
+      </div>
       <p className="mt-1 text-sm text-ink-soft">
-        Wird in Bilanz, Schulden und Crew-Listen verwendet.
+        {admin
+          ? "Du darfst Törns anlegen und verwalten."
+          : "Wird in Bilanz, Schulden und Crew-Listen verwendet."}
       </p>
 
       <div className="mt-8">
