@@ -11,14 +11,30 @@ Bordkasse-eigenes Design (Logo, Marineblau-Theme, deutsch).
 4. Body (HTML) mit dem Inhalt aus [`magic-link.html`](./magic-link.html) überschreiben
 5. Speichern → "Send test email" prüfen
 
-Wichtig: Supabase nutzt Go-Templates. Die Variable `{{ .ConfirmationURL }}`
-liefert den Magic-Link-Klick-URL — sie ist im HTML bereits zweimal eingebaut
-(Button + Fallback-Klartext-Link). Andere verfügbare Variablen:
+Wichtig: Supabase nutzt Go-Templates. Wir bauen die Login-URL bewusst
+selbst über `{{ .TokenHash }}` statt `{{ .ConfirmationURL }}` zu nutzen.
 
-- `{{ .ConfirmationURL }}` — vollständige Magic-Link-URL
+Hintergrund: `{{ .ConfirmationURL }}` zeigt auf Supabase's PKCE-Endpoint
+(`/auth/v1/verify?...`), der den User zu unserem `/auth/callback?code=…`
+weiterleitet. Dort braucht es einen Code-Verifier aus dem Browser-Cookie
+des Users — den hat aber NUR der Browser, in dem der Magic-Link
+angefordert wurde. Klickt der User in einem anderen Browser (z.B.
+iOS-Mail-Webview vs. Safari, Outlook-App vs. Chrome), bricht der Flow mit
+„PKCE code verifier not found in storage".
+
+Mit dem Token-Hash-Flow umgehen wir das: der Link zeigt direkt auf unsere
+`/auth/confirm`-Route, die `verifyOtp({ token_hash, type })` aufruft —
+keine Verifier-Cookies nötig, der Token wird serverseitig gegen die
+Supabase-Auth-DB geprüft.
+
+Verfügbare Variablen:
+
+- `{{ .TokenHash }}` — Hash für `verifyOtp` (von uns genutzt)
+- `{{ .Type }}` — z.B. `magiclink`, `signup`, `recovery` (von uns genutzt)
+- `{{ .SiteURL }}` — Site-URL aus Supabase-Auth-Config (von uns genutzt)
 - `{{ .Email }}` — Empfänger-Adresse
-- `{{ .Token }}` / `{{ .TokenHash }}` — Token (selten direkt nötig)
-- `{{ .SiteURL }}` — Site-URL aus Supabase-Auth-Config
+- `{{ .Token }}` — 6-stelliger OTP-Code
+- `{{ .ConfirmationURL }}` — PKCE-URL (NICHT verwenden, siehe oben)
 
 ## Bilder
 
