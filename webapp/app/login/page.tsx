@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useActionState, useEffect, useState } from "react";
 import { signInWithMagicLink, type LoginState } from "./actions";
@@ -27,7 +28,14 @@ export default function LoginPage() {
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-12">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
-          <div className="text-5xl mb-3">⚓</div>
+          <Image
+            src="/logo.png"
+            alt="Bordkasse"
+            width={160}
+            height={123}
+            priority
+            className="mx-auto mb-3 h-auto w-40"
+          />
           <h1 className="text-3xl font-bold text-primary">Bordkasse</h1>
           <p className="mt-2 text-sm text-ink-soft">
             Anmeldung per Magic-Link — du bekommst eine E-Mail mit einem

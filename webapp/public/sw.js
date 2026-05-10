@@ -10,13 +10,17 @@
 // Bei jeder Version den CACHE_VERSION-String hochzählen, damit alte
 // Caches beim Activate-Event aufgeräumt werden.
 
-const CACHE_VERSION = "bordkasse-v1";
+const CACHE_VERSION = "bordkasse-v2";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE = `${CACHE_VERSION}-pages`;
 
 const PRECACHE_URLS = [
   "/manifest.json",
-  "/icon.svg",
+  "/logo.png",
+  "/favicon.ico",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/apple-icon.png",
 ];
 
 self.addEventListener("install", (event) => {
