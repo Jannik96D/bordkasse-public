@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Plus, Users, Receipt, ScaleIcon, Wallet, Settings } from "lucide-react";
+import { LayoutDashboard, Plus, Euro, ScaleIcon, Wallet, BarChart3, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Tab {
@@ -23,7 +23,13 @@ const tabs: Tab[] = [
     href: (id) => `/trips/${id}/transactions`,
     match: (p, id) => p.startsWith(`/trips/${id}/transactions`),
     label: "Buchungen",
-    Icon: Receipt,
+    Icon: Euro,
+  },
+  {
+    href: (id) => `/trips/${id}/stats`,
+    match: (p, id) => p.startsWith(`/trips/${id}/stats`),
+    label: "Statistik",
+    Icon: BarChart3,
   },
   {
     href: (id) => `/trips/${id}/balance`,
@@ -36,12 +42,6 @@ const tabs: Tab[] = [
     match: (p, id) => p.startsWith(`/trips/${id}/debts`),
     label: "Schulden",
     Icon: Wallet,
-  },
-  {
-    href: (id) => `/trips/${id}/settings`,
-    match: (p, id) => p.startsWith(`/trips/${id}/settings`),
-    label: "Crew",
-    Icon: Users,
   },
 ];
 

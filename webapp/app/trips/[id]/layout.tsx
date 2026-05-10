@@ -1,6 +1,8 @@
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Settings as SettingsIcon } from "lucide-react";
+import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { getTrip } from "@/lib/queries/trips";
 import { BottomNav } from "@/components/bottom-nav";
 import { RealtimeTrip } from "@/components/realtime-trip";
@@ -14,8 +16,9 @@ export default async function TripLayout({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const trip = await getTrip(id);
+  const [trip, person] = await Promise.all([getTrip(id), getCurrentPerson()]);
   if (!trip) notFound();
+  const isSkipper = person?.id === trip.skipper_id;
 
   return (
     <div className="flex min-h-full flex-col">
@@ -35,6 +38,28 @@ export default async function TripLayout({
               {trip.archived && " · archiviert"}
             </p>
           </div>
+          <Link
+            href="/"
+            aria-label="Bordkasse-Startseite"
+            className="hidden h-10 w-10 shrink-0 items-center justify-center sm:flex"
+          >
+            <Image
+              src="/logo.png"
+              alt="Bordkasse"
+              width={40}
+              height={31}
+              className="h-8 w-auto"
+            />
+          </Link>
+          {isSkipper && (
+            <Link
+              href={`/trips/${id}/settings`}
+              aria-label="Einstellungen (Crew & Kategorien)"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-ink-soft hover:bg-paper-soft hover:text-primary"
+            >
+              <SettingsIcon className="h-5 w-5" />
+            </Link>
+          )}
         </div>
       </header>
 

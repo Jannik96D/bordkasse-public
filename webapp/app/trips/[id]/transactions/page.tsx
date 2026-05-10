@@ -1,4 +1,4 @@
-import { Receipt } from "lucide-react";
+import { Euro } from "lucide-react";
 import { listTransactions } from "@/lib/queries/transactions";
 import { FabAddTransaction } from "@/components/bottom-nav";
 import { formatDate, formatEuro } from "@/lib/utils";
@@ -30,7 +30,7 @@ export default async function TransactionsListPage({
     <main className="mx-auto max-w-2xl px-4 pb-24 pt-4">
       {txs.length === 0 ? (
         <div className="rounded-lg border border-dashed border-rule p-10 text-center">
-          <Receipt className="mx-auto mb-3 h-10 w-10 text-ink-soft" />
+          <Euro className="mx-auto mb-3 h-10 w-10 text-ink-soft" />
           <p className="font-medium">Noch keine Buchung</p>
           <p className="mt-1 text-sm text-ink-soft">
             Tippe auf das ➕ unten rechts, um die erste Ausgabe zu erfassen.

@@ -48,10 +48,12 @@ function formDataToObject(fd: FormData): Record<string, string | string[]> {
 
 export function TransactionForm({
   tripId,
+  isSkipper,
   members,
   categories,
 }: {
   tripId: string;
+  isSkipper: boolean;
   members: Member[];
   categories: Category[];
 }) {
@@ -70,24 +72,26 @@ export function TransactionForm({
         <h1 className="text-xl font-bold text-primary">Neue Buchung</h1>
       </div>
 
-      {/* Type-Segmented-Control */}
-      <div className="mb-5 grid grid-cols-2 gap-1 rounded-md bg-paper-soft p-1">
-        {(["expense", "credit"] as const).map((opt) => (
-          <button
-            key={opt}
-            type="button"
-            onClick={() => setType(opt)}
-            className={cn(
-              "rounded-md py-2 text-sm font-medium transition-colors",
-              type === opt ? "bg-paper text-primary shadow-sm" : "text-ink-soft hover:text-ink",
-            )}
-          >
-            {opt === "expense" ? "Ausgabe" : "Gutschrift"}
-          </button>
-        ))}
-      </div>
+      {/* Type-Segmented-Control — Gutschrift nur für Skipper */}
+      {isSkipper && (
+        <div className="mb-5 grid grid-cols-2 gap-1 rounded-md bg-paper-soft p-1">
+          {(["expense", "credit"] as const).map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => setType(opt)}
+              className={cn(
+                "rounded-md py-2 text-sm font-medium transition-colors",
+                type === opt ? "bg-paper text-primary shadow-sm" : "text-ink-soft hover:text-ink",
+              )}
+            >
+              {opt === "expense" ? "Ausgabe" : "Gutschrift"}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {type === "expense" ? (
+      {type === "expense" || !isSkipper ? (
         <ExpenseForm tripId={tripId} members={members} categories={categories} />
       ) : (
         <CreditForm tripId={tripId} members={members} />

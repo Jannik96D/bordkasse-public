@@ -24,7 +24,7 @@ export default async function Home() {
           />
           <h1 className="text-4xl font-bold text-primary">Bordkasse</h1>
           <p className="text-lg text-ink-soft">
-            Faire Kostenaufteilung auf Segel-Törns mit wechselnden Crews.
+            Unsere Bordkasse für gemeinsame Törns
           </p>
           <Link
             href="/login"
