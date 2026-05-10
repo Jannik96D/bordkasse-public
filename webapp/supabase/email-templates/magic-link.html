@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="supported-color-schemes" content="light">
+    <title>Dein Bordkasse-Login</title>
+  </head>
+  <body style="margin:0;padding:0;background-color:#FAFBFC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1A2533;">
+    <!-- Vorschautext (in der Inbox-Liste sichtbar, im Mail-Body unsichtbar) -->
+    <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">
+      Klicke den Button, um dich bei der Bordkasse anzumelden. Der Link gilt 60 Minuten.
+    </div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#FAFBFC;">
+      <tr>
+        <td align="center" style="padding:32px 16px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background-color:#FFFFFF;border:1px solid #D6E1EE;border-radius:12px;overflow:hidden;">
+            <!-- ── Header mit Logo ─────────────────────────────────────── -->
+            <tr>
+              <td align="center" style="padding:32px 24px 8px 24px;">
+                <img src="https://bordkasse.dieter.ms/logo.png"
+                     alt="Bordkasse"
+                     width="160" height="123"
+                     style="display:block;width:160px;height:auto;border:0;outline:none;text-decoration:none;">
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:0 24px 8px 24px;">
+                <h1 style="margin:0;font-size:24px;line-height:1.25;font-weight:700;color:#114884;letter-spacing:-0.01em;">
+                  Bordkasse
+                </h1>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" style="padding:4px 24px 0 24px;">
+                <p style="margin:0;font-size:14px;color:#587EA8;">
+                  Unsere Bordkasse für gemeinsame Törns
+                </p>
+              </td>
+            </tr>
+
+            <!-- ── Hauptinhalt ─────────────────────────────────────────── -->
+            <tr>
+              <td style="padding:32px 32px 8px 32px;">
+                <h2 style="margin:0 0 12px 0;font-size:18px;font-weight:600;color:#1D4281;">
+                  Dein Login-Link
+                </h2>
+                <p style="margin:0;font-size:15px;line-height:1.55;color:#1A2533;">
+                  Klicke auf den Button, um dich in deine Bordkasse einzuloggen.
+                  Der Link ist <strong>60 Minuten</strong> gültig und kann nur ein Mal verwendet werden.
+                </p>
+              </td>
+            </tr>
+
+            <!-- ── Button ──────────────────────────────────────────────── -->
+            <tr>
+              <td align="center" style="padding:24px 32px 8px 32px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="center" style="border-radius:8px;background-color:#114884;">
+                      <a href="{{ .ConfirmationURL }}"
+                         style="display:inline-block;padding:14px 28px;font-size:16px;font-weight:600;color:#FFFFFF;text-decoration:none;border-radius:8px;">
+                        Jetzt einloggen
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- ── Fallback-Link, falls Button nicht klickbar ──────────── -->
+            <tr>
+              <td style="padding:8px 32px 16px 32px;">
+                <p style="margin:0;font-size:12px;line-height:1.5;color:#587EA8;text-align:center;">
+                  Funktioniert der Button nicht? Kopiere diesen Link in deinen Browser:
+                </p>
+                <p style="margin:6px 0 0 0;font-size:11px;line-height:1.5;color:#587EA8;text-align:center;word-break:break-all;">
+                  <a href="{{ .ConfirmationURL }}" style="color:#114884;text-decoration:underline;">{{ .ConfirmationURL }}</a>
+                </p>
+              </td>
+            </tr>
+
+            <!-- ── Trenner ─────────────────────────────────────────────── -->
+            <tr>
+              <td style="padding:0 32px;">
+                <hr style="border:none;border-top:1px solid #D6E1EE;margin:8px 0;">
+              </td>
+            </tr>
+
+            <!-- ── Sicherheits-Hinweis ─────────────────────────────────── -->
+            <tr>
+              <td style="padding:16px 32px 24px 32px;">
+                <p style="margin:0;font-size:12px;line-height:1.55;color:#587EA8;">
+                  Du bekommst diese Mail, weil jemand mit deiner E-Mail-Adresse
+                  einen Login bei der Bordkasse angefordert hat. Warst du das nicht?
+                  Dann kannst du diese Mail einfach ignorieren — solange niemand auf
+                  den Button klickt, passiert nichts.
+                </p>
+              </td>
+            </tr>
+          </table>
+
+          <!-- ── Footer ────────────────────────────────────────────────── -->
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+            <tr>
+              <td align="center" style="padding:16px 24px;">
+                <p style="margin:0;font-size:11px;line-height:1.6;color:#7A8DA1;">
+                  Bordkasse · Faire Kostenaufteilung auf Segel-Törns<br>
+                  <a href="https://bordkasse.dieter.ms/datenschutz" style="color:#587EA8;text-decoration:underline;">Datenschutz</a>
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
