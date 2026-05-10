@@ -40,6 +40,35 @@ export async function isAdmin(): Promise<boolean> {
   return getAdminEmails().includes(person.email.toLowerCase());
 }
 
+/**
+ * Whitelist-Check für die Login-Page: dürfen wir für diese E-Mail
+ * überhaupt einen Magic-Link verschicken?
+ *
+ * Erlaubt sind:
+ *   1. E-Mails in der ADMIN_EMAILS-Env (Skipper / Operatoren)
+ *   2. E-Mails, die schon mal eingeladen wurden — d.h. eine Row in
+ *      persons_private hat (von inviteMember oder createTrip mit
+ *      skipper_email angelegt)
+ *
+ * Damit verhindern wir, dass Fremde durch Magic-Link-Anforderung
+ * auth.users-Rows produzieren, die niemand sieht und nirgendwo zugeordnet
+ * sind. CITEXT-Spalte sorgt für case-insensitive Vergleich.
+ */
+export async function isEmailAllowedToSignIn(email: string): Promise<boolean> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return false;
+
+  if (getAdminEmails().includes(normalized)) return true;
+
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("persons_private")
+    .select("person_id")
+    .ilike("email", normalized)
+    .maybeSingle();
+  return !!data;
+}
+
 /** Eingeloggt UND in der ADMIN_EMAILS-Allowlist. */
 export async function requireAdmin(): Promise<AuthzResult> {
   const person = await getCurrentPerson();

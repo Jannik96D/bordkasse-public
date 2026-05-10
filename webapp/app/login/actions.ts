@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { isEmailAllowedToSignIn } from "@/lib/auth/authz";
 
 const LoginSchema = z.object({
   email: z.string().trim().email("Bitte gültige E-Mail-Adresse eingeben."),
@@ -22,6 +23,19 @@ export async function signInWithMagicLink(
     return {
       status: "error",
       message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe.",
+    };
+  }
+
+  // Nur E-Mails zulassen, die als Admin in ADMIN_EMAILS oder als Crew-
+  // Mitglied (persons_private aus inviteMember / createTrip) hinterlegt
+  // sind. Verhindert, dass Fremde via Magic-Link-Anforderung auth.users-
+  // Rows produzieren, die niemand sieht und nirgendwo zugeordnet sind.
+  const allowed = await isEmailAllowedToSignIn(parsed.data.email);
+  if (!allowed) {
+    return {
+      status: "error",
+      message:
+        "Diese E-Mail-Adresse ist nicht für die Bordkasse hinterlegt. Bitte den Skipper deines Törns, dich einzuladen.",
     };
   }
 
