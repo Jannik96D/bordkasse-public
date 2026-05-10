@@ -2,11 +2,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { Plus, Anchor, Archive } from "lucide-react";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
+import { isAdmin } from "@/lib/auth/authz";
 import { listMyTrips } from "@/lib/queries/trips";
 import { formatDate } from "@/lib/utils";
 
 export default async function Home() {
   const person = await getCurrentPerson();
+  const admin = await isAdmin();
 
   if (!person) {
     return (
@@ -56,13 +58,15 @@ export default async function Home() {
         </Link>
       </header>
 
-      <Link
-        href="/trips/new"
-        className="mb-6 flex items-center justify-center gap-2 rounded-md border-2 border-dashed border-primary/30 bg-navy-light/30 px-4 py-4 font-medium text-primary transition-colors hover:bg-navy-light/50"
-      >
-        <Plus className="h-5 w-5" />
-        Neuen Törn anlegen
-      </Link>
+      {admin && (
+        <Link
+          href="/trips/new"
+          className="mb-6 flex items-center justify-center gap-2 rounded-md border-2 border-dashed border-primary/30 bg-navy-light/30 px-4 py-4 font-medium text-primary transition-colors hover:bg-navy-light/50"
+        >
+          <Plus className="h-5 w-5" />
+          Neuen Törn anlegen
+        </Link>
+      )}
 
       {active.length > 0 ? (
         <ul className="space-y-3">
@@ -73,7 +77,9 @@ export default async function Home() {
           <Anchor className="mx-auto mb-3 h-10 w-10 text-ink-soft" />
           <p className="font-medium">Noch kein aktiver Törn</p>
           <p className="mt-1 text-sm text-ink-soft">
-            Leg deinen ersten Törn an oder lass dich einladen.
+            {admin
+              ? "Leg deinen ersten Törn an oder lass dich einladen."
+              : "Du wirst zu einem Törn eingeladen, sobald der Skipper dich aufgenommen hat."}
           </p>
         </div>
       )}

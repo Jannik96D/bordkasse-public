@@ -21,6 +21,35 @@ export async function requireAuth(): Promise<AuthzResult> {
   return { ok: true, personId: person.id };
 }
 
+/**
+ * Liest die Admin-Allowlist aus der Env-Variable ADMIN_EMAILS.
+ * Format: komma-separiert, Leerzeichen werden getrimmt, Vergleich
+ * lowercase. Wenn die Variable nicht gesetzt ist, ist niemand Admin
+ * (fail-closed → niemand darf Törns anlegen).
+ */
+export function getAdminEmails(): string[] {
+  return (process.env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+export async function isAdmin(): Promise<boolean> {
+  const person = await getCurrentPerson();
+  if (!person?.email) return false;
+  return getAdminEmails().includes(person.email.toLowerCase());
+}
+
+/** Eingeloggt UND in der ADMIN_EMAILS-Allowlist. */
+export async function requireAdmin(): Promise<AuthzResult> {
+  const person = await getCurrentPerson();
+  if (!person) return { ok: false, message: "Nicht angemeldet." };
+  if (!person.email || !getAdminEmails().includes(person.email.toLowerCase())) {
+    return { ok: false, message: "Nur Admins dürfen Törns anlegen." };
+  }
+  return { ok: true, personId: person.id };
+}
+
 /** Eingeloggt UND Skipper dieses Trips. */
 export async function requireSkipper(tripId: string): Promise<AuthzResult> {
   const auth = await requireAuth();

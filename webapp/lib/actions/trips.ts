@@ -4,8 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentPerson } from "@/lib/auth/get-current-person";
-import { requireSkipper } from "@/lib/auth/authz";
+import { requireAdmin, requireSkipper } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 
 const DEFAULT_CATEGORIES = [
@@ -35,8 +34,8 @@ export type TripState =
   | { status: "error"; message: string };
 
 export async function createTrip(_prev: TripState, formData: FormData): Promise<TripState> {
-  const person = await getCurrentPerson();
-  if (!person) return { status: "error", message: "Nicht angemeldet." };
+  const auth = await requireAdmin();
+  if (!auth.ok) return { status: "error", message: auth.message };
 
   const parsed = TripSchema.safeParse({
     name: formData.get("name"),
@@ -56,7 +55,7 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
       start_date: parsed.data.start_date,
       end_date: parsed.data.end_date,
       ship_name: parsed.data.ship_name || null,
-      skipper_id: person.id,
+      skipper_id: auth.personId,
     })
     .select()
     .single();
@@ -70,14 +69,14 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
     operation: "INSERT",
     record_id: trip.id,
     trip_id: trip.id,
-    actor_person_id: person.id,
+    actor_person_id: auth.personId,
     payload: trip,
   });
 
   // Skipper als erstes Crew-Mitglied dazuschreiben
   await supabase.from("trip_members").insert({
     trip_id: trip.id,
-    person_id: person.id,
+    person_id: auth.personId,
   });
 
   // Default-Kategorien anlegen

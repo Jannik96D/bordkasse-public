@@ -13,6 +13,14 @@ export const metadata: Metadata = {
     title: "Bordkasse",
     statusBarStyle: "default",
   },
+  // Suchmaschinen sollen die App nicht indexieren — Crew kommt nur per
+  // direktem Link rein, nicht über Google.
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+    googleBot: { index: false, follow: false },
+  },
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
