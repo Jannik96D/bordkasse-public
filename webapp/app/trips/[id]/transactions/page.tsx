@@ -1,6 +1,7 @@
 import { Euro } from "lucide-react";
 import { listTransactions } from "@/lib/queries/transactions";
 import { FabAddTransaction } from "@/components/bottom-nav";
+import { CategoryIcon } from "@/components/category-icon";
 import { formatDate, formatEuro } from "@/lib/utils";
 import { DeleteButton } from "./delete-button";
 
@@ -67,7 +68,14 @@ export default async function TransactionsListPage({
                               {t.split_type ? SPLIT_LABEL[t.split_type] : "?"}
                               {t.alcohol_amount > 0 && ` · 🍷 ${formatEuro(t.alcohol_amount)}`}
                               {t.category_name && (
-                                <> · {t.category_icon && <span aria-hidden>{t.category_icon} </span>}{t.category_name}</>
+                                <span className="inline-flex items-center gap-1">
+                                  {" · "}
+                                  <CategoryIcon
+                                    icon={t.category_icon}
+                                    className="h-3.5 w-3.5 text-ink-soft"
+                                  />
+                                  {t.category_name}
+                                </span>
                               )}
                             </>
                           ) : (
