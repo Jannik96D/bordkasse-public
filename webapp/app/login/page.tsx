@@ -2,14 +2,23 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useActionState, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useActionState, useEffect, useState } from "react";
 import { signInWithMagicLink, type LoginState } from "./actions";
-import { Mail } from "lucide-react";
+import { AlertCircle, Mail } from "lucide-react";
 
 const initial: LoginState = { status: "idle" };
 const RESEND_DELAY_MS = 30_000;
 
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginPageInner />
+    </Suspense>
+  );
+}
+
+function LoginPageInner() {
   const [state, formAction, pending] = useActionState(signInWithMagicLink, initial);
   // Snapshot: für welche ok-Mail ist der 30-s-Timer schon durch?
   // Wechselt die Mail (Resend, andere Adresse), passt der Snapshot nicht
@@ -17,6 +26,14 @@ export default function LoginPage() {
   const [resendReadyFor, setResendReadyFor] = useState<string | null>(null);
   const okEmail = state.status === "ok" ? state.email : null;
   const showResend = state.status === "ok" && resendReadyFor === okEmail;
+
+  // Auth-Fehler aus dem Callback (z.B. exchangeCodeForSession failed,
+  // PKCE-Verifier fehlt, Code abgelaufen). /auth/callback hängt diese Infos
+  // als Query-Parameter an, damit hier ohne Logs erkennbar ist, was
+  // schief lief.
+  const params = useSearchParams();
+  const authError = params.get("auth_error");
+  const authErrorMsg = params.get("auth_error_msg");
 
   useEffect(() => {
     if (!okEmail) return;
@@ -42,6 +59,28 @@ export default function LoginPage() {
             Login-Link.
           </p>
         </div>
+
+        {authError && (
+          <div
+            className="rounded-lg border border-danger/30 bg-danger/5 p-4"
+            role="alert"
+          >
+            <div className="flex items-start gap-2">
+              <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-danger" />
+              <div className="space-y-1 text-sm">
+                <p className="font-medium text-danger">
+                  Login fehlgeschlagen
+                </p>
+                <p className="text-ink-soft">
+                  {authErrorMsg ?? "Bitte fordere einen neuen Magic-Link an."}
+                </p>
+                <p className="text-xs text-ink-soft">
+                  Code: <code className="font-mono">{authError}</code>
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {state.status === "ok" ? (
           <div className="space-y-4">
