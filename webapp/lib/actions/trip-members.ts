@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireSkipper } from "@/lib/auth/authz";
+import { requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 
 const InviteSchema = z.object({
@@ -37,7 +37,7 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
 
   const { trip_id, email, display_name, on_board_from, on_board_to, is_alcoholic, note } = parsed.data;
 
-  const auth = await requireSkipper(trip_id);
+  const auth = await requireSkipperOrAdmin(trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const supabase = createAdminClient();
@@ -108,9 +108,20 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
 }
 
 export async function removeMember(memberId: string, tripId: string) {
-  const auth = await requireSkipper(tripId);
+  const auth = await requireSkipperOrAdmin(tripId);
   if (!auth.ok) return;
   const supabase = createAdminClient();
+
+  // Den Original-Owner darf niemand entfernen — sonst hätte der Trip
+  // keinen "letzten Skipper" mehr, falls auch alle Co-Skipper weg sind.
+  const [{ data: tripRow }, { data: memberRow }] = await Promise.all([
+    supabase.from("trips").select("skipper_id").eq("id", tripId).maybeSingle(),
+    supabase.from("trip_members").select("person_id").eq("id", memberId).maybeSingle(),
+  ]);
+  if (tripRow && memberRow && tripRow.skipper_id === memberRow.person_id) {
+    return;
+  }
+
   await supabase.from("trip_members").delete().eq("id", memberId);
   await logAudit(supabase, {
     table_name: "trip_members",
@@ -118,6 +129,145 @@ export async function removeMember(memberId: string, tripId: string) {
     record_id: memberId,
     trip_id: tripId,
     actor_person_id: auth.personId,
+  });
+  revalidatePath(`/trips/${tripId}/settings`);
+  revalidatePath(`/trips/${tripId}`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Skipper-Rolle umschalten + Crew-Member-Daten editieren
+// ─────────────────────────────────────────────────────────────────────────
+
+const UpdateMemberSchema = z.object({
+  member_id: z.string().uuid(),
+  trip_id: z.string().uuid(),
+  display_name: z.string().trim().min(2).max(60).optional().or(z.literal("")),
+  email: z.string().trim().email("Bitte gültige E-Mail-Adresse eingeben.").optional().or(z.literal("")),
+  on_board_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal("")),
+  on_board_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal("")),
+  is_alcoholic: z.string().optional(),
+  note: z.string().max(200).optional().or(z.literal("")),
+});
+
+/**
+ * Update einer Crew-Person:
+ *   - on_board_from/to, is_alcoholic, note  → trip_members
+ *   - display_name + email                  → persons (nur für Ghost-Personen,
+ *                                             damit nicht versehentlich die
+ *                                             globalen Profil-Daten eines
+ *                                             eingeloggten Users überschrieben
+ *                                             werden)
+ */
+export async function updateMember(_prev: MemberState, formData: FormData): Promise<MemberState> {
+  const parsed = UpdateMemberSchema.safeParse({
+    member_id: formData.get("member_id"),
+    trip_id: formData.get("trip_id"),
+    display_name: formData.get("display_name") || "",
+    email: formData.get("email") || "",
+    on_board_from: formData.get("on_board_from") || "",
+    on_board_to: formData.get("on_board_to") || "",
+    is_alcoholic: formData.get("is_alcoholic")?.toString(),
+    note: formData.get("note") || "",
+  });
+  if (!parsed.success) {
+    return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
+  }
+  const { member_id, trip_id, display_name, email, on_board_from, on_board_to, is_alcoholic, note } = parsed.data;
+
+  const auth = await requireSkipperOrAdmin(trip_id);
+  if (!auth.ok) return { status: "error", message: auth.message };
+
+  const supabase = createAdminClient();
+
+  // Member + zugehörige Person holen — wir brauchen person_id + Ghost-Status.
+  const { data: member } = await supabase
+    .from("trip_members")
+    .select("person_id, persons!inner(auth_user_id)")
+    .eq("id", member_id)
+    .eq("trip_id", trip_id)
+    .maybeSingle();
+  if (!member) return { status: "error", message: "Crew-Mitglied nicht gefunden." };
+
+  const personRel = (member as unknown as { persons: { auth_user_id: string | null } | { auth_user_id: string | null }[] }).persons;
+  const personFlat = Array.isArray(personRel) ? personRel[0] : personRel;
+  const isGhost = personFlat?.auth_user_id == null;
+
+  const isAlcoholic =
+    is_alcoholic === "yes" ? true :
+    is_alcoholic === "no" ? false :
+    null;
+
+  // 1. trip_members-Felder
+  const { error: tmError } = await supabase
+    .from("trip_members")
+    .update({
+      on_board_from: on_board_from || null,
+      on_board_to: on_board_to || null,
+      is_alcoholic: isAlcoholic,
+      note: note || null,
+    })
+    .eq("id", member_id);
+  if (tmError) return { status: "error", message: tmError.message };
+
+  await logAudit(supabase, {
+    table_name: "trip_members",
+    operation: "UPDATE",
+    record_id: member_id,
+    trip_id,
+    actor_person_id: auth.personId,
+    payload: { on_board_from, on_board_to, is_alcoholic: isAlcoholic, note },
+  });
+
+  // 2. persons-Felder — nur bei Ghost (kein Auth-User), und nur falls Werte gesetzt
+  if (isGhost && (display_name || email)) {
+    const personUpdate: Record<string, string> = {};
+    if (display_name) personUpdate.display_name = display_name;
+    if (email) personUpdate.email = email;
+    const { error: pError } = await supabase
+      .from("persons")
+      .update(personUpdate)
+      .eq("id", member.person_id);
+    if (pError) return { status: "error", message: pError.message };
+    await logAudit(supabase, {
+      table_name: "persons",
+      operation: "UPDATE",
+      record_id: member.person_id,
+      trip_id,
+      actor_person_id: auth.personId,
+      payload: personUpdate,
+    });
+  }
+
+  revalidatePath(`/trips/${trip_id}/settings`);
+  revalidatePath(`/trips/${trip_id}`);
+  return { status: "ok" };
+}
+
+/**
+ * Skipper-Rolle einer Person umschalten. Der Original-Owner
+ * (trips.skipper_id) kann nicht degradiert werden.
+ */
+export async function setSkipperRole(memberId: string, tripId: string, isSkipper: boolean) {
+  const auth = await requireSkipperOrAdmin(tripId);
+  if (!auth.ok) return;
+  const supabase = createAdminClient();
+
+  const [{ data: tripRow }, { data: memberRow }] = await Promise.all([
+    supabase.from("trips").select("skipper_id").eq("id", tripId).maybeSingle(),
+    supabase.from("trip_members").select("person_id").eq("id", memberId).maybeSingle(),
+  ]);
+  if (!tripRow || !memberRow) return;
+  // Original-Owner kann nicht von der Skipper-Rolle entbunden werden.
+  if (!isSkipper && tripRow.skipper_id === memberRow.person_id) return;
+
+  await supabase.from("trip_members").update({ is_skipper: isSkipper }).eq("id", memberId);
+  await logAudit(supabase, {
+    table_name: "trip_members",
+    operation: "UPDATE",
+    record_id: memberId,
+    trip_id: tripId,
+    actor_person_id: auth.personId,
+    payload: { is_skipper: isSkipper },
   });
   revalidatePath(`/trips/${tripId}/settings`);
   revalidatePath(`/trips/${tripId}`);

@@ -50,40 +50,52 @@ export async function requireAdmin(): Promise<AuthzResult> {
   return { ok: true, personId: person.id };
 }
 
-/** Eingeloggt UND Skipper dieses Trips. */
+/**
+ * Eingeloggt UND Skipper (oder Co-Skipper) dieses Trips.
+ *
+ * Skipper-Status kommt aus trip_members.is_skipper — der Original-Owner
+ * (trips.skipper_id) hat dort nach Migration 0008 ebenfalls is_skipper=TRUE.
+ */
 export async function requireSkipper(tripId: string): Promise<AuthzResult> {
   const auth = await requireAuth();
   if (!auth.ok) return auth;
   const supabase = createAdminClient();
-  const { data: trip } = await supabase
-    .from("trips")
-    .select("skipper_id")
-    .eq("id", tripId)
+  const { data: member } = await supabase
+    .from("trip_members")
+    .select("is_skipper")
+    .eq("trip_id", tripId)
+    .eq("person_id", auth.personId)
     .maybeSingle();
-  if (!trip) return { ok: false, message: "Törn nicht gefunden." };
-  if (trip.skipper_id !== auth.personId) {
-    return { ok: false, message: "Nur der Skipper darf das ändern." };
+  if (!member) return { ok: false, message: "Du bist nicht Mitglied dieses Törns." };
+  if (!member.is_skipper) {
+    return { ok: false, message: "Nur Skipper dürfen das ändern." };
   }
   return auth;
 }
 
-/** Eingeloggt UND Crew-Mitglied (oder Skipper) dieses Trips. */
+/**
+ * Eingeloggt UND (Skipper dieses Trips ODER globaler Admin via ADMIN_EMAILS).
+ * Wird für Power-Operationen genutzt, die ein Admin auch ohne Trip-Mitgliedschaft
+ * können soll (z. B. fremde Trips löschen, Schäden beheben).
+ */
+export async function requireSkipperOrAdmin(tripId: string): Promise<AuthzResult> {
+  const auth = await requireAuth();
+  if (!auth.ok) return auth;
+  if (await isAdmin()) return auth;
+  return requireSkipper(tripId);
+}
+
+/** Eingeloggt UND Crew-Mitglied dieses Trips (Skipper-Flag egal). */
 export async function requireMember(tripId: string): Promise<AuthzResult> {
   const auth = await requireAuth();
   if (!auth.ok) return auth;
   const supabase = createAdminClient();
-  const [{ data: trip }, { data: member }] = await Promise.all([
-    supabase.from("trips").select("skipper_id").eq("id", tripId).maybeSingle(),
-    supabase
-      .from("trip_members")
-      .select("person_id")
-      .eq("trip_id", tripId)
-      .eq("person_id", auth.personId)
-      .maybeSingle(),
-  ]);
-  if (!trip) return { ok: false, message: "Törn nicht gefunden." };
-  if (trip.skipper_id !== auth.personId && !member) {
-    return { ok: false, message: "Du bist nicht Mitglied dieses Törns." };
-  }
+  const { data: member } = await supabase
+    .from("trip_members")
+    .select("person_id")
+    .eq("trip_id", tripId)
+    .eq("person_id", auth.personId)
+    .maybeSingle();
+  if (!member) return { ok: false, message: "Du bist nicht Mitglied dieses Törns." };
   return auth;
 }

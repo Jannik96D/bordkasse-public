@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdmin, requireSkipper } from "@/lib/auth/authz";
+import { requireAdmin, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 
 const DEFAULT_CATEGORIES = [
@@ -93,7 +93,7 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
 }
 
 export async function toggleArchive(tripId: string, archived: boolean) {
-  const auth = await requireSkipper(tripId);
+  const auth = await requireSkipperOrAdmin(tripId);
   if (!auth.ok) return;
   const supabase = createAdminClient();
   await supabase.from("trips").update({ archived }).eq("id", tripId);
@@ -110,7 +110,7 @@ export async function toggleArchive(tripId: string, archived: boolean) {
 }
 
 export async function deleteTrip(tripId: string) {
-  const auth = await requireSkipper(tripId);
+  const auth = await requireSkipperOrAdmin(tripId);
   if (!auth.ok) return;
   const supabase = createAdminClient();
   await supabase.from("trips").delete().eq("id", tripId);

@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireSkipper } from "@/lib/auth/authz";
+import { requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 
 const AddCatSchema = z.object({
@@ -25,7 +25,7 @@ export async function addCategory(_prev: CatState, formData: FormData): Promise<
     return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
 
-  const auth = await requireSkipper(parsed.data.trip_id);
+  const auth = await requireSkipperOrAdmin(parsed.data.trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const supabase = createAdminClient();
@@ -50,7 +50,7 @@ export async function addCategory(_prev: CatState, formData: FormData): Promise<
 }
 
 export async function removeCategory(categoryId: string, tripId: string) {
-  const auth = await requireSkipper(tripId);
+  const auth = await requireSkipperOrAdmin(tripId);
   if (!auth.ok) return;
   const supabase = createAdminClient();
   await supabase.from("trip_categories").delete().eq("id", categoryId);

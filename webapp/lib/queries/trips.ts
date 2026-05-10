@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
+import { isAdmin } from "@/lib/auth/authz";
 
 export interface TripListRow {
   id: string;
@@ -9,36 +11,57 @@ export interface TripListRow {
   ship_name: string | null;
   archived: boolean;
   is_skipper: boolean;
+  is_member: boolean;
   member_count: number;
 }
 
-/** Liefert alle Trips, in denen der User Skipper oder Mitglied ist. */
+/**
+ * Liefert Trips für die Übersicht.
+ * - Normaler User: nur Trips, in denen er Mitglied ist (RLS erledigt das).
+ * - Admin: ALLE Trips (Service-Role-Bypass), mit `is_member`-Flag, ob
+ *   er selbst drin steht.
+ */
 export async function listMyTrips(): Promise<TripListRow[]> {
   const person = await getCurrentPerson();
   if (!person) return [];
 
-  const supabase = await createClient();
+  const admin = await isAdmin();
+  // Admin holt alles per Service-Role, alle anderen via Cookie-Client (RLS).
+  const supabase = admin ? createAdminClient() : await createClient();
 
-  // Trips, in denen ich Skipper bin ODER trip_members-Eintrag habe.
-  // RLS kümmert sich um die Filterung — wir lesen einfach ALLE sichtbaren
-  // Trips und reichen Skipper-Flag durch.
   const { data, error } = await supabase
     .from("trips")
-    .select("id, name, start_date, end_date, ship_name, archived, skipper_id, trip_members(count)")
+    .select(
+      "id, name, start_date, end_date, ship_name, archived, trip_members(person_id, is_skipper)",
+    )
     .order("start_date", { ascending: false });
 
   if (error || !data) return [];
 
-  return data.map((t) => ({
-    id: t.id,
-    name: t.name,
-    start_date: t.start_date,
-    end_date: t.end_date,
-    ship_name: t.ship_name,
-    archived: t.archived,
-    is_skipper: t.skipper_id === person.id,
-    member_count: (t.trip_members as { count: number }[])?.[0]?.count ?? 0,
-  }));
+  type Raw = {
+    id: string;
+    name: string;
+    start_date: string;
+    end_date: string;
+    ship_name: string | null;
+    archived: boolean;
+    trip_members: { person_id: string; is_skipper: boolean }[];
+  };
+
+  return (data as unknown as Raw[]).map((t) => {
+    const myMembership = t.trip_members.find((m) => m.person_id === person.id);
+    return {
+      id: t.id,
+      name: t.name,
+      start_date: t.start_date,
+      end_date: t.end_date,
+      ship_name: t.ship_name,
+      archived: t.archived,
+      is_skipper: myMembership?.is_skipper ?? false,
+      is_member: !!myMembership,
+      member_count: t.trip_members.length,
+    };
+  });
 }
 
 export async function getTrip(tripId: string) {
@@ -60,6 +83,8 @@ export interface TripMemberRow {
   on_board_to: string | null;
   is_alcoholic_override: boolean | null;
   is_alcoholic_effective: boolean;
+  is_skipper: boolean;
+  is_ghost: boolean; // person hat noch keinen auth_user_id — Skipper darf Email/Namen ändern
   note: string | null;
 }
 
@@ -68,25 +93,25 @@ export async function getTripMembers(tripId: string): Promise<TripMemberRow[]> {
   const { data, error } = await supabase
     .from("trip_members")
     .select(`
-      id, person_id, on_board_from, on_board_to, is_alcoholic, note,
-      persons!inner(display_name, email, is_alcoholic)
+      id, person_id, on_board_from, on_board_to, is_alcoholic, is_skipper, note,
+      persons!inner(display_name, email, is_alcoholic, auth_user_id)
     `)
     .eq("trip_id", tripId)
     .order("created_at", { ascending: true });
 
   if (error || !data) return [];
 
-  // Supabase-Type-Inferenz: bei !inner-Relation ist persons ein Array.
-  // Wir nehmen den ersten (und einzigen) Eintrag.
   type RawRow = {
     id: string;
     person_id: string;
     on_board_from: string | null;
     on_board_to: string | null;
     is_alcoholic: boolean | null;
+    is_skipper: boolean;
     note: string | null;
-    persons: { display_name: string; email: string | null; is_alcoholic: boolean }[]
-           | { display_name: string; email: string | null; is_alcoholic: boolean };
+    persons:
+      | { display_name: string; email: string | null; is_alcoholic: boolean; auth_user_id: string | null }[]
+      | { display_name: string; email: string | null; is_alcoholic: boolean; auth_user_id: string | null };
   };
   return (data as unknown as RawRow[]).map((m) => {
     const p = Array.isArray(m.persons) ? m.persons[0] : m.persons;
@@ -99,6 +124,8 @@ export async function getTripMembers(tripId: string): Promise<TripMemberRow[]> {
       on_board_to: m.on_board_to,
       is_alcoholic_override: m.is_alcoholic,
       is_alcoholic_effective: m.is_alcoholic ?? p.is_alcoholic,
+      is_skipper: m.is_skipper,
+      is_ghost: p.auth_user_id == null,
       note: m.note,
     };
   });

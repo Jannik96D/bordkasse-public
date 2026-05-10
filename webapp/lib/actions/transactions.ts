@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
-import { requireMember, requireSkipper } from "@/lib/auth/authz";
+import { requireMember, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { ExpenseSchema, CreditSchema } from "@/lib/validation/transaction-schema";
 
@@ -103,7 +103,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     return { status: "error", message: issue?.message ?? "Ungültige Eingabe.", field: issue?.path?.[0]?.toString() };
   }
 
-  const skipperCheck = await requireSkipper(parsed.data.trip_id);
+  const skipperCheck = await requireSkipperOrAdmin(parsed.data.trip_id);
   if (!skipperCheck.ok) return { status: "error", message: skipperCheck.message };
 
   const supabase = createAdminClient();
@@ -183,9 +183,9 @@ export async function replayPendingTransaction(
 
   const tripId = String(formObject.trip_id ?? "");
   if (!tripId) return { ok: false, message: "trip_id fehlt." };
-  // Gutschriften nur Skipper, Ausgaben jeder Crew-Member.
+  // Gutschriften nur Skipper/Admin, Ausgaben jeder Crew-Member.
   const authCheck = kind === "credit"
-    ? await requireSkipper(tripId)
+    ? await requireSkipperOrAdmin(tripId)
     : await requireMember(tripId);
   if (!authCheck.ok) return { ok: false, message: authCheck.message };
 

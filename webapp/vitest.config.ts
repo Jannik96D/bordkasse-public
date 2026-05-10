@@ -7,4 +7,8 @@ export default defineConfig({
       "@": path.resolve(__dirname, "."),
     },
   },
+  test: {
+    // Playwright-Tests laufen separat via `pnpm e2e`.
+    exclude: ["node_modules", "dist", ".next", "e2e/**"],
+  },
 });

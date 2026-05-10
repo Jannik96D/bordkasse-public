@@ -38,8 +38,10 @@ export default async function Home() {
   }
 
   const trips = await listMyTrips();
-  const active = trips.filter((t) => !t.archived);
-  const archived = trips.filter((t) => t.archived);
+  const myActive = trips.filter((t) => !t.archived && t.is_member);
+  const myArchived = trips.filter((t) => t.archived && t.is_member);
+  const adminOnlyActive = trips.filter((t) => !t.archived && !t.is_member);
+  const adminOnlyArchived = trips.filter((t) => t.archived && !t.is_member);
 
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-10">
@@ -68,9 +70,9 @@ export default async function Home() {
         </Link>
       )}
 
-      {active.length > 0 ? (
+      {myActive.length > 0 ? (
         <ul className="space-y-3">
-          {active.map((t) => <TripCard key={t.id} trip={t} />)}
+          {myActive.map((t) => <TripCard key={t.id} trip={t} />)}
         </ul>
       ) : (
         <div className="rounded-lg border border-rule bg-paper-soft p-8 text-center">
@@ -84,16 +86,40 @@ export default async function Home() {
         </div>
       )}
 
-      {archived.length > 0 && (
+      {myArchived.length > 0 && (
         <details className="mt-10 group">
           <summary className="cursor-pointer text-sm font-medium text-ink-soft hover:text-ink">
             <Archive className="inline h-4 w-4 mr-1" />
-            Archiv ({archived.length})
+            Archiv ({myArchived.length})
           </summary>
           <ul className="mt-3 space-y-2 opacity-60">
-            {archived.map((t) => <TripCard key={t.id} trip={t} />)}
+            {myArchived.map((t) => <TripCard key={t.id} trip={t} />)}
           </ul>
         </details>
+      )}
+
+      {admin && (adminOnlyActive.length > 0 || adminOnlyArchived.length > 0) && (
+        <section className="mt-12 border-t border-rule pt-6">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-soft">
+            Andere Törns · Admin-Ansicht
+          </h2>
+          {adminOnlyActive.length > 0 && (
+            <ul className="space-y-3">
+              {adminOnlyActive.map((t) => <TripCard key={t.id} trip={t} />)}
+            </ul>
+          )}
+          {adminOnlyArchived.length > 0 && (
+            <details className="mt-6 group">
+              <summary className="cursor-pointer text-sm font-medium text-ink-soft hover:text-ink">
+                <Archive className="inline h-4 w-4 mr-1" />
+                Archivierte fremde Törns ({adminOnlyArchived.length})
+              </summary>
+              <ul className="mt-3 space-y-2 opacity-60">
+                {adminOnlyArchived.map((t) => <TripCard key={t.id} trip={t} />)}
+              </ul>
+            </details>
+          )}
+        </section>
       )}
 
       <p className="mt-12 text-center text-xs text-ink-soft">
@@ -122,11 +148,15 @@ function TripCard({ trip }: { trip: Awaited<ReturnType<typeof listMyTrips>>[numb
           </div>
           <div className="text-right">
             <p className="text-sm text-ink-soft">{trip.member_count} Crew</p>
-            {trip.is_skipper && (
+            {trip.is_skipper ? (
               <span className="mt-1 inline-block rounded-full bg-gold-soft px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gold">
                 Skipper
               </span>
-            )}
+            ) : !trip.is_member ? (
+              <span className="mt-1 inline-block rounded-full bg-paper-soft px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-soft">
+                fremd
+              </span>
+            ) : null}
           </div>
         </div>
       </Link>
