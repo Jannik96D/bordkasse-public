@@ -63,27 +63,34 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
 
   // Skipper bestimmen: wenn skipper_email angegeben ist, dort eine Person
   // finden oder als Ghost anlegen — sonst wird der Admin selbst Skipper.
+  // E-Mail-Lookup geht seit Migration 0013 über persons_private.
   let skipperId = auth.personId;
   if (parsed.data.skipper_email) {
     const email = parsed.data.skipper_email;
-    const { data: existing } = await supabase
-      .from("persons")
-      .select("id")
+    const { data: existingPriv } = await supabase
+      .from("persons_private")
+      .select("person_id")
       .ilike("email", email)
       .maybeSingle();
-    if (existing) {
-      skipperId = existing.id;
+    if (existingPriv) {
+      skipperId = existingPriv.person_id;
     } else {
       const fallbackName = email.split("@")[0];
       const { data: created, error: pErr } = await supabase
         .from("persons")
-        .insert({ email, display_name: fallbackName })
+        .insert({ display_name: fallbackName })
         .select("id")
         .single();
       if (pErr || !created) {
         return { status: "error", message: pErr?.message ?? "Skipper-Person konnte nicht angelegt werden." };
       }
       skipperId = created.id;
+      const { error: privErr } = await supabase
+        .from("persons_private")
+        .insert({ person_id: created.id, email });
+      if (privErr) {
+        return { status: "error", message: privErr.message };
+      }
     }
   }
 
