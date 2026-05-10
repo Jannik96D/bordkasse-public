@@ -4,6 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireSkipper } from "@/lib/auth/authz";
+import { logAudit } from "@/lib/db/audit";
 
 const InviteSchema = z.object({
   trip_id: z.string().uuid(),
@@ -72,7 +73,7 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
     alkInput === "no" ? false :
     null;
 
-  const { error: tmError } = await supabase
+  const { data: member, error: tmError } = await supabase
     .from("trip_members")
     .upsert(
       {
@@ -84,9 +85,22 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
         note: note || null,
       },
       { onConflict: "trip_id,person_id" },
-    );
+    )
+    .select()
+    .single();
 
   if (tmError) return { status: "error", message: tmError.message };
+
+  if (member) {
+    await logAudit(supabase, {
+      table_name: "trip_members",
+      operation: "INSERT",
+      record_id: member.id,
+      trip_id,
+      actor_person_id: auth.personId,
+      payload: member,
+    });
+  }
 
   revalidatePath(`/trips/${trip_id}/settings`);
   revalidatePath(`/trips/${trip_id}`);
@@ -98,6 +112,13 @@ export async function removeMember(memberId: string, tripId: string) {
   if (!auth.ok) return;
   const supabase = createAdminClient();
   await supabase.from("trip_members").delete().eq("id", memberId);
+  await logAudit(supabase, {
+    table_name: "trip_members",
+    operation: "DELETE",
+    record_id: memberId,
+    trip_id: tripId,
+    actor_person_id: auth.personId,
+  });
   revalidatePath(`/trips/${tripId}/settings`);
   revalidatePath(`/trips/${tripId}`);
 }

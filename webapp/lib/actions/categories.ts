@@ -4,6 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireSkipper } from "@/lib/auth/authz";
+import { logAudit } from "@/lib/db/audit";
 
 const AddCatSchema = z.object({
   trip_id: z.string().uuid(),
@@ -28,10 +29,21 @@ export async function addCategory(_prev: CatState, formData: FormData): Promise<
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const supabase = createAdminClient();
-  const { error } = await supabase
+  const { data: cat, error } = await supabase
     .from("trip_categories")
-    .insert({ trip_id: parsed.data.trip_id, name: parsed.data.name, sort_order: 99 });
-  if (error) return { status: "error", message: error.message };
+    .insert({ trip_id: parsed.data.trip_id, name: parsed.data.name, sort_order: 99 })
+    .select()
+    .single();
+  if (error || !cat) return { status: "error", message: error?.message ?? "Konnte nicht angelegt werden." };
+
+  await logAudit(supabase, {
+    table_name: "trip_categories",
+    operation: "INSERT",
+    record_id: cat.id,
+    trip_id: parsed.data.trip_id,
+    actor_person_id: auth.personId,
+    payload: cat,
+  });
 
   revalidatePath(`/trips/${parsed.data.trip_id}/settings`);
   return { status: "ok" };
@@ -42,5 +54,12 @@ export async function removeCategory(categoryId: string, tripId: string) {
   if (!auth.ok) return;
   const supabase = createAdminClient();
   await supabase.from("trip_categories").delete().eq("id", categoryId);
+  await logAudit(supabase, {
+    table_name: "trip_categories",
+    operation: "DELETE",
+    record_id: categoryId,
+    trip_id: tripId,
+    actor_person_id: auth.personId,
+  });
   revalidatePath(`/trips/${tripId}/settings`);
 }

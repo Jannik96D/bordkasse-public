@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireSkipper } from "@/lib/auth/authz";
+import { logAudit } from "@/lib/db/audit";
 
 const DEFAULT_CATEGORIES = [
   "Lebensmittel",
@@ -64,6 +65,15 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
     return { status: "error", message: error?.message ?? "Trip konnte nicht angelegt werden." };
   }
 
+  await logAudit(supabase, {
+    table_name: "trips",
+    operation: "INSERT",
+    record_id: trip.id,
+    trip_id: trip.id,
+    actor_person_id: person.id,
+    payload: trip,
+  });
+
   // Skipper als erstes Crew-Mitglied dazuschreiben
   await supabase.from("trip_members").insert({
     trip_id: trip.id,
@@ -88,6 +98,14 @@ export async function toggleArchive(tripId: string, archived: boolean) {
   if (!auth.ok) return;
   const supabase = createAdminClient();
   await supabase.from("trips").update({ archived }).eq("id", tripId);
+  await logAudit(supabase, {
+    table_name: "trips",
+    operation: "UPDATE",
+    record_id: tripId,
+    trip_id: tripId,
+    actor_person_id: auth.personId,
+    payload: { archived },
+  });
   revalidatePath("/");
   revalidatePath(`/trips/${tripId}`);
 }
@@ -97,6 +115,13 @@ export async function deleteTrip(tripId: string) {
   if (!auth.ok) return;
   const supabase = createAdminClient();
   await supabase.from("trips").delete().eq("id", tripId);
+  await logAudit(supabase, {
+    table_name: "trips",
+    operation: "DELETE",
+    record_id: tripId,
+    trip_id: null,
+    actor_person_id: auth.personId,
+  });
   revalidatePath("/");
   redirect("/");
 }

@@ -27,6 +27,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
       category:trip_categories(name)
     `)
     .eq("trip_id", tripId)
+    .is("deleted_at", null)
     .order("date", { ascending: false })
     .order("created_at", { ascending: false });
 

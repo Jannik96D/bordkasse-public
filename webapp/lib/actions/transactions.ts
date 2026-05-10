@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireMember } from "@/lib/auth/authz";
+import { logAudit } from "@/lib/db/audit";
 import { ExpenseSchema, CreditSchema } from "@/lib/validation/transaction-schema";
 
 export type TxState =
@@ -66,6 +67,15 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
       .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })));
   }
 
+  await logAudit(supabase, {
+    table_name: "transactions",
+    operation: "INSERT",
+    record_id: tx.id,
+    trip_id: txData.trip_id,
+    actor_person_id: person.id,
+    payload: { type: "expense", ...txData, participant_ids },
+  });
+
   revalidatePath(`/trips/${txData.trip_id}/transactions`);
   revalidatePath(`/trips/${txData.trip_id}/balance`);
   revalidatePath(`/trips/${txData.trip_id}/debts`);
@@ -97,22 +107,35 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
   if (!memberCheck.ok) return { status: "error", message: memberCheck.message };
 
   const supabase = createAdminClient();
-  const { error } = await supabase.from("transactions").insert({
-    trip_id: parsed.data.trip_id,
-    type: "credit",
-    date: parsed.data.date,
-    description: parsed.data.description || "Gutschrift",
-    amount: parsed.data.amount,
-    credit_from: parsed.data.credit_from,
-    credit_to: parsed.data.credit_to,
-    created_by: person.id,
-    idempotency_key: parsed.data.idempotency_key,
-  });
+  const { data: tx, error } = await supabase
+    .from("transactions")
+    .insert({
+      trip_id: parsed.data.trip_id,
+      type: "credit",
+      date: parsed.data.date,
+      description: parsed.data.description || "Gutschrift",
+      amount: parsed.data.amount,
+      credit_from: parsed.data.credit_from,
+      credit_to: parsed.data.credit_to,
+      created_by: person.id,
+      idempotency_key: parsed.data.idempotency_key,
+    })
+    .select("id")
+    .single();
   if (error?.code === PG_UNIQUE_VIOLATION && parsed.data.idempotency_key) {
     revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
     redirect(`/trips/${parsed.data.trip_id}/transactions`);
   }
-  if (error) return { status: "error", message: error.message };
+  if (error || !tx) return { status: "error", message: error?.message ?? "Buchung konnte nicht angelegt werden." };
+
+  await logAudit(supabase, {
+    table_name: "transactions",
+    operation: "INSERT",
+    record_id: tx.id,
+    trip_id: parsed.data.trip_id,
+    actor_person_id: person.id,
+    payload: { type: "credit", ...parsed.data },
+  });
 
   revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
   revalidatePath(`/trips/${parsed.data.trip_id}/balance`);
@@ -120,11 +143,26 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
   redirect(`/trips/${parsed.data.trip_id}/transactions`);
 }
 
+/**
+ * Soft-Delete: setzt deleted_at-Timestamp statt zu löschen. Bilanz, Schulden
+ * und Listen filtern deleted_at IS NULL und behandeln den Eintrag als weg —
+ * physisch bleibt er aber erhalten und ist über das Audit-Log nachvollziehbar.
+ */
 export async function deleteTransaction(transactionId: string, tripId: string) {
   const auth = await requireMember(tripId);
   if (!auth.ok) return;
   const supabase = createAdminClient();
-  await supabase.from("transactions").delete().eq("id", transactionId);
+  await supabase
+    .from("transactions")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", transactionId);
+  await logAudit(supabase, {
+    table_name: "transactions",
+    operation: "DELETE",
+    record_id: transactionId,
+    trip_id: tripId,
+    actor_person_id: auth.personId,
+  });
   revalidatePath(`/trips/${tripId}/transactions`);
   revalidatePath(`/trips/${tripId}/balance`);
   revalidatePath(`/trips/${tripId}/debts`);
@@ -186,6 +224,14 @@ export async function replayPendingTransaction(
         .from("transaction_participants")
         .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })));
     }
+    await logAudit(supabase, {
+      table_name: "transactions",
+      operation: "INSERT",
+      record_id: tx.id,
+      trip_id: txData.trip_id,
+      actor_person_id: person.id,
+      payload: { type: "expense", source: "outbox-replay", ...txData, participant_ids },
+    });
     revalidatePath(`/trips/${txData.trip_id}/transactions`);
     revalidatePath(`/trips/${txData.trip_id}/balance`);
     revalidatePath(`/trips/${txData.trip_id}/debts`);
@@ -207,22 +253,34 @@ export async function replayPendingTransaction(
   if (!parsed.success) {
     return { ok: false, message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
-  const { error } = await supabase.from("transactions").insert({
-    trip_id: parsed.data.trip_id,
-    type: "credit",
-    date: parsed.data.date,
-    description: parsed.data.description || "Gutschrift",
-    amount: parsed.data.amount,
-    credit_from: parsed.data.credit_from,
-    credit_to: parsed.data.credit_to,
-    created_by: person.id,
-    idempotency_key: parsed.data.idempotency_key,
-  });
+  const { data: tx, error } = await supabase
+    .from("transactions")
+    .insert({
+      trip_id: parsed.data.trip_id,
+      type: "credit",
+      date: parsed.data.date,
+      description: parsed.data.description || "Gutschrift",
+      amount: parsed.data.amount,
+      credit_from: parsed.data.credit_from,
+      credit_to: parsed.data.credit_to,
+      created_by: person.id,
+      idempotency_key: parsed.data.idempotency_key,
+    })
+    .select("id")
+    .single();
   if (error?.code === PG_UNIQUE_VIOLATION && parsed.data.idempotency_key) {
     revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
     return { ok: true };
   }
-  if (error) return { ok: false, message: error.message };
+  if (error || !tx) return { ok: false, message: error?.message ?? "Buchung konnte nicht angelegt werden." };
+  await logAudit(supabase, {
+    table_name: "transactions",
+    operation: "INSERT",
+    record_id: tx.id,
+    trip_id: parsed.data.trip_id,
+    actor_person_id: person.id,
+    payload: { type: "credit", source: "outbox-replay", ...parsed.data },
+  });
   revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
   revalidatePath(`/trips/${parsed.data.trip_id}/balance`);
   revalidatePath(`/trips/${parsed.data.trip_id}/debts`);
