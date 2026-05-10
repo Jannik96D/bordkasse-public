@@ -6,18 +6,23 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
-import { DEFAULT_CATEGORY_EMOJI } from "@/lib/categories/icons";
+import { iconForCategoryName } from "@/lib/categories/icons";
 
-const DEFAULT_CATEGORIES: { name: string; icon: string }[] = [
-  { name: "Lebensmittel", icon: DEFAULT_CATEGORY_EMOJI["Lebensmittel"] },
-  { name: "Restaurant", icon: DEFAULT_CATEGORY_EMOJI["Restaurant"] },
-  { name: "Sprit", icon: DEFAULT_CATEGORY_EMOJI["Sprit"] },
-  { name: "Yacht", icon: DEFAULT_CATEGORY_EMOJI["Yacht"] },
-  { name: "Hafen / Liegeplatz", icon: DEFAULT_CATEGORY_EMOJI["Hafen / Liegeplatz"] },
-  { name: "Ausrüstung", icon: DEFAULT_CATEGORY_EMOJI["Ausrüstung"] },
-  { name: "Versicherung", icon: DEFAULT_CATEGORY_EMOJI["Versicherung"] },
-  { name: "Sonstiges", icon: DEFAULT_CATEGORY_EMOJI["Sonstiges"] },
-];
+const DEFAULT_CATEGORY_NAMES = [
+  "Lebensmittel",
+  "Restaurant",
+  "Sprit",
+  "Yacht",
+  "Hafen / Liegeplatz",
+  "Ausrüstung",
+  "Versicherung",
+  "Sonstiges",
+] as const;
+
+const DEFAULT_CATEGORIES = DEFAULT_CATEGORY_NAMES.map((name) => ({
+  name,
+  icon: iconForCategoryName(name),
+}));
 
 const TripSchema = z
   .object({
