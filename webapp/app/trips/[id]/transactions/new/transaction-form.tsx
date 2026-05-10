@@ -4,7 +4,13 @@ import { useActionState, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, ChevronDown, ChevronUp } from "lucide-react";
-import { createExpense, createCredit, type TxState } from "@/lib/actions/transactions";
+import {
+  createExpense,
+  createCredit,
+  updateExpense,
+  updateCredit,
+  type TxState,
+} from "@/lib/actions/transactions";
 import { enqueue } from "@/lib/offline/outbox";
 import { todayIso, cn } from "@/lib/utils";
 
@@ -26,12 +32,31 @@ const SPLIT_HINT: Record<SplitType, string> = {
   individual: "Nur explizit markierte Personen.",
 };
 
-const initial: TxState = { status: "idle" };
+const idleState: TxState = { status: "idle" };
 
-/**
- * Sammelt FormData in ein serialisierbares Object für die Outbox.
- * Mehrfach-Werte (z. B. participant_ids Checkboxes) werden zu Arrays.
- */
+/** Initialwerte für den Edit-Modus. */
+export type ExpenseInitial = {
+  transactionId: string;
+  date: string;
+  description: string;
+  categoryId: string | null;
+  paidBy: string;
+  amount: number;
+  alcoholAmount: number;
+  splitType: SplitType;
+  participantIds: string[];
+};
+
+export type CreditInitial = {
+  transactionId: string;
+  date: string;
+  description: string;
+  amount: number;
+  creditFrom: string;
+  /** null = "Alle" */
+  creditTo: string | null;
+};
+
 function formDataToObject(fd: FormData): Record<string, string | string[]> {
   const obj: Record<string, string | string[]> = {};
   for (const [key, val] of fd.entries()) {
@@ -46,18 +71,34 @@ function formDataToObject(fd: FormData): Record<string, string | string[]> {
   return obj;
 }
 
+/** Formatiert eine Number als deutsches Komma-Format für das Input-Feld. */
+function formatAmount(n: number): string {
+  return n.toFixed(2).replace(".", ",");
+}
+
+interface TransactionFormProps {
+  tripId: string;
+  isSkipper: boolean;
+  members: Member[];
+  categories: Category[];
+  /** Wenn gesetzt, Form öffnet im Edit-Mode für eine Ausgabe. */
+  expenseInitial?: ExpenseInitial;
+  /** Wenn gesetzt, Form öffnet im Edit-Mode für eine Gutschrift. */
+  creditInitial?: CreditInitial;
+}
+
 export function TransactionForm({
   tripId,
   isSkipper,
   members,
   categories,
-}: {
-  tripId: string;
-  isSkipper: boolean;
-  members: Member[];
-  categories: Category[];
-}) {
-  const [type, setType] = useState<"expense" | "credit">("expense");
+  expenseInitial,
+  creditInitial,
+}: TransactionFormProps) {
+  const isEdit = !!(expenseInitial || creditInitial);
+  const initialType: "expense" | "credit" =
+    creditInitial ? "credit" : expenseInitial ? "expense" : "expense";
+  const [type, setType] = useState<"expense" | "credit">(initialType);
 
   return (
     <>
@@ -69,11 +110,13 @@ export function TransactionForm({
         >
           <ChevronLeft className="h-5 w-5" />
         </Link>
-        <h1 className="text-xl font-bold text-primary">Neue Buchung</h1>
+        <h1 className="text-xl font-bold text-primary">
+          {isEdit ? "Buchung bearbeiten" : "Neue Buchung"}
+        </h1>
       </div>
 
-      {/* Type-Segmented-Control — Gutschrift nur für Skipper */}
-      {isSkipper && (
+      {/* Type-Toggle gibt's nur im Create-Modus — im Edit-Modus bleibt der Typ fix. */}
+      {!isEdit && isSkipper && (
         <div className="mb-5 grid grid-cols-2 gap-1 rounded-md bg-paper-soft p-1">
           {(["expense", "credit"] as const).map((opt) => (
             <button
@@ -91,10 +134,15 @@ export function TransactionForm({
         </div>
       )}
 
-      {type === "expense" || !isSkipper ? (
-        <ExpenseForm tripId={tripId} members={members} categories={categories} />
+      {type === "expense" || (!isSkipper && !creditInitial) ? (
+        <ExpenseForm
+          tripId={tripId}
+          members={members}
+          categories={categories}
+          initial={expenseInitial}
+        />
       ) : (
-        <CreditForm tripId={tripId} members={members} />
+        <CreditForm tripId={tripId} members={members} initial={creditInitial} />
       )}
     </>
   );
@@ -104,20 +152,25 @@ function ExpenseForm({
   tripId,
   members,
   categories,
+  initial,
 }: {
   tripId: string;
   members: Member[];
   categories: Category[];
+  initial?: ExpenseInitial;
 }) {
   const router = useRouter();
-  const [state, formAction, pending] = useActionState(createExpense, initial);
-  const [splitType, setSplitType] = useState<SplitType>("equal");
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  // Stabile UUID pro Form-Render gegen Doppelklick-/Retry-Duplikate.
+  const isEdit = !!initial;
+  const [state, formAction, pending] = useActionState(
+    isEdit ? updateExpense : createExpense,
+    idleState,
+  );
+  const [splitType, setSplitType] = useState<SplitType>(initial?.splitType ?? "equal");
+  const [showAdvanced, setShowAdvanced] = useState(!!initial && initial.alcoholAmount > 0);
   const [idempotencyKey] = useState(() => crypto.randomUUID());
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
+    if (!isEdit && typeof navigator !== "undefined" && !navigator.onLine) {
       e.preventDefault();
       const obj = formDataToObject(new FormData(e.currentTarget));
       enqueue({
@@ -136,12 +189,13 @@ function ExpenseForm({
     <form action={formAction} onSubmit={handleSubmit} className="space-y-5">
       <input type="hidden" name="trip_id" value={tripId} />
       <input type="hidden" name="split_type" value={splitType} />
-      <input type="hidden" name="idempotency_key" value={idempotencyKey} />
+      {!isEdit && <input type="hidden" name="idempotency_key" value={idempotencyKey} />}
+      {isEdit && <input type="hidden" name="transaction_id" value={initial!.transactionId} />}
 
       <FieldGroup label="Datum" htmlFor="date">
         <input
           id="date" name="date" type="date" required
-          defaultValue={todayIso()}
+          defaultValue={initial?.date ?? todayIso()}
           className={inputCls}
         />
       </FieldGroup>
@@ -149,13 +203,19 @@ function ExpenseForm({
       <FieldGroup label="Beschreibung" htmlFor="description">
         <input
           id="description" name="description" type="text" required maxLength={120}
+          defaultValue={initial?.description ?? ""}
           placeholder="z. B. Lebensmittel Edeka"
           className={inputCls}
         />
       </FieldGroup>
 
       <FieldGroup label="Kategorie" htmlFor="category_id">
-        <select id="category_id" name="category_id" defaultValue="" className={inputCls}>
+        <select
+          id="category_id"
+          name="category_id"
+          defaultValue={initial?.categoryId ?? ""}
+          className={inputCls}
+        >
           <option value="">— Keine —</option>
           {categories.map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
@@ -164,7 +224,13 @@ function ExpenseForm({
       </FieldGroup>
 
       <FieldGroup label="Bezahlt von" htmlFor="paid_by">
-        <select id="paid_by" name="paid_by" required defaultValue="" className={inputCls}>
+        <select
+          id="paid_by"
+          name="paid_by"
+          required
+          defaultValue={initial?.paidBy ?? ""}
+          className={inputCls}
+        >
           <option value="" disabled>— Person wählen —</option>
           {members.map((m) => (
             <option key={m.person_id} value={m.person_id}>{m.display_name}</option>
@@ -177,12 +243,12 @@ function ExpenseForm({
           id="amount" name="amount" type="text" required
           inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?"
           autoComplete="off"
+          defaultValue={initial ? formatAmount(initial.amount) : ""}
           placeholder="0,00"
           className={inputCls}
         />
       </FieldGroup>
 
-      {/* Aufteilung als Segmented Control */}
       <div>
         <label className="block text-sm font-medium">Aufteilung</label>
         <div className="mt-2 grid grid-cols-2 gap-1 rounded-md bg-paper-soft p-1 sm:grid-cols-4">
@@ -213,6 +279,7 @@ function ExpenseForm({
                     type="checkbox"
                     name="participant_ids"
                     value={m.person_id}
+                    defaultChecked={initial?.participantIds.includes(m.person_id) ?? false}
                     className="h-5 w-5 rounded border-rule"
                   />
                   <span>{m.display_name}</span>
@@ -223,7 +290,6 @@ function ExpenseForm({
         </FieldGroup>
       )}
 
-      {/* "Erweitert" — Alkohol-Anteil */}
       <button
         type="button"
         onClick={() => setShowAdvanced((v) => !v)}
@@ -239,7 +305,7 @@ function ExpenseForm({
             inputMode="decimal" pattern="([0-9]+([,.][0-9]{1,2})?)?"
             autoComplete="off"
             placeholder="0,00"
-            defaultValue=""
+            defaultValue={initial && initial.alcoholAmount > 0 ? formatAmount(initial.alcoholAmount) : ""}
             className={inputCls}
           />
         </FieldGroup>
@@ -254,19 +320,37 @@ function ExpenseForm({
         disabled={pending}
         className="w-full rounded-md bg-primary px-4 py-3 font-medium text-paper hover:bg-navy-dark disabled:opacity-60"
       >
-        {pending ? "Speichere …" : "Ausgabe speichern"}
+        {pending ? "Speichere …" : isEdit ? "Änderungen speichern" : "Ausgabe speichern"}
       </button>
     </form>
   );
 }
 
-function CreditForm({ tripId, members }: { tripId: string; members: Member[] }) {
+function CreditForm({
+  tripId,
+  members,
+  initial,
+}: {
+  tripId: string;
+  members: Member[];
+  initial?: CreditInitial;
+}) {
   const router = useRouter();
-  const [state, formAction, pending] = useActionState(createCredit, initial);
+  const isEdit = !!initial;
+  const [state, formAction, pending] = useActionState(
+    isEdit ? updateCredit : createCredit,
+    idleState,
+  );
   const [idempotencyKey] = useState(() => crypto.randomUUID());
 
+  const initialCreditTo: string = initial
+    ? initial.creditTo == null
+      ? "ALL"
+      : initial.creditTo
+    : "";
+
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
+    if (!isEdit && typeof navigator !== "undefined" && !navigator.onLine) {
       e.preventDefault();
       const obj = formDataToObject(new FormData(e.currentTarget));
       enqueue({
@@ -284,11 +368,12 @@ function CreditForm({ tripId, members }: { tripId: string; members: Member[] }) 
   return (
     <form action={formAction} onSubmit={handleSubmit} className="space-y-5">
       <input type="hidden" name="trip_id" value={tripId} />
-      <input type="hidden" name="idempotency_key" value={idempotencyKey} />
+      {!isEdit && <input type="hidden" name="idempotency_key" value={idempotencyKey} />}
+      {isEdit && <input type="hidden" name="transaction_id" value={initial!.transactionId} />}
 
       <FieldGroup label="Datum" htmlFor="date">
         <input id="date" name="date" type="date" required
-          defaultValue={todayIso()}
+          defaultValue={initial?.date ?? todayIso()}
           className={inputCls}
         />
       </FieldGroup>
@@ -296,6 +381,7 @@ function CreditForm({ tripId, members }: { tripId: string; members: Member[] }) 
       <FieldGroup label="Beschreibung" htmlFor="description" hint="Optional. Leer → 'Gutschrift'.">
         <input
           id="description" name="description" type="text" maxLength={120}
+          defaultValue={initial?.description ?? ""}
           placeholder="z. B. Yacht-Anteil-Rückzahlung"
           className={inputCls}
         />
@@ -306,13 +392,20 @@ function CreditForm({ tripId, members }: { tripId: string; members: Member[] }) 
           id="amount" name="amount" type="text" required
           inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?"
           autoComplete="off"
+          defaultValue={initial ? formatAmount(initial.amount) : ""}
           placeholder="0,00"
           className={inputCls}
         />
       </FieldGroup>
 
       <FieldGroup label="Zahlt (Von)" htmlFor="credit_from">
-        <select id="credit_from" name="credit_from" required defaultValue="" className={inputCls}>
+        <select
+          id="credit_from"
+          name="credit_from"
+          required
+          defaultValue={initial?.creditFrom ?? ""}
+          className={inputCls}
+        >
           <option value="" disabled>— Person wählen —</option>
           {members.map((m) => (
             <option key={m.person_id} value={m.person_id}>{m.display_name}</option>
@@ -321,7 +414,13 @@ function CreditForm({ tripId, members }: { tripId: string; members: Member[] }) 
       </FieldGroup>
 
       <FieldGroup label="Empfängt (An)" htmlFor="credit_to">
-        <select id="credit_to" name="credit_to" required defaultValue="" className={inputCls}>
+        <select
+          id="credit_to"
+          name="credit_to"
+          required
+          defaultValue={initialCreditTo}
+          className={inputCls}
+        >
           <option value="" disabled>— Person wählen —</option>
           <option value="ALL">Alle (Aufteilung an gesamte Crew)</option>
           {members.map((m) => (
@@ -339,7 +438,7 @@ function CreditForm({ tripId, members }: { tripId: string; members: Member[] }) 
         disabled={pending}
         className="w-full rounded-md bg-primary px-4 py-3 font-medium text-paper hover:bg-navy-dark disabled:opacity-60"
       >
-        {pending ? "Speichere …" : "Gutschrift speichern"}
+        {pending ? "Speichere …" : isEdit ? "Änderungen speichern" : "Gutschrift speichern"}
       </button>
     </form>
   );

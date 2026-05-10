@@ -115,19 +115,45 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
   return { status: "ok" };
 }
 
-export async function removeMember(memberId: string, tripId: string) {
+export async function removeMember(
+  memberId: string,
+  tripId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
   const auth = await requireSkipperOrAdmin(tripId);
-  if (!auth.ok) return;
+  if (!auth.ok) return { ok: false, message: auth.message };
   const supabase = createAdminClient();
 
-  // Den Original-Owner darf niemand entfernen — sonst hätte der Trip
-  // keinen "letzten Skipper" mehr, falls auch alle Co-Skipper weg sind.
   const [{ data: tripRow }, { data: memberRow }] = await Promise.all([
     supabase.from("trips").select("skipper_id").eq("id", tripId).maybeSingle(),
     supabase.from("trip_members").select("person_id").eq("id", memberId).maybeSingle(),
   ]);
-  if (tripRow && memberRow && tripRow.skipper_id === memberRow.person_id) {
-    return;
+  if (!memberRow) return { ok: false, message: "Crew-Mitglied nicht gefunden." };
+
+  // Original-Owner darf niemand entfernen — sonst hätte der Trip keinen
+  // "letzten Skipper" mehr, falls auch alle Co-Skipper weg sind.
+  if (tripRow && tripRow.skipper_id === memberRow.person_id) {
+    return {
+      ok: false,
+      message: "Der ursprüngliche Skipper kann nicht aus dem Törn entfernt werden.",
+    };
+  }
+
+  // Person hat noch (nicht-soft-deleted) Buchungen → entfernen würde die
+  // Bilanz inkonsistent machen (Bezahlt/Anteil-Summe ≠ 0). Skipper soll
+  // erst die Buchungen umbuchen oder stornieren.
+  const personId = memberRow.person_id;
+  const { count: txCount } = await supabase
+    .from("transactions")
+    .select("*", { count: "exact", head: true })
+    .eq("trip_id", tripId)
+    .is("deleted_at", null)
+    .or(`paid_by.eq.${personId},credit_from.eq.${personId},credit_to.eq.${personId}`);
+  if ((txCount ?? 0) > 0) {
+    return {
+      ok: false,
+      message:
+        "Diese Person hat noch Buchungen in diesem Törn. Bitte erst die Buchungen umbuchen (paid_by ändern) oder löschen, bevor du sie entfernst.",
+    };
   }
 
   await supabase.from("trip_members").delete().eq("id", memberId);
@@ -140,6 +166,7 @@ export async function removeMember(memberId: string, tripId: string) {
   });
   revalidatePath(`/trips/${tripId}/settings`);
   revalidatePath(`/trips/${tripId}`);
+  return { ok: true };
 }
 
 // ─────────────────────────────────────────────────────────────────────────

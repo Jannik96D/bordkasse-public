@@ -1,4 +1,5 @@
-import { Euro } from "lucide-react";
+import Link from "next/link";
+import { Euro, Pencil } from "lucide-react";
 import { listTransactions } from "@/lib/queries/transactions";
 import { FabAddTransaction } from "@/components/bottom-nav";
 import { CategoryIcon } from "@/components/category-icon";
@@ -96,6 +97,14 @@ export default async function TransactionsListPage({
                         <p className={`font-semibold ${t.type === "credit" ? "text-gold" : "text-primary"}`}>
                           {formatEuro(t.amount)}
                         </p>
+                        <Link
+                          href={`/trips/${id}/transactions/${t.id}/edit`}
+                          className="rounded-md p-1 text-ink-soft hover:bg-paper-soft hover:text-primary"
+                          aria-label="Buchung bearbeiten"
+                          title="Bearbeiten"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Link>
                         <DeleteButton transactionId={t.id} tripId={id} />
                       </div>
                     </div>
