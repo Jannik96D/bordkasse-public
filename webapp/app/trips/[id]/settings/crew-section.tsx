@@ -33,6 +33,7 @@ export function CrewSection({
   const [state, formAction, pending] = useActionState(inviteMember, initial);
   const [, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   if (state.status === "ok" && showForm) {
     setTimeout(() => setShowForm(false), 800);
@@ -56,6 +57,23 @@ export function CrewSection({
         <p className="rounded-md border border-dashed border-rule p-4 text-center text-sm text-ink-soft">
           Keine Crew angelegt.
         </p>
+      )}
+
+      {removeError && (
+        <div
+          role="alert"
+          className="mb-3 flex items-start justify-between gap-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger"
+        >
+          <span>{removeError}</span>
+          <button
+            type="button"
+            onClick={() => setRemoveError(null)}
+            className="text-danger/70 hover:text-danger"
+            aria-label="Schließen"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       )}
 
       <ul className="space-y-2">
@@ -138,12 +156,16 @@ export function CrewSection({
                   <button
                     type="button"
                     onClick={() =>
-                      startTransition(() => {
+                      startTransition(async () => {
                         if (
                           m.person_id !== ownerId &&
                           confirm(`${m.display_name} aus der Crew entfernen?`)
                         ) {
-                          removeMember(m.id, tripId);
+                          setRemoveError(null);
+                          const res = await removeMember(m.id, tripId);
+                          if (!res.ok) {
+                            setRemoveError(`${m.display_name}: ${res.message}`);
+                          }
                         }
                       })
                     }

@@ -1,12 +1,15 @@
 "use server";
 
+import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
-import { requireMember, requireSkipperOrAdmin } from "@/lib/auth/authz";
+import { isAdmin, requireMember, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { ExpenseSchema, CreditSchema } from "@/lib/validation/transaction-schema";
+
+const TransactionId = z.string().uuid();
 
 export type TxState =
   | { status: "idle" }
@@ -107,6 +110,24 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
   if (!skipperCheck.ok) return { status: "error", message: skipperCheck.message };
 
   const supabase = createAdminClient();
+
+  // „An Alle" (credit_to IS NULL) braucht ≥ 2 Crew-Mitglieder, sonst kann
+  // die Bilanz nicht ausgeglichen werden (creditFrom bekommt +amount, aber
+  // niemand bekommt es gegengebucht).
+  if (parsed.data.credit_to == null) {
+    const { count } = await supabase
+      .from("trip_members")
+      .select("*", { count: "exact", head: true })
+      .eq("trip_id", parsed.data.trip_id);
+    if ((count ?? 0) <= 1) {
+      return {
+        status: "error",
+        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crew-Mitglieder. Wähle einen Empfänger.',
+        field: "credit_to",
+      };
+    }
+  }
+
   const { data: tx, error } = await supabase
     .from("transactions")
     .insert({
@@ -132,6 +153,188 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     table_name: "transactions",
     operation: "INSERT",
     record_id: tx.id,
+    trip_id: parsed.data.trip_id,
+    actor_person_id: person.id,
+    payload: { type: "credit", ...parsed.data },
+  });
+
+  revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
+  revalidatePath(`/trips/${parsed.data.trip_id}/balance`);
+  revalidatePath(`/trips/${parsed.data.trip_id}/debts`);
+  redirect(`/trips/${parsed.data.trip_id}/transactions`);
+}
+
+/**
+ * Berechtigung zum Editieren / Löschen einer Transaktion: entweder Skipper
+ * oder Admin des Trips, oder die Person, die die Buchung erstellt hat.
+ */
+async function canEditTransaction(
+  tripId: string,
+  createdBy: string | null,
+  currentPersonId: string,
+): Promise<boolean> {
+  if (createdBy && createdBy === currentPersonId) return true;
+  const skipperCheck = await requireSkipperOrAdmin(tripId);
+  if (skipperCheck.ok) return true;
+  return await isAdmin();
+}
+
+export async function updateExpense(_prev: TxState, formData: FormData): Promise<TxState> {
+  const person = await getCurrentPerson();
+  if (!person) return { status: "error", message: "Nicht angemeldet." };
+
+  const txIdParse = TransactionId.safeParse(formData.get("transaction_id"));
+  if (!txIdParse.success) return { status: "error", message: "Ungültige Buchungs-ID." };
+  const transactionId = txIdParse.data;
+
+  const participantIds = formData.getAll("participant_ids").map(String).filter(Boolean);
+  const parsed = ExpenseSchema.safeParse({
+    trip_id: formData.get("trip_id"),
+    date: formData.get("date"),
+    description: formData.get("description"),
+    category_id: formData.get("category_id") || null,
+    paid_by: formData.get("paid_by"),
+    amount: formData.get("amount"),
+    alcohol_amount: formData.get("alcohol_amount") || 0,
+    split_type: formData.get("split_type"),
+    participant_ids: participantIds,
+  });
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return { status: "error", message: issue?.message ?? "Ungültige Eingabe.", field: issue?.path?.[0]?.toString() };
+  }
+  const { participant_ids, idempotency_key: _ignored, ...txData } = parsed.data;
+  void _ignored;
+
+  const supabase = createAdminClient();
+  const { data: existing } = await supabase
+    .from("transactions")
+    .select("created_by, type, trip_id, deleted_at")
+    .eq("id", transactionId)
+    .maybeSingle();
+  if (!existing || existing.deleted_at) return { status: "error", message: "Buchung nicht gefunden." };
+  if (existing.trip_id !== txData.trip_id) {
+    return { status: "error", message: "Buchung gehört nicht zu diesem Törn." };
+  }
+  if (existing.type !== "expense") {
+    return { status: "error", message: "Buchungstyp passt nicht (erwartet: Ausgabe)." };
+  }
+  if (!(await canEditTransaction(txData.trip_id, existing.created_by, person.id))) {
+    return { status: "error", message: "Nur Skipper, Admin oder die Person, die gebucht hat, dürfen ändern." };
+  }
+
+  const { error } = await supabase
+    .from("transactions")
+    .update({
+      date: txData.date,
+      description: txData.description,
+      category_id: txData.category_id,
+      paid_by: txData.paid_by,
+      amount: txData.amount,
+      alcohol_amount: txData.alcohol_amount,
+      split_type: txData.split_type,
+    })
+    .eq("id", transactionId);
+  if (error) return { status: "error", message: error.message };
+
+  // Participants neu setzen — bei Wechsel der Aufteilung müssen alte raus.
+  await supabase.from("transaction_participants").delete().eq("transaction_id", transactionId);
+  if (txData.split_type === "individual" && participant_ids.length > 0) {
+    await supabase
+      .from("transaction_participants")
+      .insert(participant_ids.map((pid) => ({ transaction_id: transactionId, person_id: pid })));
+  }
+
+  await logAudit(supabase, {
+    table_name: "transactions",
+    operation: "UPDATE",
+    record_id: transactionId,
+    trip_id: txData.trip_id,
+    actor_person_id: person.id,
+    payload: { type: "expense", ...txData, participant_ids },
+  });
+
+  revalidatePath(`/trips/${txData.trip_id}/transactions`);
+  revalidatePath(`/trips/${txData.trip_id}/balance`);
+  revalidatePath(`/trips/${txData.trip_id}/debts`);
+  redirect(`/trips/${txData.trip_id}/transactions`);
+}
+
+export async function updateCredit(_prev: TxState, formData: FormData): Promise<TxState> {
+  const person = await getCurrentPerson();
+  if (!person) return { status: "error", message: "Nicht angemeldet." };
+
+  const txIdParse = TransactionId.safeParse(formData.get("transaction_id"));
+  if (!txIdParse.success) return { status: "error", message: "Ungültige Buchungs-ID." };
+  const transactionId = txIdParse.data;
+
+  const creditToRaw = formData.get("credit_to")?.toString() ?? "";
+  const creditTo = creditToRaw === "ALL" ? null : creditToRaw;
+
+  const parsed = CreditSchema.safeParse({
+    trip_id: formData.get("trip_id"),
+    date: formData.get("date"),
+    description: formData.get("description") || "",
+    amount: formData.get("amount"),
+    credit_from: formData.get("credit_from"),
+    credit_to: creditTo,
+  });
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return { status: "error", message: issue?.message ?? "Ungültige Eingabe.", field: issue?.path?.[0]?.toString() };
+  }
+
+  const supabase = createAdminClient();
+  const { data: existing } = await supabase
+    .from("transactions")
+    .select("created_by, type, trip_id, deleted_at")
+    .eq("id", transactionId)
+    .maybeSingle();
+  if (!existing || existing.deleted_at) return { status: "error", message: "Buchung nicht gefunden." };
+  if (existing.trip_id !== parsed.data.trip_id) {
+    return { status: "error", message: "Buchung gehört nicht zu diesem Törn." };
+  }
+  if (existing.type !== "credit") {
+    return { status: "error", message: "Buchungstyp passt nicht (erwartet: Gutschrift)." };
+  }
+
+  // Gutschriften ändern: weiterhin nur Skipper/Admin (oder Creator —
+  // bei aktuellem Workflow ist das aber sowieso Skipper/Admin).
+  if (!(await canEditTransaction(parsed.data.trip_id, existing.created_by, person.id))) {
+    return { status: "error", message: "Nur Skipper, Admin oder die Person, die gebucht hat, dürfen ändern." };
+  }
+
+  // „An Alle"-Validierung wie bei createCredit
+  if (parsed.data.credit_to == null) {
+    const { count } = await supabase
+      .from("trip_members")
+      .select("*", { count: "exact", head: true })
+      .eq("trip_id", parsed.data.trip_id);
+    if ((count ?? 0) <= 1) {
+      return {
+        status: "error",
+        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crew-Mitglieder. Wähle einen Empfänger.',
+        field: "credit_to",
+      };
+    }
+  }
+
+  const { error } = await supabase
+    .from("transactions")
+    .update({
+      date: parsed.data.date,
+      description: parsed.data.description || "Gutschrift",
+      amount: parsed.data.amount,
+      credit_from: parsed.data.credit_from,
+      credit_to: parsed.data.credit_to,
+    })
+    .eq("id", transactionId);
+  if (error) return { status: "error", message: error.message };
+
+  await logAudit(supabase, {
+    table_name: "transactions",
+    operation: "UPDATE",
+    record_id: transactionId,
     trip_id: parsed.data.trip_id,
     actor_person_id: person.id,
     payload: { type: "credit", ...parsed.data },
@@ -256,6 +459,21 @@ export async function replayPendingTransaction(
   if (!parsed.success) {
     return { ok: false, message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
+
+  // „An Alle"-Validierung wie in createCredit (siehe oben).
+  if (parsed.data.credit_to == null) {
+    const { count } = await supabase
+      .from("trip_members")
+      .select("*", { count: "exact", head: true })
+      .eq("trip_id", parsed.data.trip_id);
+    if ((count ?? 0) <= 1) {
+      return {
+        ok: false,
+        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crew-Mitglieder.',
+      };
+    }
+  }
+
   const { data: tx, error } = await supabase
     .from("transactions")
     .insert({
