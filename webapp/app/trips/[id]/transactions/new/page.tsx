@@ -38,7 +38,7 @@ export default async function NewTransactionPage({
           person_id: m.person_id,
           display_name: m.display_name,
         }))}
-        categories={categories.map((c) => ({ id: c.id, name: c.name }))}
+        categories={categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon }))}
       />
     </main>
   );

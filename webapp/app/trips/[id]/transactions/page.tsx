@@ -66,7 +66,9 @@ export default async function TransactionsListPage({
                               {" · "}
                               {t.split_type ? SPLIT_LABEL[t.split_type] : "?"}
                               {t.alcohol_amount > 0 && ` · 🍷 ${formatEuro(t.alcohol_amount)}`}
-                              {t.category_name && ` · ${t.category_name}`}
+                              {t.category_name && (
+                                <> · {t.category_icon && <span aria-hidden>{t.category_icon} </span>}{t.category_name}</>
+                              )}
                             </>
                           ) : (
                             <>

@@ -6,10 +6,11 @@ import Link from "next/link";
 import { ChevronLeft, ChevronDown, ChevronUp } from "lucide-react";
 import { createExpense, createCredit, type TxState } from "@/lib/actions/transactions";
 import { enqueue } from "@/lib/offline/outbox";
+import { categoryLabel } from "@/lib/categories/icons";
 import { todayIso, cn } from "@/lib/utils";
 
 type Member = { person_id: string; display_name: string };
-type Category = { id: string; name: string };
+type Category = { id: string; name: string; icon: string | null };
 type SplitType = "equal" | "on_board" | "time_proportional" | "individual";
 
 const SPLIT_LABEL: Record<SplitType, string> = {
@@ -158,7 +159,7 @@ function ExpenseForm({
         <select id="category_id" name="category_id" defaultValue="" className={inputCls}>
           <option value="">— Keine —</option>
           {categories.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
+            <option key={c.id} value={c.id}>{categoryLabel(c.name, c.icon)}</option>
           ))}
         </select>
       </FieldGroup>

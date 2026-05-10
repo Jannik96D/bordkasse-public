@@ -10,6 +10,7 @@ export interface TransactionListRow {
   split_type: "equal" | "on_board" | "time_proportional" | "individual" | null;
   paid_by_name: string | null;
   category_name: string | null;
+  category_icon: string | null;
   credit_from_name: string | null;
   credit_to_name: string | null;  // null = "Alle" wenn type=credit
 }
@@ -24,7 +25,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
       paid_person:persons!transactions_paid_by_fkey(display_name),
       from_person:persons!transactions_credit_from_fkey(display_name),
       to_person:persons!transactions_credit_to_fkey(display_name),
-      category:trip_categories(name)
+      category:trip_categories(name, icon)
     `)
     .eq("trip_id", tripId)
     .is("deleted_at", null)
@@ -47,7 +48,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
     paid_person: { display_name: string } | { display_name: string }[] | null;
     from_person: { display_name: string } | { display_name: string }[] | null;
     to_person: { display_name: string } | { display_name: string }[] | null;
-    category: { name: string } | { name: string }[] | null;
+    category: { name: string; icon: string | null } | { name: string; icon: string | null }[] | null;
   };
 
   const first = <T,>(v: T | T[] | null): T | null =>
@@ -63,6 +64,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
     split_type: r.split_type,
     paid_by_name: first(r.paid_person)?.display_name ?? null,
     category_name: first(r.category)?.name ?? null,
+    category_icon: first(r.category)?.icon ?? null,
     credit_from_name: first(r.from_person)?.display_name ?? null,
     credit_to_name: r.type === "credit" && r.credit_to == null
       ? null  // → "Alle"

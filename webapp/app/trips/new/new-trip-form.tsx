@@ -81,6 +81,25 @@ export function NewTripForm() {
           />
         </div>
 
+        <div className="rounded-md border border-rule bg-paper-soft p-3">
+          <label htmlFor="skipper_email" className="block text-sm font-medium">
+            Skipper <span className="text-ink-soft font-normal">(optional)</span>
+          </label>
+          <input
+            id="skipper_email"
+            name="skipper_email"
+            type="email"
+            placeholder="leer = du selbst"
+            className="mt-1 w-full rounded-md border border-rule bg-paper px-4 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+          <p className="mt-2 text-xs text-ink-soft">
+            E-Mail des zukünftigen Skippers. Lass das Feld leer, wenn du
+            selbst Skipper sein möchtest. Wenn du den Törn für jemand
+            anderen anlegst, wird er Skipper — du selbst landest nicht
+            in der Crew, hast aber als Admin trotzdem vollen Zugriff.
+          </p>
+        </div>
+
         {state.status === "error" && (
           <p className="text-sm text-danger" role="alert">{state.message}</p>
         )}

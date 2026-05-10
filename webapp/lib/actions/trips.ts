@@ -6,15 +6,17 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
+import { DEFAULT_CATEGORY_EMOJI } from "@/lib/categories/icons";
 
-const DEFAULT_CATEGORIES = [
-  "Lebensmittel",
-  "Restaurant",
-  "Sprit",
-  "Yacht",
-  "Hafen / Liegeplatz",
-  "Ausrüstung",
-  "Sonstiges",
+const DEFAULT_CATEGORIES: { name: string; icon: string }[] = [
+  { name: "Lebensmittel", icon: DEFAULT_CATEGORY_EMOJI["Lebensmittel"] },
+  { name: "Restaurant", icon: DEFAULT_CATEGORY_EMOJI["Restaurant"] },
+  { name: "Sprit", icon: DEFAULT_CATEGORY_EMOJI["Sprit"] },
+  { name: "Yacht", icon: DEFAULT_CATEGORY_EMOJI["Yacht"] },
+  { name: "Hafen / Liegeplatz", icon: DEFAULT_CATEGORY_EMOJI["Hafen / Liegeplatz"] },
+  { name: "Ausrüstung", icon: DEFAULT_CATEGORY_EMOJI["Ausrüstung"] },
+  { name: "Versicherung", icon: DEFAULT_CATEGORY_EMOJI["Versicherung"] },
+  { name: "Sonstiges", icon: DEFAULT_CATEGORY_EMOJI["Sonstiges"] },
 ];
 
 const TripSchema = z
@@ -23,6 +25,10 @@ const TripSchema = z
     start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum-Format YYYY-MM-DD."),
     end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum-Format YYYY-MM-DD."),
     ship_name: z.string().trim().max(80).optional().or(z.literal("")),
+    // Wenn gesetzt, wird dieser User Skipper statt der Admin selbst —
+    // damit der Admin Törns für andere anlegen kann ohne hinterher
+    // wieder rausgeworfen werden zu müssen.
+    skipper_email: z.string().trim().email("Ungültige Skipper-E-Mail.").optional().or(z.literal("")),
   })
   .refine((d) => d.end_date >= d.start_date, {
     message: "Törn-Ende darf nicht vor dem Start liegen.",
@@ -42,12 +48,40 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
     start_date: formData.get("start_date"),
     end_date: formData.get("end_date"),
     ship_name: formData.get("ship_name") || "",
+    skipper_email: formData.get("skipper_email") || "",
   });
   if (!parsed.success) {
     return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
 
   const supabase = createAdminClient();
+
+  // Skipper bestimmen: wenn skipper_email angegeben ist, dort eine Person
+  // finden oder als Ghost anlegen — sonst wird der Admin selbst Skipper.
+  let skipperId = auth.personId;
+  if (parsed.data.skipper_email) {
+    const email = parsed.data.skipper_email;
+    const { data: existing } = await supabase
+      .from("persons")
+      .select("id")
+      .ilike("email", email)
+      .maybeSingle();
+    if (existing) {
+      skipperId = existing.id;
+    } else {
+      const fallbackName = email.split("@")[0];
+      const { data: created, error: pErr } = await supabase
+        .from("persons")
+        .insert({ email, display_name: fallbackName })
+        .select("id")
+        .single();
+      if (pErr || !created) {
+        return { status: "error", message: pErr?.message ?? "Skipper-Person konnte nicht angelegt werden." };
+      }
+      skipperId = created.id;
+    }
+  }
+
   const { data: trip, error } = await supabase
     .from("trips")
     .insert({
@@ -55,7 +89,7 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
       start_date: parsed.data.start_date,
       end_date: parsed.data.end_date,
       ship_name: parsed.data.ship_name || null,
-      skipper_id: auth.personId,
+      skipper_id: skipperId,
     })
     .select()
     .single();
@@ -70,20 +104,25 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
     record_id: trip.id,
     trip_id: trip.id,
     actor_person_id: auth.personId,
-    payload: trip,
+    payload: { ...trip, created_for_skipper_email: parsed.data.skipper_email || null },
   });
 
-  // Skipper als erstes Crew-Mitglied dazuschreiben
+  // Skipper als erstes Crew-Mitglied dazuschreiben (mit is_skipper=TRUE).
+  // Wenn der Admin sich selbst zum Skipper macht, ist skipperId === auth.personId.
+  // Wenn der Trip für einen Freund angelegt wird, taucht der Admin nicht in
+  // trip_members auf — er hat trotzdem Voll-Zugriff via ADMIN_EMAILS.
   await supabase.from("trip_members").insert({
     trip_id: trip.id,
-    person_id: auth.personId,
+    person_id: skipperId,
+    is_skipper: true,
   });
 
-  // Default-Kategorien anlegen
+  // Default-Kategorien anlegen (mit Emoji-Icon).
   await supabase.from("trip_categories").insert(
-    DEFAULT_CATEGORIES.map((name, i) => ({
+    DEFAULT_CATEGORIES.map((c, i) => ({
       trip_id: trip.id,
-      name,
+      name: c.name,
+      icon: c.icon,
       sort_order: i + 1,
     })),
   );

@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/db/audit";
 const AddCatSchema = z.object({
   trip_id: z.string().uuid(),
   name: z.string().trim().min(1).max(40),
+  icon: z.string().trim().max(8).optional().or(z.literal("")),
 });
 
 export type CatState =
@@ -20,6 +21,7 @@ export async function addCategory(_prev: CatState, formData: FormData): Promise<
   const parsed = AddCatSchema.safeParse({
     trip_id: formData.get("trip_id"),
     name: formData.get("name"),
+    icon: formData.get("icon") || "",
   });
   if (!parsed.success) {
     return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
@@ -31,7 +33,12 @@ export async function addCategory(_prev: CatState, formData: FormData): Promise<
   const supabase = createAdminClient();
   const { data: cat, error } = await supabase
     .from("trip_categories")
-    .insert({ trip_id: parsed.data.trip_id, name: parsed.data.name, sort_order: 99 })
+    .insert({
+      trip_id: parsed.data.trip_id,
+      name: parsed.data.name,
+      icon: parsed.data.icon || null,
+      sort_order: 99,
+    })
     .select()
     .single();
   if (error || !cat) return { status: "error", message: error?.message ?? "Konnte nicht angelegt werden." };

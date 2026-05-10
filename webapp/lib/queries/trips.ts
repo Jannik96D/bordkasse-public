@@ -135,6 +135,7 @@ export interface CategoryRow {
   id: string;
   name: string;
   hint: string | null;
+  icon: string | null;
   sort_order: number;
 }
 
@@ -142,7 +143,7 @@ export async function getCategories(tripId: string): Promise<CategoryRow[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("trip_categories")
-    .select("id, name, hint, sort_order")
+    .select("id, name, hint, icon, sort_order")
     .eq("trip_id", tripId)
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
