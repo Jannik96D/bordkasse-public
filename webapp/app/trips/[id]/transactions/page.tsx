@@ -72,6 +72,7 @@ export default async function TransactionsListPage({
                                   {" · "}
                                   <CategoryIcon
                                     icon={t.category_icon}
+                                    name={t.category_name}
                                     className="h-3.5 w-3.5 text-ink-soft"
                                   />
                                   {t.category_name}

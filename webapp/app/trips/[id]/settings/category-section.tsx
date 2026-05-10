@@ -12,6 +12,7 @@ import type { CategoryRow } from "@/lib/queries/trips";
 import { CategoryIcon } from "@/components/category-icon";
 import { IconPicker } from "@/components/icon-picker";
 import {
+  iconForCategoryName,
   isCategoryIconName,
   type CategoryIconName,
 } from "@/lib/categories/icons";
@@ -44,7 +45,9 @@ export function CategorySection({
       <ul className="space-y-2">
         {categories.map((c) => {
           const expanded = expandedId === c.id;
-          const currentIcon: CategoryIconName = isCategoryIconName(c.icon) ? c.icon : "Tag";
+          const currentIcon: CategoryIconName = isCategoryIconName(c.icon)
+            ? c.icon
+            : iconForCategoryName(c.name);
           return (
             <li key={c.id} className="rounded-md border border-rule bg-paper">
               <div className="flex items-center justify-between gap-3 px-3 py-2">
@@ -57,7 +60,7 @@ export function CategorySection({
                     aria-label={`Icon für ${c.name} ändern`}
                   >
                     <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rule">
-                      <CategoryIcon icon={c.icon} className="h-4 w-4 text-primary" />
+                      <CategoryIcon icon={c.icon} name={c.name} className="h-4 w-4 text-primary" />
                     </span>
                     <span className="flex-1">{c.name}</span>
                     {expanded ? (
@@ -68,7 +71,7 @@ export function CategorySection({
                   </button>
                 ) : (
                   <div className="flex flex-1 items-center gap-2">
-                    <CategoryIcon icon={c.icon} className="h-5 w-5 text-primary" />
+                    <CategoryIcon icon={c.icon} name={c.name} className="h-5 w-5 text-primary" />
                     <span>{c.name}</span>
                   </div>
                 )}

@@ -159,8 +159,23 @@ export function isCategoryIconName(value: unknown): value is CategoryIconName {
   );
 }
 
-export function getCategoryIcon(iconName: string | null | undefined): LucideIcon {
+/**
+ * Liefert die Lucide-Komponente für einen gespeicherten Icon-Wert.
+ *
+ * Resilient gegen alte Datenbestände, in denen `icon` noch Emoji-Strings
+ * (vor Migration 0012) oder NULL enthält: dann wird über den Kategorie-
+ * Namen ein passendes Icon geraten (z.B. „Lebensmittel" → ShoppingCart),
+ * sodass die UI auch ohne durchgelaufene Migration korrekte Icons zeigt.
+ */
+export function getCategoryIcon(
+  iconName: string | null | undefined,
+  fallbackName?: string | null,
+): LucideIcon {
   if (iconName && isCategoryIconName(iconName)) return ICON_MAP[iconName];
+  if (fallbackName) {
+    const matched = iconForCategoryName(fallbackName);
+    if (matched !== "Tag") return ICON_MAP[matched];
+  }
   return Tag;
 }
 
