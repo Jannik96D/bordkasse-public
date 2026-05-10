@@ -42,28 +42,36 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
 
   const supabase = createAdminClient();
 
-  // Person mit dieser E-Mail finden oder als Ghost anlegen
-  const { data: existing } = await supabase
-    .from("persons")
-    .select("id, display_name")
+  // Person mit dieser E-Mail finden (über persons_private) oder als Ghost
+  // anlegen. E-Mail liegt seit Migration 0013 ausschließlich in
+  // persons_private — persons selbst hat sie nicht mehr.
+  const { data: existingPriv } = await supabase
+    .from("persons_private")
+    .select("person_id")
     .ilike("email", email)
     .maybeSingle();
 
   let personId: string;
-  if (existing) {
-    personId = existing.id;
+  if (existingPriv) {
+    personId = existingPriv.person_id;
     // Bestehender Name bleibt — wir überschreiben fremde Namen nicht.
   } else {
     const fallbackName = display_name || email.split("@")[0];
     const { data: created, error } = await supabase
       .from("persons")
-      .insert({ email, display_name: fallbackName })
+      .insert({ display_name: fallbackName })
       .select("id")
       .single();
     if (error || !created) {
       return { status: "error", message: error?.message ?? "Person konnte nicht angelegt werden." };
     }
     personId = created.id;
+    const { error: privErr } = await supabase
+      .from("persons_private")
+      .insert({ person_id: personId, email });
+    if (privErr) {
+      return { status: "error", message: privErr.message };
+    }
   }
 
   // Mitgliedschaft anlegen (UPSERT auf trip_id+person_id)
@@ -220,22 +228,37 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
 
   // 2. persons-Felder — nur bei Ghost (kein Auth-User), und nur falls Werte gesetzt
   if (isGhost && (display_name || email)) {
-    const personUpdate: Record<string, string> = {};
-    if (display_name) personUpdate.display_name = display_name;
-    if (email) personUpdate.email = email;
-    const { error: pError } = await supabase
-      .from("persons")
-      .update(personUpdate)
-      .eq("id", member.person_id);
-    if (pError) return { status: "error", message: pError.message };
-    await logAudit(supabase, {
-      table_name: "persons",
-      operation: "UPDATE",
-      record_id: member.person_id,
-      trip_id,
-      actor_person_id: auth.personId,
-      payload: personUpdate,
-    });
+    if (display_name) {
+      const { error: pError } = await supabase
+        .from("persons")
+        .update({ display_name })
+        .eq("id", member.person_id);
+      if (pError) return { status: "error", message: pError.message };
+      await logAudit(supabase, {
+        table_name: "persons",
+        operation: "UPDATE",
+        record_id: member.person_id,
+        trip_id,
+        actor_person_id: auth.personId,
+        payload: { display_name },
+      });
+    }
+    if (email) {
+      // E-Mail liegt in persons_private — upsert, weil Ghost evtl.
+      // noch keine private-Row hat.
+      const { error: privError } = await supabase
+        .from("persons_private")
+        .upsert({ person_id: member.person_id, email }, { onConflict: "person_id" });
+      if (privError) return { status: "error", message: privError.message };
+      await logAudit(supabase, {
+        table_name: "persons_private",
+        operation: "UPDATE",
+        record_id: member.person_id,
+        trip_id,
+        actor_person_id: auth.personId,
+        payload: { email },
+      });
+    }
   }
 
   revalidatePath(`/trips/${trip_id}/settings`);

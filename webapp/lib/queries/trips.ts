@@ -90,11 +90,12 @@ export interface TripMemberRow {
 
 export async function getTripMembers(tripId: string): Promise<TripMemberRow[]> {
   const supabase = await createClient();
+  // Members + öffentlicher persons-Teil (RLS: nur Crew-Kollegen sichtbar)
   const { data, error } = await supabase
     .from("trip_members")
     .select(`
       id, person_id, on_board_from, on_board_to, is_alcoholic, is_skipper, note,
-      persons!inner(display_name, email, is_alcoholic, auth_user_id)
+      persons!inner(display_name, is_alcoholic, auth_user_id)
     `)
     .eq("trip_id", tripId)
     .order("created_at", { ascending: true });
@@ -110,16 +111,16 @@ export async function getTripMembers(tripId: string): Promise<TripMemberRow[]> {
     is_skipper: boolean;
     note: string | null;
     persons:
-      | { display_name: string; email: string | null; is_alcoholic: boolean; auth_user_id: string | null }[]
-      | { display_name: string; email: string | null; is_alcoholic: boolean; auth_user_id: string | null };
+      | { display_name: string; is_alcoholic: boolean; auth_user_id: string | null }[]
+      | { display_name: string; is_alcoholic: boolean; auth_user_id: string | null };
   };
-  return (data as unknown as RawRow[]).map((m) => {
+  const rows = (data as unknown as RawRow[]).map((m) => {
     const p = Array.isArray(m.persons) ? m.persons[0] : m.persons;
     return {
       id: m.id,
       person_id: m.person_id,
       display_name: p.display_name,
-      email: p.email,
+      email: null as string | null,
       on_board_from: m.on_board_from,
       on_board_to: m.on_board_to,
       is_alcoholic_override: m.is_alcoholic,
@@ -129,6 +130,25 @@ export async function getTripMembers(tripId: string): Promise<TripMemberRow[]> {
       note: m.note,
     };
   });
+
+  // E-Mails separat aus persons_private holen — RLS liefert nur die,
+  // die der Caller sehen darf (Self oder Trip-Skipper). Bei Crew-Mitgliedern
+  // ohne Sichtbarkeit bleibt email = null, was die UI als „nicht zeigen"
+  // interpretieren kann.
+  const personIds = rows.map((r) => r.person_id);
+  if (personIds.length > 0) {
+    const { data: privs } = await supabase
+      .from("persons_private")
+      .select("person_id, email")
+      .in("person_id", personIds);
+    const emailById = new Map<string, string | null>();
+    for (const p of privs ?? []) emailById.set(p.person_id, p.email);
+    for (const r of rows) {
+      r.email = emailById.get(r.person_id) ?? null;
+    }
+  }
+
+  return rows;
 }
 
 export interface CategoryRow {
