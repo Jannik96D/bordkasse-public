@@ -13,6 +13,7 @@ import {
 } from "@/lib/actions/transactions";
 import { enqueue } from "@/lib/offline/outbox";
 import { todayIso, cn } from "@/lib/utils";
+import { CategorySelect } from "@/components/category-select";
 
 type Member = { person_id: string; display_name: string };
 type Category = { id: string; name: string; icon: string | null };
@@ -209,18 +210,12 @@ function ExpenseForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Kategorie" htmlFor="category_id">
-        <select
-          id="category_id"
+      <FieldGroup label="Kategorie">
+        <CategorySelect
           name="category_id"
-          defaultValue={initial?.categoryId ?? ""}
-          className={inputCls}
-        >
-          <option value="">— Keine —</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
+          categories={categories}
+          defaultCategoryId={initial?.categoryId ?? undefined}
+        />
       </FieldGroup>
 
       <FieldGroup label="Bezahlt von" htmlFor="paid_by">
