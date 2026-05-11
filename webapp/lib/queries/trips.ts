@@ -1,7 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { readClient } from "@/lib/supabase/read-client";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
-import { isAdmin } from "@/lib/auth/authz";
 
 export interface TripListRow {
   id: string;
@@ -25,9 +23,9 @@ export async function listMyTrips(): Promise<TripListRow[]> {
   const person = await getCurrentPerson();
   if (!person) return [];
 
-  const admin = await isAdmin();
-  // Admin holt alles per Service-Role, alle anderen via Cookie-Client (RLS).
-  const supabase = admin ? createAdminClient() : await createClient();
+  // Admin holt alles per Service-Role (siehe readClient), alle anderen via
+  // Cookie-Client (RLS-gefiltert auf eigene Trips).
+  const supabase = await readClient();
 
   const { data, error } = await supabase
     .from("trips")
@@ -65,7 +63,7 @@ export async function listMyTrips(): Promise<TripListRow[]> {
 }
 
 export async function getTrip(tripId: string) {
-  const supabase = await createClient();
+  const supabase = await readClient();
   const { data } = await supabase
     .from("trips")
     .select("*")
@@ -89,7 +87,7 @@ export interface TripMemberRow {
 }
 
 export async function getTripMembers(tripId: string): Promise<TripMemberRow[]> {
-  const supabase = await createClient();
+  const supabase = await readClient();
   // Members + öffentlicher persons-Teil (RLS: nur Crew-Kollegen sichtbar)
   const { data, error } = await supabase
     .from("trip_members")
@@ -160,7 +158,7 @@ export interface CategoryRow {
 }
 
 export async function getCategories(tripId: string): Promise<CategoryRow[]> {
-  const supabase = await createClient();
+  const supabase = await readClient();
   const { data } = await supabase
     .from("trip_categories")
     .select("id, name, hint, icon, sort_order")

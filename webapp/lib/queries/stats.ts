@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { readClient } from "@/lib/supabase/read-client";
 
 export type CategoryStat = {
   category_id: string | null;
@@ -48,7 +48,7 @@ const first = <T,>(v: T | T[] | null): T | null =>
  * Gutschriften werden ignoriert — wir wollen "wofür wurde Geld ausgegeben".
  */
 export async function getTripStats(tripId: string): Promise<StatsSummary> {
-  const supabase = await createClient();
+  const supabase = await readClient();
 
   // Prüfen, ob der Trip schon archiviert/gepurged ist
   const { data: tripRow } = await supabase
@@ -64,7 +64,7 @@ export async function getTripStats(tripId: string): Promise<StatsSummary> {
   return getLiveStats(supabase, tripId);
 }
 
-type SupabaseLike = Awaited<ReturnType<typeof createClient>>;
+type SupabaseLike = Awaited<ReturnType<typeof readClient>>;
 
 async function getLiveStats(supabase: SupabaseLike, tripId: string): Promise<StatsSummary> {
   const { data, error } = await supabase
