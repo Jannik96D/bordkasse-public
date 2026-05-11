@@ -4,16 +4,25 @@ Next.js 16 + Supabase Web-App-Variante der Bordkasse. Spec: [`../docs/web-app-sp
 
 ## Features
 
-- **Auth:** Magic-Link per E-Mail (PKCE-Flow, Single-Use, 60 Min TTL); 30 s nach dem Versand erscheint ein „Mail erneut senden"-Button.
+- **Auth:** Magic-Link per E-Mail (Token-Hash-Flow, Single-Use, 60 Min TTL).
+  - **Whitelist-Schutz:** Magic-Link wird nur an E-Mails verschickt, die in `ADMIN_EMAILS` stehen oder bereits in `persons_private` (= per Skipper-Einladung hinterlegt) — Fremde sehen eine Fehlermeldung, es wird kein Auth-User produziert.
+  - **Klick-Bestätigungsseite:** `/auth/confirm` ist eine Page mit „Jetzt einloggen"-Button → POST nach `/auth/verify` → `verifyOtp`. Schützt vor Link-Scannern (Outlook Safe Links, Gmail Spam-Filter), die GET-URLs in eingehenden Mails automatisch im Hintergrund aufrufen würden.
+  - **Auto-Resend bei abgelaufenem Link:** die Empfänger-E-Mail wird durch den Flow durchgereicht (`&email={{ .Email }}` im Magic-Link-Template). Bei `otp_expired`/`verify_failed` zeigt die Login-Page direkt einen „Neuen Link an X senden"-Button.
+  - **Auto-Invite-Mail:** wenn ein Skipper eine neue Person zur Crew hinzufügt, geht automatisch ein Magic-Link an die E-Mail.
+  - **Resend-Button** nach 30 s im normalen Login-Flow.
 - **Rollen:**
-  - **Admin** — über `ADMIN_EMAILS` (Env-Var, Komma-separiert). Darf Törns anlegen + alle Trips verwalten + Crew bearbeiten + löschen.
+  - **Admin** — über `ADMIN_EMAILS` (Env-Var, Komma-separiert). Darf Törns anlegen + alle Trips verwalten + Crew bearbeiten + löschen. Sieht ALLE Trips (Service-Role-Read-Bypass via `lib/supabase/read-client.ts`), auch fremde.
   - **Skipper** — Original-Anleger eines Törns (`trips.skipper_id`); kann nicht degradiert oder entfernt werden.
   - **Co-Skipper** — `trip_members.is_skipper = TRUE`. Darf alles, was der Skipper darf, außer der Original-Skipper-Slot.
   - **Crew-Member** — `trip_members`-Eintrag. Darf Buchungen erfassen + eigene Schulden abhaken; sieht Bilanz/Schulden/Statistik.
+- **Privacy-Split (Migration 0013):** `persons.display_name` ist öffentlich (Vorname + ggf. Initial), darf keine Nachnamen tragen. `persons_private.last_name` + `persons_private.email` (CITEXT) — sichtbar via RLS nur für Self oder Trip-Skipper der eigenen Crew.
 - **Aufteilungslogiken:** Gleichmäßig, An Bord, Zeitanteilig, Individuell + Alkohol-Modifikator (siehe [`docs/calculation-rules.md`](../docs/calculation-rules.md)).
-- **Gutschriften:** direkt oder „An Alle" — ausschließlich von Skippern/Admins erfassbar.
+- **Buchungen:** erfassen + nachträglich **bearbeiten** unter `/trips/[id]/transactions/[txId]/edit` (Skipper, Admin oder Ersteller dürfen ändern).
+- **Gutschriften:** direkt oder „An Alle" — ausschließlich von Skippern/Admins erfassbar. „An Alle" verlangt mindestens 2 Crew-Mitglieder (sonst lässt sich die Bilanz nicht ausgleichen).
 - **Bilanz & Schulden:** Live aus SQL-Views (`v_balances`, `v_transaction_shares`); `simplify_debts()` als Greedy-Algorithmus für minimale Überweisungen.
 - **Bezahlt-Status der Schulden:** Crew-weit synchronisiert in `settled_debts`; nur Schuldner, Gläubiger oder Admin dürfen das Häkchen toggeln.
+- **Crew-Schutz beim Entfernen:** Personen mit aktiven Buchungen (paid_by / credit_from / credit_to in nicht-soft-deleten Transaktionen) können nicht aus der Crew entfernt werden — Bilanz würde sonst inkonsistent. Skipper muss erst die Buchungen umbuchen (Edit-Form) oder löschen.
+- **Kategorien:** pro Trip mit lucide-react-Icon (kuratierte 23-Icon-Whitelist in `lib/categories/icons.ts`). Marineblau-monochrome Strich-Icons im Bottom-Nav-Stil; Picker im Settings-Tab.
 - **Statistik:** Live-Aggregation pro Trip nach Kategorie + Tag. Bleibt nach DSGVO-Purge anonymisiert in `trip_statistics` erhalten.
 - **PWA:** Service Worker (`public/sw.js`) + IndexedDB-Outbox. Buchungen können offline erfasst werden, werden bei Reconnect automatisch synchronisiert (`lib/offline/sync.ts`). Idempotency-Key auf jeder Buchung verhindert Duplikate.
 - **Audit-Log:** jede Schreib-Operation (Trip, Crew, Kategorie, Buchung, Settled-Debt) hinterlässt einen Eintrag in `audit_log`. RLS schränkt Lese-Zugriff auf den Skipper des betroffenen Trips ein.
@@ -81,7 +90,9 @@ psql -h 127.0.0.1 -p 54322 -U postgres -d postgres \
 app/                            Next.js App Router
   /                             Trip-Liste (eigene + Admin-Sicht auf alle)
   /login                        Magic-Link-Form
-  /auth/callback                Code → Session-Exchange (PKCE)
+  /auth/callback                Legacy PKCE-Callback (für ältere Mails)
+  /auth/confirm                 Klick-Bestätigungsseite (Token-Hash-Flow)
+  /auth/verify                  POST-Endpoint: verifyOtp + Session-Cookies setzen
   /profile                      User-Settings + Admin-Badge
   /datenschutz                  DSGVO-Erklärung
   /trips/new                    Anlege-Wizard (admin-only, optional Skipper-Email)
@@ -101,26 +112,33 @@ components/
   service-worker-register.tsx   PWA-SW-Lifecycle + Update-Toast
 
 lib/
-  supabase/server.ts            Cookie-Client für Server Components / Auth
+  supabase/server.ts            Cookie-Client für Server Components / Auth-Routes
+                                (akzeptiert optional NextResponse für Cookie-Binding bei Redirects)
   supabase/admin.ts             Service-Role-Client für Server Actions (RLS-Bypass)
-  auth/get-current-person.ts    Verknüpft Auth-User mit persons-Row
-  auth/authz.ts                 requireAuth/Skipper/Admin/SkipperOrAdmin/Member
+  supabase/read-client.ts       Read-Helper: Admin → Service-Role, sonst Cookie-Client
+  auth/get-current-person.ts    Verknüpft Auth-User mit persons-Row, liefert eigene Email aus persons_private
+  auth/authz.ts                 requireAuth/Skipper/Admin/SkipperOrAdmin/Member + isEmailAllowedToSignIn
+  auth/invite.ts                Magic-Link-Versand beim Crew-Add (frischer anon-Client ohne Cookies)
   actions/                      Server Actions (Trips, Crew, Kategorien, Buchungen, Settled-Debts)
-  queries/                      Lese-Pfade (Trips, Transaktionen, Bilanz, Stats, Settled-Debts)
+  queries/                      Lese-Pfade über readClient() (Trips, Transaktionen, Bilanz, Stats, Settled-Debts)
   calc/                         TS-Mirror der SQL-Logik (für Vitest, nicht im Render-Pfad)
   validation/                   Zod-Schemas (Komma→Punkt-Preprocess)
-  categories/icons.ts           Kuratierte Kategorie-Emojis
+  categories/icons.ts           Kuratierte lucide-react-Icon-Whitelist + Name-Match-Fallback
   offline/outbox.ts             IndexedDB-Outbox
   offline/sync.ts               Replay der Outbox bei Reconnect
   db/audit.ts                   Audit-Log-Helper
+
+components/category-icon.tsx    Render-Wrapper für Kategorie-Icons (mit Name-Fallback)
+components/icon-picker.tsx      Chip-Grid für Icon-Auswahl im Settings-Tab
 
 supabase/
   config.toml                   Supabase-CLI-Config
   migrations/                   0001 init · 0002 views · 0003 funcs · 0004 RLS
                                 · 0005 idempotency · 0006 audit_log
                                 · 0007 soft-delete · 0008 co-skippers
-                                · 0009 settled_debts · 0010 category_icons
-                                · 0011 data_retention
+                                · 0009 settled_debts · 0010 category_icons (Emoji-Initial)
+                                · 0011 data_retention · 0012 category_icons_lucide
+                                · 0013 privacy (persons_private)
   email-templates/              Branded Magic-Link-Mail (deutsch + Logo)
   seed.sql                      10-Personen-Crew + Test-Törn
 
@@ -141,10 +159,11 @@ supabase db push
 ```
 
 **3. Auth konfigurieren** (Supabase Dashboard → Authentication):
-- SMTP-Provider eintragen
-- URL Configuration: Site URL = Production-Domain, Redirect URLs enthalten `+ /auth/callback`
-- Optional: Email-Templates aus [`supabase/email-templates/`](supabase/email-templates/) übernehmen
-- Empfohlen: Email OTP Expiration auf 900 s (15 Min) reduzieren
+- SMTP-Provider eintragen (z.B. Resend mit eigener Sender-Domain)
+- **Sign In / Providers → Email:** „Confirm email" auf **OFF** (wir nutzen Magic-Link-Only-Auth; Confirm-Signup würde sonst eine unbranded Vorab-Mail schicken)
+- **URL Configuration:** Site URL = Production-Domain, Redirect URLs enthalten `/auth/callback`, `/auth/confirm`, `/auth/verify`
+- **Email Templates → Magic Link:** Inhalt aus [`supabase/email-templates/magic-link.html`](supabase/email-templates/magic-link.html) einsetzen. Die URL muss `&type=email&email={{ .Email }}` enthalten (kein `{{ .Type }}` — das rendert bei Magic-Links als leer). Subject z.B. `Dein Bordkasse-Login-Link`.
+- Optional: Email OTP Expiration auf 900 s (15 Min) reduzieren (Default: 3600 s)
 
 **4. Vercel-Project anlegen:**
 - **Root Directory:** `webapp`
@@ -162,8 +181,11 @@ supabase db push
 
 ## Architektur-Notizen
 
-- **Server Actions + Service-Role:** Auth-Cookie kommt im Next.js 16 Server-Action-Pfad nicht zuverlässig durch RLS. Der Workaround: `getCurrentPerson()` validiert die Session über den Cookie-Client, anschließend lesen/schreiben Server Actions mit dem Admin-Client (Service-Role) — RLS wird gezielt umgangen, Authz wandert in App-Layer (`lib/auth/authz.ts`).
+- **Server Actions + Service-Role:** Auth-Cookie kommt im Next.js 16 Server-Action-Pfad nicht zuverlässig durch RLS. Der Workaround: `getCurrentPerson()` validiert die Session über den Cookie-Client, anschließend schreiben Server Actions mit dem Admin-Client (Service-Role) — RLS wird gezielt umgangen, Authz wandert in App-Layer (`lib/auth/authz.ts`).
+- **Read-Pfad mit Admin-Bypass:** alle Lese-Queries laufen über `lib/supabase/read-client.ts:readClient()`. Für `ADMIN_EMAILS`-User liefert es den Service-Role-Client (RLS-Bypass → Admin sieht fremde Törns), für alle anderen den Cookie-Client mit aktivem RLS.
+- **Auth-Route Cookie-Binding:** in `/auth/verify` (POST) wird zuerst die `NextResponse.redirect` erzeugt, dann `createClient(response)` aufgerufen — der Cookie-Adapter schreibt Set-Cookies direkt auf die Response. Ohne diesen Pattern landen Session-Cookies bei Redirects nicht im Browser (siehe Supabase Discussion #35615).
 - **Berechnungen serverseitig:** Aufteilungs-Logiken stecken als SQL-Views in `0002_views.sql`, der Greedy-Algorithmus als Postgres-Function in `0003_functions.sql`. Der TS-Mirror in `lib/calc/` ist nur Test-Material.
 - **Realtime:** `RealtimeTrip` subscribt auf `transactions`, `trip_members` und `settled_debts` des aktuellen Trips → `router.refresh()` bei Änderung.
 - **Idempotency:** jede Buchung trägt einen client-seitig generierten `idempotency_key`; UNIQUE-Index auf `(trip_id, idempotency_key)` macht Doppelklicks und Outbox-Replay-Duplikate unmöglich.
-- **Persons-Modell:** `persons.auth_user_id` ist NULL für Ghost-Personen (per Email eingeladen, aber noch nicht eingeloggt). Beim ersten Magic-Link-Login wird der Auth-User automatisch mit der passenden Ghost-Row verlinkt.
+- **Persons-Modell + Privacy-Split:** `persons` (öffentlich: `display_name`, `is_alcoholic`, `auth_user_id`) vs `persons_private` (privat: `last_name`, `email` CITEXT). Ghost-Personen haben `auth_user_id = NULL`; beim ersten Magic-Link-Login wird der Auth-User automatisch mit der passenden Ghost-Row verlinkt (Lookup über `persons_private.email`).
+- **Link-Scanner-Schutz:** `/auth/confirm` ist bewusst eine Page (zeigt Button), nicht ein Route Handler. Mail-Programme wie Outlook Safe Links crawlen GET-URLs zur Reputation-Prüfung — wenn die Verifizierung direkt im GET passieren würde, wäre der Single-Use-Token verbraucht, bevor der User selbst klickt. Erst das POST-Formular auf `/auth/verify` löst `verifyOtp` aus.
