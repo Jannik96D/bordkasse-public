@@ -20,6 +20,8 @@ Next.js 16 + Supabase Web-App-Variante der Bordkasse. Spec: [`../docs/web-app-sp
 - **Buchungen:** erfassen + nachträglich **bearbeiten** unter `/trips/[id]/transactions/[txId]/edit` (Skipper, Admin oder Ersteller dürfen ändern).
   - **Einheitliche Picker:** Kategorie- und Personen-Auswahl als Custom-Dropdowns (`components/category-select.tsx`, `components/person-select.tsx`) — gleiche Höhe/Schriftart, Icons direkt in der Kategorie-Liste. Ersetzen die nativen `<select>`-Elemente, die auf Mobile uneinheitlich gerendert haben.
   - **Eigener Name oben:** im „Bezahlt von"-Dropdown steht der eingeloggte User immer an erster Stelle (häufigste Wahl, spart Scroll auf Smartphone).
+  - **Sprechende Fehlermeldungen:** Pflichtfelder liefern feldspezifische deutsche Meldungen statt generischem „Invalid uuid" (siehe `requiredUuid()` in `lib/validation/transaction-schema.ts`).
+  - **Eingabe-Persistenz bei Validierungs-Fehler:** native Inputs laufen über controlled-State, sodass React-19's automatischer Form-Reset bei Fehler-Response nicht greift — die Crew muss nur das fehlende Feld nachtragen, nicht alles erneut eingeben.
 - **Gutschriften:** direkt oder „An Alle" — ausschließlich von Skippern/Admins erfassbar. „An Alle" verlangt mindestens 2 Crew-Mitglieder (sonst lässt sich die Bilanz nicht ausgleichen).
 - **Bilanz & Schulden:** Live aus SQL-Views (`v_balances`, `v_transaction_shares`); `simplify_debts()` als Greedy-Algorithmus für minimale Überweisungen.
 - **Bezahlt-Status der Schulden:** Crew-weit synchronisiert in `settled_debts`; nur Schuldner, Gläubiger oder Admin dürfen das Häkchen toggeln.
