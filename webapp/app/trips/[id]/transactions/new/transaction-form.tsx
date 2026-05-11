@@ -83,6 +83,8 @@ interface TransactionFormProps {
   isSkipper: boolean;
   members: Member[];
   categories: Category[];
+  /** person_id des eingeloggten Users — wird im "Bezahlt von"-Dropdown nach oben sortiert. */
+  currentPersonId?: string;
   /** Wenn gesetzt, Form öffnet im Edit-Mode für eine Ausgabe. */
   expenseInitial?: ExpenseInitial;
   /** Wenn gesetzt, Form öffnet im Edit-Mode für eine Gutschrift. */
@@ -94,6 +96,7 @@ export function TransactionForm({
   isSkipper,
   members,
   categories,
+  currentPersonId,
   expenseInitial,
   creditInitial,
 }: TransactionFormProps) {
@@ -141,6 +144,7 @@ export function TransactionForm({
           tripId={tripId}
           members={members}
           categories={categories}
+          currentPersonId={currentPersonId}
           initial={expenseInitial}
         />
       ) : (
@@ -154,13 +158,23 @@ function ExpenseForm({
   tripId,
   members,
   categories,
+  currentPersonId,
   initial,
 }: {
   tripId: string;
   members: Member[];
   categories: Category[];
+  currentPersonId?: string;
   initial?: ExpenseInitial;
 }) {
+  // Eingeloggten User im "Bezahlt von"-Dropdown nach oben sortieren.
+  const paidByOptions = (() => {
+    const opts = members.map((m) => ({ id: m.person_id, name: m.display_name }));
+    if (!currentPersonId) return opts;
+    const me = opts.find((o) => o.id === currentPersonId);
+    if (!me) return opts;
+    return [me, ...opts.filter((o) => o.id !== currentPersonId)];
+  })();
   const router = useRouter();
   const isEdit = !!initial;
   const [state, formAction, pending] = useActionState(
@@ -222,7 +236,7 @@ function ExpenseForm({
       <FieldGroup label="Bezahlt von">
         <PersonSelect
           name="paid_by"
-          options={members.map((m) => ({ id: m.person_id, name: m.display_name }))}
+          options={paidByOptions}
           defaultValue={initial?.paidBy ?? ""}
         />
       </FieldGroup>
