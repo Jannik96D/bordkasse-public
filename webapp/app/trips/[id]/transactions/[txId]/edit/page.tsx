@@ -97,6 +97,7 @@ export default async function EditTransactionPage({
       <TransactionForm
         tripId={tripId}
         isSkipper={isMyTripSkipper || admin}
+        currentPersonId={person.id}
         members={memberOptions}
         categories={categoryOptions}
         expenseInitial={expenseInitial}

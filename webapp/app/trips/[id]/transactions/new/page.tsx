@@ -34,6 +34,7 @@ export default async function NewTransactionPage({
       <TransactionForm
         tripId={id}
         isSkipper={isSkipper}
+        currentPersonId={person?.id}
         members={members.map((m) => ({
           person_id: m.person_id,
           display_name: m.display_name,
