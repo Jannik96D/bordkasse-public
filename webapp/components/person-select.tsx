@@ -14,6 +14,10 @@ interface PersonSelectProps {
   extraOption?: { value: string; label: string };
   defaultValue?: string;
   placeholder?: string;
+  /** Wenn true, wird der Trigger rot umrandet (Validierungs-Fehler). */
+  invalid?: boolean;
+  /** Person-ID des aktuellen Users — bekommt "(du)" als dezenten Marker. */
+  currentUserId?: string;
 }
 
 export function PersonSelect({
@@ -22,6 +26,8 @@ export function PersonSelect({
   extraOption,
   defaultValue = "",
   placeholder = "— Person wählen —",
+  invalid = false,
+  currentUserId,
 }: PersonSelectProps) {
   const allOptions: Option[] = extraOption
     ? [{ id: extraOption.value, name: extraOption.label }, ...options]
@@ -55,24 +61,31 @@ export function PersonSelect({
     setOpen(false);
   };
 
+  const label = (o: Option) =>
+    currentUserId && o.id === currentUserId ? `${o.name} (du)` : o.name;
+
   return (
     <div ref={rootRef} className="relative mt-1">
       <input type="hidden" name={name} value={selected?.id ?? ""} />
 
       <button
         ref={triggerRef}
+        id={name}
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-invalid={invalid || undefined}
         className={cn(
-          "flex h-11 w-full items-center justify-between gap-2 rounded-md border border-rule bg-paper px-3 text-left text-base outline-none",
-          "focus:border-primary focus:ring-2 focus:ring-primary/20",
+          "flex h-11 w-full items-center justify-between gap-2 rounded-md border bg-paper px-3 text-left text-base outline-none",
+          invalid
+            ? "border-danger ring-2 ring-danger/20"
+            : "border-rule focus:border-primary focus:ring-2 focus:ring-primary/20",
         )}
       >
         <span className="min-w-0 truncate">
           {selected ? (
-            selected.name
+            label(selected)
           ) : (
             <span className="text-ink-soft">{placeholder}</span>
           )}
@@ -108,7 +121,7 @@ export function PersonSelect({
                   active && "bg-paper-soft",
                 )}
               >
-                <span className="truncate">{o.name}</span>
+                <span className="truncate">{label(o)}</span>
                 {active && <Check className="h-4 w-4 shrink-0 text-primary" aria-hidden />}
               </li>
             );

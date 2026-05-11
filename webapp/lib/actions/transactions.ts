@@ -58,7 +58,7 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
   if (error?.code === PG_UNIQUE_VIOLATION && idempotency_key) {
     // Retry des Clients — Buchung ist schon angelegt, wir leiten einfach weiter.
     revalidatePath(`/trips/${txData.trip_id}/transactions`);
-    redirect(`/trips/${txData.trip_id}/transactions`);
+    redirect(`/trips/${txData.trip_id}/transactions?toast=expense-created`);
   }
   if (error || !tx) {
     return { status: "error", message: error?.message ?? "Buchung konnte nicht angelegt werden." };
@@ -82,7 +82,7 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
   revalidatePath(`/trips/${txData.trip_id}/transactions`);
   revalidatePath(`/trips/${txData.trip_id}/balance`);
   revalidatePath(`/trips/${txData.trip_id}/debts`);
-  redirect(`/trips/${txData.trip_id}/transactions`);
+  redirect(`/trips/${txData.trip_id}/transactions?toast=expense-created`);
 }
 
 export async function createCredit(_prev: TxState, formData: FormData): Promise<TxState> {
@@ -145,7 +145,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     .single();
   if (error?.code === PG_UNIQUE_VIOLATION && parsed.data.idempotency_key) {
     revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
-    redirect(`/trips/${parsed.data.trip_id}/transactions`);
+    redirect(`/trips/${parsed.data.trip_id}/transactions?toast=credit-created`);
   }
   if (error || !tx) return { status: "error", message: error?.message ?? "Buchung konnte nicht angelegt werden." };
 
@@ -161,7 +161,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
   revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
   revalidatePath(`/trips/${parsed.data.trip_id}/balance`);
   revalidatePath(`/trips/${parsed.data.trip_id}/debts`);
-  redirect(`/trips/${parsed.data.trip_id}/transactions`);
+  redirect(`/trips/${parsed.data.trip_id}/transactions?toast=credit-created`);
 }
 
 /**
@@ -257,7 +257,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   revalidatePath(`/trips/${txData.trip_id}/transactions`);
   revalidatePath(`/trips/${txData.trip_id}/balance`);
   revalidatePath(`/trips/${txData.trip_id}/debts`);
-  redirect(`/trips/${txData.trip_id}/transactions`);
+  redirect(`/trips/${txData.trip_id}/transactions?toast=expense-updated`);
 }
 
 export async function updateCredit(_prev: TxState, formData: FormData): Promise<TxState> {
@@ -343,7 +343,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
   revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
   revalidatePath(`/trips/${parsed.data.trip_id}/balance`);
   revalidatePath(`/trips/${parsed.data.trip_id}/debts`);
-  redirect(`/trips/${parsed.data.trip_id}/transactions`);
+  redirect(`/trips/${parsed.data.trip_id}/transactions?toast=credit-updated`);
 }
 
 /**

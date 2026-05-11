@@ -27,6 +27,12 @@ export default async function SettingsPage({
 
   return (
     <main className="mx-auto max-w-2xl space-y-8 px-4 py-6">
+      {!canEdit && (
+        <p className="rounded-md border border-rule bg-paper-soft px-3 py-2 text-sm text-ink-soft">
+          Du siehst die Einstellungen nur zur Ansicht. Crew und Kategorien
+          können nur Skipper oder Admin bearbeiten.
+        </p>
+      )}
       <CrewSection
         tripId={id}
         members={members}
