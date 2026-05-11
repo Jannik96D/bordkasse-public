@@ -185,6 +185,25 @@ function ExpenseForm({
   const [showAdvanced, setShowAdvanced] = useState(!!initial && initial.alcoholAmount > 0);
   const [idempotencyKey] = useState(() => crypto.randomUUID());
 
+  // Controlled-State für native Inputs, damit React-19's automatischer
+  // Form-Reset nach Submit die Eingaben bei Validierungs-Fehler nicht löscht.
+  const [date, setDate] = useState(initial?.date ?? todayIso());
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [amount, setAmount] = useState(initial ? formatAmount(initial.amount) : "");
+  const [alcoholAmount, setAlcoholAmount] = useState(
+    initial && initial.alcoholAmount > 0 ? formatAmount(initial.alcoholAmount) : "",
+  );
+  const [participantIds, setParticipantIds] = useState<Set<string>>(
+    () => new Set(initial?.participantIds ?? []),
+  );
+  const toggleParticipant = (id: string) =>
+    setParticipantIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     if (!isEdit && typeof navigator !== "undefined" && !navigator.onLine) {
       e.preventDefault();
@@ -211,7 +230,8 @@ function ExpenseForm({
       <FieldGroup label="Datum" htmlFor="date">
         <input
           id="date" name="date" type="date" required
-          defaultValue={initial?.date ?? todayIso()}
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
           className={inputCls}
         />
       </FieldGroup>
@@ -219,7 +239,8 @@ function ExpenseForm({
       <FieldGroup label="Beschreibung" htmlFor="description">
         <input
           id="description" name="description" type="text" required maxLength={120}
-          defaultValue={initial?.description ?? ""}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
           placeholder="z. B. Lebensmittel Edeka"
           className={inputCls}
         />
@@ -246,7 +267,8 @@ function ExpenseForm({
           id="amount" name="amount" type="text" required
           inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?"
           autoComplete="off"
-          defaultValue={initial ? formatAmount(initial.amount) : ""}
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
           placeholder="0,00"
           className={inputCls}
         />
@@ -282,7 +304,8 @@ function ExpenseForm({
                     type="checkbox"
                     name="participant_ids"
                     value={m.person_id}
-                    defaultChecked={initial?.participantIds.includes(m.person_id) ?? false}
+                    checked={participantIds.has(m.person_id)}
+                    onChange={() => toggleParticipant(m.person_id)}
                     className="h-5 w-5 rounded border-rule"
                   />
                   <span>{m.display_name}</span>
@@ -308,7 +331,8 @@ function ExpenseForm({
             inputMode="decimal" pattern="([0-9]+([,.][0-9]{1,2})?)?"
             autoComplete="off"
             placeholder="0,00"
-            defaultValue={initial && initial.alcoholAmount > 0 ? formatAmount(initial.alcoholAmount) : ""}
+            value={alcoholAmount}
+            onChange={(e) => setAlcoholAmount(e.target.value)}
             className={inputCls}
           />
         </FieldGroup>
@@ -346,6 +370,12 @@ function CreditForm({
   );
   const [idempotencyKey] = useState(() => crypto.randomUUID());
 
+  // Controlled-State, damit React-19's automatischer Form-Reset die Eingaben
+  // bei Validierungs-Fehlern nicht löscht (siehe ExpenseForm oben).
+  const [date, setDate] = useState(initial?.date ?? todayIso());
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [amount, setAmount] = useState(initial ? formatAmount(initial.amount) : "");
+
   const initialCreditTo: string = initial
     ? initial.creditTo == null
       ? "ALL"
@@ -376,7 +406,8 @@ function CreditForm({
 
       <FieldGroup label="Datum" htmlFor="date">
         <input id="date" name="date" type="date" required
-          defaultValue={initial?.date ?? todayIso()}
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
           className={inputCls}
         />
       </FieldGroup>
@@ -384,7 +415,8 @@ function CreditForm({
       <FieldGroup label="Beschreibung" htmlFor="description" hint="Optional. Leer → 'Gutschrift'.">
         <input
           id="description" name="description" type="text" maxLength={120}
-          defaultValue={initial?.description ?? ""}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
           placeholder="z. B. Yacht-Anteil-Rückzahlung"
           className={inputCls}
         />
@@ -395,7 +427,8 @@ function CreditForm({
           id="amount" name="amount" type="text" required
           inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?"
           autoComplete="off"
-          defaultValue={initial ? formatAmount(initial.amount) : ""}
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
           placeholder="0,00"
           className={inputCls}
         />
