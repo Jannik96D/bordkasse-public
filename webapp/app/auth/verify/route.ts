@@ -1,0 +1,51 @@
+import { NextResponse, type NextRequest } from "next/server";
+import type { EmailOtpType } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/server";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * Verifiziert den Magic-Link-Token. Wird vom Klick-Bestätigungs-Formular
+ * auf /auth/confirm aus per POST aufgerufen — nie direkt via GET-Link,
+ * damit Mail-Link-Scanner den Token nicht versehentlich verbrauchen.
+ *
+ * Cookies werden direkt auf die Redirect-Response gehängt (Pattern aus
+ * lib/supabase/server.ts), sonst landen die Session-Cookies nicht im
+ * Browser des Users.
+ */
+export async function POST(request: NextRequest) {
+  const formData = await request.formData();
+  const token_hash = formData.get("token_hash")?.toString();
+  const type = formData.get("type")?.toString() as EmailOtpType | null;
+  const next = formData.get("next")?.toString() ?? "/";
+
+  const origin = new URL(request.url).origin;
+
+  if (!token_hash || !type) {
+    return redirectWithError(
+      origin,
+      "missing_token",
+      "Der Login-Link enthält keinen gültigen Token. Fordere einen neuen an.",
+    );
+  }
+
+  // Response zuerst, damit der Cookie-Adapter aus createClient(response)
+  // die Set-Cookie-Header direkt auf den Redirect schreibt.
+  // 303 (See Other) zwingt den Browser auf GET — sonst würde ein POST auf
+  // die Home-Route weitergehen und der Server-Component-Render scheitern.
+  const response = NextResponse.redirect(new URL(next, origin), { status: 303 });
+  const supabase = await createClient(response);
+  const { error } = await supabase.auth.verifyOtp({ token_hash, type });
+  if (error) {
+    return redirectWithError(origin, error.code ?? "verify_failed", error.message);
+  }
+
+  return response;
+}
+
+function redirectWithError(origin: string, code: string, message: string) {
+  const target = new URL("/login", origin);
+  target.searchParams.set("auth_error", code);
+  target.searchParams.set("auth_error_msg", message);
+  return NextResponse.redirect(target, { status: 303 });
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useActionState, useEffect, useState, useTransition } from "react";
 import { Anchor, Pencil, Plus, Trash2, X } from "lucide-react";
 import {
   inviteMember,
@@ -35,9 +35,17 @@ export function CrewSection({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
-  if (state.status === "ok" && showForm) {
-    setTimeout(() => setShowForm(false), 800);
-  }
+  // Form nach erfolgreichem Submit automatisch zuklappen — aber nur einmal
+  // pro Submit. Vorherige Implementation startete bei jedem Render einen
+  // neuen setTimeout, sodass das Form direkt wieder zuging, wenn der User
+  // es nach „ok" erneut über „Hinzufügen" öffnete.
+  // Lösung: useEffect mit `state`-Dependency (neue Objekt-Referenz bei
+  // jedem Submit) — re-öffnen via Button löst den Effect nicht aus.
+  useEffect(() => {
+    if (state.status !== "ok") return;
+    const t = setTimeout(() => setShowForm(false), 800);
+    return () => clearTimeout(t);
+  }, [state]);
 
   return (
     <section>
