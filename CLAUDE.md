@@ -245,13 +245,24 @@ Schriften: Campton Bold (Display) → Arial Bold (H2) → Arial Regular (Body).
 
 **Aktueller Funktionsumfang:**
 
-- **Auth:** Magic-Link per E-Mail (PKCE-Flow, Single-Use, 60 Min TTL), Resend-Button nach 30 s.
+- **Auth:** Magic-Link per E-Mail (Token-Hash-Flow, Single-Use, 60 Min TTL).
+  - Whitelist-Check vor dem Versand: nur E-Mails in `ADMIN_EMAILS`-Env oder bereits in `persons_private` (per Skipper-Einladung) bekommen einen Link — Fremde werden mit Fehlermeldung abgewiesen, keine auth.users-Leichen.
+  - Klick auf den Magic-Link landet auf `/auth/confirm` (Server Page mit „Jetzt einloggen"-Button) → POST nach `/auth/verify` → `verifyOtp` + Session. Die Zwischenseite schützt gegen Link-Scanner (Outlook Safe Links etc.), die den Token sonst per Vorab-GET verbrauchen würden.
+  - Bei abgelaufenem / verbrauchtem Link redirected `/auth/verify` zurück nach `/login?auth_error=…&email=…`; die Login-Page bietet direkt einen „Neuen Link an X senden"-Button (E-Mail-Adresse wird per `&email={{ .Email }}`-Template-Parameter durchgereicht).
+  - Resend-Button nach 30 s im normalen Login-Flow.
 - **Rollen:** Admin (`ADMIN_EMAILS`-Env), Original-Skipper (`trips.skipper_id`), Co-Skipper (`trip_members.is_skipper`), Crew-Member. Admin kann Törns für Freunde anlegen, ohne selbst in der Crew zu landen.
-- **Trips:** CRUD inkl. Archivierung; Admin sieht im Welcome-Screen zusätzlich „fremde" Törns als Admin-Ansicht.
+- **Trips:** CRUD inkl. Archivierung; Admin sieht ALLE Trips (Service-Role-Read-Bypass via `lib/supabase/read-client.ts`), auch fremde — kein 404 beim Drauflicken.
+- **Privacy-Split** (`persons` vs `persons_private`):
+  - `persons.display_name` ist öffentlich (Vorname + ggf. Initial), darf NIE einen Nachnamen tragen.
+  - `persons_private.last_name`, `persons_private.email` (CITEXT) — sichtbar nur für Self oder Trip-Skipper der eigenen Crew via RLS.
+  - Service-Role-Schreibpfade laufen weiterhin über `createAdminClient()`.
 - **Crew-Verwaltung:** Email-Einladung mit Ghost-Personen, Inline-Edit-Form (Name/Email nur für Ghosts editierbar; Anwesenheit/Alkohol/Notiz für alle).
-- **Kategorien:** pro Trip mit Emoji-Icon (kuratierte 22er-Auswahl im Picker). Default-Kategorien: Lebensmittel 🛒, Restaurant 🍽️, Sprit ⛽, Yacht ⛵, Hafen ⚓, Ausrüstung 🛠️, Versicherung 🛡️, Sonstiges 📦.
+  - **Auto-Invite-Mail:** beim Anlegen eines neuen Crew-Members wird automatisch ein Magic-Link verschickt — der Skipper muss nicht extra sagen „und jetzt geh auf /login". UPSERT-Updates (z.B. Anwesenheits-Edit) lösen KEINE Re-Invite-Mail aus.
+  - **Remove-Schutz:** Crew-Member, die noch Buchungen haben (paid_by / credit_from / credit_to), können nicht entfernt werden — Skipper muss erst die Buchungen umbuchen.
+- **Kategorien:** pro Trip mit lucide-react-Icon (kuratierte 23-Icon-Whitelist im Picker, `webapp/lib/categories/icons.ts`). Marineblau-monochrome Strich-Icons im Bottom-Nav-Stil. Default-Kategorien (Lebensmittel→`ShoppingCart`, Restaurant→`Utensils`, Sprit→`Fuel`, Yacht→`Sailboat`, Hafen→`Anchor`, Ausrüstung→`Wrench`, Versicherung→`ShieldCheck`, Sonstiges→`Package`). Render-Zeit-Fallback auf den Kategorie-Namen + Default-Icon `Tag` bei unbekannten Werten.
 - **Buchungen:** alle 4 Aufteilungslogiken + Alkohol-Modifikator. Currency-Input akzeptiert deutsches Komma. Idempotency-Key auf jeder Row gegen Doppelklick / Outbox-Replay.
-- **Gutschriften** (direkt oder „An Alle") — nur Skipper/Admin.
+  - **Edit-Modus:** `/trips/[id]/transactions/[txId]/edit` — Skipper, Admin oder Ersteller (`created_by`) darf eine Buchung nachträglich ändern (Aufteilung, paid_by, Beträge, …). Pencil-Icon in der Buchungsliste neben dem Lösch-Button.
+- **Gutschriften** (direkt oder „An Alle") — nur Skipper/Admin. „An Alle" wird abgewiesen, wenn weniger als 2 Crew-Mitglieder dabei sind (sonst kann die Bilanz nicht ausgeglichen werden).
 - **Bilanz** live aus `v_balances`.
 - **Schulden** vereinfacht via `simplify_debts()`-Greedy. Bezahlt-Häkchen Crew-weit synchron in `settled_debts`; nur Schuldner, Gläubiger oder Admin dürfen togglen.
 - **Statistik** pro Trip: Live-Aggregation nach Kategorie + Tag. Bleibt nach Purge anonymisiert in `trip_statistics`.
@@ -263,7 +274,12 @@ Schriften: Campton Bold (Display) → Arial Bold (H2) → Arial Regular (Body).
 
 **Berechnungslogik:** in `webapp/supabase/migrations/0002_views.sql` (`v_transaction_shares`) und `0003_functions.sql` (`simplify_debts()`). TS-Mirror in `webapp/lib/calc/` — nur für Vitest, nicht im Render-Pfad.
 
-**Wichtige Architektur-Entscheidung:** Server Actions schreiben mit dem Service-Role-Client (`lib/supabase/admin.ts`), weil das User-JWT in Next.js 16 Server Actions die DB nicht zuverlässig erreicht. Auth/Authz wandert dadurch ins App-Layer (`lib/auth/authz.ts` mit `requireAuth/Skipper/Admin/SkipperOrAdmin/Member`).
+**Wichtige Architektur-Entscheidungen:**
+- **Schreib-Pfad:** Server Actions schreiben mit dem Service-Role-Client (`lib/supabase/admin.ts`), weil das User-JWT in Next.js 16 Server Actions die DB nicht zuverlässig erreicht. Auth/Authz wandert dadurch ins App-Layer (`lib/auth/authz.ts` mit `requireAuth/Skipper/Admin/SkipperOrAdmin/Member` + `isEmailAllowedToSignIn`).
+- **Lese-Pfad:** alle Lese-Queries laufen über `lib/supabase/read-client.ts:readClient()`. Für globale Admins (in `ADMIN_EMAILS`) liefert es den Service-Role-Client → bypass RLS, damit Admins fremde Törns sehen. Für alle anderen User → Cookie-basierter Client mit aktivem RLS.
+- **Cookie-Binding in Auth-Routes:** `/auth/verify` (POST) erstellt zuerst die Redirect-Response, dann `createClient(response)`. Der Cookie-Adapter schreibt Set-Cookie direkt auf die Response, sonst landen Session-Cookies nicht im Browser (siehe Supabase Discussion #35615).
+
+**Auth-Email-Template:** liegt in `webapp/supabase/email-templates/magic-link.html` als Repo-Snapshot — wird im Supabase-Dashboard manuell oder via Management-API gepflegt. URL-Pattern: `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&email={{ .Email }}` (NICHT `{{ .Type }}` — Supabase rendert das bei Magic-Links als leeren String).
 
 **Deploy:** Vercel mit Root Directory `webapp`. Pflicht-Env-Vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_EMAILS`, `CRON_SECRET`.
 
