@@ -155,6 +155,37 @@ describe("S4: Zeitanteilig", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────
+// S4b: Zeitanteilig + Alkohol
+// ────────────────────────────────────────────────────────────────────────
+describe("S4b: Zeitanteilig + Alkohol", () => {
+  it("200€/60€ Alkohol, 9×11 + 1×6 Tage, 3 Trinker à 11 Tage", () => {
+    const tx: Transaction = {
+      id: "s4b",
+      type: "expense",
+      date: "2026-04-08",
+      amount: 200,
+      alcoholAmount: 60,
+      paidBy: "p1",
+      splitType: "time_proportional",
+    };
+    const shares = sharesByPerson(tx);
+    // Base 140€ auf 105 Personentage → Full 14.67€, Finn 8€
+    // Alkohol 60€ auf 33 Trinker-Tage → jeder Trinker 20€
+    const drinkers = ["p3", "p4", "p5"];
+    for (const id of drinkers) expect(shares[id]).toBe(34.67); // 14.67 + 20
+    expect(shares["p6"]).toBe(8); // Finn, 6 Tage, kein Trinker
+    for (const m of crew.filter(
+      (m) => m.personId !== "p6" && !drinkers.includes(m.personId),
+    )) {
+      expect(shares[m.personId]).toBe(14.67);
+    }
+    // Saldo-Invariante: Summe der unrounded Shares ≈ 200
+    const rawTotal = calculateShares(tx, crew).reduce((a, s) => a + s.share, 0);
+    expect(Math.abs(rawTotal - 200)).toBeLessThan(0.01);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
 // S5: Individuell
 // ────────────────────────────────────────────────────────────────────────
 describe("S5: Individuell", () => {
