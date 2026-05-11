@@ -22,12 +22,17 @@ export const dynamic = "force-dynamic";
 export default async function ConfirmPage({
   searchParams,
 }: {
-  searchParams: Promise<{ token_hash?: string; type?: string; next?: string }>;
+  searchParams: Promise<{ token_hash?: string; type?: string; next?: string; email?: string }>;
 }) {
   const params = await searchParams;
   const token_hash = params.token_hash;
   const type = params.type;
   const next = params.next ?? "/";
+  // Empfänger-E-Mail aus dem Magic-Link-Template (`{{ .Email }}`). Wird
+  // benötigt, falls verifyOtp mit otp_expired antwortet — dann zeigt die
+  // /login-Page einen Auto-Resend-Button für diese Adresse, ohne dass der
+  // User sie erneut eintippen muss.
+  const email = params.email;
 
   // Fehlt der Token, kommt der User über einen kaputten Link — direkt zur
   // Login-Seite mit Hinweis.
@@ -75,6 +80,7 @@ export default async function ConfirmPage({
           <input type="hidden" name="token_hash" value={token_hash} />
           <input type="hidden" name="type" value={type} />
           <input type="hidden" name="next" value={next} />
+          {email && <input type="hidden" name="email" value={email} />}
           <button
             type="submit"
             className="w-full rounded-md bg-primary px-4 py-3 font-medium text-paper hover:bg-navy-dark"
