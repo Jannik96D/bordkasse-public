@@ -14,6 +14,7 @@ import {
 import { enqueue } from "@/lib/offline/outbox";
 import { todayIso, cn } from "@/lib/utils";
 import { CategorySelect } from "@/components/category-select";
+import { PersonSelect } from "@/components/person-select";
 
 type Member = { person_id: string; display_name: string };
 type Category = { id: string; name: string; icon: string | null };
@@ -218,19 +219,12 @@ function ExpenseForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Bezahlt von" htmlFor="paid_by">
-        <select
-          id="paid_by"
+      <FieldGroup label="Bezahlt von">
+        <PersonSelect
           name="paid_by"
-          required
+          options={members.map((m) => ({ id: m.person_id, name: m.display_name }))}
           defaultValue={initial?.paidBy ?? ""}
-          className={inputCls}
-        >
-          <option value="" disabled>— Person wählen —</option>
-          {members.map((m) => (
-            <option key={m.person_id} value={m.person_id}>{m.display_name}</option>
-          ))}
-        </select>
+        />
       </FieldGroup>
 
       <FieldGroup label="Betrag (€)" htmlFor="amount">
@@ -393,35 +387,21 @@ function CreditForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Zahlt (Von)" htmlFor="credit_from">
-        <select
-          id="credit_from"
+      <FieldGroup label="Zahlt (Von)">
+        <PersonSelect
           name="credit_from"
-          required
+          options={members.map((m) => ({ id: m.person_id, name: m.display_name }))}
           defaultValue={initial?.creditFrom ?? ""}
-          className={inputCls}
-        >
-          <option value="" disabled>— Person wählen —</option>
-          {members.map((m) => (
-            <option key={m.person_id} value={m.person_id}>{m.display_name}</option>
-          ))}
-        </select>
+        />
       </FieldGroup>
 
-      <FieldGroup label="Empfängt (An)" htmlFor="credit_to">
-        <select
-          id="credit_to"
+      <FieldGroup label="Empfängt (An)">
+        <PersonSelect
           name="credit_to"
-          required
+          options={members.map((m) => ({ id: m.person_id, name: m.display_name }))}
+          extraOption={{ value: "ALL", label: "Alle (Aufteilung an gesamte Crew)" }}
           defaultValue={initialCreditTo}
-          className={inputCls}
-        >
-          <option value="" disabled>— Person wählen —</option>
-          <option value="ALL">Alle (Aufteilung an gesamte Crew)</option>
-          {members.map((m) => (
-            <option key={m.person_id} value={m.person_id}>{m.display_name}</option>
-          ))}
-        </select>
+        />
       </FieldGroup>
 
       {state.status === "error" && (
