@@ -63,7 +63,8 @@ export default async function TripLayout({
         </div>
       </header>
 
-      <div className="flex-1 pb-2">{children}</div>
+      {/* pb-20 lässt Platz für die fixed-positionierte BottomNav (≈56px + safe-area). */}
+      <div className="flex-1 pb-20">{children}</div>
 
       <BottomNav tripId={id} />
       <RealtimeTrip tripId={id} />

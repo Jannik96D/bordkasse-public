@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Check } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
 import { cn } from "@/lib/utils";
+import { useDropdownPosition } from "@/lib/hooks/use-dropdown-position";
 
 type Category = { id: string; name: string; icon: string | null };
 
@@ -26,6 +27,8 @@ export function CategorySelect({
   const [selected, setSelected] = useState<Category | null>(initial);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const { direction, maxHeight } = useDropdownPosition(triggerRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -53,6 +56,7 @@ export function CategorySelect({
       <input type="hidden" name={name} value={selected?.id ?? ""} />
 
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
@@ -84,7 +88,11 @@ export function CategorySelect({
       {open && (
         <ul
           role="listbox"
-          className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-md border border-rule bg-paper shadow-lg"
+          style={{ maxHeight }}
+          className={cn(
+            "absolute z-30 w-full overflow-auto rounded-md border border-rule bg-paper shadow-lg",
+            direction === "down" ? "top-full mt-1" : "bottom-full mb-1",
+          )}
         >
           <li
             role="option"

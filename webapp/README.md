@@ -181,6 +181,18 @@ supabase db push
 
 **6. Cron-Job aktivieren:** Vercel liest `vercel.json` automatisch und richtet den täglichen Purge-Cron ein. Die Route ist via `Authorization: Bearer ${CRON_SECRET}` abgesichert.
 
+### PWA-Updates auf installierten Geräten
+
+Wie die Crew Updates bekommt:
+
+- **Online-Aufruf:** Browser holt HTML mit `NetworkFirst`, neue `_next/static/*.js`-Chunks (Hash-Namen) werden automatisch nachgeladen. Crew sieht beim nächsten Öffnen die aktuelle Version.
+- **Service-Worker-Update:** Browser fragt `/sw.js` byte-genau ab (max. alle 24 h). Ändert sich die Datei, installiert er die neue SW-Version und löst über `controllerchange` einen automatischen Page-Reload aus (siehe [`service-worker-register.tsx`](components/service-worker-register.tsx)).
+- **Wann muss man `CACHE_VERSION` in [`public/sw.js`](public/sw.js) hochzählen?**
+  - Pflicht: bei Änderungen an `sw.js` selbst (neuer Fetch-Handler, andere Cache-Strategie, präcachten Asset-Liste).
+  - Empfohlen: nach DB-Schema- oder Auth-Flow-Changes, damit Offline-User mit veraltetem Cache nicht in inkonsistenten Zustand laufen.
+  - Optional: bei reinen UI-Änderungen — der HTML-`NetworkFirst`-Pfad zieht neue Chunks ohnehin nach, sobald online.
+- **Browser-Update offline ist nicht möglich.** Wenn ein User die PWA seit Wochen offline nutzt, bleibt sie auf dem alten Stand. Erst beim ersten Online-Aufruf rollt die neue Version durch.
+
 ## Architektur-Notizen
 
 - **Server Actions + Service-Role:** Auth-Cookie kommt im Next.js 16 Server-Action-Pfad nicht zuverlässig durch RLS. Der Workaround: `getCurrentPerson()` validiert die Session über den Cookie-Client, anschließend schreiben Server Actions mit dem Admin-Client (Service-Role) — RLS wird gezielt umgangen, Authz wandert in App-Layer (`lib/auth/authz.ts`).

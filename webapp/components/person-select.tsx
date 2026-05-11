@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useDropdownPosition } from "@/lib/hooks/use-dropdown-position";
 
 type Option = { id: string; name: string };
 
@@ -30,6 +31,8 @@ export function PersonSelect({
   const [selected, setSelected] = useState<Option | null>(initial);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const { direction, maxHeight } = useDropdownPosition(triggerRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -57,6 +60,7 @@ export function PersonSelect({
       <input type="hidden" name={name} value={selected?.id ?? ""} />
 
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
@@ -85,7 +89,11 @@ export function PersonSelect({
       {open && (
         <ul
           role="listbox"
-          className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-md border border-rule bg-paper shadow-lg"
+          style={{ maxHeight }}
+          className={cn(
+            "absolute z-30 w-full overflow-auto rounded-md border border-rule bg-paper shadow-lg",
+            direction === "down" ? "top-full mt-1" : "bottom-full mb-1",
+          )}
         >
           {allOptions.map((o) => {
             const active = selected?.id === o.id;
