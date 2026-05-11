@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { readClient } from "@/lib/supabase/read-client";
 
 export interface TransactionListRow {
   id: string;
@@ -16,7 +16,7 @@ export interface TransactionListRow {
 }
 
 export async function listTransactions(tripId: string): Promise<TransactionListRow[]> {
-  const supabase = await createClient();
+  const supabase = await readClient();
   const { data, error } = await supabase
     .from("transactions")
     .select(`

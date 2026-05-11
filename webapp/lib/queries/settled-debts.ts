@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { readClient } from "@/lib/supabase/read-client";
 
 /**
  * Liefert alle settled-Markierungen eines Trips als Set von Schlüsseln
@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
  * gerundet, damit Vergleich mit simplify_debts-Output stabil ist).
  */
 export async function getSettledDebtKeys(tripId: string): Promise<Set<string>> {
-  const supabase = await createClient();
+  const supabase = await readClient();
   const { data, error } = await supabase
     .from("settled_debts")
     .select("from_person_id, to_person_id, amount")

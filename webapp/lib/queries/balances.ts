@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { readClient } from "@/lib/supabase/read-client";
 
 export interface BalanceRow {
   person_id: string;
@@ -11,7 +11,7 @@ export interface BalanceRow {
 }
 
 export async function getBalances(tripId: string): Promise<BalanceRow[]> {
-  const supabase = await createClient();
+  const supabase = await readClient();
   const { data, error } = await supabase
     .from("v_balances")
     .select(`
@@ -58,7 +58,7 @@ export interface DebtTransfer {
 }
 
 export async function getSimplifiedDebts(tripId: string): Promise<DebtTransfer[]> {
-  const supabase = await createClient();
+  const supabase = await readClient();
   const { data, error } = await supabase.rpc("simplify_debts", { p_trip_id: tripId });
   if (error || !data) return [];
 
