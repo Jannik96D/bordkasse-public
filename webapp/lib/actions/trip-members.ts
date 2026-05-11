@@ -1,10 +1,12 @@
 "use server";
 
 import { z } from "zod";
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
+import { sendInvitationMagicLink } from "@/lib/auth/invite";
 
 const InviteSchema = z.object({
   trip_id: z.string().uuid(),
@@ -74,6 +76,17 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
     }
   }
 
+  // Vorab prüfen ob Person schon Mitglied — entscheidet, ob die
+  // Einladungs-Mail rausgeht. Bei reinem UPSERT-Update (Anwesenheits-
+  // Edit etc.) wollen wir den Eingeladenen NICHT erneut anschreiben.
+  const { data: existingMember } = await supabase
+    .from("trip_members")
+    .select("id")
+    .eq("trip_id", trip_id)
+    .eq("person_id", personId)
+    .maybeSingle();
+  const wasAlreadyMember = !!existingMember;
+
   // Mitgliedschaft anlegen (UPSERT auf trip_id+person_id)
   const alkInput = is_alcoholic;
   const isAlcoholic =
@@ -108,6 +121,15 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
       actor_person_id: auth.personId,
       payload: member,
     });
+  }
+
+  // Einladungs-Mail nur bei NEUER Mitgliedschaft. Fehler beim Mail-Versand
+  // werden geloggt, blocken aber nicht — die Crew-Verwaltung soll auch
+  // funktionieren, wenn Resend kurzzeitig ausfällt.
+  if (!wasAlreadyMember) {
+    const hdrs = await headers();
+    const origin = hdrs.get("origin") ?? process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+    await sendInvitationMagicLink(email, origin);
   }
 
   revalidatePath(`/trips/${trip_id}/settings`);
