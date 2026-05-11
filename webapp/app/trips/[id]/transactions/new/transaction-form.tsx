@@ -1,9 +1,9 @@
 "use client";
 
-import { useActionState, useState, type FormEvent } from "react";
+import { useActionState, useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronLeft, ChevronDown, ChevronUp, Check } from "lucide-react";
 import {
   createExpense,
   createCredit,
@@ -148,7 +148,12 @@ export function TransactionForm({
           initial={expenseInitial}
         />
       ) : (
-        <CreditForm tripId={tripId} members={members} initial={creditInitial} />
+        <CreditForm
+          tripId={tripId}
+          members={members}
+          currentPersonId={currentPersonId}
+          initial={creditInitial}
+        />
       )}
     </>
   );
@@ -204,6 +209,15 @@ function ExpenseForm({
       return next;
     });
 
+  // Bei Validierungs-Fehler: zum betroffenen Feld scrollen + fokussieren.
+  useEffect(() => {
+    if (state.status !== "error" || !state.field) return;
+    const el = document.getElementById(state.field);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (el instanceof HTMLElement) el.focus({ preventScroll: true });
+  }, [state]);
+
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     if (!isEdit && typeof navigator !== "undefined" && !navigator.onLine) {
       e.preventDefault();
@@ -220,6 +234,9 @@ function ExpenseForm({
     }
   };
 
+  const errorField = state.status === "error" ? state.field : undefined;
+  const isInvalid = (field: string) => errorField === field;
+
   return (
     <form action={formAction} onSubmit={handleSubmit} className="space-y-5">
       <input type="hidden" name="trip_id" value={tripId} />
@@ -232,7 +249,8 @@ function ExpenseForm({
           id="date" name="date" type="date" required
           value={date}
           onChange={(e) => setDate(e.target.value)}
-          className={inputCls}
+          aria-invalid={isInvalid("date") || undefined}
+          className={cn(inputCls, isInvalid("date") && "border-danger ring-2 ring-danger/20")}
         />
       </FieldGroup>
 
@@ -242,7 +260,8 @@ function ExpenseForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="z. B. Lebensmittel Edeka"
-          className={inputCls}
+          aria-invalid={isInvalid("description") || undefined}
+          className={cn(inputCls, isInvalid("description") && "border-danger ring-2 ring-danger/20")}
         />
       </FieldGroup>
 
@@ -251,6 +270,7 @@ function ExpenseForm({
           name="category_id"
           categories={categories}
           defaultCategoryId={initial?.categoryId ?? undefined}
+          invalid={isInvalid("category_id")}
         />
       </FieldGroup>
 
@@ -259,6 +279,8 @@ function ExpenseForm({
           name="paid_by"
           options={paidByOptions}
           defaultValue={initial?.paidBy ?? ""}
+          invalid={isInvalid("paid_by")}
+          currentUserId={currentPersonId}
         />
       </FieldGroup>
 
@@ -270,21 +292,27 @@ function ExpenseForm({
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           placeholder="0,00"
-          className={inputCls}
+          aria-invalid={isInvalid("amount") || undefined}
+          className={cn(inputCls, isInvalid("amount") && "border-danger ring-2 ring-danger/20")}
         />
       </FieldGroup>
 
+      {/* Aufteilung als Tab-Row mit Underline für die aktive Auswahl. */}
       <div>
-        <label className="block text-sm font-medium">Aufteilung</label>
-        <div className="mt-2 grid grid-cols-2 gap-1 rounded-md bg-paper-soft p-1 sm:grid-cols-4">
+        <span className="block text-sm font-medium">Aufteilung</span>
+        <div className="mt-2 flex border-b border-rule" role="tablist" aria-label="Aufteilung">
           {(Object.keys(SPLIT_LABEL) as SplitType[]).map((s) => (
             <button
               key={s}
               type="button"
+              role="tab"
+              aria-selected={splitType === s}
               onClick={() => setSplitType(s)}
               className={cn(
-                "rounded-md py-2 text-xs font-medium transition-colors",
-                splitType === s ? "bg-paper text-primary shadow-sm" : "text-ink-soft hover:text-ink",
+                "flex-1 border-b-2 px-1 py-2 text-xs font-medium transition-colors -mb-px",
+                splitType === s
+                  ? "border-primary text-primary"
+                  : "border-transparent text-ink-soft hover:text-ink",
               )}
             >
               {SPLIT_LABEL[s]}
@@ -296,23 +324,39 @@ function ExpenseForm({
 
       {splitType === "individual" && (
         <FieldGroup label="Wer ist dabei?">
-          <ul className="space-y-1 rounded-md border border-rule bg-paper p-3">
-            {members.map((m) => (
-              <li key={m.person_id}>
-                <label className="flex items-center gap-3 py-1">
-                  <input
-                    type="checkbox"
-                    name="participant_ids"
-                    value={m.person_id}
-                    checked={participantIds.has(m.person_id)}
-                    onChange={() => toggleParticipant(m.person_id)}
-                    className="h-5 w-5 rounded border-rule"
-                  />
-                  <span>{m.display_name}</span>
-                </label>
-              </li>
+          <div
+            id="participant_ids"
+            tabIndex={-1}
+            className={cn(
+              "flex flex-wrap gap-2 rounded-md border border-rule bg-paper p-3 outline-none",
+              isInvalid("participant_ids") && "border-danger ring-2 ring-danger/20",
+            )}
+          >
+            {members.map((m) => {
+              const active = participantIds.has(m.person_id);
+              return (
+                <button
+                  key={m.person_id}
+                  type="button"
+                  onClick={() => toggleParticipant(m.person_id)}
+                  aria-pressed={active}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                    active
+                      ? "border-primary bg-primary text-paper"
+                      : "border-rule bg-paper text-ink hover:border-primary/50",
+                  )}
+                >
+                  {active && <Check className="h-3.5 w-3.5" aria-hidden />}
+                  {m.display_name}
+                </button>
+              );
+            })}
+            {/* Hidden inputs für FormData-Submission */}
+            {Array.from(participantIds).map((id) => (
+              <input key={id} type="hidden" name="participant_ids" value={id} />
             ))}
-          </ul>
+          </div>
         </FieldGroup>
       )}
 
@@ -333,7 +377,8 @@ function ExpenseForm({
             placeholder="0,00"
             value={alcoholAmount}
             onChange={(e) => setAlcoholAmount(e.target.value)}
-            className={inputCls}
+            aria-invalid={isInvalid("alcohol_amount") || undefined}
+            className={cn(inputCls, isInvalid("alcohol_amount") && "border-danger ring-2 ring-danger/20")}
           />
         </FieldGroup>
       )}
@@ -356,10 +401,12 @@ function ExpenseForm({
 function CreditForm({
   tripId,
   members,
+  currentPersonId,
   initial,
 }: {
   tripId: string;
   members: Member[];
+  currentPersonId?: string;
   initial?: CreditInitial;
 }) {
   const router = useRouter();
@@ -381,6 +428,17 @@ function CreditForm({
       ? "ALL"
       : initial.creditTo
     : "";
+
+  useEffect(() => {
+    if (state.status !== "error" || !state.field) return;
+    const el = document.getElementById(state.field);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (el instanceof HTMLElement) el.focus({ preventScroll: true });
+  }, [state]);
+
+  const errorField = state.status === "error" ? state.field : undefined;
+  const isInvalid = (field: string) => errorField === field;
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     if (!isEdit && typeof navigator !== "undefined" && !navigator.onLine) {
@@ -408,7 +466,8 @@ function CreditForm({
         <input id="date" name="date" type="date" required
           value={date}
           onChange={(e) => setDate(e.target.value)}
-          className={inputCls}
+          aria-invalid={isInvalid("date") || undefined}
+          className={cn(inputCls, isInvalid("date") && "border-danger ring-2 ring-danger/20")}
         />
       </FieldGroup>
 
@@ -418,7 +477,8 @@ function CreditForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="z. B. Yacht-Anteil-Rückzahlung"
-          className={inputCls}
+          aria-invalid={isInvalid("description") || undefined}
+          className={cn(inputCls, isInvalid("description") && "border-danger ring-2 ring-danger/20")}
         />
       </FieldGroup>
 
@@ -430,7 +490,8 @@ function CreditForm({
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           placeholder="0,00"
-          className={inputCls}
+          aria-invalid={isInvalid("amount") || undefined}
+          className={cn(inputCls, isInvalid("amount") && "border-danger ring-2 ring-danger/20")}
         />
       </FieldGroup>
 
@@ -439,6 +500,8 @@ function CreditForm({
           name="credit_from"
           options={members.map((m) => ({ id: m.person_id, name: m.display_name }))}
           defaultValue={initial?.creditFrom ?? ""}
+          invalid={isInvalid("credit_from")}
+          currentUserId={currentPersonId}
         />
       </FieldGroup>
 
@@ -448,6 +511,8 @@ function CreditForm({
           options={members.map((m) => ({ id: m.person_id, name: m.display_name }))}
           extraOption={{ value: "ALL", label: "Alle (Aufteilung an gesamte Crew)" }}
           defaultValue={initialCreditTo}
+          invalid={isInvalid("credit_to")}
+          currentUserId={currentPersonId}
         />
       </FieldGroup>
 

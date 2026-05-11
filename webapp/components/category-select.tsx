@@ -13,6 +13,7 @@ interface CategorySelectProps {
   categories: Category[];
   defaultCategoryId?: string;
   placeholder?: string;
+  invalid?: boolean;
 }
 
 export function CategorySelect({
@@ -20,6 +21,7 @@ export function CategorySelect({
   categories,
   defaultCategoryId,
   placeholder = "— Keine —",
+  invalid = false,
 }: CategorySelectProps) {
   const initial = defaultCategoryId
     ? categories.find((c) => c.id === defaultCategoryId) ?? null
@@ -57,13 +59,17 @@ export function CategorySelect({
 
       <button
         ref={triggerRef}
+        id={name}
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-invalid={invalid || undefined}
         className={cn(
-          "flex h-11 w-full items-center justify-between gap-2 rounded-md border border-rule bg-paper px-3 text-left text-base outline-none",
-          "focus:border-primary focus:ring-2 focus:ring-primary/20",
+          "flex h-11 w-full items-center justify-between gap-2 rounded-md border bg-paper px-3 text-left text-base outline-none",
+          invalid
+            ? "border-danger ring-2 ring-danger/20"
+            : "border-rule focus:border-primary focus:ring-2 focus:ring-primary/20",
         )}
       >
         <span className="flex min-w-0 items-center gap-2">
