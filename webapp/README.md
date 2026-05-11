@@ -18,6 +18,8 @@ Next.js 16 + Supabase Web-App-Variante der Bordkasse. Spec: [`../docs/web-app-sp
 - **Privacy-Split (Migration 0013):** `persons.display_name` ist öffentlich (Vorname + ggf. Initial), darf keine Nachnamen tragen. `persons_private.last_name` + `persons_private.email` (CITEXT) — sichtbar via RLS nur für Self oder Trip-Skipper der eigenen Crew.
 - **Aufteilungslogiken:** Gleichmäßig, An Bord, Zeitanteilig, Individuell + Alkohol-Modifikator (siehe [`docs/calculation-rules.md`](../docs/calculation-rules.md)).
 - **Buchungen:** erfassen + nachträglich **bearbeiten** unter `/trips/[id]/transactions/[txId]/edit` (Skipper, Admin oder Ersteller dürfen ändern).
+  - **Einheitliche Picker:** Kategorie- und Personen-Auswahl als Custom-Dropdowns (`components/category-select.tsx`, `components/person-select.tsx`) — gleiche Höhe/Schriftart, Icons direkt in der Kategorie-Liste. Ersetzen die nativen `<select>`-Elemente, die auf Mobile uneinheitlich gerendert haben.
+  - **Eigener Name oben:** im „Bezahlt von"-Dropdown steht der eingeloggte User immer an erster Stelle (häufigste Wahl, spart Scroll auf Smartphone).
 - **Gutschriften:** direkt oder „An Alle" — ausschließlich von Skippern/Admins erfassbar. „An Alle" verlangt mindestens 2 Crew-Mitglieder (sonst lässt sich die Bilanz nicht ausgleichen).
 - **Bilanz & Schulden:** Live aus SQL-Views (`v_balances`, `v_transaction_shares`); `simplify_debts()` als Greedy-Algorithmus für minimale Überweisungen.
 - **Bezahlt-Status der Schulden:** Crew-weit synchronisiert in `settled_debts`; nur Schuldner, Gläubiger oder Admin dürfen das Häkchen toggeln.
