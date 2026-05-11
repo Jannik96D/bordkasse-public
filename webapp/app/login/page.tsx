@@ -28,12 +28,17 @@ function LoginPageInner() {
   const showResend = state.status === "ok" && resendReadyFor === okEmail;
 
   // Auth-Fehler aus dem Callback (z.B. exchangeCodeForSession failed,
-  // PKCE-Verifier fehlt, Code abgelaufen). /auth/callback hängt diese Infos
-  // als Query-Parameter an, damit hier ohne Logs erkennbar ist, was
-  // schief lief.
+  // PKCE-Verifier fehlt, Code abgelaufen). /auth/callback und /auth/verify
+  // hängen die Infos als Query-Parameter an, damit hier ohne Logs erkennbar
+  // ist, was schief lief.
+  //
+  // Bonus: bei otp_expired etc. hängt /auth/verify auch die Empfänger-
+  // E-Mail dran — damit kann der User mit einem Klick eine frische Mail
+  // anfordern, ohne seine Adresse erneut zu tippen.
   const params = useSearchParams();
   const authError = params.get("auth_error");
   const authErrorMsg = params.get("auth_error_msg");
+  const authErrorEmail = params.get("email") ?? "";
 
   useEffect(() => {
     if (!okEmail) return;
@@ -67,7 +72,7 @@ function LoginPageInner() {
           >
             <div className="flex items-start gap-2">
               <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-danger" />
-              <div className="space-y-1 text-sm">
+              <div className="flex-1 space-y-1 text-sm">
                 <p className="font-medium text-danger">
                   Login fehlgeschlagen
                 </p>
@@ -79,6 +84,19 @@ function LoginPageInner() {
                 </p>
               </div>
             </div>
+
+            {authErrorEmail && state.status !== "ok" && (
+              <form action={formAction} className="mt-3 border-t border-danger/20 pt-3">
+                <input type="hidden" name="email" value={authErrorEmail} />
+                <button
+                  type="submit"
+                  disabled={pending}
+                  className="w-full rounded-md bg-primary px-4 py-3 text-sm font-medium text-paper hover:bg-navy-dark disabled:opacity-60"
+                >
+                  {pending ? "Sende neuen Link …" : `Neuen Link an ${authErrorEmail} senden`}
+                </button>
+              </form>
+            )}
           </div>
         )}
 
@@ -123,6 +141,7 @@ function LoginPageInner() {
                 type="email"
                 required
                 autoComplete="email"
+                defaultValue={authErrorEmail}
                 placeholder="du@example.com"
                 className="w-full rounded-md border border-rule bg-paper px-4 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
               />

@@ -12,12 +12,17 @@ export const dynamic = "force-dynamic";
  * Cookies werden direkt auf die Redirect-Response gehängt (Pattern aus
  * lib/supabase/server.ts), sonst landen die Session-Cookies nicht im
  * Browser des Users.
+ *
+ * Bei Fehlern (insbesondere otp_expired) wird die Empfänger-E-Mail mit
+ * an /login durchgereicht, damit die Login-Page einen Auto-Resend-Button
+ * für genau diese Adresse zeigen kann.
  */
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const token_hash = formData.get("token_hash")?.toString();
   const type = formData.get("type")?.toString() as EmailOtpType | null;
   const next = formData.get("next")?.toString() ?? "/";
+  const email = formData.get("email")?.toString() ?? undefined;
 
   const origin = new URL(request.url).origin;
 
@@ -26,6 +31,7 @@ export async function POST(request: NextRequest) {
       origin,
       "missing_token",
       "Der Login-Link enthält keinen gültigen Token. Fordere einen neuen an.",
+      email,
     );
   }
 
@@ -37,15 +43,21 @@ export async function POST(request: NextRequest) {
   const supabase = await createClient(response);
   const { error } = await supabase.auth.verifyOtp({ token_hash, type });
   if (error) {
-    return redirectWithError(origin, error.code ?? "verify_failed", error.message);
+    return redirectWithError(origin, error.code ?? "verify_failed", error.message, email);
   }
 
   return response;
 }
 
-function redirectWithError(origin: string, code: string, message: string) {
+function redirectWithError(
+  origin: string,
+  code: string,
+  message: string,
+  email?: string,
+) {
   const target = new URL("/login", origin);
   target.searchParams.set("auth_error", code);
   target.searchParams.set("auth_error_msg", message);
+  if (email) target.searchParams.set("email", email);
   return NextResponse.redirect(target, { status: 303 });
 }
