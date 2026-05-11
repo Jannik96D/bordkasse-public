@@ -11,8 +11,8 @@ Vollständige Spezifikation aller Aufteilungs- und Berechnungsregeln. Als Refere
 | **Zeitanteil** | Bord-Tage einer Person ÷ Summe aller Personentage |
 | **Bilanz / Saldo** | Was eine Person mehr bezahlt hat als sie schuldet (positiv = bekommt zurück) |
 
-Wenn "An Bord ab" leer ist, gilt der Törn-Start (`Besatzung!B5`).
-Wenn "An Bord bis" leer ist, gilt das Törn-Ende (`Besatzung!B6`).
+Wenn "An Bord ab" leer ist, gilt der Törn-Start (Sheets: `Besatzung!B5`; Web-App: `trips.start_date` via `COALESCE` in `v_trip_members_with_days`).
+Wenn "An Bord bis" leer ist, gilt das Törn-Ende (Sheets: `Besatzung!B6`; Web-App: `trips.end_date` analog).
 
 ## Die vier Aufteilungsarten
 
@@ -201,6 +201,23 @@ Ausgabe: 210€ Sprit von Anna, "Zeitanteilig"
 → 11-Tage-Person: 22,00€ je
 → Finn (6 Tage): 12,00€
 → Summe-Check: 9×22 + 12 = 210€ ✓
+```
+
+### S4b: Zeitanteilig + Alkohol
+
+```
+Ausgabe: 200€ Restaurant von Anna, 60€ Alkohol, "Zeitanteilig"
+(105 Personentage gesamt, 33 Trinker-Tage = 3 Trinker × 11 Tage)
+→ Basis 140€ × Tage / 105
+  → Full-Trip (11 Tage): 14,67€
+  → Finn (6 Tage): 8,00€
+→ Alkohol 60€ × Trinker-Tage / 33 (nur Trinker)
+  → Carla/Diana/Erik (11 Tage): 20,00€
+→ Gesamt:
+  → Trinker (Carla/Diana/Erik): 14,67 + 20 = 34,67€
+  → Non-Drinker Full-Trip: 14,67€
+  → Finn (Non-Drinker, 6 Tage): 8,00€
+→ Raw-Summe (unrounded): 200€ ✓
 ```
 
 ### S5: Individuell
