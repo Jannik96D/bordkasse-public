@@ -242,27 +242,32 @@ export function CrewSection({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label htmlFor="on_board_from" className="block text-xs font-medium">
-                An Bord ab
-              </label>
-              <input id="on_board_from" name="on_board_from" type="date"
-                min={startDate} max={endDate}
-                placeholder={startDate}
-                className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-              />
+          <div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label htmlFor="on_board_from" className="block text-xs font-medium">
+                  An Bord ab
+                </label>
+                <input id="on_board_from" name="on_board_from" type="date"
+                  min={startDate} max={endDate}
+                  placeholder={startDate}
+                  className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <div>
+                <label htmlFor="on_board_to" className="block text-xs font-medium">
+                  An Bord bis
+                </label>
+                <input id="on_board_to" name="on_board_to" type="date"
+                  min={startDate} max={endDate}
+                  placeholder={endDate}
+                  className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
             </div>
-            <div>
-              <label htmlFor="on_board_to" className="block text-xs font-medium">
-                An Bord bis
-              </label>
-              <input id="on_board_to" name="on_board_to" type="date"
-                min={startDate} max={endDate}
-                placeholder={endDate}
-                className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-              />
-            </div>
+            <p className="mt-1 text-xs text-ink-soft">
+              Leer lassen für volle Törn-Dauer ({formatDate(startDate)} – {formatDate(endDate)}).
+            </p>
           </div>
 
           <div>
