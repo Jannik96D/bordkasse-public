@@ -3,6 +3,8 @@ import { readClient } from "@/lib/supabase/read-client";
 export type CategoryStat = {
   category_id: string | null;
   category_name: string;
+  /** Icon-Name aus der Whitelist; null bei "Ohne Kategorie" oder nach DSGVO-Purge. */
+  category_icon: string | null;
   total: number;
   alcohol: number;
   count: number;
@@ -30,7 +32,7 @@ type TxRow = {
   amount: number | string;
   alcohol_amount: number | string | null;
   category_id: string | null;
-  category: { name: string } | { name: string }[] | null;
+  category: { name: string; icon: string | null } | { name: string; icon: string | null }[] | null;
 };
 
 const first = <T,>(v: T | T[] | null): T | null =>
@@ -71,7 +73,7 @@ async function getLiveStats(supabase: SupabaseLike, tripId: string): Promise<Sta
     .from("transactions")
     .select(`
       id, date, amount, alcohol_amount, category_id,
-      category:trip_categories(name)
+      category:trip_categories(name, icon)
     `)
     .eq("trip_id", tripId)
     .eq("type", "expense")
@@ -96,10 +98,13 @@ async function getLiveStats(supabase: SupabaseLike, tripId: string): Promise<Sta
     alcoholTotal += alcohol;
 
     const catKey = r.category_id ?? "__none__";
-    const catName = first(r.category)?.name ?? "Ohne Kategorie";
+    const cat = first(r.category);
+    const catName = cat?.name ?? "Ohne Kategorie";
+    const catIcon = cat?.icon ?? null;
     const catBucket = catMap.get(catKey) ?? {
       category_id: r.category_id,
       category_name: catName,
+      category_icon: catIcon,
       total: 0,
       alcohol: 0,
       count: 0,
@@ -157,6 +162,7 @@ async function getPurgedStats(supabase: SupabaseLike, tripId: string): Promise<S
     const catBucket = catMap.get(r.category_name) ?? {
       category_id: null,
       category_name: r.category_name,
+      category_icon: null, // anonymisiertes Aggregat enthält kein Icon
       total: 0,
       alcohol: 0,
       count: 0,
