@@ -53,6 +53,7 @@ export const ExpenseSchema = z
     amount: NonNegativeAmount,
     alcohol_amount: NonNegativeAmount.default(0),
     tip_amount: NonNegativeAmount.default(0),
+    tip_distribution: z.enum(["proportional", "equal"]).default("proportional"),
     split_type: z.enum([
       "equal",
       "on_board",

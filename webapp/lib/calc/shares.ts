@@ -23,6 +23,7 @@ export function calculateShares(
     amount,
     alcoholAmount,
     tipAmount = 0,
+    tipDistribution = "proportional",
     splitType,
     participants = [],
     participantAmounts = [],
@@ -88,15 +89,30 @@ export function calculateShares(
     return alcoholAmount / nDrinkers;
   };
 
-  // Trinkgeld-Multiplikator: jeder Anteil wird um (tip/amount) erhöht,
-  // sodass die Summe aller Anteile = amount + tip ergibt.
-  const tipMultiplier = tipAmount > 0 && amount > 0 ? 1 + tipAmount / amount : 1;
+  // Trinkgeld-Branching:
+  //   - "Pro Person" + 'equal' → flat tip/nActive pro Beteiligter ON TOP
+  //   - Sonst → multiplikativer Faktor (1 + tip/amount) auf base + alcohol
+  // Beide Varianten erhalten Σ aller Anteile = amount + tipAmount.
+  const useFlatTip =
+    splitType === "per_person" && tipDistribution === "equal" && tipAmount > 0 && nActive > 0;
+  const tipMultiplier = !useFlatTip && tipAmount > 0 && amount > 0 ? 1 + tipAmount / amount : 1;
+  const flatTipShare = useFlatTip ? tipAmount / nActive : 0;
 
   return members
-    .map((m): Share => ({
-      transactionId: id,
-      personId: m.personId,
-      share: (baseShareFor(m) + alcoholShareFor(m)) * tipMultiplier,
-    }))
+    .map((m): Share => {
+      const baseSum = baseShareFor(m) + alcoholShareFor(m);
+      if (useFlatTip) {
+        return {
+          transactionId: id,
+          personId: m.personId,
+          share: isActive(m) ? baseSum + flatTipShare : 0,
+        };
+      }
+      return {
+        transactionId: id,
+        personId: m.personId,
+        share: baseSum * tipMultiplier,
+      };
+    })
     .filter((s) => s.share > 0);
 }

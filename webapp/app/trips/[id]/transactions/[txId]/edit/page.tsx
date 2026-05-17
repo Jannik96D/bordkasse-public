@@ -33,7 +33,7 @@ export default async function EditTransactionPage({
   const { data: tx } = await supabase
     .from("transactions")
     .select(`
-      id, type, date, description, amount, alcohol_amount, tip_amount, split_type,
+      id, type, date, description, amount, alcohol_amount, tip_amount, tip_distribution, split_type,
       paid_by, category_id, credit_from, credit_to, created_by, deleted_at, trip_id,
       transaction_participants(person_id, amount)
     `)
@@ -84,6 +84,7 @@ export default async function EditTransactionPage({
       amount: Number(tx.amount),
       alcoholAmount: Number(tx.alcohol_amount ?? 0),
       tipAmount: Number(tx.tip_amount ?? 0),
+      tipDistribution: (tx.tip_distribution ?? "proportional") as "proportional" | "equal",
       splitType: (tx.split_type ?? "equal") as SplitType,
       participantIds,
       participantAmounts,

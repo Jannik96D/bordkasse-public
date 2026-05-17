@@ -10,6 +10,13 @@ export type SplitType =
   | "individual"
   | "per_person";
 export type TransactionType = "expense" | "credit";
+/**
+ * Trinkgeld-Verteilung bei "Pro Person":
+ *   - 'proportional': anteilig zum Rechnungsbetrag (Standard, wer mehr bestellt zahlt anteilig mehr)
+ *   - 'equal': gleichmäßig auf alle Beteiligten (jeder zahlt gleichviel Trinkgeld)
+ * Für andere Aufteilungsarten ohne Trinkgeld irrelevant.
+ */
+export type TipDistribution = "proportional" | "equal";
 
 export interface Member {
   personId: string;
@@ -26,8 +33,10 @@ export interface Transaction {
   date: string;          // ISO date
   amount: number;
   alcoholAmount: number;
-  /** Trinkgeld, das proportional auf alle Beteiligten verteilt wird. Default 0. */
+  /** Trinkgeld in € (zusätzlich zum amount). Default 0. */
   tipAmount?: number;
+  /** Verteilungsart des Trinkgelds bei "Pro Person". Default 'proportional'. */
+  tipDistribution?: TipDistribution;
   // expense:
   paidBy?: string;
   splitType?: SplitType;

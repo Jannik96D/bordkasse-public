@@ -361,6 +361,35 @@ describe("S8: Pro Person", () => {
     expect(Math.abs(rawTotal - 66)).toBeLessThan(0.01);
   });
 
+  it("Trinkgeld mit tipDistribution='equal' verteilt flat pro Beteiligter", () => {
+    // 60€ Rechnung: Anna 20, Ben 30, Carla 10 — Trinkgeld 6€, equal-Modus
+    // → jeder bekommt 6/3 = 2€ Trinkgeld dazu
+    // Anna 22, Ben 32, Carla 12, Σ = 66
+    const tx: Transaction = {
+      id: "s8-tip-equal",
+      type: "expense",
+      date: "2026-04-08",
+      amount: 60,
+      alcoholAmount: 0,
+      tipAmount: 6,
+      tipDistribution: "equal",
+      paidBy: "p1",
+      splitType: "per_person",
+      participantAmounts: [
+        { personId: "p1", amount: 20 },
+        { personId: "p2", amount: 30 },
+        { personId: "p3", amount: 10 },
+      ],
+    };
+    const shares = calculateShares(tx, crew);
+    const byId = Object.fromEntries(shares.map((s) => [s.personId, round2(s.share)]));
+    expect(byId["p1"]).toBe(22);
+    expect(byId["p2"]).toBe(32);
+    expect(byId["p3"]).toBe(12);
+    const rawTotal = shares.reduce((a, s) => a + s.share, 0);
+    expect(Math.abs(rawTotal - 66)).toBeLessThan(0.01);
+  });
+
   it("Trinkgeld landet auf JEDEM Beteiligten, niemals auf Nicht-Beteiligten", () => {
     // Restaurant-Szenario: Crew 5 essen mit, 5 nicht. Trinkgeld 18€.
     // Jeder Beteiligte muss einen Anteil > eigenem Bestellbetrag bekommen
