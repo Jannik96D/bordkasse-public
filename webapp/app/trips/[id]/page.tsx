@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Euro, Users, Plus } from "lucide-react";
+import { Euro, ScaleIcon, Users, Plus } from "lucide-react";
 import { getTrip, getTripMembers } from "@/lib/queries/trips";
 import { FabAddTransaction } from "@/components/bottom-nav";
 
@@ -65,7 +65,7 @@ export default async function TripDashboard({
             href={`/trips/${id}/balance`}
             className="flex flex-col items-start gap-2 rounded-lg border border-rule bg-paper p-4 hover:border-primary/40 hover:bg-navy-light/20"
           >
-            <span className="text-2xl">⚖️</span>
+            <ScaleIcon className="h-5 w-5 text-primary" />
             <span className="font-medium">Bilanz</span>
             <span className="text-xs text-ink-soft">Wer hat wie viel offen</span>
           </Link>
