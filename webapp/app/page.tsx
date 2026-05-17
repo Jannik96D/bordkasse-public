@@ -5,6 +5,7 @@ import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { listMyTrips } from "@/lib/queries/trips";
 import { formatDate } from "@/lib/utils";
+import { InstallHint } from "@/components/install-hint";
 
 export default async function Home() {
   const person = await getCurrentPerson();
@@ -13,7 +14,7 @@ export default async function Home() {
   if (!person) {
     return (
       <main className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
-        <div className="max-w-md space-y-6">
+        <div className="w-full max-w-md space-y-6">
           <Image
             src="/logo.png"
             alt="Bordkasse"
@@ -32,6 +33,9 @@ export default async function Home() {
           >
             Anmelden
           </Link>
+          <div className="text-left">
+            <InstallHint />
+          </div>
         </div>
       </main>
     );
@@ -59,6 +63,8 @@ export default async function Home() {
           Profil
         </Link>
       </header>
+
+      <InstallHint />
 
       {admin && (
         <Link
