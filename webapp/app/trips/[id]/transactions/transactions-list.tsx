@@ -96,9 +96,15 @@ export function TransactionsList({
                   return (
                   <li
                     key={t.id}
-                    className="rounded-md border border-rule bg-paper p-3"
+                    className="flex items-stretch overflow-hidden rounded-md border border-rule bg-paper"
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    {/* Haupt-Bereich → Detail-Seite. Edit/Delete als Sibling
+                        außerhalb des Link, damit Tap die Aktion ausführt statt
+                        zur Detail-Seite zu navigieren (keine nested links). */}
+                    <Link
+                      href={`/trips/${tripId}/transactions/${t.id}`}
+                      className="flex min-w-0 flex-1 items-start justify-between gap-3 p-3 transition-colors hover:bg-paper-soft"
+                    >
                       <div className="min-w-0 flex-1">
                         <p className="font-medium">
                           {t.type === "credit" && (
@@ -141,27 +147,27 @@ export function TransactionsList({
                           )}
                         </p>
                       </div>
-                      <div className="flex items-start gap-2 text-right">
-                        <div className="text-right">
-                          <p className={`font-semibold ${t.type === "credit" ? "text-gold" : "text-primary"}`}>
-                            {formatEuro(total)}
+                      <div className="shrink-0 text-right">
+                        <p className={`font-semibold ${t.type === "credit" ? "text-gold" : "text-primary"}`}>
+                          {formatEuro(total)}
+                        </p>
+                        {t.tip_amount > 0 && (
+                          <p className="text-[10px] text-ink-soft">
+                            inkl. {formatEuro(t.tip_amount)} Trinkgeld
                           </p>
-                          {t.tip_amount > 0 && (
-                            <p className="text-[10px] text-ink-soft">
-                              inkl. {formatEuro(t.tip_amount)} Trinkgeld
-                            </p>
-                          )}
-                        </div>
-                        <Link
-                          href={`/trips/${tripId}/transactions/${t.id}/edit`}
-                          className="rounded-md p-1 text-ink-soft hover:bg-paper-soft hover:text-primary"
-                          aria-label="Buchung bearbeiten"
-                          title="Bearbeiten"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Link>
-                        <DeleteButton transactionId={t.id} tripId={tripId} />
+                        )}
                       </div>
+                    </Link>
+                    <div className="flex shrink-0 items-center gap-1 border-l border-rule px-2">
+                      <Link
+                        href={`/trips/${tripId}/transactions/${t.id}/edit`}
+                        className="rounded-md p-1.5 text-ink-soft hover:bg-paper-soft hover:text-primary"
+                        aria-label="Buchung bearbeiten"
+                        title="Bearbeiten"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Link>
+                      <DeleteButton transactionId={t.id} tripId={tripId} />
                     </div>
                   </li>
                   );
