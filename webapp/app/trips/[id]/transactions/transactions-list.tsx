@@ -13,6 +13,7 @@ const SPLIT_LABEL = {
   on_board: "An Bord",
   time_proportional: "Zeitanteilig",
   individual: "Individuell",
+  per_person: "Pro Person",
 } as const;
 
 export function TransactionsList({
@@ -89,7 +90,10 @@ export function TransactionsList({
                 {formatDate(date)}
               </h2>
               <ul className="space-y-2">
-                {items.map((t) => (
+                {items.map((t) => {
+                  // Bezahlt = Rechnungsbetrag + Trinkgeld (nur bei Ausgaben relevant).
+                  const total = t.type === "expense" ? t.amount + t.tip_amount : t.amount;
+                  return (
                   <li
                     key={t.id}
                     className="rounded-md border border-rule bg-paper p-3"
@@ -111,6 +115,7 @@ export function TransactionsList({
                               {" · "}
                               {t.split_type ? SPLIT_LABEL[t.split_type] : "?"}
                               {t.alcohol_amount > 0 && ` · 🍷 ${formatEuro(t.alcohol_amount)}`}
+                              {t.tip_amount > 0 && ` · 💶 ${formatEuro(t.tip_amount)} Trinkgeld`}
                               {t.category_name && (
                                 <span className="inline-flex items-center gap-1">
                                   {" · "}
@@ -137,9 +142,16 @@ export function TransactionsList({
                         </p>
                       </div>
                       <div className="flex items-start gap-2 text-right">
-                        <p className={`font-semibold ${t.type === "credit" ? "text-gold" : "text-primary"}`}>
-                          {formatEuro(t.amount)}
-                        </p>
+                        <div className="text-right">
+                          <p className={`font-semibold ${t.type === "credit" ? "text-gold" : "text-primary"}`}>
+                            {formatEuro(total)}
+                          </p>
+                          {t.tip_amount > 0 && (
+                            <p className="text-[10px] text-ink-soft">
+                              inkl. {formatEuro(t.tip_amount)} Trinkgeld
+                            </p>
+                          )}
+                        </div>
                         <Link
                           href={`/trips/${tripId}/transactions/${t.id}/edit`}
                           className="rounded-md p-1 text-ink-soft hover:bg-paper-soft hover:text-primary"
@@ -152,7 +164,8 @@ export function TransactionsList({
                       </div>
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </section>
           ))}
