@@ -107,23 +107,36 @@ Der Alkohol-Modifikator entfällt bei "Pro Person".
 ## Trinkgeld-Verteilung (nur bei „Pro Person")
 
 Feld `tip_amount` (€) auf einer Ausgabe — nur bei `split_type='per_person'`
-aktiv. Wird proportional zu den Einzelbeträgen auf die Beteiligten verteilt.
-Bei anderen Aufteilungsarten erzwingt die Server-Action `tip_amount = 0`
-(UI blendet das Feld aus).
+aktiv. Bei anderen Aufteilungsarten erzwingt die Server-Action
+`tip_amount = 0` (UI blendet das Feld aus).
 
-**Formel:**
+Die eingebende Person wählt zusätzlich die **Verteilungsart**
+(`transactions.tip_distribution`):
+
+### `'proportional'` (Default — wer mehr bestellt zahlt anteilig mehr)
 ```
 final_anteil = basis_anteil × (1 + tip_amount / amount)
 ```
 
-Σ aller Anteile = `amount + tip_amount`. `paid_by` legt die volle Auslage
-(inkl. Trinkgeld) aus.
-
-**Beispiel** (60€ Restaurant + 6€ Trinkgeld, Pro Person):
+**Beispiel** (60€ Restaurant + 6€ Trinkgeld):
 ```
 Jannik 20€, Ben 30€, Carla 10€ — Trinkgeld 6€ (10%)
 → Jannik 22€, Ben 33€, Carla 11€  ·  Σ = 66€
 ```
+
+### `'equal'` (gleichmäßig auf alle Beteiligten)
+```
+final_anteil = basis_anteil + tip_amount / n_beteiligte
+```
+
+**Beispiel** (60€ Restaurant + 6€ Trinkgeld, 3 Beteiligte):
+```
+Jannik 20€, Ben 30€, Carla 10€ — Trinkgeld 6€ → je +2€
+→ Jannik 22€, Ben 32€, Carla 12€  ·  Σ = 66€
+```
+
+In beiden Fällen gilt: Σ aller Anteile = `amount + tip_amount`. `paid_by`
+legt die volle Auslage (inkl. Trinkgeld) aus.
 
 ## Gutschrift-Logik
 
