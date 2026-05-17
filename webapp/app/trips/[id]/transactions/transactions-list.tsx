@@ -22,17 +22,20 @@ export function TransactionsList({
   currentPersonId,
   isMyTripSkipper,
   isAdmin,
+  initialQuery = "",
 }: {
   tripId: string;
   rows: TransactionListRow[];
   currentPersonId: string | null;
   isMyTripSkipper: boolean;
   isAdmin: boolean;
+  /** Vorbelegung des Suchfelds via URL-Param `?q=` (z. B. von Statistik-Drilldown). */
+  initialQuery?: string;
 }) {
   // Skipper + Admin dürfen jede Buchung editieren; Ersteller die eigene.
   const canEditRow = (row: TransactionListRow) =>
     isMyTripSkipper || isAdmin || (currentPersonId !== null && row.created_by_id === currentPersonId);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -62,8 +65,9 @@ export function TransactionsList({
 
   return (
     <>
-      {/* Such-Feld nur einblenden, wenn es überhaupt was zu filtern gibt. */}
-      {rows.length > 4 && (
+      {/* Such-Feld einblenden, wenn es genug zu filtern gibt — oder wenn
+          schon ein Filter aus der URL gesetzt ist (Drill-Down aus Statistik). */}
+      {(rows.length > 4 || query.length > 0) && (
         <div className="relative mb-4">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft" aria-hidden />
           <input
@@ -131,15 +135,17 @@ export function TransactionsList({
                               {t.split_type ? SPLIT_LABEL[t.split_type] : "?"}
                               {t.alcohol_amount > 0 && ` · 🍷 ${formatEuro(t.alcohol_amount)}`}
                               {t.category_name && (
-                                <span className="inline-flex items-center gap-1">
+                                <>
                                   {" · "}
-                                  <CategoryIcon
-                                    icon={t.category_icon}
-                                    name={t.category_name}
-                                    className="h-3.5 w-3.5 text-ink-soft"
-                                  />
-                                  {t.category_name}
-                                </span>
+                                  <span className="inline-flex items-center gap-1 align-middle">
+                                    <CategoryIcon
+                                      icon={t.category_icon}
+                                      name={t.category_name}
+                                      className="h-3.5 w-3.5 text-ink-soft"
+                                    />
+                                    {t.category_name}
+                                  </span>
+                                </>
                               )}
                             </>
                           ) : (
