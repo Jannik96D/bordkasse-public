@@ -81,6 +81,7 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     amount: formData.get("amount"),
     alcohol_amount: formData.get("alcohol_amount") || 0,
     tip_amount: formData.get("tip_amount") || 0,
+    tip_distribution: formData.get("tip_distribution") || "proportional",
     split_type: formData.get("split_type"),
     participant_ids: participantIds,
     participant_amounts: formData.get("participant_amounts"),
@@ -272,6 +273,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     amount: formData.get("amount"),
     alcohol_amount: formData.get("alcohol_amount") || 0,
     tip_amount: formData.get("tip_amount") || 0,
+    tip_distribution: formData.get("tip_distribution") || "proportional",
     split_type: formData.get("split_type"),
     participant_ids: participantIds,
     participant_amounts: formData.get("participant_amounts"),
@@ -325,6 +327,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
       amount: txData.amount,
       alcohol_amount: txData.alcohol_amount,
       tip_amount: txData.tip_amount,
+      tip_distribution: txData.tip_distribution,
       split_type: txData.split_type,
     })
     .eq("id", transactionId);
@@ -506,6 +509,7 @@ export async function replayPendingTransaction(
       amount: formObject.amount,
       alcohol_amount: formObject.alcohol_amount || 0,
       tip_amount: formObject.tip_amount || 0,
+      tip_distribution: formObject.tip_distribution || "proportional",
       split_type: formObject.split_type,
       participant_ids: participantIds,
       participant_amounts: formObject.participant_amounts,

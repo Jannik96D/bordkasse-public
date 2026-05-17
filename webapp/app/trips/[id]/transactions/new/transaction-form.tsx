@@ -54,6 +54,7 @@ export type ExpenseInitial = {
   amount: number;
   alcoholAmount: number;
   tipAmount: number;
+  tipDistribution: "proportional" | "equal";
   splitType: SplitType;
   participantIds: string[];
   participantAmounts: Array<{ personId: string; amount: number }>;
@@ -212,6 +213,9 @@ function ExpenseForm({
   );
   const [tipAmount, setTipAmount] = useState(
     initial && initial.tipAmount > 0 ? formatAmount(initial.tipAmount) : "",
+  );
+  const [tipDistribution, setTipDistribution] = useState<"proportional" | "equal">(
+    initial?.tipDistribution ?? "proportional",
   );
   const [participantIds, setParticipantIds] = useState<Set<string>>(
     () => new Set(initial?.participantIds ?? []),
@@ -487,18 +491,58 @@ function ExpenseForm({
       {/* Trinkgeld ist semantisch nur bei "Pro Person" sinnvoll (Restaurant-
           Szenario); für andere Aufteilungen wäre es eine versteckte Falle. */}
       {isPerPerson && (
-        <FieldGroup label="Trinkgeld (€)" htmlFor="tip_amount" hint="Wird proportional auf die Beteiligten verteilt.">
-          <input
-            id="tip_amount" name="tip_amount" type="text"
-            inputMode="decimal" pattern="([0-9]+([,.][0-9]{1,2})?)?"
-            autoComplete="off"
-            placeholder="0,00"
-            value={tipAmount}
-            onChange={(e) => setTipAmount(e.target.value)}
-            aria-invalid={isInvalid("tip_amount") || undefined}
-            className={cn(inputCls, isInvalid("tip_amount") && "border-danger ring-2 ring-danger/20")}
-          />
-        </FieldGroup>
+        <>
+          <FieldGroup label="Trinkgeld (€)" htmlFor="tip_amount">
+            <input
+              id="tip_amount" name="tip_amount" type="text"
+              inputMode="decimal" pattern="([0-9]+([,.][0-9]{1,2})?)?"
+              autoComplete="off"
+              placeholder="0,00"
+              value={tipAmount}
+              onChange={(e) => setTipAmount(e.target.value)}
+              aria-invalid={isInvalid("tip_amount") || undefined}
+              className={cn(inputCls, isInvalid("tip_amount") && "border-danger ring-2 ring-danger/20")}
+            />
+          </FieldGroup>
+
+          {/* Hidden-Input für FormData — Toggle ist Client-State. */}
+          <input type="hidden" name="tip_distribution" value={tipDistribution} />
+
+          {/* Verteilungs-Toggle nur sichtbar wenn überhaupt Trinkgeld gesetzt ist. */}
+          {(() => {
+            const tip = parseFloat(tipAmount.replace(",", ".")) || 0;
+            if (tip <= 0) return null;
+            return (
+              <div>
+                <span className="block text-sm font-medium">Trinkgeld verteilen</span>
+                <div className="mt-2 flex border-b border-rule" role="tablist" aria-label="Trinkgeld-Verteilung">
+                  {(["proportional", "equal"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      role="tab"
+                      aria-selected={tipDistribution === mode}
+                      onClick={() => setTipDistribution(mode)}
+                      className={cn(
+                        "flex-1 border-b-2 px-1 py-2 text-xs font-medium transition-colors -mb-px",
+                        tipDistribution === mode
+                          ? "border-primary text-primary"
+                          : "border-transparent text-ink-soft hover:text-ink",
+                      )}
+                    >
+                      {mode === "proportional" ? "Proportional" : "Pro Person gleich"}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-ink-soft">
+                  {tipDistribution === "proportional"
+                    ? "Anteilig zum Bestellbetrag — wer mehr bestellt, zahlt mehr Trinkgeld."
+                    : `Jeder Beteiligte zahlt gleich viel Trinkgeld.`}
+                </p>
+              </div>
+            );
+          })()}
+        </>
       )}
 
       {!isPerPerson && (

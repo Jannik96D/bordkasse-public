@@ -21,6 +21,7 @@ export interface TransactionDetail {
   amount: number;
   alcohol_amount: number;
   tip_amount: number;
+  tip_distribution: "proportional" | "equal";
   split_type: TransactionListRow["split_type"];
   paid_by_id: string | null;
   paid_by_name: string | null;
@@ -135,7 +136,7 @@ export async function getTransactionDetail(
   const { data: tx, error: txErr } = await supabase
     .from("transactions")
     .select(`
-      id, trip_id, type, date, description, amount, alcohol_amount, tip_amount, split_type,
+      id, trip_id, type, date, description, amount, alcohol_amount, tip_amount, tip_distribution, split_type,
       paid_by, category_id, credit_from, credit_to, created_by, deleted_at,
       paid_person:persons!transactions_paid_by_fkey(display_name),
       from_person:persons!transactions_credit_from_fkey(display_name),
@@ -157,6 +158,7 @@ export async function getTransactionDetail(
     amount: number;
     alcohol_amount: number;
     tip_amount: number;
+    tip_distribution: "proportional" | "equal" | null;
     split_type: TransactionListRow["split_type"];
     paid_by: string | null;
     category_id: string | null;
@@ -234,6 +236,7 @@ export async function getTransactionDetail(
     amount: Number(t.amount),
     alcohol_amount: Number(t.alcohol_amount),
     tip_amount: Number(t.tip_amount ?? 0),
+    tip_distribution: (t.tip_distribution ?? "proportional") as "proportional" | "equal",
     split_type: t.split_type,
     paid_by_id: t.paid_by,
     paid_by_name: first(t.paid_person)?.display_name ?? null,

@@ -192,7 +192,7 @@ export default async function TransactionDetailPage({
                 .map((s) => `${s.display_name} ${formatEuro(s.participant_amount ?? 0)}`)
                 .join(" · ")}
               {detail.tip_amount > 0 &&
-                ` (+ ${formatEuro(detail.tip_amount)} Trinkgeld proportional verteilt)`}
+                ` (+ ${formatEuro(detail.tip_amount)} Trinkgeld ${detail.tip_distribution === "equal" ? "gleich pro Beteiligter" : "proportional"} verteilt)`}
             </p>
           )}
         </section>
