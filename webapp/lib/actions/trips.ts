@@ -8,14 +8,19 @@ import { requireAdmin, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { iconForCategoryName } from "@/lib/categories/icons";
 
+// Reihenfolge bewusst gewählt — siehe `docs/categories.md` bzw. README.
+// Crew-User-Feedback: zuerst die im Alltag häufigen (Lebensmittel, Restaurant),
+// dann Hafen/Aktivitäten/Ausrüstung, dann Verbrauchs- + Verwaltungs-Sachen.
 const DEFAULT_CATEGORY_NAMES = [
   "Lebensmittel",
   "Restaurant",
+  "Hafen / Liegeplatz",
+  "Aktivitäten",
+  "Ausrüstung",
   "Sprit",
   "Yacht",
-  "Hafen / Liegeplatz",
-  "Ausrüstung",
   "Versicherung",
+  "Kaution",
   "Sonstiges",
 ] as const;
 
