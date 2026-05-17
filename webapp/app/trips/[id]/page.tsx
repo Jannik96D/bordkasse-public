@@ -8,10 +8,14 @@ import { SettlementStatus } from "@/components/settlement-status";
 
 export default async function TripDashboard({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ check_settlement?: string }>;
 }) {
   const { id } = await params;
+  const sp = await searchParams;
+  const justEditedKaution = sp.check_settlement === "1";
   const [trip, members, person, admin] = await Promise.all([
     getTrip(id),
     getTripMembers(id),
@@ -32,6 +36,7 @@ export default async function TripDashboard({
         endDate={trip.end_date}
         announcedAt={trip.settlement_announced_at ?? null}
         canAnnounce={canAnnounce}
+        highlight={justEditedKaution}
       />
 
       <section className="rounded-lg border border-rule bg-paper p-5">

@@ -295,7 +295,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   const supabase = createAdminClient();
   const { data: existing } = await supabase
     .from("transactions")
-    .select("created_by, type, trip_id, deleted_at")
+    .select("created_by, type, trip_id, deleted_at, category_id")
     .eq("id", transactionId)
     .maybeSingle();
   if (!existing || existing.deleted_at) return { status: "error", message: "Buchung nicht gefunden." };
@@ -308,6 +308,15 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   if (!(await canEditTransaction(txData.trip_id, existing.created_by, person.id))) {
     return { status: "error", message: "Nur Skipper, Admin oder die Person, die gebucht hat, dürfen ändern." };
   }
+
+  // Wurde eine Kaution-Buchung berührt? (alte oder neue Kategorie = "Kaution")
+  // Dann nach dem Speichern den Skipper an die Abrechnung erinnern.
+  const touchedKaution = await isKautionCategory(
+    supabase,
+    txData.trip_id,
+    existing.category_id,
+    txData.category_id,
+  );
 
   // Min-1-Cent-pro-Person-Check vor dem Update.
   const minCheck = await checkMinShare(supabase, txData.trip_id, {
@@ -361,7 +370,34 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   revalidatePath(`/trips/${txData.trip_id}/transactions`);
   revalidatePath(`/trips/${txData.trip_id}/balance`);
   revalidatePath(`/trips/${txData.trip_id}/debts`);
+  // Bei Kaution-Buchungs-Edit: zurück zur Trip-Übersicht mit Settlement-Hinweis,
+  // damit der Skipper nicht vergisst die Abrechnung zu starten.
+  if (touchedKaution) {
+    redirect(`/trips/${txData.trip_id}?check_settlement=1`);
+  }
   redirect(`/trips/${txData.trip_id}/transactions?toast=expense-updated`);
+}
+
+/**
+ * Prüft, ob eine der angegebenen category_ids zur "Kaution"-Default-Kategorie
+ * gehört. Wir matchen am Kategorie-Namen (statt einer harten ID), weil jeder
+ * Trip seine eigenen Kategorie-Rows hat. Custom-Namen mit "Kaution" zählen
+ * auch (z. B. "Kautionsschaden"), um false-negatives bei umbenannten
+ * Default-Kategorien zu vermeiden.
+ */
+async function isKautionCategory(
+  supabase: ReturnType<typeof createAdminClient>,
+  tripId: string,
+  ...categoryIds: Array<string | null | undefined>
+): Promise<boolean> {
+  const ids = categoryIds.filter((id): id is string => !!id);
+  if (ids.length === 0) return false;
+  const { data } = await supabase
+    .from("trip_categories")
+    .select("name")
+    .eq("trip_id", tripId)
+    .in("id", ids);
+  return (data ?? []).some((c) => /kaution/i.test(c.name ?? ""));
 }
 
 export async function updateCredit(_prev: TxState, formData: FormData): Promise<TxState> {
@@ -454,11 +490,24 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
  * Soft-Delete: setzt deleted_at-Timestamp statt zu löschen. Bilanz, Schulden
  * und Listen filtern deleted_at IS NULL und behandeln den Eintrag als weg —
  * physisch bleibt er aber erhalten und ist über das Audit-Log nachvollziehbar.
+ *
+ * Liefert `wasKaution=true` zurück, wenn die gelöschte Buchung eine
+ * Kaution-Kategorie hatte — der Client kann dann zur Trip-Übersicht
+ * navigieren und den Skipper an die Abrechnung erinnern.
  */
-export async function deleteTransaction(transactionId: string, tripId: string) {
+export async function deleteTransaction(
+  transactionId: string,
+  tripId: string,
+): Promise<{ ok: boolean; wasKaution: boolean }> {
   const auth = await requireMember(tripId);
-  if (!auth.ok) return;
+  if (!auth.ok) return { ok: false, wasKaution: false };
   const supabase = createAdminClient();
+  const { data: existing } = await supabase
+    .from("transactions")
+    .select("category_id")
+    .eq("id", transactionId)
+    .maybeSingle();
+  const wasKaution = await isKautionCategory(supabase, tripId, existing?.category_id);
   await supabase
     .from("transactions")
     .update({ deleted_at: new Date().toISOString() })
@@ -473,6 +522,7 @@ export async function deleteTransaction(transactionId: string, tripId: string) {
   revalidatePath(`/trips/${tripId}/transactions`);
   revalidatePath(`/trips/${tripId}/balance`);
   revalidatePath(`/trips/${tripId}/debts`);
+  return { ok: true, wasKaution };
 }
 
 /**

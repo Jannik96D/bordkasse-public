@@ -20,12 +20,15 @@ export function SettlementStatus({
   endDate,
   announcedAt,
   canAnnounce,
+  highlight = false,
 }: {
   tripId: string;
   endDate: string;
   announcedAt: string | null;
   /** true = User darf den "Abrechnung verschicken"-Button drücken (Skipper/Admin). */
   canAnnounce: boolean;
+  /** true = nach Kaution-Edit/-Delete; Hinweis wird prominenter dargestellt. */
+  highlight?: boolean;
 }) {
   if (announcedAt) {
     return (
@@ -45,18 +48,27 @@ export function SettlementStatus({
   if (todayIso <= endDate) return null;
 
   if (canAnnounce) {
+    const headline = highlight
+      ? "Kaution-Buchung aktualisiert — Bordkasse jetzt zur Abrechnung freigeben?"
+      : "Törn vorbei — Abrechnung verschicken?";
+    const subline = highlight
+      ? "Wenn das die finale Kaution-Buchung war, kannst du die Abrechnung jetzt verschicken — jedes Crew-Mitglied bekommt eine Mail mit seiner Bilanz."
+      : "Bitte prüfe nochmal, ob die Kaution-Buchung noch aktuell ist (Restbetrag, Schäden o.ä.). Sobald du auf „Abrechnung verschicken“ drückst, bekommt jedes Crew-Mitglied eine Mail mit seiner Bilanz und kann Zahlungen abhaken.";
     return (
-      <div className="mb-4 rounded-md border border-gold/30 bg-gold-soft p-3 text-sm">
+      <div className={
+        highlight
+          ? "mb-4 rounded-md border-2 border-primary bg-gold-soft p-4 text-sm shadow-sm"
+          : "mb-4 rounded-md border border-gold/30 bg-gold-soft p-3 text-sm"
+      }>
         <div className="flex items-start gap-2">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden />
+          <AlertTriangle className={
+            highlight
+              ? "mt-0.5 h-5 w-5 shrink-0 text-primary"
+              : "mt-0.5 h-4 w-4 shrink-0 text-gold"
+          } aria-hidden />
           <div className="flex-1">
-            <p className="font-medium text-primary">Törn vorbei — Abrechnung verschicken?</p>
-            <p className="mt-1 text-xs text-ink-soft">
-              Bitte prüfe nochmal, ob die Kaution-Buchung noch aktuell ist (Restbetrag,
-              Schäden o.ä.). Sobald du auf „Abrechnung verschicken“ drückst,
-              bekommt jedes Crew-Mitglied eine Mail mit seiner Bilanz und kann
-              Zahlungen abhaken.
-            </p>
+            <p className="font-medium text-primary">{headline}</p>
+            <p className="mt-1 text-xs text-ink-soft">{subline}</p>
             <SettlementAnnounceButton tripId={tripId} />
           </div>
         </div>
