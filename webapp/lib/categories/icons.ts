@@ -98,7 +98,7 @@ const ICON_LABELS: Record<CategoryIconName, string> = {
   Wrench: "Ausrüstung",
   Hammer: "Werkzeug",
   ShieldCheck: "Versicherung",
-  Ticket: "Tickets / Eintritt",
+  Ticket: "Aktivitäten / Tickets",
   Bus: "Transport",
   SquareParking: "Parken",
   Pill: "Apotheke",
@@ -106,7 +106,7 @@ const ICON_LABELS: Record<CategoryIconName, string> = {
   Gift: "Geschenke",
   PartyPopper: "Party",
   Package: "Sonstiges",
-  Banknote: "Allgemein",
+  Banknote: "Geld / Kaution",
   Tag: "Sonstiges",
 };
 
@@ -183,11 +183,13 @@ export function getCategoryIcon(
 const DEFAULT_NAME_ICON: Record<string, CategoryIconName> = {
   Lebensmittel: "ShoppingCart",
   Restaurant: "Utensils",
+  "Hafen / Liegeplatz": "Anchor",
+  Aktivitäten: "Ticket",
+  Ausrüstung: "Wrench",
   Sprit: "Fuel",
   Yacht: "Sailboat",
-  "Hafen / Liegeplatz": "Anchor",
-  Ausrüstung: "Wrench",
   Versicherung: "ShieldCheck",
+  Kaution: "Banknote",
   Sonstiges: "Package",
 };
 
@@ -214,7 +216,8 @@ export function iconForCategoryName(name: string): CategoryIconName {
     [/^(ausr[üu]stung)$/i, "Wrench"],
     [/^(werkzeug)$/i, "Hammer"],
     [/^versicherung$/i, "ShieldCheck"],
-    [/^(ticket|tickets|eintritt)$/i, "Ticket"],
+    [/^(ticket|tickets|eintritt|aktivit[äa]ten?)$/i, "Ticket"],
+    [/^(kaution|kautionsschaden)$/i, "Banknote"],
     [/^(transport|bus|taxi)$/i, "Bus"],
     [/^(parken|parkplatz)$/i, "SquareParking"],
     [/^(apotheke|medikament)$/i, "Pill"],
