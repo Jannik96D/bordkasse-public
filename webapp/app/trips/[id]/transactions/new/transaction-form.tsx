@@ -416,7 +416,7 @@ function ExpenseForm({
       )}
 
       {isPerPerson && (
-        <FieldGroup label="Wer zahlt was?" hint={"Pro Person Betrag eintragen. Berechnungen wie „3 + 17“ werden automatisch ausgewertet. Leer = nicht beteiligt."}>
+        <FieldGroup label="Wer zahlt was?" hint={"Pro Person Betrag eintragen. Rechnen geht auch (z. B. „3 + 17“) — auf dem Smartphone die „?123“-Taste der Tastatur für die Operatoren. Leer = nicht beteiligt."}>
           <div
             id="participant_amounts"
             tabIndex={-1}
@@ -436,11 +436,18 @@ function ExpenseForm({
                     {p.displayName}
                   </label>
                   <div className="flex w-40 items-center gap-2">
+                    {/* inputMode="text" statt "decimal", damit Mobile-Tastaturen
+                        die Symbol-Taste ("123" / "?123") für Operatoren erlauben
+                        — sonst ist man auf reines Zahlen-Pad festgenagelt und
+                        kann keine Rechenausdrücke wie "3+4" eintragen. */}
                     <input
                       id={`pp-${p.personId}`}
                       type="text"
-                      inputMode="decimal"
+                      inputMode="text"
                       autoComplete="off"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                       value={p.raw}
                       onChange={(e) => setPerPerson(p.personId, e.target.value)}
                       placeholder="–"
