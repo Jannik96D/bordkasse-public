@@ -1,14 +1,23 @@
 /**
- * Schickt eine transaktionale Mail über die Resend-HTTP-API.
+ * Schickt eine transaktionale Mail über den konfigurierten SMTP-Server.
  *
- * Resend wird direkt via fetch angesprochen — kein npm-SDK, damit das Bundle
- * schlank bleibt und keine zusätzliche Abhängigkeit gepflegt werden muss.
- * Voraussetzung: `RESEND_API_KEY` in den Vercel-Env-Vars + verifizierte
- * Sender-Domain. Ist der Key nicht gesetzt, schlägt der Versand mit einer
- * klaren deutschen Meldung fehl — ohne dass die Server-Action crasht.
+ * Nutzt nodemailer + denselben SMTP, der bereits für Supabase-Auth-Mails
+ * angebunden ist (Magic-Link). Credentials kommen aus Vercel-Env-Vars,
+ * NICHT aus Supabase — die App spricht den Mailserver direkt an.
  *
- * Doku: https://resend.com/docs/api-reference/emails/send-email
+ * Pflicht-Env-Vars:
+ *   SMTP_HOST       z. B. mail.example.com
+ *   SMTP_PORT       587 (STARTTLS) oder 465 (SSL)
+ *   SMTP_USER       z. B. bordkasse@dieter.ms
+ *   SMTP_PASS       Passwort / App-Token
+ *   MAIL_FROM       z. B. "Bordkasse <bordkasse@dieter.ms>"
+ *
+ * Connection-Pooling lohnt nicht — wir versenden punktuell ein paar Mails
+ * pro Settlement, nicht im Sekundentakt. Ein neuer Transport pro Aufruf
+ * ist stabil und einfacher zu reasonen.
  */
+
+import nodemailer from "nodemailer";
 
 export type SendResult = { ok: true; id: string } | { ok: false; error: string };
 
@@ -27,38 +36,40 @@ export async function sendMail({
   text?: string;
   replyTo?: string;
 }): Promise<SendResult> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
+  const host = process.env.SMTP_HOST;
+  const portRaw = process.env.SMTP_PORT;
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  if (!host || !portRaw || !user || !pass) {
     return {
       ok: false,
-      error: "Mail-Versand nicht konfiguriert (RESEND_API_KEY fehlt).",
+      error: "Mail-Versand nicht konfiguriert (SMTP_HOST/PORT/USER/PASS fehlen).",
     };
   }
+  const port = Number(portRaw);
+  // Port 465 = implizites SSL, 587 = STARTTLS, alles andere → kein SSL.
+  const secure = port === 465;
+
+  const transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: { user, pass },
+  });
+
   try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: FROM_DEFAULT,
-        to: [to],
-        subject,
-        html,
-        text,
-        reply_to: replyTo,
-      }),
+    const info = await transporter.sendMail({
+      from: FROM_DEFAULT,
+      to,
+      subject,
+      html,
+      text,
+      replyTo,
     });
-    if (!res.ok) {
-      const body = await res.text();
-      console.error("[bordkasse:mail]", res.status, body);
-      return { ok: false, error: `Mail-Versand fehlgeschlagen (HTTP ${res.status}).` };
-    }
-    const data = (await res.json()) as { id?: string };
-    return { ok: true, id: data.id ?? "" };
+    return { ok: true, id: info.messageId };
   } catch (err) {
-    console.error("[bordkasse:mail] fetch error", err);
-    return { ok: false, error: "Mail-Versand fehlgeschlagen (Netzwerk-Fehler)." };
+    console.error("[bordkasse:mail]", err);
+    const message = err instanceof Error ? err.message : "unbekannter Fehler";
+    return { ok: false, error: `Mail-Versand fehlgeschlagen: ${message}` };
   }
 }
