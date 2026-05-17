@@ -64,6 +64,10 @@ export const ExpenseSchema = z
     participant_ids: z.array(Uuid).default([]),
     participant_amounts: z.preprocess(
       (v) => {
+        // null/undefined → leeres Array (Feld war nicht im FormData, weil
+        // split_type ≠ per_person). Sonst: String mit JSON parsen oder als
+        // Array durchreichen.
+        if (v == null) return [];
         if (typeof v !== "string") return v;
         if (!v) return [];
         try { return JSON.parse(v); } catch { return v; }
