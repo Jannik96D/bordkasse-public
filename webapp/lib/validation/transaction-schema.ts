@@ -36,7 +36,10 @@ const requiredUuid = (label: string) =>
 const ParticipantAmount = z.object({
   person_id: Uuid,
   amount: NonNegativeAmount,
-});
+}).refine(
+  (p) => p.amount === 0 || p.amount >= 0.01,
+  { message: "Pro-Person-Beträge müssen mindestens 1 Cent sein.", path: ["amount"] },
+);
 
 export const ExpenseSchema = z
   .object({

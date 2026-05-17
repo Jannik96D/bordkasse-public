@@ -10,6 +10,31 @@ import { AlertCircle, Mail } from "lucide-react";
 const initial: LoginState = { status: "idle" };
 const RESEND_DELAY_MS = 30_000;
 
+/**
+ * Übersetzt Supabase/PostgREST-Auth-Codes in deutsche User-Texte.
+ * Fallback: generische Meldung, falls Code unbekannt — die englische
+ * Original-Message würde sonst durchsickern.
+ */
+function translateAuthError(code: string, _rawMessage: string | null): string {
+  void _rawMessage; // Im Server-Log unter [bordkasse:auth] verfügbar.
+  switch (code) {
+    case "otp_expired":
+      return "Der Magic-Link ist abgelaufen. Fordere bitte einen neuen an.";
+    case "verify_failed":
+      return "Magic-Link konnte nicht verifiziert werden. Eventuell wurde er schon benutzt.";
+    case "exchange_failed":
+      return "Login-Token konnte nicht eingelöst werden. Bitte erneut versuchen.";
+    case "missing_token":
+      return "Im Link fehlt der Token. Bitte fordere einen frischen Magic-Link an.";
+    case "access_denied":
+      return "Zugriff verweigert. Falls dein Account neu ist, frage den Skipper, dich zur Crew einzuladen.";
+    case "user_not_allowed":
+      return "Diese E-Mail-Adresse ist nicht eingeladen. Bitte beim Skipper melden.";
+    default:
+      return "Bitte fordere einen neuen Magic-Link an.";
+  }
+}
+
 export default function LoginPage() {
   return (
     <Suspense>
@@ -77,7 +102,7 @@ function LoginPageInner() {
                   Login fehlgeschlagen
                 </p>
                 <p className="text-ink-soft">
-                  {authErrorMsg ?? "Bitte fordere einen neuen Magic-Link an."}
+                  {translateAuthError(authError, authErrorMsg)}
                 </p>
                 <p className="text-xs text-ink-soft">
                   Code: <code className="font-mono">{authError}</code>

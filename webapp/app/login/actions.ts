@@ -51,7 +51,8 @@ export async function signInWithMagicLink(
   });
 
   if (error) {
-    return { status: "error", message: error.message };
+    console.error("[bordkasse:auth]", error.message);
+    return { status: "error", message: "Login-Link konnte nicht versandt werden. Bitte später erneut versuchen." };
   }
 
   return { status: "ok", email: parsed.data.email };

@@ -65,7 +65,8 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
       .select("id")
       .single();
     if (error || !created) {
-      return { status: "error", message: error?.message ?? "Person konnte nicht angelegt werden." };
+      if (error?.message) console.error("[bordkasse:db]", error.message);
+      return { status: "error", message: "Person konnte nicht angelegt werden. Bitte erneut versuchen." };
     }
     personId = created.id;
     const { error: privErr } = await supabase

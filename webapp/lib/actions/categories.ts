@@ -57,7 +57,10 @@ export async function addCategory(_prev: CatState, formData: FormData): Promise<
     })
     .select()
     .single();
-  if (error || !cat) return { status: "error", message: error?.message ?? "Konnte nicht angelegt werden." };
+  if (error || !cat) {
+    if (error?.message) console.error("[bordkasse:db]", error.message);
+    return { status: "error", message: "Kategorie konnte nicht angelegt werden. Bitte erneut versuchen." };
+  }
 
   await logAudit(supabase, {
     table_name: "trip_categories",
@@ -109,7 +112,10 @@ export async function setCategoryIcon(
     .from("trip_categories")
     .update({ icon: parsed.data.icon })
     .eq("id", parsed.data.category_id);
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("[bordkasse:db]", error.message);
+    return { ok: false, message: "Speichern fehlgeschlagen. Bitte erneut versuchen." };
+  }
 
   await logAudit(supabase, {
     table_name: "trip_categories",

@@ -107,7 +107,8 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
     .single();
 
   if (error || !trip) {
-    return { status: "error", message: error?.message ?? "Trip konnte nicht angelegt werden." };
+    if (error?.message) console.error("[bordkasse:db]", error.message);
+    return { status: "error", message: "Törn konnte nicht angelegt werden. Bitte erneut versuchen." };
   }
 
   await logAudit(supabase, {
