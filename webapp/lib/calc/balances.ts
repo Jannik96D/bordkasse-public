@@ -32,9 +32,9 @@ export function computeBalances(
 
   for (const tx of transactions) {
     if (tx.type === "expense") {
-      // Bezahlt
+      // Bezahlt = volle Auslage inkl. Trinkgeld
       if (tx.paidBy && rows.has(tx.paidBy)) {
-        rows.get(tx.paidBy)!.paid += tx.amount;
+        rows.get(tx.paidBy)!.paid += tx.amount + (tx.tipAmount ?? 0);
       }
       // Anteil
       const shares = calculateShares(tx, members);

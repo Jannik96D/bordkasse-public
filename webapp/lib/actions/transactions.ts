@@ -34,8 +34,10 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     paid_by: formData.get("paid_by"),
     amount: formData.get("amount"),
     alcohol_amount: formData.get("alcohol_amount") || 0,
+    tip_amount: formData.get("tip_amount") || 0,
     split_type: formData.get("split_type"),
     participant_ids: participantIds,
+    participant_amounts: formData.get("participant_amounts"),
     idempotency_key: formData.get("idempotency_key") || undefined,
   });
   if (!parsed.success) {
@@ -43,7 +45,17 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     return { status: "error", message: issue?.message ?? "Ungültige Eingabe.", field: issue?.path?.[0]?.toString() };
   }
 
-  const { participant_ids, idempotency_key, ...txData } = parsed.data;
+  const { participant_ids, participant_amounts, idempotency_key, ...txData } = parsed.data;
+
+  // Bei "Pro Person" wird der Gesamtbetrag aus den Einzelbeträgen abgeleitet,
+  // damit Anzeige + DB-State garantiert konsistent sind. Trinkgeld ist nur
+  // hier sinnvoll; bei anderen Aufteilungsarten wird es auf 0 erzwungen.
+  if (txData.split_type === "per_person") {
+    txData.amount = participant_amounts.reduce((s, p) => s + p.amount, 0);
+    txData.alcohol_amount = 0;
+  } else {
+    txData.tip_amount = 0;
+  }
 
   const memberCheck = await requireMember(txData.trip_id);
   if (!memberCheck.ok) return { status: "error", message: memberCheck.message };
@@ -68,6 +80,14 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     await supabase
       .from("transaction_participants")
       .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })));
+  } else if (txData.split_type === "per_person" && participant_amounts.length > 0) {
+    await supabase
+      .from("transaction_participants")
+      .insert(
+        participant_amounts
+          .filter((p) => p.amount > 0)
+          .map((p) => ({ transaction_id: tx.id, person_id: p.person_id, amount: p.amount })),
+      );
   }
 
   await logAudit(supabase, {
@@ -76,7 +96,7 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     record_id: tx.id,
     trip_id: txData.trip_id,
     actor_person_id: person.id,
-    payload: { type: "expense", ...txData, participant_ids },
+    payload: { type: "expense", ...txData, participant_ids, participant_amounts },
   });
 
   revalidatePath(`/trips/${txData.trip_id}/transactions`);
@@ -196,15 +216,24 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     paid_by: formData.get("paid_by"),
     amount: formData.get("amount"),
     alcohol_amount: formData.get("alcohol_amount") || 0,
+    tip_amount: formData.get("tip_amount") || 0,
     split_type: formData.get("split_type"),
     participant_ids: participantIds,
+    participant_amounts: formData.get("participant_amounts"),
   });
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     return { status: "error", message: issue?.message ?? "Ungültige Eingabe.", field: issue?.path?.[0]?.toString() };
   }
-  const { participant_ids, idempotency_key: _ignored, ...txData } = parsed.data;
+  const { participant_ids, participant_amounts, idempotency_key: _ignored, ...txData } = parsed.data;
   void _ignored;
+
+  if (txData.split_type === "per_person") {
+    txData.amount = participant_amounts.reduce((s, p) => s + p.amount, 0);
+    txData.alcohol_amount = 0;
+  } else {
+    txData.tip_amount = 0;
+  }
 
   const supabase = createAdminClient();
   const { data: existing } = await supabase
@@ -232,6 +261,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
       paid_by: txData.paid_by,
       amount: txData.amount,
       alcohol_amount: txData.alcohol_amount,
+      tip_amount: txData.tip_amount,
       split_type: txData.split_type,
     })
     .eq("id", transactionId);
@@ -243,6 +273,14 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     await supabase
       .from("transaction_participants")
       .insert(participant_ids.map((pid) => ({ transaction_id: transactionId, person_id: pid })));
+  } else if (txData.split_type === "per_person" && participant_amounts.length > 0) {
+    await supabase
+      .from("transaction_participants")
+      .insert(
+        participant_amounts
+          .filter((p) => p.amount > 0)
+          .map((p) => ({ transaction_id: transactionId, person_id: p.person_id, amount: p.amount })),
+      );
   }
 
   await logAudit(supabase, {
@@ -251,7 +289,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     record_id: transactionId,
     trip_id: txData.trip_id,
     actor_person_id: person.id,
-    payload: { type: "expense", ...txData, participant_ids },
+    payload: { type: "expense", ...txData, participant_ids, participant_amounts },
   });
 
   revalidatePath(`/trips/${txData.trip_id}/transactions`);
@@ -404,14 +442,23 @@ export async function replayPendingTransaction(
       paid_by: formObject.paid_by,
       amount: formObject.amount,
       alcohol_amount: formObject.alcohol_amount || 0,
+      tip_amount: formObject.tip_amount || 0,
       split_type: formObject.split_type,
       participant_ids: participantIds,
+      participant_amounts: formObject.participant_amounts,
       idempotency_key: formObject.idempotency_key || undefined,
     });
     if (!parsed.success) {
       return { ok: false, message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
     }
-    const { participant_ids, idempotency_key, ...txData } = parsed.data;
+    const { participant_ids, participant_amounts, idempotency_key, ...txData } = parsed.data;
+
+    if (txData.split_type === "per_person") {
+      txData.amount = participant_amounts.reduce((s, p) => s + p.amount, 0);
+      txData.alcohol_amount = 0;
+    } else {
+      txData.tip_amount = 0;
+    }
 
     const { data: tx, error } = await supabase
       .from("transactions")
@@ -429,6 +476,14 @@ export async function replayPendingTransaction(
       await supabase
         .from("transaction_participants")
         .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })));
+    } else if (txData.split_type === "per_person" && participant_amounts.length > 0) {
+      await supabase
+        .from("transaction_participants")
+        .insert(
+          participant_amounts
+            .filter((p) => p.amount > 0)
+            .map((p) => ({ transaction_id: tx.id, person_id: p.person_id, amount: p.amount })),
+        );
     }
     await logAudit(supabase, {
       table_name: "transactions",
@@ -436,7 +491,7 @@ export async function replayPendingTransaction(
       record_id: tx.id,
       trip_id: txData.trip_id,
       actor_person_id: person.id,
-      payload: { type: "expense", source: "outbox-replay", ...txData, participant_ids },
+      payload: { type: "expense", source: "outbox-replay", ...txData, participant_ids, participant_amounts },
     });
     revalidatePath(`/trips/${txData.trip_id}/transactions`);
     revalidatePath(`/trips/${txData.trip_id}/balance`);

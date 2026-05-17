@@ -16,7 +16,7 @@ Next.js 16 + Supabase Web-App-Variante der Bordkasse. Spec: [`../docs/web-app-sp
   - **Co-Skipper** — `trip_members.is_skipper = TRUE`. Darf alles, was der Skipper darf, außer der Original-Skipper-Slot.
   - **Crew-Member** — `trip_members`-Eintrag. Darf Buchungen erfassen + eigene Schulden abhaken; sieht Bilanz/Schulden/Statistik.
 - **Privacy-Split (Migration 0013):** `persons.display_name` ist öffentlich (Vorname + ggf. Initial), darf keine Nachnamen tragen. `persons_private.last_name` + `persons_private.email` (CITEXT) — sichtbar via RLS nur für Self oder Trip-Skipper der eigenen Crew.
-- **Aufteilungslogiken:** Gleichmäßig, An Bord, Zeitanteilig, Individuell + Alkohol-Modifikator (siehe [`docs/calculation-rules.md`](../docs/calculation-rules.md)).
+- **Aufteilungslogiken:** Gleichmäßig, An Bord, Zeitanteilig, Individuell, **Pro Person** + Alkohol-Modifikator (siehe [`docs/calculation-rules.md`](../docs/calculation-rules.md)). „Pro Person" akzeptiert Mini-Rechner-Eingaben (`3 + 17`) und unterstützt ein **Trinkgeld**-Feld, das proportional auf die Beteiligten verteilt wird.
 - **Buchungen:** erfassen + nachträglich **bearbeiten** unter `/trips/[id]/transactions/[txId]/edit` (Skipper, Admin oder Ersteller dürfen ändern). Liste mit clientseitigem Suchfeld (ab > 4 Einträge sichtbar), Aufteilung als Tab-Row, „Individuell"-Crew als Chips.
   - **Einheitliche Picker** mit Smart-Position: Kategorie- und Personen-Auswahl als Custom-Dropdowns, die nach oben aufklappen wenn unten kein Platz ist, mit „(du)"-Marker für den eingeloggten User.
   - **Toast nach Speichern:** `?toast=…`-Redirect zeigt eine grüne Erfolgs-Meldung („Ausgabe erfasst.", „Gutschrift aktualisiert." etc.) und säubert die URL automatisch.

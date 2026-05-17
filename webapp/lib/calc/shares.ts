@@ -1,8 +1,9 @@
 /**
  * Berechnet pro Transaktion den Anteil jedes Crew-Mitglieds.
  *
- * Spiegel der SQL-View v_transaction_shares aus 0002_views.sql.
- * Implementiert alle 4 Aufteilungs-Logiken plus Alkohol-Modifikator.
+ * Spiegel der SQL-View v_transaction_shares aus 0002_views.sql / 0014_per_person.
+ * Implementiert alle 5 Aufteilungs-Logiken + Alkohol-Modifikator + Trinkgeld-
+ * Multiplikator.
  *
  * Spec: docs/calculation-rules.md
  */
@@ -16,8 +17,19 @@ export function calculateShares(
   if (transaction.type !== "expense") return [];
   if (!transaction.splitType) return [];
 
-  const { id, date, amount, alcoholAmount, splitType, participants = [] } = transaction;
+  const {
+    id,
+    date,
+    amount,
+    alcoholAmount,
+    tipAmount = 0,
+    splitType,
+    participants = [],
+    participantAmounts = [],
+  } = transaction;
   const baseAmount = amount - alcoholAmount;
+  const ppAmountFor = (personId: string) =>
+    participantAmounts.find((p) => p.personId === personId)?.amount ?? 0;
 
   // Active-Set bestimmen
   const isActive = (m: Member): boolean => {
@@ -30,6 +42,8 @@ export function calculateShares(
         return m.days > 0;
       case "individual":
         return participants.includes(m.personId);
+      case "per_person":
+        return ppAmountFor(m.personId) > 0;
     }
   };
 
@@ -40,7 +54,6 @@ export function calculateShares(
   const nDrinkers = drinkers.length;
   const drinkerDays = drinkers.reduce((s, m) => s + m.days, 0);
 
-  // Hilfs-Funktionen für die zwei Komponenten
   const baseShareFor = (m: Member): number => {
     if (!isActive(m) || nActive === 0) return 0;
     switch (splitType) {
@@ -50,6 +63,8 @@ export function calculateShares(
         return baseAmount / nActive;
       case "time_proportional":
         return activeDays > 0 ? (baseAmount * m.days) / activeDays : 0;
+      case "per_person":
+        return ppAmountFor(m.personId);
     }
   };
 
@@ -73,11 +88,15 @@ export function calculateShares(
     return alcoholAmount / nDrinkers;
   };
 
+  // Trinkgeld-Multiplikator: jeder Anteil wird um (tip/amount) erhöht,
+  // sodass die Summe aller Anteile = amount + tip ergibt.
+  const tipMultiplier = tipAmount > 0 && amount > 0 ? 1 + tipAmount / amount : 1;
+
   return members
     .map((m): Share => ({
       transactionId: id,
       personId: m.personId,
-      share: baseShareFor(m) + alcoholShareFor(m),
+      share: (baseShareFor(m) + alcoholShareFor(m)) * tipMultiplier,
     }))
     .filter((s) => s.share > 0);
 }

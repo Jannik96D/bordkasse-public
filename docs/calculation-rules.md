@@ -83,6 +83,48 @@ Anteil = Betrag / Anzahl_markierter_Personen
 
 **Mit Alkohol:** Aufgeteilt unter den markierten Trinkern.
 
+### 5. Pro Person
+
+Jede Person zahlt einen eigenen, frei eingetragenen Betrag. Gesamtbetrag der
+Buchung = Σ Einzelbeträge.
+
+**Formel pro Person:**
+```
+Anteil = transaction_participants.amount[person]   (0 wenn nicht eingetragen)
+```
+
+**Beispiel** (Restaurant-Rechnung):
+```
+Jannik 12,50 · Stephan 14,50 · Lucas 20,00 · Mama 9,30 — alle anderen 0
+→ Gesamtbetrag der Buchung = 56,30€
+```
+
+Im Web-Frontend akzeptiert das Eingabefeld auch einfache Rechenausdrücke
+(`3 + 17`, `(2 * 4,50)`, Komma oder Punkt als Dezimaltrennzeichen) — siehe
+`safeMathEval` in [`lib/utils/math-eval.ts`](../webapp/lib/utils/math-eval.ts).
+Der Alkohol-Modifikator entfällt bei "Pro Person".
+
+## Trinkgeld-Verteilung (nur bei „Pro Person")
+
+Feld `tip_amount` (€) auf einer Ausgabe — nur bei `split_type='per_person'`
+aktiv. Wird proportional zu den Einzelbeträgen auf die Beteiligten verteilt.
+Bei anderen Aufteilungsarten erzwingt die Server-Action `tip_amount = 0`
+(UI blendet das Feld aus).
+
+**Formel:**
+```
+final_anteil = basis_anteil × (1 + tip_amount / amount)
+```
+
+Σ aller Anteile = `amount + tip_amount`. `paid_by` legt die volle Auslage
+(inkl. Trinkgeld) aus.
+
+**Beispiel** (60€ Restaurant + 6€ Trinkgeld, Pro Person):
+```
+Jannik 20€, Ben 30€, Carla 10€ — Trinkgeld 6€ (10%)
+→ Jannik 22€, Ben 33€, Carla 11€  ·  Σ = 66€
+```
+
 ## Gutschrift-Logik
 
 Gutschriften = Geldfluss außerhalb der Bordkasse, der trotzdem die Bilanz beeinflusst.

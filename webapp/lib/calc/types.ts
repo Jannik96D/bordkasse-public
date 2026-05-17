@@ -3,7 +3,12 @@
  * Wird von lib/calc/* genutzt — Vitest-Tests prüfen damit S1–S7 ohne DB.
  */
 
-export type SplitType = "equal" | "on_board" | "time_proportional" | "individual";
+export type SplitType =
+  | "equal"
+  | "on_board"
+  | "time_proportional"
+  | "individual"
+  | "per_person";
 export type TransactionType = "expense" | "credit";
 
 export interface Member {
@@ -21,10 +26,14 @@ export interface Transaction {
   date: string;          // ISO date
   amount: number;
   alcoholAmount: number;
+  /** Trinkgeld, das proportional auf alle Beteiligten verteilt wird. Default 0. */
+  tipAmount?: number;
   // expense:
   paidBy?: string;
   splitType?: SplitType;
   participants?: string[]; // für split_type='individual'
+  /** Per-Person-Beträge für split_type='per_person'. Personen ohne Eintrag oder mit Betrag 0 sind nicht beteiligt. */
+  participantAmounts?: Array<{ personId: string; amount: number }>;
   // credit:
   creditFrom?: string;
   creditTo?: string | null; // null = "An Alle"

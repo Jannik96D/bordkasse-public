@@ -28,7 +28,10 @@ export function Toast() {
 
   useEffect(() => {
     if (!key || !MESSAGES[key]) return;
-    setVisible(true);
+    // setTimeout 0 verschiebt den Show-State aus dem synchronen Effect-Body —
+    // erfüllt den react-hooks/set-state-in-effect Lint-Rule, ohne dass der
+    // User die Verzögerung sieht (erstes Paint zeigt opacity-0, dann fade-in).
+    const show = setTimeout(() => setVisible(true), 0);
     const hide = setTimeout(() => setVisible(false), 3500);
     // URL aufräumen, damit Reload kein erneutes Toast triggert.
     const cleanup = setTimeout(() => {
@@ -37,6 +40,7 @@ export function Toast() {
       router.replace(`${url.pathname}${url.search}`, { scroll: false });
     }, 4000);
     return () => {
+      clearTimeout(show);
       clearTimeout(hide);
       clearTimeout(cleanup);
     };
