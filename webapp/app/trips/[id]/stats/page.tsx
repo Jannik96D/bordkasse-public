@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BarChart3, CalendarDays, ChevronRight, Tag } from "lucide-react";
 import { getTripStats } from "@/lib/queries/stats";
+import { CategoryIcon } from "@/components/category-icon";
 import { formatDate, formatEuro } from "@/lib/utils";
 
 export default async function StatsPage({
@@ -62,9 +63,14 @@ export default async function StatsPage({
                   className="block rounded-md border border-rule bg-paper p-3 transition-colors hover:border-primary/40 hover:bg-paper-soft"
                   aria-label={`Buchungen in „${c.category_name}" anzeigen`}
                 >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="flex min-w-0 items-baseline gap-1 truncate font-medium">
-                      {c.category_name}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-1.5 truncate font-medium">
+                      <CategoryIcon
+                        icon={c.category_icon}
+                        name={c.category_name}
+                        className="h-4 w-4 shrink-0 text-primary"
+                      />
+                      <span className="truncate">{c.category_name}</span>
                       <ChevronRight className="h-3.5 w-3.5 shrink-0 text-ink-soft" aria-hidden />
                     </span>
                     <span className="shrink-0 font-mono text-sm">
