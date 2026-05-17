@@ -8,10 +8,14 @@ import { TransactionsList } from "./transactions-list";
 
 export default async function TransactionsListPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ q?: string }>;
 }) {
   const { id } = await params;
+  const sp = await searchParams;
+  const initialQuery = typeof sp.q === "string" ? sp.q : "";
   const [txs, members, person, admin] = await Promise.all([
     listTransactions(id),
     getTripMembers(id),
@@ -39,6 +43,7 @@ export default async function TransactionsListPage({
           currentPersonId={person?.id ?? null}
           isMyTripSkipper={isMyTripSkipper}
           isAdmin={admin}
+          initialQuery={initialQuery}
         />
       )}
 

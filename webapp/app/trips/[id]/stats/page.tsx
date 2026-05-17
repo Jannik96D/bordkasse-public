@@ -1,4 +1,5 @@
-import { BarChart3, CalendarDays, Tag } from "lucide-react";
+import Link from "next/link";
+import { BarChart3, CalendarDays, ChevronRight, Tag } from "lucide-react";
 import { getTripStats } from "@/lib/queries/stats";
 import { formatDate, formatEuro } from "@/lib/utils";
 
@@ -52,32 +53,40 @@ export default async function StatsPage({
         <ul className="space-y-2">
           {stats.byCategory.map((c) => {
             const pct = (c.total / stats.total) * 100;
+            // Drill-down: Klick auf eine Kategorie öffnet die Buchungs-Liste mit
+            // dem Kategorie-Namen als Vorbelegung im Suchfeld.
             return (
-              <li
-                key={c.category_id ?? "__none__"}
-                className="rounded-md border border-rule bg-paper p-3"
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="truncate font-medium">{c.category_name}</span>
-                  <span className="shrink-0 font-mono text-sm">
-                    {formatEuro(c.total)}
-                  </span>
-                </div>
-                <div className="mt-2 h-2 overflow-hidden rounded-full bg-paper-soft">
-                  <div
-                    className="h-full rounded-full bg-primary"
-                    style={{ width: `${(c.total / maxCat) * 100}%` }}
-                  />
-                </div>
-                <div className="mt-1.5 flex justify-between text-xs text-ink-soft">
-                  <span>{c.count} Buchung{c.count === 1 ? "" : "en"}</span>
-                  <span>
-                    {pct.toFixed(1)} %
-                    {c.alcohol > 0 && (
-                      <> · davon Alkohol {formatEuro(c.alcohol)}</>
-                    )}
-                  </span>
-                </div>
+              <li key={c.category_id ?? "__none__"}>
+                <Link
+                  href={`/trips/${id}/transactions?q=${encodeURIComponent(c.category_name)}`}
+                  className="block rounded-md border border-rule bg-paper p-3 transition-colors hover:border-primary/40 hover:bg-paper-soft"
+                  aria-label={`Buchungen in „${c.category_name}" anzeigen`}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="flex min-w-0 items-baseline gap-1 truncate font-medium">
+                      {c.category_name}
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-ink-soft" aria-hidden />
+                    </span>
+                    <span className="shrink-0 font-mono text-sm">
+                      {formatEuro(c.total)}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-paper-soft">
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{ width: `${(c.total / maxCat) * 100}%` }}
+                    />
+                  </div>
+                  <div className="mt-1.5 flex justify-between text-xs text-ink-soft">
+                    <span>{c.count} Buchung{c.count === 1 ? "" : "en"}</span>
+                    <span>
+                      {pct.toFixed(1)} %
+                      {c.alcohol > 0 && (
+                        <> · davon Alkohol {formatEuro(c.alcohol)}</>
+                      )}
+                    </span>
+                  </div>
+                </Link>
               </li>
             );
           })}
