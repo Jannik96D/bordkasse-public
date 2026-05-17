@@ -4,6 +4,7 @@ import { isAdmin } from "@/lib/auth/authz";
 import { CrewSection } from "./crew-section";
 import { CategorySection } from "./category-section";
 import { ArchiveBlock } from "./archive-block";
+import { DatesSection } from "./dates-section";
 
 export default async function SettingsPage({
   params,
@@ -32,6 +33,13 @@ export default async function SettingsPage({
           Du siehst die Einstellungen nur zur Ansicht. Crew und Kategorien
           können nur Skipper oder Admin bearbeiten.
         </p>
+      )}
+      {canEdit && (
+        <DatesSection
+          tripId={id}
+          startDate={trip.start_date}
+          endDate={trip.end_date}
+        />
       )}
       <CrewSection
         tripId={id}
