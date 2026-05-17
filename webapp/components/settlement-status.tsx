@@ -43,9 +43,14 @@ export function SettlementStatus({
     );
   }
 
-  // Törn läuft noch? Dann gibt's noch nichts zu tun.
+  // Banner ab dem letzten Trip-Tag (heute >= end_date − 1 Tag), damit der
+  // Skipper schon am Ende des Törns abschließen kann, ohne bis zum nächsten
+  // Tag warten zu müssen.
   const todayIso = new Date().toISOString().slice(0, 10);
-  if (todayIso <= endDate) return null;
+  const cutoff = new Date(endDate);
+  cutoff.setDate(cutoff.getDate() - 1);
+  const cutoffIso = cutoff.toISOString().slice(0, 10);
+  if (todayIso < cutoffIso) return null;
 
   if (canAnnounce) {
     const headline = highlight
