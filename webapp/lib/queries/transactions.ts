@@ -7,7 +7,8 @@ export interface TransactionListRow {
   description: string | null;
   amount: number;
   alcohol_amount: number;
-  split_type: "equal" | "on_board" | "time_proportional" | "individual" | null;
+  tip_amount: number;
+  split_type: "equal" | "on_board" | "time_proportional" | "individual" | "per_person" | null;
   paid_by_name: string | null;
   category_name: string | null;
   category_icon: string | null;
@@ -20,7 +21,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
   const { data, error } = await supabase
     .from("transactions")
     .select(`
-      id, type, date, description, amount, alcohol_amount, split_type,
+      id, type, date, description, amount, alcohol_amount, tip_amount, split_type,
       paid_by, credit_from, credit_to,
       paid_person:persons!transactions_paid_by_fkey(display_name),
       from_person:persons!transactions_credit_from_fkey(display_name),
@@ -41,6 +42,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
     description: string | null;
     amount: number;
     alcohol_amount: number;
+    tip_amount: number;
     split_type: TransactionListRow["split_type"];
     paid_by: string | null;
     credit_from: string | null;
@@ -61,6 +63,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
     description: r.description,
     amount: Number(r.amount),
     alcohol_amount: Number(r.alcohol_amount),
+    tip_amount: Number(r.tip_amount ?? 0),
     split_type: r.split_type,
     paid_by_name: first(r.paid_person)?.display_name ?? null,
     category_name: first(r.category)?.name ?? null,

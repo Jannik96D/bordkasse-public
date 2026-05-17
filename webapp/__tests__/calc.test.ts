@@ -360,6 +360,57 @@ describe("S8: Pro Person", () => {
     const rawTotal = shares.reduce((a, s) => a + s.share, 0);
     expect(Math.abs(rawTotal - 66)).toBeLessThan(0.01);
   });
+
+  it("Trinkgeld landet auf JEDEM Beteiligten, niemals auf Nicht-Beteiligten", () => {
+    // Restaurant-Szenario: Crew 5 essen mit, 5 nicht. Trinkgeld 18€.
+    // Jeder Beteiligte muss einen Anteil > eigenem Bestellbetrag bekommen
+    // (= Bestellung + sein Trinkgeld-Anteil). Nicht-Beteiligte: kein Anteil.
+    const tx: Transaction = {
+      id: "tip-distribution",
+      type: "expense",
+      date: "2026-04-08",
+      amount: 90,
+      alcoholAmount: 0,
+      tipAmount: 18, // 20%
+      paidBy: "p1",
+      splitType: "per_person",
+      participantAmounts: [
+        { personId: "p1", amount: 15 },
+        { personId: "p2", amount: 25 },
+        { personId: "p3", amount: 30 },
+        { personId: "p4", amount: 12 },
+        { personId: "p7", amount: 8 },
+      ],
+    };
+    const shares = calculateShares(tx, crew);
+    const byId = Object.fromEntries(shares.map((s) => [s.personId, s.share]));
+
+    // Beteiligte: jeder bekommt eigenen Betrag × 1,2 (Trinkgeld-Faktor 18/90).
+    const factor = 1.2;
+    expect(round2(byId["p1"])).toBe(round2(15 * factor)); // 18
+    expect(round2(byId["p2"])).toBe(round2(25 * factor)); // 30
+    expect(round2(byId["p3"])).toBe(round2(30 * factor)); // 36
+    expect(round2(byId["p4"])).toBe(round2(12 * factor)); // 14.40
+    expect(round2(byId["p7"])).toBe(round2(8 * factor));  // 9.60
+
+    // Nicht-Beteiligte: explizit kein Eintrag (calculateShares filtert share=0).
+    for (const id of ["p5", "p6", "p8", "p9", "p10"]) {
+      expect(byId[id]).toBeUndefined();
+    }
+
+    // Σ aller Anteile = amount + tip_amount
+    const rawTotal = shares.reduce((a, s) => a + s.share, 0);
+    expect(Math.abs(rawTotal - 108)).toBeLessThan(0.01);
+
+    // Bilanz: Anna (paid_by) hat 108€ ausgelegt, eigener Anteil 18€,
+    // also Saldo +90. Niemand hat von außen reingebucht, also Σ = 0.
+    const balances = computeBalances([tx], crew);
+    const anna = balances.find((b) => b.personId === "p1")!;
+    expect(round2(anna.paid)).toBe(108); // 90 + 18 Trinkgeld
+    expect(round2(anna.balance)).toBe(90); // 108 - 18 eigener Anteil
+    const sumBalances = balances.reduce((a, b) => a + b.balance, 0);
+    expect(Math.abs(sumBalances)).toBeLessThan(0.01);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────
