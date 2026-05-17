@@ -301,6 +301,68 @@ describe("S7: Schulden-Greedy", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────
+// S8: Pro Person (individuelle Beträge pro Person)
+// ────────────────────────────────────────────────────────────────────────
+describe("S8: Pro Person", () => {
+  it("56,30€ Restaurant mit gemischten Beträgen", () => {
+    const tx: Transaction = {
+      id: "s8",
+      type: "expense",
+      date: "2026-04-08",
+      amount: 56.3,
+      alcoholAmount: 0,
+      paidBy: "p1",
+      splitType: "per_person",
+      participantAmounts: [
+        { personId: "p1", amount: 12.5 }, // Anna (Jannik)
+        { personId: "p2", amount: 14.5 }, // Ben
+        { personId: "p3", amount: 20 }, // Carla (= 3 + 17 vom Mini-Rechner)
+        { personId: "p7", amount: 9.3 }, // Greta
+      ],
+    };
+    const shares = calculateShares(tx, crew);
+    const byId = Object.fromEntries(shares.map((s) => [s.personId, round2(s.share)]));
+    expect(byId["p1"]).toBe(12.5);
+    expect(byId["p2"]).toBe(14.5);
+    expect(byId["p3"]).toBe(20);
+    expect(byId["p7"]).toBe(9.3);
+    // Andere haben keinen Anteil
+    expect(byId["p4"]).toBeUndefined();
+    expect(byId["p6"]).toBeUndefined();
+    // Summe = amount
+    const rawTotal = shares.reduce((a, s) => a + s.share, 0);
+    expect(round2(rawTotal)).toBe(56.3);
+  });
+
+  it("Pro Person mit Trinkgeld verteilt proportional", () => {
+    // 60€ Rechnung: Anna 20, Ben 30, Carla 10 — Trinkgeld 6€ (10%)
+    // → Anna 22, Ben 33, Carla 11, Σ = 66
+    const tx: Transaction = {
+      id: "s8-tip",
+      type: "expense",
+      date: "2026-04-08",
+      amount: 60,
+      alcoholAmount: 0,
+      tipAmount: 6,
+      paidBy: "p1",
+      splitType: "per_person",
+      participantAmounts: [
+        { personId: "p1", amount: 20 },
+        { personId: "p2", amount: 30 },
+        { personId: "p3", amount: 10 },
+      ],
+    };
+    const shares = calculateShares(tx, crew);
+    const byId = Object.fromEntries(shares.map((s) => [s.personId, round2(s.share)]));
+    expect(byId["p1"]).toBe(22);
+    expect(byId["p2"]).toBe(33);
+    expect(byId["p3"]).toBe(11);
+    const rawTotal = shares.reduce((a, s) => a + s.share, 0);
+    expect(Math.abs(rawTotal - 66)).toBeLessThan(0.01);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
 // Edge-Cases
 // ────────────────────────────────────────────────────────────────────────
 describe("Edge-Cases", () => {

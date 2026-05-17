@@ -33,9 +33,9 @@ export default async function EditTransactionPage({
   const { data: tx } = await supabase
     .from("transactions")
     .select(`
-      id, type, date, description, amount, alcohol_amount, split_type,
+      id, type, date, description, amount, alcohol_amount, tip_amount, split_type,
       paid_by, category_id, credit_from, credit_to, created_by, deleted_at, trip_id,
-      transaction_participants(person_id)
+      transaction_participants(person_id, amount)
     `)
     .eq("id", txId)
     .maybeSingle();
@@ -67,9 +67,14 @@ export default async function EditTransactionPage({
   let expenseInitial: ExpenseInitial | undefined;
   let creditInitial: CreditInitial | undefined;
   if (tx.type === "expense") {
-    const participantIds = (tx.transaction_participants ?? []).map(
-      (p: { person_id: string }) => p.person_id,
-    );
+    const rawParticipants = (tx.transaction_participants ?? []) as Array<{
+      person_id: string;
+      amount: number | null;
+    }>;
+    const participantIds = rawParticipants.map((p) => p.person_id);
+    const participantAmounts = rawParticipants
+      .filter((p) => p.amount != null)
+      .map((p) => ({ personId: p.person_id, amount: Number(p.amount) }));
     expenseInitial = {
       transactionId: tx.id,
       date: tx.date,
@@ -78,8 +83,10 @@ export default async function EditTransactionPage({
       paidBy: tx.paid_by ?? "",
       amount: Number(tx.amount),
       alcoholAmount: Number(tx.alcohol_amount ?? 0),
+      tipAmount: Number(tx.tip_amount ?? 0),
       splitType: (tx.split_type ?? "equal") as SplitType,
       participantIds,
+      participantAmounts,
     };
   } else {
     creditInitial = {

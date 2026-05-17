@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState, type FormEvent } from "react";
+import { useActionState, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, ChevronDown, ChevronUp, Check } from "lucide-react";
@@ -12,19 +12,26 @@ import {
   type TxState,
 } from "@/lib/actions/transactions";
 import { enqueue } from "@/lib/offline/outbox";
-import { todayIso, cn } from "@/lib/utils";
+import { todayIso, cn, formatEuro } from "@/lib/utils";
 import { CategorySelect } from "@/components/category-select";
 import { PersonSelect } from "@/components/person-select";
+import { safeMathEval } from "@/lib/utils/math-eval";
 
 type Member = { person_id: string; display_name: string };
 type Category = { id: string; name: string; icon: string | null };
-type SplitType = "equal" | "on_board" | "time_proportional" | "individual";
+type SplitType =
+  | "equal"
+  | "on_board"
+  | "time_proportional"
+  | "individual"
+  | "per_person";
 
 const SPLIT_LABEL: Record<SplitType, string> = {
   equal: "Gleichmäßig",
   on_board: "An Bord",
   time_proportional: "Zeitanteilig",
   individual: "Individuell",
+  per_person: "Pro Person",
 };
 
 const SPLIT_HINT: Record<SplitType, string> = {
@@ -32,6 +39,7 @@ const SPLIT_HINT: Record<SplitType, string> = {
   on_board: "Nur Personen, die am Datum der Ausgabe an Bord waren.",
   time_proportional: "Proportional zu Bord-Tagen pro Person.",
   individual: "Nur explizit markierte Personen.",
+  per_person: "Jede Person zahlt einen eigenen Betrag (z. B. Restaurant).",
 };
 
 const idleState: TxState = { status: "idle" };
@@ -45,8 +53,10 @@ export type ExpenseInitial = {
   paidBy: string;
   amount: number;
   alcoholAmount: number;
+  tipAmount: number;
   splitType: SplitType;
   participantIds: string[];
+  participantAmounts: Array<{ personId: string; amount: number }>;
 };
 
 export type CreditInitial = {
@@ -198,6 +208,9 @@ function ExpenseForm({
   const [alcoholAmount, setAlcoholAmount] = useState(
     initial && initial.alcoholAmount > 0 ? formatAmount(initial.alcoholAmount) : "",
   );
+  const [tipAmount, setTipAmount] = useState(
+    initial && initial.tipAmount > 0 ? formatAmount(initial.tipAmount) : "",
+  );
   const [participantIds, setParticipantIds] = useState<Set<string>>(
     () => new Set(initial?.participantIds ?? []),
   );
@@ -208,6 +221,43 @@ function ExpenseForm({
       else next.add(id);
       return next;
     });
+
+  // Per-Person-Beträge als Map<person_id, Eingabe-String>. String, damit der
+  // User "3+17" stehen lassen kann; safeMathEval übersetzt zur Anzeige.
+  const [perPersonInputs, setPerPersonInputs] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    if (initial?.participantAmounts) {
+      for (const p of initial.participantAmounts) {
+        init[p.personId] = formatAmount(p.amount);
+      }
+    }
+    return init;
+  });
+  const setPerPerson = (personId: string, value: string) =>
+    setPerPersonInputs((prev) => ({ ...prev, [personId]: value }));
+
+  // Pro-Person-Beträge ausgewertet (Mini-Rechner). 0 wenn Eingabe leer/ungültig.
+  const perPersonAmounts = useMemo(
+    () =>
+      members.map((m) => {
+        const raw = perPersonInputs[m.person_id] ?? "";
+        const val = safeMathEval(raw);
+        return {
+          personId: m.person_id,
+          displayName: m.display_name,
+          raw,
+          amount: val ?? 0,
+          valid: raw === "" || val !== null,
+        };
+      }),
+    [members, perPersonInputs],
+  );
+  const perPersonSum = perPersonAmounts.reduce((s, p) => s + p.amount, 0);
+
+  // Bei 'per_person' wird der Gesamtbetrag aus den Einzelbeträgen berechnet —
+  // das Betrag-Feld zeigt die Summe, ist nicht editierbar.
+  const isPerPerson = splitType === "per_person";
+  const displayAmount = isPerPerson ? formatAmount(perPersonSum) : amount;
 
   // Bei Validierungs-Fehler: zum betroffenen Feld scrollen + fokussieren.
   useEffect(() => {
@@ -284,16 +334,21 @@ function ExpenseForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Betrag (€)" htmlFor="amount">
+      <FieldGroup label="Betrag (€)" htmlFor="amount" hint={isPerPerson ? "Wird aus den Einzelbeträgen unten berechnet." : undefined}>
         <input
-          id="amount" name="amount" type="text" required
+          id="amount" name="amount" type="text" required={!isPerPerson}
           inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?"
           autoComplete="off"
-          value={amount}
+          value={displayAmount}
           onChange={(e) => setAmount(e.target.value)}
+          readOnly={isPerPerson}
           placeholder="0,00"
           aria-invalid={isInvalid("amount") || undefined}
-          className={cn(inputCls, isInvalid("amount") && "border-danger ring-2 ring-danger/20")}
+          className={cn(
+            inputCls,
+            isInvalid("amount") && "border-danger ring-2 ring-danger/20",
+            isPerPerson && "bg-paper-soft text-ink-soft",
+          )}
         />
       </FieldGroup>
 
@@ -360,27 +415,108 @@ function ExpenseForm({
         </FieldGroup>
       )}
 
-      <button
-        type="button"
-        onClick={() => setShowAdvanced((v) => !v)}
-        className="flex items-center gap-1 text-sm text-ink-soft hover:text-primary"
-      >
-        {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        Erweitert (Alkohol-Anteil)
-      </button>
-      {showAdvanced && (
-        <FieldGroup label="Alkohol-Anteil (€)" htmlFor="alcohol_amount" hint="Wird unter Trinkern verteilt; Rest nach Aufteilung.">
+      {isPerPerson && (
+        <FieldGroup label="Wer zahlt was?" hint={"Pro Person Betrag eintragen. Berechnungen wie „3 + 17“ werden automatisch ausgewertet. Leer = nicht beteiligt."}>
+          <div
+            id="participant_amounts"
+            tabIndex={-1}
+            className={cn(
+              "space-y-2 rounded-md border border-rule bg-paper p-3 outline-none",
+              isInvalid("participant_amounts") && "border-danger ring-2 ring-danger/20",
+            )}
+          >
+            {perPersonAmounts.map((p) => {
+              const showEval = p.raw && p.valid && /[+\-*/]/.test(p.raw);
+              return (
+                <div key={p.personId} className="flex items-center gap-3">
+                  <label
+                    htmlFor={`pp-${p.personId}`}
+                    className="min-w-0 flex-1 truncate text-sm"
+                  >
+                    {p.displayName}
+                  </label>
+                  <div className="flex w-40 items-center gap-2">
+                    <input
+                      id={`pp-${p.personId}`}
+                      type="text"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      value={p.raw}
+                      onChange={(e) => setPerPerson(p.personId, e.target.value)}
+                      placeholder="–"
+                      className={cn(
+                        "h-10 w-full rounded-md border bg-paper px-2 text-right text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20",
+                        p.valid ? "border-rule" : "border-danger ring-2 ring-danger/20",
+                      )}
+                    />
+                    <span className="w-4 shrink-0 text-sm text-ink-soft">€</span>
+                  </div>
+                  {showEval && (
+                    <span className="absolute hidden">{formatAmount(p.amount)}</span>
+                  )}
+                </div>
+              );
+            })}
+            <div className="flex items-center justify-between border-t border-rule pt-2 text-sm font-medium">
+              <span>Summe</span>
+              <span className="text-primary">{formatEuro(perPersonSum)}</span>
+            </div>
+            {/* JSON-Bundle für FormData. Nur Einträge mit amount > 0. */}
+            <input
+              type="hidden"
+              name="participant_amounts"
+              value={JSON.stringify(
+                perPersonAmounts
+                  .filter((p) => p.amount > 0)
+                  .map((p) => ({ person_id: p.personId, amount: p.amount })),
+              )}
+            />
+          </div>
+        </FieldGroup>
+      )}
+
+      {/* Trinkgeld ist semantisch nur bei "Pro Person" sinnvoll (Restaurant-
+          Szenario); für andere Aufteilungen wäre es eine versteckte Falle. */}
+      {isPerPerson && (
+        <FieldGroup label="Trinkgeld (€)" htmlFor="tip_amount" hint="Wird proportional auf die Beteiligten verteilt.">
           <input
-            id="alcohol_amount" name="alcohol_amount" type="text"
+            id="tip_amount" name="tip_amount" type="text"
             inputMode="decimal" pattern="([0-9]+([,.][0-9]{1,2})?)?"
             autoComplete="off"
             placeholder="0,00"
-            value={alcoholAmount}
-            onChange={(e) => setAlcoholAmount(e.target.value)}
-            aria-invalid={isInvalid("alcohol_amount") || undefined}
-            className={cn(inputCls, isInvalid("alcohol_amount") && "border-danger ring-2 ring-danger/20")}
+            value={tipAmount}
+            onChange={(e) => setTipAmount(e.target.value)}
+            aria-invalid={isInvalid("tip_amount") || undefined}
+            className={cn(inputCls, isInvalid("tip_amount") && "border-danger ring-2 ring-danger/20")}
           />
         </FieldGroup>
+      )}
+
+      {!isPerPerson && (
+        <>
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="flex items-center gap-1 text-sm text-ink-soft hover:text-primary"
+          >
+            {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            Erweitert (Alkohol-Anteil)
+          </button>
+          {showAdvanced && (
+            <FieldGroup label="Alkohol-Anteil (€)" htmlFor="alcohol_amount" hint="Wird unter Trinkern verteilt; Rest nach Aufteilung.">
+              <input
+                id="alcohol_amount" name="alcohol_amount" type="text"
+                inputMode="decimal" pattern="([0-9]+([,.][0-9]{1,2})?)?"
+                autoComplete="off"
+                placeholder="0,00"
+                value={alcoholAmount}
+                onChange={(e) => setAlcoholAmount(e.target.value)}
+                aria-invalid={isInvalid("alcohol_amount") || undefined}
+                className={cn(inputCls, isInvalid("alcohol_amount") && "border-danger ring-2 ring-danger/20")}
+              />
+            </FieldGroup>
+          )}
+        </>
       )}
 
       {state.status === "error" && (

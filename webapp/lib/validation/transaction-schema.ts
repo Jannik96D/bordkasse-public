@@ -32,6 +32,12 @@ const requiredUuid = (label: string) =>
     .min(1, `${label}: bitte auswählen.`)
     .uuid(`${label}: ungültige Auswahl.`);
 
+/** Eintrag der Pro-Person-Beträge. JSON-Form: [{ person_id, amount }] */
+const ParticipantAmount = z.object({
+  person_id: Uuid,
+  amount: NonNegativeAmount,
+});
+
 export const ExpenseSchema = z
   .object({
     trip_id: requiredUuid("Törn"),
@@ -39,12 +45,33 @@ export const ExpenseSchema = z
     description: z.string().trim().min(1, "Beschreibung darf nicht leer sein.").max(120),
     category_id: Uuid.optional().nullable(),
     paid_by: requiredUuid("Bezahlt von"),
-    amount: Amount,
+    // Bei split_type='per_person' wird amount aus participant_amounts abgeleitet
+    // und darf hier 0 sein — das per_person-Refine fängt fehlende Einträge ab.
+    amount: NonNegativeAmount,
     alcohol_amount: NonNegativeAmount.default(0),
-    split_type: z.enum(["equal", "on_board", "time_proportional", "individual"]),
+    tip_amount: NonNegativeAmount.default(0),
+    split_type: z.enum([
+      "equal",
+      "on_board",
+      "time_proportional",
+      "individual",
+      "per_person",
+    ]),
     participant_ids: z.array(Uuid).default([]),
+    participant_amounts: z.preprocess(
+      (v) => {
+        if (typeof v !== "string") return v;
+        if (!v) return [];
+        try { return JSON.parse(v); } catch { return v; }
+      },
+      z.array(ParticipantAmount).default([]),
+    ),
     idempotency_key: Uuid.optional(),
   })
+  .refine(
+    (d) => d.split_type === "per_person" || d.amount > 0,
+    { message: "Betrag muss > 0 sein.", path: ["amount"] },
+  )
   .refine((d) => d.alcohol_amount <= d.amount, {
     message: "Alkohol-Anteil darf nicht größer als Gesamtbetrag sein.",
     path: ["alcohol_amount"],
@@ -52,6 +79,15 @@ export const ExpenseSchema = z
   .refine(
     (d) => d.split_type !== "individual" || d.participant_ids.length > 0,
     { message: "Bei 'Individuell' mindestens eine Person markieren.", path: ["participant_ids"] },
+  )
+  .refine(
+    (d) =>
+      d.split_type !== "per_person" ||
+      d.participant_amounts.some((p) => p.amount > 0),
+    {
+      message: "Bei 'Pro Person' mindestens eine Person mit Betrag > 0 eintragen.",
+      path: ["participant_amounts"],
+    },
   );
 
 export const CreditSchema = z

@@ -79,7 +79,7 @@ export function TransactionsList({
 
       {filtered.length === 0 ? (
         <p className="rounded-md border border-dashed border-rule p-6 text-center text-sm text-ink-soft">
-          Keine Treffer für „{query}".
+          Keine Treffer für „{query}“.
         </p>
       ) : (
         <div className="space-y-6">
