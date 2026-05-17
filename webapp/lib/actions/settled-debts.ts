@@ -51,6 +51,21 @@ export async function toggleDebtSettled(input: {
 
   const supabase = createAdminClient();
 
+  // Bezahlt-Toggle erst freigegeben, wenn der Skipper die Abrechnung
+  // offiziell verschickt hat — vorher würden Crew-Mitglieder voreilig
+  // Häkchen setzen bevor alle Buchungen drin sind.
+  const { data: tripState } = await supabase
+    .from("trips")
+    .select("settlement_announced_at")
+    .eq("id", trip_id)
+    .maybeSingle();
+  if (!tripState?.settlement_announced_at) {
+    return {
+      ok: false,
+      message: "Die Abrechnung wurde vom Skipper noch nicht verschickt. Bezahlt-Häkchen sind erst danach freigegeben.",
+    };
+  }
+
   if (settled) {
     const { data: row, error } = await supabase
       .from("settled_debts")

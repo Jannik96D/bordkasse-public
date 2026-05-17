@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { Euro, ScaleIcon, Users, Plus } from "lucide-react";
 import { getTrip, getTripMembers } from "@/lib/queries/trips";
+import { getCurrentPerson } from "@/lib/auth/get-current-person";
+import { isAdmin } from "@/lib/auth/authz";
 import { FabAddTransaction } from "@/components/bottom-nav";
+import { SettlementStatus } from "@/components/settlement-status";
 
 export default async function TripDashboard({
   params,
@@ -9,15 +12,28 @@ export default async function TripDashboard({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const trip = await getTrip(id);
+  const [trip, members, person, admin] = await Promise.all([
+    getTrip(id),
+    getTripMembers(id),
+    getCurrentPerson(),
+    isAdmin(),
+  ]);
   if (!trip) return null;
-  const members = await getTripMembers(id);
 
   const memberCount = members.length;
   const hasMembers = memberCount > 0;
+  const isMyTripSkipper = !!members.find((m) => m.person_id === person?.id)?.is_skipper;
+  const canAnnounce = admin || isMyTripSkipper;
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-6">
+      <SettlementStatus
+        tripId={id}
+        endDate={trip.end_date}
+        announcedAt={trip.settlement_announced_at ?? null}
+        canAnnounce={canAnnounce}
+      />
+
       <section className="rounded-lg border border-rule bg-paper p-5">
         <div className="flex items-center justify-between">
           <div>

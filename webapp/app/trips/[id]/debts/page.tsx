@@ -1,9 +1,11 @@
 import { ArrowRight } from "lucide-react";
 import { getSimplifiedDebts } from "@/lib/queries/balances";
 import { getSettledDebtKeys, debtKey } from "@/lib/queries/settled-debts";
+import { getTrip, getTripMembers } from "@/lib/queries/trips";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { formatEuro } from "@/lib/utils";
+import { SettlementStatus } from "@/components/settlement-status";
 import { DebtCheckbox } from "./debt-checkbox";
 
 export default async function DebtsPage({
@@ -12,12 +14,18 @@ export default async function DebtsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [debts, settled, person, admin] = await Promise.all([
+  const [debts, settled, trip, members, person, admin] = await Promise.all([
     getSimplifiedDebts(id),
     getSettledDebtKeys(id),
+    getTrip(id),
+    getTripMembers(id),
     getCurrentPerson(),
     isAdmin(),
   ]);
+
+  const isMyTripSkipper = !!members.find((m) => m.person_id === person?.id)?.is_skipper;
+  const canAnnounce = admin || isMyTripSkipper;
+  const settlementAnnounced = !!trip?.settlement_announced_at;
 
   if (debts.length === 0) {
     return (
@@ -39,6 +47,14 @@ export default async function DebtsPage({
 
   return (
     <main className="mx-auto max-w-2xl px-4 pb-24 pt-4">
+      {trip && (
+        <SettlementStatus
+          tripId={id}
+          endDate={trip.end_date}
+          announcedAt={trip.settlement_announced_at ?? null}
+          canAnnounce={canAnnounce}
+        />
+      )}
       <header className="mb-4">
         <h1 className="text-lg font-bold text-primary">Schulden</h1>
         <p className="mt-1 text-xs text-ink-soft">
@@ -75,9 +91,10 @@ export default async function DebtsPage({
                 amount={d.amount}
                 initialSettled={isSettled}
                 canToggle={
-                  admin ||
-                  person?.id === d.from_person_id ||
-                  person?.id === d.to_person_id
+                  settlementAnnounced &&
+                  (admin ||
+                    person?.id === d.from_person_id ||
+                    person?.id === d.to_person_id)
                 }
               />
               <div className="flex flex-1 items-center gap-2">

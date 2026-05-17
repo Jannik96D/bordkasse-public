@@ -34,6 +34,7 @@ Next.js 16 + Supabase Web-App-Variante der Bordkasse. Spec: [`../docs/web-app-sp
 - **DSGVO-Datenlöschung:** 30 Tage nach Törn-Ende läuft `purge_expired_trip_data()` und löscht personenbezogene Daten (`trip_members`, `transactions`, `settled_debts`, `audit_log`, Ghost-`persons`). Anonymisiertes Statistik-Aggregat bleibt erhalten. Cron-Job: `vercel.json` ruft `/api/cron/purge` täglich.
 - **Security-Header:** HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, CSP — gesetzt in [`next.config.ts`](next.config.ts).
 - **Crawler-Schutz:** `robots.txt` + `<meta name="robots" content="noindex,nofollow">`.
+- **Settlement-Workflow:** Ist der Törn vorbei, sieht der Skipper in der Trip-Übersicht + Schulden-Seite einen Banner „Törn vorbei — Abrechnung verschicken?". Klick auf den Button (`announceSettlement`) berechnet aktuelle Bilanz + simplified-debts, schickt jedem Crew-Mitglied mit hinterlegter Email eine personalisierte HTML-Mail (Saldo + konkrete Zahlungsanweisungen, via Resend-HTTP-API), setzt `trips.settlement_announced_at`. Erst danach sind die Bezahlt-Häkchen in der Schulden-Ansicht freigeschaltet — vorher sehen Crew-Mitglieder einen Hinweis „Skipper schließt die Bordkasse gerade ab". Env-Vars: `RESEND_API_KEY` + `MAIL_FROM` (z. B. `"Bordkasse <bordkasse@yourdomain.de>"`) + `NEXT_PUBLIC_APP_ORIGIN`.
 
 ## Lokales Setup
 
