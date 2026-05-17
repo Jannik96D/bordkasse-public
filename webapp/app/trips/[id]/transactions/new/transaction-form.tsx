@@ -117,7 +117,9 @@ export function TransactionForm({
 
   return (
     <>
-      <div className="mb-4 flex items-center gap-2">
+      {/* Sticky-Header bricht aus dem Page-Padding aus (`-mx-4 -mt-6`),
+          damit beim Scrollen oben immer der Abbrechen-Pfeil sichtbar bleibt. */}
+      <div className="sticky top-0 z-10 -mx-4 -mt-6 mb-4 flex items-center gap-2 border-b border-rule bg-paper/95 px-4 py-3 backdrop-blur-sm">
         <Link
           href={`/trips/${tripId}/transactions`}
           className="flex h-10 w-10 items-center justify-center rounded-full text-ink-soft hover:bg-paper-soft hover:text-primary"

@@ -32,8 +32,13 @@ export function InstallHint() {
 
     const ua = window.navigator.userAgent;
     const isIos = /iPhone|iPad|iPod/.test(ua);
-    setVariant(isIos ? "ios" : "other");
-    setShow(true);
+    // setTimeout 0 verschiebt den Show-State aus dem Effect-Body — erfüllt
+    // react-hooks/set-state-in-effect ohne UX-Auswirkung.
+    const t = setTimeout(() => {
+      setVariant(isIos ? "ios" : "other");
+      setShow(true);
+    }, 0);
+    return () => clearTimeout(t);
   }, []);
 
   const dismiss = () => {
@@ -68,13 +73,13 @@ export function InstallHint() {
                 <Share className="inline h-3.5 w-3.5 align-text-bottom" aria-hidden /> in der
                 Adressleiste tippen.
               </li>
-              <li>Im Menü nach unten scrollen → <strong>„Zum Home-Bildschirm"</strong>.</li>
+              <li>Im Menü nach unten scrollen → <strong>„Zum Home-Bildschirm“</strong>.</li>
               <li>Bestätigen → das Icon erscheint wie eine App.</li>
             </ol>
           ) : (
             <p className="text-ink-soft">
-              Auf Android: Browser-Menü (⋮) → <strong>„App installieren"</strong> bzw. „Zum
-              Startbildschirm hinzufügen".
+              Auf Android: Browser-Menü (⋮) → <strong>„App installieren“</strong> bzw. „Zum
+              Startbildschirm hinzufügen“.
             </p>
           )}
           <p className="pt-1 text-xs text-ink-soft">

@@ -20,6 +20,52 @@ export type TxState =
 // https://www.postgresql.org/docs/current/errcodes-appendix.html
 const PG_UNIQUE_VIOLATION = "23505";
 
+/**
+ * Validiert, dass der Anteil pro Beteiligter mindestens 1 Cent ergibt.
+ * Per-Person ist bereits durch das Zod-Refine abgesichert. Für die anderen
+ * Splits brauchen wir die Crew-Größe vom Trip.
+ */
+async function checkMinShare(
+  supabase: ReturnType<typeof createAdminClient>,
+  tripId: string,
+  data: {
+    amount: number;
+    split_type: "equal" | "on_board" | "time_proportional" | "individual" | "per_person";
+    participant_ids: string[];
+  },
+): Promise<{ ok: true } | { ok: false; message: string; field: string }> {
+  if (data.split_type === "per_person") return { ok: true };
+  let nActive: number;
+  if (data.split_type === "individual") {
+    nActive = data.participant_ids.length;
+  } else {
+    const { count } = await supabase
+      .from("trip_members")
+      .select("*", { count: "exact", head: true })
+      .eq("trip_id", tripId);
+    nActive = count ?? 0;
+  }
+  if (nActive < 1) return { ok: true }; // keine Crew — andere Validierungen fangen das ab
+  if (data.amount / nActive < 0.01) {
+    return {
+      ok: false,
+      message: `Anteil pro Person wäre unter 1 Cent (${nActive} Beteiligte). Bitte Betrag erhöhen oder weniger Personen.`,
+      field: "amount",
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Generisches deutsches Fallback für unbehandelte PostgREST-/Postgres-Fehler.
+ * Der Original-Fehler wird in der Server-Konsole geloggt; die Crew sieht eine
+ * neutrale Meldung statt englischer DB-Internals.
+ */
+function dbErrorMessage(error: { message: string } | null, fallback: string): string {
+  if (error?.message) console.error("[bordkasse:db]", error.message);
+  return fallback;
+}
+
 export async function createExpense(_prev: TxState, formData: FormData): Promise<TxState> {
   const person = await getCurrentPerson();
   if (!person) return { status: "error", message: "Nicht angemeldet." };
@@ -61,6 +107,15 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
   if (!memberCheck.ok) return { status: "error", message: memberCheck.message };
 
   const supabase = createAdminClient();
+
+  // Min-1-Cent-pro-Person-Check vor dem Insert.
+  const minCheck = await checkMinShare(supabase, txData.trip_id, {
+    amount: txData.amount,
+    split_type: txData.split_type,
+    participant_ids,
+  });
+  if (!minCheck.ok) return { status: "error", message: minCheck.message, field: minCheck.field };
+
   const { data: tx, error } = await supabase
     .from("transactions")
     .insert({ ...txData, type: "expense", created_by: person.id, idempotency_key })
@@ -73,7 +128,7 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     redirect(`/trips/${txData.trip_id}/transactions?toast=expense-created`);
   }
   if (error || !tx) {
-    return { status: "error", message: error?.message ?? "Buchung konnte nicht angelegt werden." };
+    return { status: "error", message: dbErrorMessage(error, "Buchung konnte nicht angelegt werden. Bitte erneut versuchen.") };
   }
 
   if (txData.split_type === "individual" && participant_ids.length > 0) {
@@ -167,7 +222,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
     redirect(`/trips/${parsed.data.trip_id}/transactions?toast=credit-created`);
   }
-  if (error || !tx) return { status: "error", message: error?.message ?? "Buchung konnte nicht angelegt werden." };
+  if (error || !tx) return { status: "error", message: dbErrorMessage(error, "Gutschrift konnte nicht angelegt werden. Bitte erneut versuchen.") };
 
   await logAudit(supabase, {
     table_name: "transactions",
@@ -252,6 +307,14 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     return { status: "error", message: "Nur Skipper, Admin oder die Person, die gebucht hat, dürfen ändern." };
   }
 
+  // Min-1-Cent-pro-Person-Check vor dem Update.
+  const minCheck = await checkMinShare(supabase, txData.trip_id, {
+    amount: txData.amount,
+    split_type: txData.split_type,
+    participant_ids,
+  });
+  if (!minCheck.ok) return { status: "error", message: minCheck.message, field: minCheck.field };
+
   const { error } = await supabase
     .from("transactions")
     .update({
@@ -265,7 +328,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
       split_type: txData.split_type,
     })
     .eq("id", transactionId);
-  if (error) return { status: "error", message: error.message };
+  if (error) return { status: "error", message: dbErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
 
   // Participants neu setzen — bei Wechsel der Aufteilung müssen alte raus.
   await supabase.from("transaction_participants").delete().eq("transaction_id", transactionId);
@@ -367,7 +430,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
       credit_to: parsed.data.credit_to,
     })
     .eq("id", transactionId);
-  if (error) return { status: "error", message: error.message };
+  if (error) return { status: "error", message: dbErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
 
   await logAudit(supabase, {
     table_name: "transactions",
@@ -470,7 +533,7 @@ export async function replayPendingTransaction(
       return { ok: true };
     }
     if (error || !tx) {
-      return { ok: false, message: error?.message ?? "Buchung konnte nicht angelegt werden." };
+      return { ok: false, message: dbErrorMessage(error, "Buchung konnte nicht angelegt werden.") };
     }
     if (txData.split_type === "individual" && participant_ids.length > 0) {
       await supabase
@@ -548,7 +611,7 @@ export async function replayPendingTransaction(
     revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
     return { ok: true };
   }
-  if (error || !tx) return { ok: false, message: error?.message ?? "Buchung konnte nicht angelegt werden." };
+  if (error || !tx) return { ok: false, message: dbErrorMessage(error, "Gutschrift konnte nicht angelegt werden.") };
   await logAudit(supabase, {
     table_name: "transactions",
     operation: "INSERT",

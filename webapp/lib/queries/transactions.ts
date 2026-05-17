@@ -51,6 +51,8 @@ export interface TransactionListRow {
   category_icon: string | null;
   credit_from_name: string | null;
   credit_to_name: string | null;  // null = "Alle" wenn type=credit
+  /** Ersteller — gebraucht für Edit-Permission-Check in der Liste. */
+  created_by_id: string | null;
 }
 
 export async function listTransactions(tripId: string): Promise<TransactionListRow[]> {
@@ -59,7 +61,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
     .from("transactions")
     .select(`
       id, type, date, description, amount, alcohol_amount, tip_amount, split_type,
-      paid_by, credit_from, credit_to,
+      paid_by, credit_from, credit_to, created_by,
       paid_person:persons!transactions_paid_by_fkey(display_name),
       from_person:persons!transactions_credit_from_fkey(display_name),
       to_person:persons!transactions_credit_to_fkey(display_name),
@@ -84,6 +86,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
     paid_by: string | null;
     credit_from: string | null;
     credit_to: string | null;
+    created_by: string | null;
     paid_person: { display_name: string } | { display_name: string }[] | null;
     from_person: { display_name: string } | { display_name: string }[] | null;
     to_person: { display_name: string } | { display_name: string }[] | null;
@@ -109,6 +112,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
     credit_to_name: r.type === "credit" && r.credit_to == null
       ? null  // → "Alle"
       : first(r.to_person)?.display_name ?? null,
+    created_by_id: r.created_by,
   }));
 }
 

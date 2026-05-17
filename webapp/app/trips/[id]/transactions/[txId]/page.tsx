@@ -50,29 +50,32 @@ export default async function TransactionDetailPage({
   const total = isExpense ? detail.amount + detail.tip_amount : detail.amount;
 
   return (
-    <main className="mx-auto max-w-md px-4 py-6">
-      <div className="mb-4 flex items-center gap-2">
-        <Link
-          href={`/trips/${tripId}/transactions`}
-          className="flex h-10 w-10 items-center justify-center rounded-full text-ink-soft hover:bg-paper-soft hover:text-primary"
-          aria-label="Zurück zur Liste"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </Link>
-        <h1 className="flex-1 truncate text-xl font-bold text-primary">
-          {isExpense ? "Ausgabe" : "Gutschrift"}
-        </h1>
-        {canEdit && (
+    <main>
+      <header className="sticky top-0 z-10 border-b border-rule bg-paper/95 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-md items-center gap-2 px-4 py-3">
           <Link
-            href={`/trips/${tripId}/transactions/${txId}/edit`}
-            className="inline-flex h-10 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-primary hover:bg-paper-soft"
+            href={`/trips/${tripId}/transactions`}
+            className="flex h-10 w-10 items-center justify-center rounded-full text-ink-soft hover:bg-paper-soft hover:text-primary"
+            aria-label="Zurück zur Liste"
           >
-            <Pencil className="h-4 w-4" />
-            Bearbeiten
+            <ChevronLeft className="h-5 w-5" />
           </Link>
-        )}
-      </div>
+          <h1 className="flex-1 truncate text-xl font-bold text-primary">
+            {isExpense ? "Ausgabe" : "Gutschrift"}
+          </h1>
+          {canEdit && (
+            <Link
+              href={`/trips/${tripId}/transactions/${txId}/edit`}
+              className="inline-flex h-10 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-primary hover:bg-paper-soft"
+            >
+              <Pencil className="h-4 w-4" />
+              Bearbeiten
+            </Link>
+          )}
+        </div>
+      </header>
 
+      <div className="mx-auto max-w-md px-4 py-6">
       <section className="space-y-4 rounded-md border border-rule bg-paper p-4">
         <div>
           <h2 className="text-lg font-semibold text-primary">
@@ -140,7 +143,7 @@ export default async function TransactionDetailPage({
         <section className="mt-6">
           <h3 className="mb-2 text-sm font-semibold text-primary">Anteil pro Person</h3>
           <p className="mb-3 text-xs text-ink-soft">
-            So verteilt sich der Betrag laut Aufteilung „{SPLIT_LABEL[detail.split_type!]}"
+            So verteilt sich der Betrag laut Aufteilung „{SPLIT_LABEL[detail.split_type!]}“
             {detail.tip_amount > 0 ? " inkl. Trinkgeld" : ""}
             {detail.alcohol_amount > 0 ? " inkl. Alkohol-Modifikator" : ""}
             .
@@ -197,10 +200,11 @@ export default async function TransactionDetailPage({
 
       {!isExpense && detail.credit_to_id == null && (
         <section className="mt-6 rounded-md border border-rule bg-paper p-3 text-sm text-ink-soft">
-          „An Alle"-Gutschrift: Der Betrag wird gleichmäßig auf alle Crew-Mitglieder
+          „An Alle“-Gutschrift: Der Betrag wird gleichmäßig auf alle Crew-Mitglieder
           außer den Zahler verteilt.
         </section>
       )}
+      </div>
     </main>
   );
 }

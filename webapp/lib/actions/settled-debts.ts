@@ -67,7 +67,10 @@ export async function toggleDebtSettled(input: {
       )
       .select("id")
       .single();
-    if (error || !row) return { ok: false, message: error?.message ?? "Konnte nicht gespeichert werden." };
+    if (error || !row) {
+      if (error?.message) console.error("[bordkasse:db]", error.message);
+      return { ok: false, message: "Bezahlt-Status konnte nicht gespeichert werden. Bitte erneut versuchen." };
+    }
     await logAudit(supabase, {
       table_name: "settled_debts",
       operation: "INSERT",
@@ -87,7 +90,10 @@ export async function toggleDebtSettled(input: {
       .maybeSingle();
     if (existing) {
       const { error } = await supabase.from("settled_debts").delete().eq("id", existing.id);
-      if (error) return { ok: false, message: error.message };
+      if (error) {
+        console.error("[bordkasse:db]", error.message);
+        return { ok: false, message: "Bezahlt-Status konnte nicht entfernt werden. Bitte erneut versuchen." };
+      }
       await logAudit(supabase, {
         table_name: "settled_debts",
         operation: "DELETE",

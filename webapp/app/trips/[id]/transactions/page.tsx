@@ -1,5 +1,8 @@
 import { Euro } from "lucide-react";
 import { listTransactions } from "@/lib/queries/transactions";
+import { getTripMembers } from "@/lib/queries/trips";
+import { getCurrentPerson } from "@/lib/auth/get-current-person";
+import { isAdmin } from "@/lib/auth/authz";
 import { FabAddTransaction } from "@/components/bottom-nav";
 import { TransactionsList } from "./transactions-list";
 
@@ -9,7 +12,15 @@ export default async function TransactionsListPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const txs = await listTransactions(id);
+  const [txs, members, person, admin] = await Promise.all([
+    listTransactions(id),
+    getTripMembers(id),
+    getCurrentPerson(),
+    isAdmin(),
+  ]);
+  // canEdit-Check pro Row: Skipper / Co-Skipper / Admin / Ersteller.
+  const myMember = members.find((m) => m.person_id === person?.id);
+  const isMyTripSkipper = !!myMember?.is_skipper;
 
   return (
     <main className="mx-auto max-w-2xl px-4 pb-24 pt-4">
@@ -22,7 +33,13 @@ export default async function TransactionsListPage({
           </p>
         </div>
       ) : (
-        <TransactionsList tripId={id} rows={txs} />
+        <TransactionsList
+          tripId={id}
+          rows={txs}
+          currentPersonId={person?.id ?? null}
+          isMyTripSkipper={isMyTripSkipper}
+          isAdmin={admin}
+        />
       )}
 
       <FabAddTransaction tripId={id} />

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Pencil, Search, X } from "lucide-react";
+import { Info, Pencil, Search, X } from "lucide-react";
 import type { TransactionListRow } from "@/lib/queries/transactions";
 import { CategoryIcon } from "@/components/category-icon";
 import { formatDate, formatEuro } from "@/lib/utils";
@@ -19,10 +19,19 @@ const SPLIT_LABEL = {
 export function TransactionsList({
   tripId,
   rows,
+  currentPersonId,
+  isMyTripSkipper,
+  isAdmin,
 }: {
   tripId: string;
   rows: TransactionListRow[];
+  currentPersonId: string | null;
+  isMyTripSkipper: boolean;
+  isAdmin: boolean;
 }) {
+  // Skipper + Admin dürfen jede Buchung editieren; Ersteller die eigene.
+  const canEditRow = (row: TransactionListRow) =>
+    isMyTripSkipper || isAdmin || (currentPersonId !== null && row.created_by_id === currentPersonId);
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -121,7 +130,6 @@ export function TransactionsList({
                               {" · "}
                               {t.split_type ? SPLIT_LABEL[t.split_type] : "?"}
                               {t.alcohol_amount > 0 && ` · 🍷 ${formatEuro(t.alcohol_amount)}`}
-                              {t.tip_amount > 0 && ` · 💶 ${formatEuro(t.tip_amount)} Trinkgeld`}
                               {t.category_name && (
                                 <span className="inline-flex items-center gap-1">
                                   {" · "}
@@ -159,15 +167,28 @@ export function TransactionsList({
                       </div>
                     </Link>
                     <div className="flex shrink-0 items-center gap-1 border-l border-rule px-2">
-                      <Link
-                        href={`/trips/${tripId}/transactions/${t.id}/edit`}
-                        className="rounded-md p-1.5 text-ink-soft hover:bg-paper-soft hover:text-primary"
-                        aria-label="Buchung bearbeiten"
-                        title="Bearbeiten"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Link>
-                      <DeleteButton transactionId={t.id} tripId={tripId} />
+                      {canEditRow(t) ? (
+                        <>
+                          <Link
+                            href={`/trips/${tripId}/transactions/${t.id}/edit`}
+                            className="rounded-md p-1.5 text-ink-soft hover:bg-paper-soft hover:text-primary"
+                            aria-label="Buchung bearbeiten"
+                            title="Bearbeiten"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Link>
+                          <DeleteButton transactionId={t.id} tripId={tripId} />
+                        </>
+                      ) : (
+                        <Link
+                          href={`/trips/${tripId}/transactions/${t.id}`}
+                          className="rounded-md p-1.5 text-ink-soft hover:bg-paper-soft hover:text-primary"
+                          aria-label="Buchungs-Details ansehen"
+                          title="Details ansehen"
+                        >
+                          <Info className="h-4 w-4" />
+                        </Link>
+                      )}
                     </div>
                   </li>
                   );
