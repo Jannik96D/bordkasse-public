@@ -4,6 +4,7 @@ import { ShieldCheck } from "lucide-react";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { ProfileForm } from "./profile-form";
+import { DeleteAccountBlock } from "./delete-account-block";
 import { signOut } from "./actions";
 
 export default async function ProfilePage() {
@@ -56,6 +57,8 @@ export default async function ProfilePage() {
           </button>
         </form>
       </div>
+
+      <DeleteAccountBlock />
 
       <p className="mt-8 text-center text-xs text-ink-soft">
         <Link href="/datenschutz" className="hover:text-primary">Datenschutz</Link>

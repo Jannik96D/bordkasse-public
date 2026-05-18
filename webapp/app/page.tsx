@@ -7,14 +7,25 @@ import { listMyTrips } from "@/lib/queries/trips";
 import { formatDate } from "@/lib/utils";
 import { InstallHint } from "@/components/install-hint";
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ account_deleted?: string }>;
+}) {
   const person = await getCurrentPerson();
   const admin = await isAdmin();
+  const sp = await searchParams;
+  const justDeleted = sp.account_deleted === "1";
 
   if (!person) {
     return (
       <main className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
         <div className="w-full max-w-md space-y-6">
+          {justDeleted && (
+            <div className="rounded-md border border-success/30 bg-success/5 p-3 text-sm text-success">
+              Konto wurde gelöscht. Bis dann!
+            </div>
+          )}
           <Image
             src="/logo.png"
             alt="Bordkasse"
