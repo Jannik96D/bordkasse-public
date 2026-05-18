@@ -83,7 +83,10 @@ export default function DatenschutzPage() {
             </li>
             <li>
               <strong>Vercel</strong> (Hosting) — Vercel Inc., 340 S Lemon Ave #4133, Walnut, CA
-              91789, USA. Datenschutzerklärung:{" "}
+              91789, USA. Server-Funktionen und Cron-Jobs laufen in der EU-Region{" "}
+              <code>fra1</code> (Frankfurt), konfiguriert in <code>vercel.json</code>. Statische
+              Assets (HTML/CSS/JS) liefert das globale Vercel-CDN aus — diese enthalten keine
+              personenbezogenen Daten. Datenschutzerklärung:{" "}
               <a
                 href="https://vercel.com/legal/privacy-policy"
                 target="_blank"

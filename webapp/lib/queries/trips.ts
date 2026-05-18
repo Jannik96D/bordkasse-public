@@ -11,6 +11,10 @@ export interface TripListRow {
   is_skipper: boolean;
   is_member: boolean;
   member_count: number;
+  /** ISO-Timestamp. Wenn gesetzt, ist der Trip schon gepurged (Statistik bleibt). */
+  retention_purged_at: string | null;
+  /** Wenn true: Törn-Ende liegt > 30 Tage zurück, aber Daten sind noch nicht gelöscht. */
+  retention_overdue: boolean;
 }
 
 /**
@@ -30,7 +34,7 @@ export async function listMyTrips(): Promise<TripListRow[]> {
   const { data, error } = await supabase
     .from("trips")
     .select(
-      "id, name, start_date, end_date, ship_name, archived, trip_members(person_id, is_skipper)",
+      "id, name, start_date, end_date, ship_name, archived, retention_purged_at, trip_members(person_id, is_skipper)",
     )
     .order("start_date", { ascending: false });
 
@@ -43,8 +47,14 @@ export async function listMyTrips(): Promise<TripListRow[]> {
     end_date: string;
     ship_name: string | null;
     archived: boolean;
+    retention_purged_at: string | null;
     trip_members: { person_id: string; is_skipper: boolean }[];
   };
+
+  // 30 Tage in der Vergangenheit als ISO-Datum für den Vergleich.
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  const cutoffIso = cutoff.toISOString().slice(0, 10);
 
   return (data as unknown as Raw[]).map((t) => {
     const myMembership = t.trip_members.find((m) => m.person_id === person.id);
@@ -58,6 +68,8 @@ export async function listMyTrips(): Promise<TripListRow[]> {
       is_skipper: myMembership?.is_skipper ?? false,
       is_member: !!myMembership,
       member_count: t.trip_members.length,
+      retention_purged_at: t.retention_purged_at,
+      retention_overdue: !t.retention_purged_at && t.end_date < cutoffIso,
     };
   });
 }
