@@ -235,7 +235,8 @@ async function sendDebtSettledMails(
     });
     const res = await sendMail({ to: email, subject, html, text });
     if (!res.ok) {
-      console.error("[bordkasse:debt-settled-mail] failed", email, res.error);
+      // PII (Mail-Adresse) bewusst NICHT loggen.
+      console.error("[bordkasse:debt-settled-mail] failed", { person_id: r.personId, error: res.error });
     }
   }
 }

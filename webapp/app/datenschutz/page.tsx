@@ -35,22 +35,36 @@ export default function DatenschutzPage() {
           <h2 className="text-base font-semibold">2. Welche Daten werden verarbeitet?</h2>
           <ul className="ml-5 list-disc">
             <li>
-              <strong>E-Mail-Adresse</strong> — für Login per Magic-Link und Crew-Einladungen
+              <strong>E-Mail-Adresse</strong> — für Login per Magic-Link und Crew-Einladungen.
+              Nur sichtbar für dich selbst und den Skipper deiner Crews.
             </li>
             <li>
-              <strong>Anzeigename</strong> — wie du auf Buchungen + Bilanz erscheinst
+              <strong>Anzeigename</strong> (in der Regel Vorname) — wie du auf
+              Buchungen, in der Bilanz und in der Crew-Liste erscheinst.
+            </li>
+            <li>
+              <strong>Nachname (optional)</strong> — wird nur intern (Self + Skipper)
+              angezeigt, nicht in fremden Trips. Hilfreich, wenn mehrere Crew-Mitglieder
+              den gleichen Vornamen haben.
             </li>
             <li>
               <strong>Optionales Profil-Flag</strong> „Alkohol-Trinker während des Törns“ —
-              beeinflusst, wer den Alkohol-Anteil bei Ausgaben mitträgt
+              beeinflusst, wer den Alkohol-Anteil bei Ausgaben mitträgt.
             </li>
             <li>
               <strong>Trip-Daten</strong> — Crew, Anwesenheits-Tage, Buchungen, Beträge,
-              Aufteilungen — geteilt nur mit den Crew-Mitgliedern dieses Trips
+              Aufteilungen — geteilt nur mit den Crew-Mitgliedern dieses Trips.
             </li>
             <li>
-              <strong>Server-Logs</strong> — IP-Adresse, Zeitstempel, User-Agent, kurzfristig
-              gespeichert zur Fehlersuche und Missbrauchsabwehr
+              <strong>Sichtbarkeits-Marker für Alt-Statistik</strong> — nach DSGVO-Löschung
+              eines abgeschlossenen Törns (siehe §5) wird ausschließlich ein Verweis
+              „Person X war Mitglied von Trip Y“ aufbewahrt, damit du deine anonymisierten
+              Aggregate in der Gesamt-Statistik (<em>/stats</em>) weiter sehen kannst. Keine
+              weiteren personenbezogenen Inhalte.
+            </li>
+            <li>
+              <strong>Server-Logs</strong> — IP-Adresse, Zeitstempel, User-Agent,
+              kurzfristig gespeichert zur Fehlersuche und Missbrauchsabwehr.
             </li>
           </ul>
         </div>
@@ -106,14 +120,14 @@ export default function DatenschutzPage() {
         <div>
           <h2 className="text-base font-semibold">5. Speicherdauer</h2>
           <p>
-            Profilinformationen werden gespeichert, solange du in mindestens einem
-            aktiven Törn als Mitglied geführt bist.
+            <strong>Profilinformationen</strong> (Anzeigename, optionaler Nachname,
+            E-Mail-Adresse, Alkohol-Flag) bleiben gespeichert, solange dein Konto existiert.
+            Du kannst dein Konto jederzeit selbst löschen — siehe §8 „Konto selbst löschen“.
           </p>
           <p className="mt-2">
-            <strong>Automatische Löschung 30 Tage nach Törn-Ende, sobald alle Zahlungen erledigt sind:</strong>{" "}
-            Wenn ein Törn seit mehr als 30 Tagen beendet ist, der Skipper die Abrechnung
-            verschickt hat und alle Zahlungen in der App als erledigt markiert sind, werden
-            die personenbezogenen Daten zu diesem Törn automatisch gelöscht — namentlich:
+            <strong>Trip-bezogene Daten werden 30 Tage nach Törn-Ende automatisch gelöscht,</strong>{" "}
+            sobald zusätzlich der Skipper die Abrechnung verschickt und alle Zahlungen in der
+            App als erledigt markiert sind. Konkret betrifft das:
           </p>
           <ul className="ml-5 mt-2 list-disc">
             <li>Crew-Liste (wer war wann an Bord, Alkohol-Flag, Notizen)</li>
@@ -123,10 +137,13 @@ export default function DatenschutzPage() {
             <li>Ghost-Personen, die nirgends mehr Mitglied sind</li>
           </ul>
           <p className="mt-2">
-            Solange noch offene Schulden in der App stehen, bleiben die Daten erhalten —
-            sonst gingen die laufenden Zahlungen verloren. Skipper und Admin können die
-            Löschung über die Trip-Einstellungen jederzeit auch früher anstoßen, sobald
-            alle Zahlungen erledigt sind.
+            Solange noch offene Schulden in der App stehen, bleiben die Daten bewusst
+            erhalten — sonst gingen die laufenden Zahlungen verloren.
+          </p>
+          <p className="mt-2">
+            Skipper und Admins können die Löschung über die Trip-Einstellungen auch
+            <em> früher</em> anstoßen, sobald alle Zahlungen erledigt sind — die 30-Tage-Frist
+            ist eine Obergrenze, kein Mindestwert.
           </p>
           <p className="mt-2">
             <strong>Was bleibt:</strong> zwei separate Bestandteile, die zusammen
@@ -180,9 +197,21 @@ export default function DatenschutzPage() {
           </h2>
           <p>
             Die Bordkasse funktioniert als Progressive Web App (PWA) auch ohne
-            Internet-Verbindung — dafür speichert dein Browser bereits besuchte Seiten
-            (Crew-Liste, Buchungen, Bilanz etc.) lokal auf deinem Endgerät zwischen.
+            Internet-Verbindung. Dein Browser speichert dafür zwei Arten von Daten
+            lokal auf deinem Endgerät:
           </p>
+          <ul className="ml-5 mt-2 list-disc">
+            <li>
+              <strong>Seiten-Cache</strong> — bereits besuchte Crew-Liste, Buchungen,
+              Bilanz etc. werden gespeichert, damit du sie offline ansehen kannst.
+            </li>
+            <li>
+              <strong>Offline-Outbox</strong> — Buchungen, die du offline erfasst, werden
+              vorübergehend in einer IndexedDB-Warteschlange auf deinem Endgerät
+              abgelegt und automatisch zum Server synchronisiert, sobald du wieder
+              online bist. Danach werden sie aus dem lokalen Speicher entfernt.
+            </li>
+          </ul>
           <p className="mt-2">
             <strong>Konsequenz für die Datenlöschung:</strong> Werden Daten serverseitig
             gelöscht (Cron oder manueller Trigger), bleibt der zuletzt im Browser gesehene
@@ -254,7 +283,15 @@ export default function DatenschutzPage() {
           <p>
             Die Übertragung erfolgt verschlüsselt via HTTPS/TLS. Datenbank-Zugriffe sind
             durch Row-Level-Security so eingeschränkt, dass jedes Crew-Mitglied nur Daten
-            seiner eigenen Trips sehen kann.
+            seiner eigenen Trips sehen kann. Login-Mails werden nur an bereits eingeladene
+            E-Mail-Adressen oder Admins ausgeliefert (Whitelist-Schutz).
+          </p>
+          <p className="mt-2">
+            <strong>App-Admin-Zugriff:</strong> Der Betreiber dieser App (siehe §1) hat
+            für Wartungs- und Support-Zwecke technisch Zugriff auf alle gespeicherten
+            Daten. Dieser Zugriff wird ausschließlich zur Fehlerbehebung, zur Erfüllung
+            deiner Rechte nach §8 oder im Fall eines Sicherheitsvorfalls genutzt — niemals
+            zur kommerziellen Auswertung.
           </p>
         </div>
 

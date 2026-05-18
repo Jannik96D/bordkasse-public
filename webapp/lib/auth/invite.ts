@@ -44,7 +44,8 @@ export async function sendInvitationMagicLink(
   });
 
   if (error) {
-    console.error(`Einladungs-Mail an ${email} fehlgeschlagen:`, error);
+    // Empfänger-Mail bewusst NICHT loggen (PII in Vercel-Logs vermeiden).
+    console.error("[bordkasse:invite] Einladungs-Mail fehlgeschlagen:", error.message);
     return { ok: false, message: error.message };
   }
   return { ok: true };
