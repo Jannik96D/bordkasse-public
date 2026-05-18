@@ -35,6 +35,8 @@ export default async function TripDashboard({
         tripId={id}
         endDate={trip.end_date}
         announcedAt={trip.settlement_announced_at ?? null}
+        changesPendingSince={trip.changes_pending_since ?? null}
+        lastResendAt={trip.last_settlement_resend_at ?? null}
         canAnnounce={canAnnounce}
         highlight={justEditedKaution}
       />

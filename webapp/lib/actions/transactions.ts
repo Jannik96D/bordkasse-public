@@ -66,6 +66,22 @@ function dbErrorMessage(error: { message: string } | null, fallback: string): st
   return fallback;
 }
 
+/**
+ * Setzt `trips.changes_pending_since` auf NOW, falls die Abrechnung schon
+ * verschickt wurde und noch kein offener Änderungs-Hinweis vorliegt. So
+ * sieht der Skipper auf der Trip-Übersicht den "Bilanz hat sich geändert"-
+ * Banner und kann eine Update-Mail nachschieben.
+ *
+ * Fire-and-forget: Fehler werden geloggt aber bremsen die Haupt-Action nicht.
+ */
+async function markPostSettlementChange(
+  supabase: ReturnType<typeof createAdminClient>,
+  tripId: string,
+): Promise<void> {
+  const { error } = await supabase.rpc("mark_post_settlement_change", { p_trip_id: tripId });
+  if (error) console.error("[bordkasse:settlement-resend]", error.message);
+}
+
 export async function createExpense(_prev: TxState, formData: FormData): Promise<TxState> {
   const person = await getCurrentPerson();
   if (!person) return { status: "error", message: "Nicht angemeldet." };
@@ -155,6 +171,7 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     payload: { type: "expense", ...txData, participant_ids, participant_amounts },
   });
 
+  await markPostSettlementChange(supabase, txData.trip_id);
   revalidatePath(`/trips/${txData.trip_id}/transactions`);
   revalidatePath(`/trips/${txData.trip_id}/balance`);
   revalidatePath(`/trips/${txData.trip_id}/debts`);
@@ -234,6 +251,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     payload: { type: "credit", ...parsed.data },
   });
 
+  await markPostSettlementChange(supabase, parsed.data.trip_id);
   revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
   revalidatePath(`/trips/${parsed.data.trip_id}/balance`);
   revalidatePath(`/trips/${parsed.data.trip_id}/debts`);
@@ -367,6 +385,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     payload: { type: "expense", ...txData, participant_ids, participant_amounts },
   });
 
+  await markPostSettlementChange(supabase, txData.trip_id);
   revalidatePath(`/trips/${txData.trip_id}/transactions`);
   revalidatePath(`/trips/${txData.trip_id}/balance`);
   revalidatePath(`/trips/${txData.trip_id}/debts`);
@@ -480,6 +499,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     payload: { type: "credit", ...parsed.data },
   });
 
+  await markPostSettlementChange(supabase, parsed.data.trip_id);
   revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
   revalidatePath(`/trips/${parsed.data.trip_id}/balance`);
   revalidatePath(`/trips/${parsed.data.trip_id}/debts`);
@@ -519,6 +539,7 @@ export async function deleteTransaction(
     trip_id: tripId,
     actor_person_id: auth.personId,
   });
+  await markPostSettlementChange(supabase, tripId);
   revalidatePath(`/trips/${tripId}/transactions`);
   revalidatePath(`/trips/${tripId}/balance`);
   revalidatePath(`/trips/${tripId}/debts`);
