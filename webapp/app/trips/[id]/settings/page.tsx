@@ -5,6 +5,7 @@ import { CrewSection } from "./crew-section";
 import { CategorySection } from "./category-section";
 import { ArchiveBlock } from "./archive-block";
 import { DatesSection } from "./dates-section";
+import { RetentionBlock } from "./retention-block";
 
 export default async function SettingsPage({
   params,
@@ -51,6 +52,7 @@ export default async function SettingsPage({
       />
       <CategorySection tripId={id} categories={categories} canEdit={canEdit} />
       {canEdit && <ArchiveBlock tripId={id} archived={trip.archived} />}
+      {canEdit && !trip.retention_purged_at && <RetentionBlock tripId={id} />}
     </main>
   );
 }
