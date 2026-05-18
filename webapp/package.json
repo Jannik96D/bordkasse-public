@@ -17,7 +17,10 @@
     "onlyBuiltDependencies": [
       "sharp",
       "unrs-resolver"
-    ]
+    ],
+    "overrides": {
+      "postcss": ">=8.5.10"
+    }
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

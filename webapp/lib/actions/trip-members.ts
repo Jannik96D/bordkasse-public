@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
+import { resolveOrigin } from "@/lib/auth/origin";
 
 const InviteSchema = z.object({
   trip_id: z.string().uuid(),
@@ -129,7 +130,7 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
   // funktionieren, wenn Resend kurzzeitig ausfällt.
   if (!wasAlreadyMember) {
     const hdrs = await headers();
-    const origin = hdrs.get("origin") ?? process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+    const origin = resolveOrigin(hdrs.get("origin"));
     await sendInvitationMagicLink(email, origin);
   }
 

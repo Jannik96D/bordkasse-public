@@ -4,6 +4,7 @@ import { z } from "zod";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { isEmailAllowedToSignIn } from "@/lib/auth/authz";
+import { resolveOrigin } from "@/lib/auth/origin";
 
 const LoginSchema = z.object({
   email: z.string().trim().email("Bitte gültige E-Mail-Adresse eingeben."),
@@ -41,7 +42,7 @@ export async function signInWithMagicLink(
 
   const supabase = await createClient();
   const hdrs = await headers();
-  const origin = hdrs.get("origin") ?? process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  const origin = resolveOrigin(hdrs.get("origin"));
 
   const { error } = await supabase.auth.signInWithOtp({
     email: parsed.data.email,

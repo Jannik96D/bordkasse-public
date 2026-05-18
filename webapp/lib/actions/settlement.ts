@@ -132,7 +132,8 @@ export async function announceSettlement(tripId: string): Promise<Result> {
     if (res.ok) sent += 1;
     else {
       skipped += 1;
-      console.error("[bordkasse:settlement] mail failed", email, res.error);
+      // PII (Mail-Adresse) bewusst NICHT loggen — Person-ID reicht für Diagnose.
+      console.error("[bordkasse:settlement] mail failed", { person_id: m.person_id, error: res.error });
     }
   }
 
@@ -319,7 +320,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
     if (res.ok) sent += 1;
     else {
       skipped += 1;
-      console.error("[bordkasse:settlement-resend] mail failed", email, res.error);
+      console.error("[bordkasse:settlement-resend] mail failed", { person_id: m.person_id, error: res.error });
     }
   }
 
