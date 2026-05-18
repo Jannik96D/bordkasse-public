@@ -271,7 +271,8 @@ Schriften: Campton Bold (Display) → Arial Bold (H2) → Arial Regular (Body).
 - **PWA:** Service Worker (`public/sw.js`) cached App-Shell; IndexedDB-Outbox erfasst Buchungen offline und synchronisiert beim Reconnect.
 - **Audit-Log:** jede Schreib-Operation hinterlässt einen Eintrag, RLS-Lese-Schutz auf Skipper.
 - **Soft-Delete:** Buchungen tragen `deleted_at` statt physisch gelöscht zu werden.
-- **DSGVO-Datenlöschung:** 30 Tage nach Törn-Ende läuft `purge_expired_trip_data()` via täglichem Vercel-Cron (`/api/cron/purge`); personenbezogene Daten werden entfernt, aggregierte Statistik bleibt.
+- **DSGVO-Datenlöschung:** täglicher Vercel-Cron `/api/cron/purge` → `purge_expired_trip_data()`. Purge nur wenn end_date + 30 Tage in Vergangenheit UND `settlement_announced_at` gesetzt UND alle `simplify_debts` in `settled_debts` abgehakt (Helper `all_debts_settled`). Single-Trip-Variante `purge_trip_data(trip_id, force)` für den manuellen Skipper-/Admin-Button in den Trip-Settings; Force überspringt Retention + Settlement, NICHT Schulden. Trip-Auswahl-Seite markiert überfällige Trips rot + Banner für Skipper/Admin (`retention_overdue`-Flag in `listMyTrips`). Aggregierte Statistik bleibt in `trip_statistics`.
+- **Hosting-Region:** Vercel `regions: ["fra1"]` in `vercel.json` (sonst US-Default `iad1`); Supabase Central EU (Frankfurt); Mailserver whost.dev (DE).
 - **Security:** RLS-Policies, Service-Role nur in Server Actions, Security-Header (HSTS/CSP/X-Frame/Referrer-Policy), `noindex`-Meta + `robots.txt`.
 
 **Berechnungslogik:** in `webapp/supabase/migrations/0002_views.sql` (`v_transaction_shares`) und `0003_functions.sql` (`simplify_debts()`). TS-Mirror in `webapp/lib/calc/` — nur für Vitest, nicht im Render-Pfad.
