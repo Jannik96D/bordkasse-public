@@ -41,8 +41,8 @@ export default function DatenschutzPage() {
               <strong>Anzeigename</strong> — wie du auf Buchungen + Bilanz erscheinst
             </li>
             <li>
-              <strong>Optionales Profil-Flag</strong> „Alkohol-Trinker“ — beeinflusst, wer den
-              Alkohol-Anteil bei Ausgaben mitträgt
+              <strong>Optionales Profil-Flag</strong> „Alkohol-Trinker während des Törns“ —
+              beeinflusst, wer den Alkohol-Anteil bei Ausgaben mitträgt
             </li>
             <li>
               <strong>Trip-Daten</strong> — Crew, Anwesenheits-Tage, Buchungen, Beträge,
@@ -106,7 +106,7 @@ export default function DatenschutzPage() {
         <div>
           <h2 className="text-base font-semibold">5. Speicherdauer</h2>
           <p>
-            Profil-Informationen werden gespeichert, solange du in mindestens einem
+            Profilinformationen werden gespeichert, solange du in mindestens einem
             aktiven Törn als Mitglied geführt bist.
           </p>
           <p className="mt-2">
