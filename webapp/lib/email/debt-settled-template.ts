@@ -110,7 +110,7 @@ export function renderDebtSettledMail(p: DebtSettledMailParams): {
       headline = "Zahlung wurde abgehakt";
       introText = `${p.debtorName} hat soeben in der Bordkasse markiert, dass die Zahlung in Höhe von ${amount} an dich erledigt ist.`;
       followupText =
-        "Bitte prüfe, ob das Geld bei dir angekommen ist. Falls etwas nicht stimmt, sprich kurz mit dem Schuldner oder dem Skipper — das Häkchen kann in der App auch wieder entfernt werden.";
+        "Falls etwas nicht stimmt, sprich kurz mit dem Schuldner oder dem Skipper — das Häkchen kann in der App auch wieder entfernt werden.";
     } else if (p.actorRole === "creditor") {
       // Otto (Gläubiger) hakt selbst ab → Bestätigung an Otto.
       subject = `Bestätigung: Zahlung von ${p.debtorName} als erhalten markiert`;
@@ -124,7 +124,7 @@ export function renderDebtSettledMail(p: DebtSettledMailParams): {
       headline = "Zahlung wurde abgehakt";
       introText = `${actorLabel} hat soeben in der Bordkasse markiert, dass die Zahlung von ${p.debtorName} in Höhe von ${amount} an dich erledigt ist.`;
       followupText =
-        "Bitte prüfe, ob das Geld bei dir angekommen ist. Falls etwas nicht stimmt, sprich mit dem Skipper — das Häkchen kann in der App auch wieder entfernt werden.";
+        "Falls etwas nicht stimmt, sprich mit dem Skipper — das Häkchen kann in der App auch wieder entfernt werden.";
     }
   }
   // selfAction wird derzeit nicht für Render-Variationen genutzt, bleibt aber
