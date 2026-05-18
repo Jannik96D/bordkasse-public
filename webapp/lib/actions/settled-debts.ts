@@ -5,6 +5,9 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdmin, requireMember } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
+import { sendMail } from "@/lib/email/send";
+import { renderDebtSettledMail } from "@/lib/email/debt-settled-template";
+import { formatDate } from "@/lib/utils";
 
 const ToggleSchema = z.object({
   trip_id: z.string().uuid(),
@@ -94,6 +97,21 @@ export async function toggleDebtSettled(input: {
       actor_person_id: auth.personId,
       payload: { from_person_id, to_person_id, amount },
     });
+
+    // Beide Seiten per Mail benachrichtigen: Schuldner bekommt eine
+    // Bestätigung, Gläubiger den Hinweis „X hat seine Zahlung abgehakt —
+    // bitte prüfen". Fehler beim Mailversand brechen den Toggle nicht ab,
+    // werden nur geloggt.
+    try {
+      await sendDebtSettledMails(supabase, {
+        tripId: trip_id,
+        fromPersonId: from_person_id,
+        toPersonId: to_person_id,
+        amount,
+      });
+    } catch (e) {
+      console.error("[bordkasse:debt-settled-mail]", e);
+    }
   } else {
     const { data: existing } = await supabase
       .from("settled_debts")
@@ -122,4 +140,77 @@ export async function toggleDebtSettled(input: {
 
   revalidatePath(`/trips/${trip_id}/debts`);
   return { ok: true };
+}
+
+/**
+ * Schickt nach einem positiven Bezahlt-Toggle zwei Mails:
+ *   - an den Schuldner (Bestätigung „Du hast abgehakt")
+ *   - an den Gläubiger (Hinweis „X hat seine Zahlung abgehakt")
+ *
+ * Greift via Admin-Client direkt auf `persons` + `persons_private`, weil
+ * der Server-Action-Pfad ohnehin Service-Role nutzt (siehe lib/auth/authz.ts).
+ * Fehlt eine Mail-Adresse, wird die jeweilige Mail einfach übersprungen.
+ */
+async function sendDebtSettledMails(
+  supabase: ReturnType<typeof createAdminClient>,
+  args: {
+    tripId: string;
+    fromPersonId: string;
+    toPersonId: string;
+    amount: number;
+  },
+): Promise<void> {
+  const { data: trip } = await supabase
+    .from("trips")
+    .select("name, start_date, end_date")
+    .eq("id", args.tripId)
+    .maybeSingle();
+  if (!trip) return;
+
+  const { data: personsRaw } = await supabase
+    .from("persons")
+    .select("id, display_name")
+    .in("id", [args.fromPersonId, args.toPersonId]);
+  const nameById = new Map<string, string>();
+  for (const p of personsRaw ?? []) nameById.set(p.id, p.display_name);
+
+  const { data: privsRaw } = await supabase
+    .from("persons_private")
+    .select("person_id, email")
+    .in("person_id", [args.fromPersonId, args.toPersonId]);
+  const emailById = new Map<string, string>();
+  for (const p of privsRaw ?? []) if (p.email) emailById.set(p.person_id, p.email);
+
+  const debtorName = nameById.get(args.fromPersonId) ?? "Schuldner";
+  const creditorName = nameById.get(args.toPersonId) ?? "Gläubiger";
+  const tripDates = `${formatDate(trip.start_date)} – ${formatDate(trip.end_date)}`;
+  const appUrl = `${process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.example"}/trips/${args.tripId}/debts`;
+
+  const recipients: Array<{
+    personId: string;
+    role: "debtor" | "creditor";
+    name: string;
+  }> = [
+    { personId: args.fromPersonId, role: "debtor", name: debtorName },
+    { personId: args.toPersonId, role: "creditor", name: creditorName },
+  ];
+
+  for (const r of recipients) {
+    const email = emailById.get(r.personId);
+    if (!email) continue;
+    const { html, text, subject } = renderDebtSettledMail({
+      recipientName: r.name,
+      recipientRole: r.role,
+      debtorName,
+      creditorName,
+      amount: args.amount,
+      tripName: trip.name,
+      tripDates,
+      appUrl,
+    });
+    const res = await sendMail({ to: email, subject, html, text });
+    if (!res.ok) {
+      console.error("[bordkasse:debt-settled-mail] failed", email, res.error);
+    }
+  }
 }
