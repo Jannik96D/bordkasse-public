@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { CalendarDays, ChevronRight, Tag, Users } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
+import { SummaryCard } from "@/components/summary-card";
 import { formatDate, formatEuro } from "@/lib/utils";
 import type { StatsSummary } from "@/lib/queries/stats";
 
@@ -193,16 +194,5 @@ export function StatsView({
         </ul>
       </section>
     </>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border border-rule bg-paper p-3">
-      <p className="text-xs uppercase tracking-wide text-ink-soft">{label}</p>
-      <p className="mt-1 truncate font-mono text-base font-semibold text-primary">
-        {value}
-      </p>
-    </div>
   );
 }

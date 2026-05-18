@@ -129,11 +129,34 @@ export default function DatenschutzPage() {
             alle Zahlungen erledigt sind.
           </p>
           <p className="mt-2">
-            <strong>Was bleibt:</strong> Eine anonymisierte Statistik-Kopie (Datum,
-            Kategorie, Gesamtbetrag pro Tag und Kategorie) — ohne jeglichen Personenbezug.
-            Sie erlaubt dir, im Statistik-Tab auch Jahre später noch zu sehen, wie viel
-            insgesamt z. B. für „Sprit“ oder „Restaurant“ ausgegeben wurde, ohne dass
-            erkennbar ist, wer beteiligt war oder wer gezahlt hat.
+            <strong>Was bleibt:</strong> zwei separate Bestandteile, die zusammen
+            die anonyme Statistik möglich machen, ohne dass Inhalte deiner Buchungen
+            erhalten bleiben:
+          </p>
+          <ul className="ml-5 mt-2 list-disc">
+            <li>
+              <strong>Anonymes Aggregat</strong> (Datum, Kategoriename, Tagessumme,
+              Alkohol-Anteil) — wie bisher, ohne jeden Personenbezug. Erlaubt dir
+              im Statistik-Tab auch Jahre später noch zu sehen, wie viel insgesamt
+              z. B. für „Sprit“ oder „Restaurant“ ausgegeben wurde, ohne dass
+              erkennbar ist, wer beteiligt war oder wer gezahlt hat.
+            </li>
+            <li>
+              <strong>Sichtbarkeits-Marker</strong> (nur Person-ID + Trip-ID,
+              kein Inhalt) — wird nur für angemeldete Crew-Mitglieder mit Login
+              angelegt (nicht für eingeladene Ghost-Personen). Zweck: damit dir
+              in deiner persönlichen Gesamt-Statistik unter <em>/stats</em> auch
+              deine alten, anonymisierten Törn-Aggregate weiterhin angezeigt werden
+              können. Ohne diesen Marker wärst du nach 30 Tagen für die App nicht
+              mehr als ehemaliges Crew-Mitglied erkennbar und sähest deine eigenen
+              früheren Törns in der Übersicht nicht mehr.
+            </li>
+          </ul>
+          <p className="mt-2">
+            Wenn du dein Konto vollständig löschen lässt (Auftrag per Mail), werden
+            auch deine Sichtbarkeits-Marker mit gelöscht. Die anonymen Aggregate
+            bleiben dann ohne deinen Personenbezug erhalten — andere ehemalige
+            Crew-Mitglieder können sie weiterhin sehen, du selbst nicht mehr.
           </p>
           <p className="mt-2">
             Auf Wunsch löschen wir deine Daten auch vor Ablauf der 30 Tage unverzüglich
