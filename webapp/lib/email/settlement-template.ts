@@ -36,13 +36,20 @@ export type SettlementMailParams = {
   debts: DebtItem[];
   appUrl: string;    // Link zur Schulden-Seite des Trips (zum direkten Abhaken)
   skipperName: string;
+  /** Wenn true: Update-Mail-Variante (Wortlaut "Bilanz hat sich aktualisiert"). */
+  isUpdate?: boolean;
+  /** Optionaler Diff-Hinweis ("3 neue Buchungen, 1 geändert"). Nur bei isUpdate. */
+  changeSummary?: string;
 };
 
 const fmtEuro = (n: number) =>
   new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
 
 export function renderSettlementMail(p: SettlementMailParams): { html: string; text: string; subject: string } {
-  const subject = `Bordkasse-Abrechnung: ${p.tripName}`;
+  const subject = p.isUpdate
+    ? `Bordkasse-Update: ${p.tripName}`
+    : `Bordkasse-Abrechnung: ${p.tripName}`;
+  const headline = p.isUpdate ? "Bilanz aktualisiert" : "Abrechnung steht";
   const isCreditor = p.balance > 0.005;
   const isDebtor = p.balance < -0.005;
   const balanceColor = isCreditor ? "#1E8449" : isDebtor ? "#A93226" : "#587EA8";
@@ -51,6 +58,19 @@ export function renderSettlementMail(p: SettlementMailParams): { html: string; t
     : isDebtor
       ? `Du zahlst noch ${fmtEuro(Math.abs(p.balance))}.`
       : `Du bist quitt — nichts mehr zu tun.`;
+  const introText = p.isUpdate
+    ? `${p.skipperName} hat Buchungen für unseren Törn aktualisiert — die Bilanz hat sich seit der letzten Mail geändert.`
+    : `${p.skipperName} hat die Bordkasse für unseren Törn final abgerechnet.`;
+  const changeSummaryBlock = p.isUpdate && p.changeSummary
+    ? `
+            <tr>
+              <td style="padding:0 32px 8px 32px;">
+                <p style="margin:0;padding:10px 14px;background-color:#FDF6DC;border-left:3px solid #C8A51E;font-size:13px;color:#1A2533;border-radius:4px;">
+                  <strong>Was hat sich geändert:</strong> ${escapeHtml(p.changeSummary)}
+                </p>
+              </td>
+            </tr>`
+    : "";
 
   const debtsRows = p.debts
     .map((d) => {
@@ -125,20 +145,20 @@ export function renderSettlementMail(p: SettlementMailParams): { html: string; t
             <tr>
               <td style="padding:32px 32px 8px 32px;">
                 <h2 style="margin:0 0 12px 0;font-size:18px;font-weight:600;color:#1D4281;">
-                  Abrechnung steht
+                  ${escapeHtml(headline)}
                 </h2>
                 <p style="margin:0 0 12px 0;font-size:15px;line-height:1.55;color:#1A2533;">
                   Hi ${escapeHtml(p.recipientName)},
                 </p>
                 <p style="margin:0 0 12px 0;font-size:15px;line-height:1.55;color:#1A2533;">
-                  ${escapeHtml(p.skipperName)} hat die Bordkasse für unseren Törn final abgerechnet.
+                  ${escapeHtml(introText)}
                 </p>
                 <p style="margin:0;font-size:16px;line-height:1.5;color:${balanceColor};font-weight:600;">
                   ${escapeHtml(balanceText)}
                 </p>
               </td>
             </tr>
-${debtsBlock}
+${changeSummaryBlock}${debtsBlock}
 
             <!-- Button -->
             <tr>
@@ -204,13 +224,13 @@ ${debtsBlock}
   </body>
 </html>`;
 
-  const text = `Bordkasse-Abrechnung
+  const text = `${p.isUpdate ? "Bordkasse-Update" : "Bordkasse-Abrechnung"}
 ${p.tripName} · ${p.tripDates}
 
 Hi ${p.recipientName},
 
-${p.skipperName} hat die Bordkasse für unseren Törn final abgerechnet.
-${balanceText}
+${introText}
+${p.isUpdate && p.changeSummary ? `Was hat sich geändert: ${p.changeSummary}\n` : ""}${balanceText}
 ${
   p.debts.length === 0
     ? ""

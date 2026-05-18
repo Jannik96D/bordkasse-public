@@ -1,6 +1,7 @@
-import { AlertTriangle, CheckCircle2, Info } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, RefreshCw } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { SettlementAnnounceButton } from "./settlement-announce-button";
+import { SettlementResendButton } from "./settlement-resend-button";
 
 /**
  * Zeigt den Stand der Trip-Abrechnung als Banner:
@@ -10,7 +11,11 @@ import { SettlementAnnounceButton } from "./settlement-announce-button";
  *    und Abrechnung verschicken" mit Button.
  * 3. Törn vorbei + nicht angekündigt + Crew → "Skipper schließt die Bordkasse
  *    gerade ab, bitte warten".
- * 4. Angekündigt → grüner "Abrechnung steht"-Hinweis mit Datum.
+ * 4. Angekündigt + keine offenen Änderungen → grüner "Abrechnung steht"-Hinweis.
+ * 5. Angekündigt + changesPendingSince gesetzt + Skipper/Admin → gelber
+ *    "Bilanz aktualisiert — Update verschicken?"-Hinweis mit Button.
+ * 6. Angekündigt + changesPendingSince gesetzt + Crew → grauer Hinweis
+ *    "Skipper bereitet eine Update-Mail vor".
  *
  * Wird sowohl in der Trip-Übersicht als auch in der Schulden-Seite
  * eingebunden, damit der Hinweis sichtbar ist, wo er gebraucht wird.
@@ -19,24 +24,63 @@ export function SettlementStatus({
   tripId,
   endDate,
   announcedAt,
+  changesPendingSince = null,
+  lastResendAt = null,
   canAnnounce,
   highlight = false,
 }: {
   tripId: string;
   endDate: string;
   announcedAt: string | null;
+  /** Zeitstempel der ersten Buchungs-Änderung seit dem letzten Mailversand. */
+  changesPendingSince?: string | null;
+  /** Zeitstempel der letzten Update-Mail (für „zuletzt aktualisiert am …"). */
+  lastResendAt?: string | null;
   /** true = User darf den "Abrechnung verschicken"-Button drücken (Skipper/Admin). */
   canAnnounce: boolean;
   /** true = nach Kaution-Edit/-Delete; Hinweis wird prominenter dargestellt. */
   highlight?: boolean;
 }) {
   if (announcedAt) {
+    if (changesPendingSince) {
+      if (canAnnounce) {
+        return (
+          <div className="mb-4 rounded-md border border-gold/30 bg-gold-soft p-3 text-sm">
+            <div className="flex items-start gap-2">
+              <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden />
+              <div className="flex-1">
+                <p className="font-medium text-primary">
+                  Bilanz hat sich seit der Abrechnung geändert
+                </p>
+                <p className="mt-1 text-xs text-ink-soft">
+                  Buchungen wurden seit dem letzten Mailversand am{" "}
+                  {formatDate((lastResendAt ?? announcedAt).slice(0, 10))} aktualisiert.
+                  Verschicke eine Update-Mail, damit alle die neue Bilanz sehen.
+                </p>
+                <SettlementResendButton tripId={tripId} />
+              </div>
+            </div>
+          </div>
+        );
+      }
+      return (
+        <div className="mb-4 flex items-start gap-2 rounded-md border border-rule bg-paper-soft p-3 text-sm">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-ink-soft" aria-hidden />
+          <p className="text-ink-soft">
+            Die Bordkasse wurde nach der Abrechnung noch einmal angepasst — der
+            Skipper bereitet eine Update-Mail vor.
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="mb-4 flex items-start gap-2 rounded-md border border-success/30 bg-success/5 p-3 text-sm">
         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
         <p>
           <span className="font-medium text-success">Abrechnung verschickt</span>{" "}
-          <span className="text-ink-soft">am {formatDate(announcedAt.slice(0, 10))}.</span>{" "}
+          <span className="text-ink-soft">
+            am {formatDate((lastResendAt ?? announcedAt).slice(0, 10))}.
+          </span>{" "}
           <span className="text-ink-soft">Bezahlt-Häkchen sind freigeschaltet.</span>
         </p>
       </div>
