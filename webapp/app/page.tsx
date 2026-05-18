@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { Plus, Anchor, Archive, AlertTriangle } from "lucide-react";
+import { Plus, Anchor, Archive, AlertTriangle, BarChart3 } from "lucide-react";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { listMyTrips } from "@/lib/queries/trips";
@@ -156,7 +156,19 @@ export default async function Home() {
         </section>
       )}
 
-      <p className="mt-12 text-center text-xs text-ink-soft">
+      {(admin || trips.length > 0) && (
+        <div className="mt-10 border-t border-rule pt-6">
+          <Link
+            href="/stats"
+            className="flex items-center justify-center gap-2 rounded-md border border-rule bg-paper px-4 py-3 text-sm font-medium text-ink transition-colors hover:border-primary/40 hover:bg-navy-light/20"
+          >
+            <BarChart3 className="h-4 w-4 text-primary" />
+            Gesamt-Statistik
+          </Link>
+        </div>
+      )}
+
+      <p className="mt-8 text-center text-xs text-ink-soft">
         <Link href="/datenschutz" className="hover:text-primary">Datenschutz</Link>
       </p>
     </main>
