@@ -88,7 +88,7 @@ export default async function Home() {
               {overdueTrips.length === 1 ? "Dieser Törn ist" : "Diese Törns sind"} seit
               über 30 Tagen vorbei, aber personenbezogene Daten sind noch nicht gelöscht.
               Bitte Abrechnung verschicken, offene Zahlungen abhaken und im Törn-Settings
-              auf „DSGVO-Löschung" tippen.
+              auf „DSGVO-Löschung“ tippen.
             </p>
           </div>
         </div>
