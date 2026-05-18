@@ -34,7 +34,7 @@ export type SettlementMailParams = {
   tripDates: string; // formatted "5.4.2026 – 15.4.2026"
   balance: number;   // Saldo der Person (+ = bekommt, − = zahlt)
   debts: DebtItem[];
-  appUrl: string;    // Link zur Bilanz-Seite des Trips
+  appUrl: string;    // Link zur Schulden-Seite des Trips (zum direkten Abhaken)
   skipperName: string;
 };
 
@@ -148,7 +148,7 @@ ${debtsBlock}
                     <td align="center" style="border-radius:8px;background-color:#114884;">
                       <a href="${p.appUrl}"
                          style="display:inline-block;padding:14px 28px;font-size:16px;font-weight:600;color:#FFFFFF;text-decoration:none;border-radius:8px;">
-                        Bilanz in der App öffnen
+                        Zahlungen in der App abhaken
                       </a>
                     </td>
                   </tr>
@@ -224,7 +224,7 @@ ${
         .join("\n") +
       "\n"
 }
-Bilanz in der App: ${p.appUrl}
+Zahlungen abhaken: ${p.appUrl}
 
 —
 Bordkasse · Faire Kostenaufteilung auf Segel-Törns
