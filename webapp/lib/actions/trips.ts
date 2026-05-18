@@ -233,6 +233,63 @@ export async function toggleArchive(tripId: string, archived: boolean) {
   revalidatePath(`/trips/${tripId}`);
 }
 
+/**
+ * Manueller DSGVO-Purge eines einzelnen Trips — für Skipper/Admin, wenn
+ * der automatische Cron mal nicht greift oder vor Ablauf der 30-Tage-Frist
+ * gelöscht werden soll.
+ *
+ * Bei `force=false` (Default) gelten die normalen Cron-Bedingungen
+ * (Retention-Frist + Settlement-Flag + alle Schulden bezahlt). Mit
+ * `force=true` überspringt der Skipper Retention + Settlement, aber
+ * NICHT die Schulden-Prüfung — sonst gingen offene Zahlungen verloren.
+ */
+export type PurgeResult =
+  | { ok: true; message: string }
+  | { ok: false; message: string };
+
+export async function purgeTripNow(tripId: string, force: boolean): Promise<PurgeResult> {
+  const auth = await requireSkipperOrAdmin(tripId);
+  if (!auth.ok) return { ok: false, message: auth.message };
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.rpc("purge_trip_data", {
+    p_trip_id: tripId,
+    p_force: force,
+  });
+  if (error) {
+    console.error("[bordkasse:db]", error.message);
+    return { ok: false, message: "Löschung fehlgeschlagen. Bitte erneut versuchen." };
+  }
+  const result = data as unknown as string;
+  switch (result) {
+    case "ok":
+      await logAudit(supabase, {
+        table_name: "trips",
+        operation: "DELETE",
+        record_id: tripId,
+        trip_id: tripId,
+        actor_person_id: auth.personId,
+        payload: { manual_purge: true, forced: force },
+      });
+      revalidatePath("/");
+      revalidatePath(`/trips/${tripId}`);
+      revalidatePath(`/trips/${tripId}/settings`);
+      return { ok: true, message: "Personenbezogene Daten gelöscht. Statistik bleibt anonymisiert erhalten." };
+    case "not_found":
+      return { ok: false, message: "Törn nicht gefunden." };
+    case "already_purged":
+      return { ok: false, message: "Daten dieses Törns wurden bereits gelöscht." };
+    case "retention_not_reached":
+      return { ok: false, message: 'Die 30-Tage-Frist nach Törn-Ende ist noch nicht erreicht. Mit „Sofort löschen“ überspringst du die Frist.' };
+    case "settlement_not_announced":
+      return { ok: false, message: "Bitte zuerst die Abrechnung verschicken. Danach kann gelöscht werden." };
+    case "debts_open":
+      return { ok: false, message: "Es gibt noch offene Schulden — alle Bezahlt-Häkchen müssen gesetzt sein, bevor gelöscht werden kann." };
+    default:
+      return { ok: false, message: `Unerwartete Antwort der Datenbank: ${result}` };
+  }
+}
+
 export async function deleteTrip(tripId: string) {
   const auth = await requireSkipperOrAdmin(tripId);
   if (!auth.ok) return;

@@ -107,9 +107,10 @@ export default function DatenschutzPage() {
             aktiven Törn als Mitglied geführt bist.
           </p>
           <p className="mt-2">
-            <strong>Automatische Löschung 30 Tage nach Törn-Ende:</strong> Sobald ein Törn
-            seit mehr als 30 Tagen beendet ist, werden alle personenbezogenen Daten zu
-            diesem Törn automatisch gelöscht — namentlich:
+            <strong>Automatische Löschung 30 Tage nach Törn-Ende, sobald alle Zahlungen erledigt sind:</strong>{" "}
+            Wenn ein Törn seit mehr als 30 Tagen beendet ist, der Skipper die Abrechnung
+            verschickt hat und alle Zahlungen in der App als erledigt markiert sind, werden
+            die personenbezogenen Daten zu diesem Törn automatisch gelöscht — namentlich:
           </p>
           <ul className="ml-5 mt-2 list-disc">
             <li>Crew-Liste (wer war wann an Bord, Alkohol-Flag, Notizen)</li>
@@ -118,6 +119,12 @@ export default function DatenschutzPage() {
             <li>Audit-Log-Einträge dieses Törns</li>
             <li>Ghost-Personen, die nirgends mehr Mitglied sind</li>
           </ul>
+          <p className="mt-2">
+            Solange noch offene Schulden in der App stehen, bleiben die Daten erhalten —
+            sonst gingen die laufenden Zahlungen verloren. Skipper und Admin können die
+            Löschung über die Trip-Einstellungen jederzeit auch früher anstoßen, sobald
+            alle Zahlungen erledigt sind.
+          </p>
           <p className="mt-2">
             <strong>Was bleibt:</strong> Eine anonymisierte Statistik-Kopie (Datum,
             Kategorie, Gesamtbetrag pro Tag und Kategorie) — ohne jeglichen Personenbezug.
