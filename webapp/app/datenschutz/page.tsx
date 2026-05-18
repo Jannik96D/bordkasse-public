@@ -153,10 +153,11 @@ export default function DatenschutzPage() {
             </li>
           </ul>
           <p className="mt-2">
-            Wenn du dein Konto vollständig löschen lässt (Auftrag per Mail), werden
-            auch deine Sichtbarkeits-Marker mit gelöscht. Die anonymen Aggregate
-            bleiben dann ohne deinen Personenbezug erhalten — andere ehemalige
-            Crew-Mitglieder können sie weiterhin sehen, du selbst nicht mehr.
+            Wenn du dein Konto vollständig löschst (Selbst-Service im{" "}
+            <a href="/profile" className="underline">Profil</a>, siehe „Deine Rechte“),
+            werden auch deine Sichtbarkeits-Marker mit gelöscht. Die anonymen
+            Aggregate bleiben dann ohne deinen Personenbezug erhalten — andere
+            ehemalige Crew-Mitglieder können sie weiterhin sehen, du selbst nicht mehr.
           </p>
           <p className="mt-2">
             Auf Wunsch löschen wir deine Daten auch vor Ablauf der 30 Tage unverzüglich
@@ -227,7 +228,20 @@ export default function DatenschutzPage() {
             </li>
           </ul>
           <p className="mt-2">
-            Wende dich für die Wahrnehmung dieser Rechte formlos an{" "}
+            <strong>Konto selbst löschen:</strong> Du kannst dein Konto jederzeit
+            direkt in der App löschen — im{" "}
+            <a href="/profile" className="underline">Profil</a> findest du den
+            Block „Konto löschen“. Die Löschung greift sofort: E-Mail, Nachname
+            und Login werden entfernt; in Törns, in denen du Buchungen erfasst hast,
+            bleibt dein Vorname als „Ehemaliges Crew-Mitglied“ stehen, damit die
+            Bilanz nicht zerbricht. Während eines aktiven Törns (Törn-Ende in der
+            Zukunft) ist die Löschung blockiert, wenn du dort Buchungen hast —
+            sonst gingen offene Schulden verloren.
+          </p>
+          <p className="mt-2">
+            Für alles, was nicht über den Selbst-Service abgedeckt ist
+            (Auskunft, Datenexport, vollständige Trip-Löschung als Skipper o. Ä.),
+            wende dich formlos an{" "}
             <a href="mailto:bordkasse@dieter.ms" className="underline">
               bordkasse@dieter.ms
             </a>
