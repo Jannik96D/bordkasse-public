@@ -83,7 +83,10 @@ export default function DatenschutzPage() {
             </li>
             <li>
               <strong>Vercel</strong> (Hosting) — Vercel Inc., 340 S Lemon Ave #4133, Walnut, CA
-              91789, USA. Datenschutzerklärung:{" "}
+              91789, USA. Server-Funktionen und Cron-Jobs laufen in der EU-Region{" "}
+              <code>fra1</code> (Frankfurt), konfiguriert in <code>vercel.json</code>. Statische
+              Assets (HTML/CSS/JS) liefert das globale Vercel-CDN aus — diese enthalten keine
+              personenbezogenen Daten. Datenschutzerklärung:{" "}
               <a
                 href="https://vercel.com/legal/privacy-policy"
                 target="_blank"
@@ -148,7 +151,45 @@ export default function DatenschutzPage() {
         </div>
 
         <div>
-          <h2 className="text-base font-semibold">7. Deine Rechte</h2>
+          <h2 className="text-base font-semibold">
+            7. Offline-Nutzung & lokaler Cache
+          </h2>
+          <p>
+            Die Bordkasse funktioniert als Progressive Web App (PWA) auch ohne
+            Internet-Verbindung — dafür speichert dein Browser bereits besuchte Seiten
+            (Crew-Liste, Buchungen, Bilanz etc.) lokal auf deinem Endgerät zwischen.
+          </p>
+          <p className="mt-2">
+            <strong>Konsequenz für die Datenlöschung:</strong> Werden Daten serverseitig
+            gelöscht (Cron oder manueller Trigger), bleibt der zuletzt im Browser gesehene
+            Stand auf dem Endgerät weiter sichtbar, bis du das nächste Mal{" "}
+            <em>online</em> eine Seite öffnest — dann zieht die App automatisch den
+            aktuellen Stand vom Server (NetworkFirst-Strategie).
+          </p>
+          <p className="mt-2">
+            Wenn du den lokalen Cache sofort leeren möchtest:
+          </p>
+          <ul className="ml-5 mt-1 list-disc">
+            <li>
+              <strong>iOS Safari</strong>: Einstellungen → Safari → Erweitert → Website-
+              Daten → bordkasse.dieter.ms entfernen
+            </li>
+            <li>
+              <strong>Android Chrome</strong>: App-Info → Speicher → Daten löschen
+            </li>
+            <li>
+              <strong>Desktop</strong>: DevTools (F12) → Application → Storage → „Clear
+              site data“
+            </li>
+          </ul>
+          <p className="mt-2 text-xs text-ink-soft">
+            Hinweis: lokal gespeicherte Daten sind nur für dich auf deinem Endgerät
+            sichtbar — andere Crew-Mitglieder sehen ausschließlich, was der Server liefert.
+          </p>
+        </div>
+
+        <div>
+          <h2 className="text-base font-semibold">8. Deine Rechte</h2>
           <p>Du hast jederzeit das Recht auf:</p>
           <ul className="ml-5 list-disc">
             <li>Auskunft über deine gespeicherten Daten (Art. 15 DSGVO)</li>
@@ -172,7 +213,7 @@ export default function DatenschutzPage() {
         </div>
 
         <div>
-          <h2 className="text-base font-semibold">8. Datensicherheit</h2>
+          <h2 className="text-base font-semibold">9. Datensicherheit</h2>
           <p>
             Die Übertragung erfolgt verschlüsselt via HTTPS/TLS. Datenbank-Zugriffe sind
             durch Row-Level-Security so eingeschränkt, dass jedes Crew-Mitglied nur Daten

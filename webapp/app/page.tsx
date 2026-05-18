@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { Plus, Anchor, Archive } from "lucide-react";
+import { Plus, Anchor, Archive, AlertTriangle } from "lucide-react";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { listMyTrips } from "@/lib/queries/trips";
@@ -47,6 +47,13 @@ export default async function Home() {
   const adminOnlyActive = trips.filter((t) => !t.archived && !t.is_member);
   const adminOnlyArchived = trips.filter((t) => t.archived && !t.is_member);
 
+  // DSGVO-Pending: nur Trips, für die der User auch berechtigt ist zu handeln
+  // (eigene Skipper-Trips oder als Admin alle). Crew-only-Mitglieder sehen
+  // den Banner nicht — sie können eh nicht löschen.
+  const overdueTrips = trips.filter(
+    (t) => t.retention_overdue && (admin || t.is_skipper),
+  );
+
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-10">
       <header className="mb-8 flex items-start justify-between gap-4">
@@ -66,6 +73,27 @@ export default async function Home() {
 
       <InstallHint />
 
+      {overdueTrips.length > 0 && (
+        <div
+          className="mb-6 flex items-start gap-2 rounded-md border border-danger/30 bg-danger/5 p-3 text-sm"
+          role="alert"
+        >
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-danger" aria-hidden />
+          <div className="flex-1">
+            <p className="font-medium text-danger">
+              DSGVO-Frist abgelaufen — {overdueTrips.length} Törn
+              {overdueTrips.length === 1 ? "" : "s"} mit überfälligen Daten
+            </p>
+            <p className="mt-1 text-xs text-ink-soft">
+              {overdueTrips.length === 1 ? "Dieser Törn ist" : "Diese Törns sind"} seit
+              über 30 Tagen vorbei, aber personenbezogene Daten sind noch nicht gelöscht.
+              Bitte Abrechnung verschicken, offene Zahlungen abhaken und im Törn-Settings
+              auf „DSGVO-Löschung“ tippen.
+            </p>
+          </div>
+        </div>
+      )}
+
       {admin && (
         <Link
           href="/trips/new"
@@ -78,7 +106,7 @@ export default async function Home() {
 
       {myActive.length > 0 ? (
         <ul className="space-y-3">
-          {myActive.map((t) => <TripCard key={t.id} trip={t} />)}
+          {myActive.map((t) => <TripCard key={t.id} trip={t} canAct={admin || t.is_skipper} />)}
         </ul>
       ) : (
         <div className="rounded-lg border border-rule bg-paper-soft p-8 text-center">
@@ -99,7 +127,7 @@ export default async function Home() {
             Archiv ({myArchived.length})
           </summary>
           <ul className="mt-3 space-y-2 opacity-60">
-            {myArchived.map((t) => <TripCard key={t.id} trip={t} />)}
+            {myArchived.map((t) => <TripCard key={t.id} trip={t} canAct={admin || t.is_skipper} />)}
           </ul>
         </details>
       )}
@@ -111,7 +139,7 @@ export default async function Home() {
           </h2>
           {adminOnlyActive.length > 0 && (
             <ul className="space-y-3">
-              {adminOnlyActive.map((t) => <TripCard key={t.id} trip={t} />)}
+              {adminOnlyActive.map((t) => <TripCard key={t.id} trip={t} canAct={admin} />)}
             </ul>
           )}
           {adminOnlyArchived.length > 0 && (
@@ -121,7 +149,7 @@ export default async function Home() {
                 Archivierte fremde Törns ({adminOnlyArchived.length})
               </summary>
               <ul className="mt-3 space-y-2 opacity-60">
-                {adminOnlyArchived.map((t) => <TripCard key={t.id} trip={t} />)}
+                {adminOnlyArchived.map((t) => <TripCard key={t.id} trip={t} canAct={admin} />)}
               </ul>
             </details>
           )}
@@ -135,12 +163,24 @@ export default async function Home() {
   );
 }
 
-function TripCard({ trip }: { trip: Awaited<ReturnType<typeof listMyTrips>>[number] }) {
+function TripCard({
+  trip,
+  canAct,
+}: {
+  trip: Awaited<ReturnType<typeof listMyTrips>>[number];
+  canAct: boolean;
+}) {
+  // Rote Markierung nur, wenn der angemeldete User auch handeln kann.
+  const flagOverdue = canAct && trip.retention_overdue;
   return (
     <li>
       <Link
         href={`/trips/${trip.id}`}
-        className="block rounded-md border border-rule bg-paper p-4 transition-colors hover:border-primary/40 hover:bg-navy-light/20"
+        className={
+          flagOverdue
+            ? "block rounded-md border-2 border-danger bg-danger/5 p-4 transition-colors hover:bg-danger/10"
+            : "block rounded-md border border-rule bg-paper p-4 transition-colors hover:border-primary/40 hover:bg-navy-light/20"
+        }
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
@@ -150,6 +190,12 @@ function TripCard({ trip }: { trip: Awaited<ReturnType<typeof listMyTrips>>[numb
             </p>
             {trip.ship_name && (
               <p className="mt-1 text-xs text-ink-soft">{trip.ship_name}</p>
+            )}
+            {flagOverdue && (
+              <p className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-danger">
+                <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+                DSGVO-Frist abgelaufen — bitte löschen
+              </p>
             )}
           </div>
           <div className="text-right">
