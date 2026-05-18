@@ -149,6 +149,73 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
   redirect(`/trips/${trip.id}/settings`);
 }
 
+const DateUpdateSchema = z
+  .object({
+    start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum-Format YYYY-MM-DD."),
+    end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum-Format YYYY-MM-DD."),
+  })
+  .refine((d) => d.end_date >= d.start_date, {
+    message: "Törn-Ende darf nicht vor dem Start liegen.",
+    path: ["end_date"],
+  });
+
+export type DateUpdateState =
+  | { status: "idle" }
+  | { status: "ok" }
+  | { status: "error"; message: string };
+
+/**
+ * Skipper/Admin darf das Start- und End-Datum eines Törns nachträglich
+ * korrigieren — z. B. wenn der Törn verschoben oder verlängert wird.
+ *
+ * Hinweis: existierende Buchungen werden NICHT verschoben. Wer Buchungen
+ * vor dem neuen Start-Datum hat, muss sie manuell anpassen. Anwesenheiten
+ * in `trip_members.on_board_from/to` greifen weiter direkt.
+ */
+export async function updateTripDates(
+  _prev: DateUpdateState,
+  formData: FormData,
+): Promise<DateUpdateState> {
+  const tripId = formData.get("trip_id")?.toString() ?? "";
+  if (!tripId) return { status: "error", message: "Törn-ID fehlt." };
+  const auth = await requireSkipperOrAdmin(tripId);
+  if (!auth.ok) return { status: "error", message: auth.message };
+
+  const parsed = DateUpdateSchema.safeParse({
+    start_date: formData.get("start_date"),
+    end_date: formData.get("end_date"),
+  });
+  if (!parsed.success) {
+    return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
+  }
+
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("trips")
+    .update({
+      start_date: parsed.data.start_date,
+      end_date: parsed.data.end_date,
+    })
+    .eq("id", tripId);
+  if (error) {
+    console.error("[bordkasse:db]", error.message);
+    return { status: "error", message: "Speichern fehlgeschlagen. Bitte erneut versuchen." };
+  }
+
+  await logAudit(supabase, {
+    table_name: "trips",
+    operation: "UPDATE",
+    record_id: tripId,
+    trip_id: tripId,
+    actor_person_id: auth.personId,
+    payload: { start_date: parsed.data.start_date, end_date: parsed.data.end_date },
+  });
+  revalidatePath("/");
+  revalidatePath(`/trips/${tripId}`);
+  revalidatePath(`/trips/${tripId}/settings`);
+  return { status: "ok" };
+}
+
 export async function toggleArchive(tripId: string, archived: boolean) {
   const auth = await requireSkipperOrAdmin(tripId);
   if (!auth.ok) return;
