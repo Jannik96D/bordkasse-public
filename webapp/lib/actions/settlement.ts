@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
-import { requireSkipperOrAdmin } from "@/lib/auth/authz";
+import { requireMember, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { getBalances, getSimplifiedDebts } from "@/lib/queries/balances";
 import { sendMail } from "@/lib/email/send";
@@ -181,7 +181,13 @@ export async function resendSettlement(tripId: string): Promise<Result> {
   const person = await getCurrentPerson();
   if (!person) return { ok: false, message: "Nicht angemeldet." };
 
-  const auth = await requireSkipperOrAdmin(tripId);
+  // Jeder Trip-Member darf die Update-Mail auslösen — typischerweise will
+  // die Person, die soeben eine nachträgliche Buchung erfasst hat, die Mail
+  // direkt selbst raushauen, ohne den Skipper bemühen zu müssen. Spam ist
+  // ausgeschlossen, weil der Resend nur funktioniert, wenn
+  // `changes_pending_since` gesetzt ist — und das Flag wird nach jedem
+  // erfolgreichen Versand gelöscht.
+  const auth = await requireMember(tripId);
   if (!auth.ok) return { ok: false, message: auth.message };
 
   const supabase = createAdminClient();

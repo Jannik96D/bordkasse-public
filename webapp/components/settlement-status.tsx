@@ -12,10 +12,10 @@ import { SettlementResendButton } from "./settlement-resend-button";
  * 3. Törn vorbei + nicht angekündigt + Crew → "Skipper schließt die Bordkasse
  *    gerade ab, bitte warten".
  * 4. Angekündigt + keine offenen Änderungen → grüner "Abrechnung steht"-Hinweis.
- * 5. Angekündigt + changesPendingSince gesetzt + Skipper/Admin → gelber
- *    "Bilanz aktualisiert — Update verschicken?"-Hinweis mit Button.
- * 6. Angekündigt + changesPendingSince gesetzt + Crew → grauer Hinweis
- *    "Skipper bereitet eine Update-Mail vor".
+ * 5. Angekündigt + changesPendingSince gesetzt → gelber „Bilanz aktualisiert
+ *    — Update verschicken?"-Hinweis mit Button. Jedes Crew-Mitglied darf den
+ *    Button drücken, typischerweise die Person, die soeben eine nachträgliche
+ *    Buchung erfasst hat.
  *
  * Wird sowohl in der Trip-Übersicht als auch in der Schulden-Seite
  * eingebunden, damit der Hinweis sichtbar ist, wo er gebraucht wird.
@@ -43,33 +43,26 @@ export function SettlementStatus({
 }) {
   if (announcedAt) {
     if (changesPendingSince) {
-      if (canAnnounce) {
-        return (
-          <div className="mb-4 rounded-md border border-gold/30 bg-gold-soft p-3 text-sm">
-            <div className="flex items-start gap-2">
-              <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden />
-              <div className="flex-1">
-                <p className="font-medium text-primary">
-                  Bilanz hat sich seit der Abrechnung geändert
-                </p>
-                <p className="mt-1 text-xs text-ink-soft">
-                  Buchungen wurden seit dem letzten Mailversand am{" "}
-                  {formatDate((lastResendAt ?? announcedAt).slice(0, 10))} aktualisiert.
-                  Verschicke eine Update-Mail, damit alle die neue Bilanz sehen.
-                </p>
-                <SettlementResendButton tripId={tripId} />
-              </div>
+      // Jedes Crew-Mitglied darf den Resend auslösen — bewusst kein
+      // canAnnounce-Gate. Wer nachträglich etwas eingetragen hat, soll die
+      // Update-Mail direkt selbst raushauen können, statt den Skipper zu
+      // bitten. Server-Action prüft Member-Status nochmal serverseitig.
+      return (
+        <div className="mb-4 rounded-md border border-gold/30 bg-gold-soft p-3 text-sm">
+          <div className="flex items-start gap-2">
+            <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden />
+            <div className="flex-1">
+              <p className="font-medium text-primary">
+                Bilanz hat sich seit der Abrechnung geändert
+              </p>
+              <p className="mt-1 text-xs text-ink-soft">
+                Buchungen wurden seit dem letzten Mailversand am{" "}
+                {formatDate((lastResendAt ?? announcedAt).slice(0, 10))} aktualisiert.
+                Verschicke eine Update-Mail, damit alle die neue Bilanz sehen.
+              </p>
+              <SettlementResendButton tripId={tripId} />
             </div>
           </div>
-        );
-      }
-      return (
-        <div className="mb-4 flex items-start gap-2 rounded-md border border-rule bg-paper-soft p-3 text-sm">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-ink-soft" aria-hidden />
-          <p className="text-ink-soft">
-            Die Bordkasse wurde nach der Abrechnung noch einmal angepasst — der
-            Skipper bereitet eine Update-Mail vor.
-          </p>
         </div>
       );
     }
