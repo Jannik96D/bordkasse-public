@@ -59,7 +59,7 @@ export function renderDebtSettledMail(p: DebtSettledMailParams): {
     ? `du hast soeben in der Bordkasse abgehakt, dass du deine Schuld in Höhe von ${fmtEuro(p.amount)} an ${p.creditorName} bezahlt hast.`
     : `${p.debtorName} hat soeben in der Bordkasse markiert, dass die Zahlung in Höhe von ${fmtEuro(p.amount)} an dich erledigt ist.`;
   const followupText = isDebtor
-    ? "Diese Mail dient als Quittung. Falls du dich vertan hast, kannst du das Häkchen in der App auch wieder entfernen."
+    ? "Falls du dich vertan hast, kannst du das Häkchen in der App auch wieder entfernen."
     : "Bitte prüfe, ob das Geld bei dir angekommen ist. Falls etwas nicht stimmt, sprich kurz mit dem Schuldner oder dem Skipper — das Häkchen kann in der App auch wieder entfernt werden.";
 
   const detailLine = `${p.debtorName} → ${p.creditorName} · ${fmtEuro(p.amount)}`;
