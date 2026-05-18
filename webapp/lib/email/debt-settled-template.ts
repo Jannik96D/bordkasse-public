@@ -29,8 +29,18 @@ const SITE_URL = process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.dieter
 
 export type DebtSettledMailParams = {
   recipientName: string;
-  /** Empfänger-Rolle: "debtor" hat selbst abgehakt, "creditor" wird benachrichtigt. */
+  /** Empfänger-Rolle: ist der Empfänger Schuldner oder Gläubiger? */
   recipientRole: "debtor" | "creditor";
+  /**
+   * Akteur-Rolle: wer hat das Häkchen tatsächlich gesetzt?
+   *   - "debtor":   der Schuldner selbst (meldet seine Zahlung)
+   *   - "creditor": der Gläubiger (bestätigt Empfang)
+   *   - "other":    eine dritte Person, z. B. Admin/Skipper, der für einen
+   *                 der beiden abhakt
+   */
+  actorRole: "debtor" | "creditor" | "other";
+  /** Anzeigename des Akteurs — nur bei actorRole="other" relevant. */
+  actorName?: string;
   /** Name des Schuldners (z. B. „Tom"). */
   debtorName: string;
   /** Name des Gläubigers (z. B. „Otto"). */
@@ -50,19 +60,79 @@ export function renderDebtSettledMail(p: DebtSettledMailParams): {
   text: string;
   subject: string;
 } {
-  const isDebtor = p.recipientRole === "debtor";
-  const subject = isDebtor
-    ? `Bestätigung: Zahlung an ${p.creditorName} abgehakt`
-    : `${p.debtorName} hat seine Zahlung an dich abgehakt`;
-  const headline = isDebtor ? "Zahlung als erledigt markiert" : "Zahlung wurde abgehakt";
-  const introText = isDebtor
-    ? `du hast soeben in der Bordkasse abgehakt, dass du deine Schuld in Höhe von ${fmtEuro(p.amount)} an ${p.creditorName} bezahlt hast.`
-    : `${p.debtorName} hat soeben in der Bordkasse markiert, dass die Zahlung in Höhe von ${fmtEuro(p.amount)} an dich erledigt ist.`;
-  const followupText = isDebtor
-    ? "Falls du dich vertan hast, kannst du das Häkchen in der App auch wieder entfernen."
-    : "Bitte prüfe, ob das Geld bei dir angekommen ist. Falls etwas nicht stimmt, sprich kurz mit dem Schuldner oder dem Skipper — das Häkchen kann in der App auch wieder entfernt werden.";
+  // Wer ist der Empfänger, und wer hat das Häkchen tatsächlich gesetzt?
+  // Daraus ergeben sich sechs Text-Varianten:
+  //   recipient=debtor + actor=debtor:   Schuldner bestätigt seine Zahlung
+  //   recipient=debtor + actor=creditor: Gläubiger bestätigt Empfang
+  //   recipient=debtor + actor=other:    Dritte Person (Admin) hat abgehakt
+  //   recipient=creditor + actor=debtor: Schuldner meldet seine Zahlung
+  //   recipient=creditor + actor=creditor: Gläubiger bestätigt selbst Empfang
+  //   recipient=creditor + actor=other:    Dritte Person (Admin) hat abgehakt
+  const recipientIsDebtor = p.recipientRole === "debtor";
+  const selfAction =
+    (p.recipientRole === "debtor" && p.actorRole === "debtor") ||
+    (p.recipientRole === "creditor" && p.actorRole === "creditor");
+  const actorLabel = p.actorRole === "other" ? p.actorName ?? "Jemand" : "";
+  const amount = fmtEuro(p.amount);
 
-  const detailLine = `${p.debtorName} → ${p.creditorName} · ${fmtEuro(p.amount)}`;
+  let subject: string;
+  let headline: string;
+  let introText: string;
+  let followupText: string;
+
+  if (recipientIsDebtor) {
+    if (p.actorRole === "debtor") {
+      // Tom (Schuldner) hakt selbst ab → Bestätigung an Tom.
+      subject = `Bestätigung: Zahlung an ${p.creditorName} abgehakt`;
+      headline = "Zahlung als erledigt markiert";
+      introText = `du hast soeben in der Bordkasse abgehakt, dass du deine Schuld in Höhe von ${amount} an ${p.creditorName} bezahlt hast.`;
+      followupText =
+        "Falls du dich vertan hast, kannst du das Häkchen in der App auch wieder entfernen.";
+    } else if (p.actorRole === "creditor") {
+      // Otto (Gläubiger) hakt ab → bestätigt Empfang gegenüber Tom.
+      subject = `${p.creditorName} hat deine Zahlung als erhalten bestätigt`;
+      headline = "Zahlung als angekommen bestätigt";
+      introText = `${p.creditorName} hat soeben in der Bordkasse bestätigt, dass deine Zahlung in Höhe von ${amount} angekommen ist. Damit ist die Schuld erledigt.`;
+      followupText =
+        "Falls das ein Versehen war, kann das Häkchen in der App auch wieder entfernt werden.";
+    } else {
+      // Admin/Skipper hat für Tom + Otto abgehakt.
+      subject = `Zahlung an ${p.creditorName} wurde abgehakt`;
+      headline = "Zahlung wurde abgehakt";
+      introText = `${actorLabel} hat soeben in der Bordkasse markiert, dass deine Zahlung in Höhe von ${amount} an ${p.creditorName} erledigt ist.`;
+      followupText =
+        "Falls das ein Versehen war, sprich kurz mit dem Skipper — das Häkchen kann in der App auch wieder entfernt werden.";
+    }
+  } else {
+    if (p.actorRole === "debtor") {
+      // Tom (Schuldner) hakt ab → meldet seine Zahlung an Otto.
+      subject = `${p.debtorName} hat seine Zahlung an dich abgehakt`;
+      headline = "Zahlung wurde abgehakt";
+      introText = `${p.debtorName} hat soeben in der Bordkasse markiert, dass die Zahlung in Höhe von ${amount} an dich erledigt ist.`;
+      followupText =
+        "Bitte prüfe, ob das Geld bei dir angekommen ist. Falls etwas nicht stimmt, sprich kurz mit dem Schuldner oder dem Skipper — das Häkchen kann in der App auch wieder entfernt werden.";
+    } else if (p.actorRole === "creditor") {
+      // Otto (Gläubiger) hakt selbst ab → Bestätigung an Otto.
+      subject = `Bestätigung: Zahlung von ${p.debtorName} als erhalten markiert`;
+      headline = "Empfang bestätigt";
+      introText = `du hast soeben in der Bordkasse abgehakt, dass die Zahlung von ${p.debtorName} in Höhe von ${amount} bei dir angekommen ist.`;
+      followupText =
+        "Falls du dich vertan hast, kannst du das Häkchen in der App auch wieder entfernen.";
+    } else {
+      // Admin/Skipper hat für Tom + Otto abgehakt.
+      subject = `Zahlung von ${p.debtorName} an dich wurde abgehakt`;
+      headline = "Zahlung wurde abgehakt";
+      introText = `${actorLabel} hat soeben in der Bordkasse markiert, dass die Zahlung von ${p.debtorName} in Höhe von ${amount} an dich erledigt ist.`;
+      followupText =
+        "Bitte prüfe, ob das Geld bei dir angekommen ist. Falls etwas nicht stimmt, sprich mit dem Skipper — das Häkchen kann in der App auch wieder entfernt werden.";
+    }
+  }
+  // selfAction wird derzeit nicht für Render-Variationen genutzt, bleibt aber
+  // als semantische Markierung erhalten (z. B. für künftige A/B-Tests des
+  // Followup-Wordings).
+  void selfAction;
+
+  const detailLine = `${p.debtorName} → ${p.creditorName} · ${amount}`;
 
   const html = `<!DOCTYPE html>
 <html lang="de">

@@ -108,6 +108,7 @@ export async function toggleDebtSettled(input: {
         fromPersonId: from_person_id,
         toPersonId: to_person_id,
         amount,
+        actorPersonId: auth.personId,
       });
     } catch (e) {
       console.error("[bordkasse:debt-settled-mail]", e);
@@ -150,6 +151,12 @@ export async function toggleDebtSettled(input: {
  * Greift via Admin-Client direkt auf `persons` + `persons_private`, weil
  * der Server-Action-Pfad ohnehin Service-Role nutzt (siehe lib/auth/authz.ts).
  * Fehlt eine Mail-Adresse, wird die jeweilige Mail einfach übersprungen.
+ *
+ * Der Wortlaut hängt davon ab, **wer** das Häkchen tatsächlich gesetzt hat
+ * (`actorPersonId`):
+ *   - Schuldner selbst    → Bestätigung „du hast deine Zahlung gemeldet"
+ *   - Gläubiger selbst    → Bestätigung „du hast Empfang bestätigt"
+ *   - dritte Person (Admin/Skipper) → neutrales „X hat das abgehakt"
  */
 async function sendDebtSettledMails(
   supabase: ReturnType<typeof createAdminClient>,
@@ -158,6 +165,7 @@ async function sendDebtSettledMails(
     fromPersonId: string;
     toPersonId: string;
     amount: number;
+    actorPersonId: string;
   },
 ): Promise<void> {
   const { data: trip } = await supabase
@@ -167,10 +175,18 @@ async function sendDebtSettledMails(
     .maybeSingle();
   if (!trip) return;
 
+  // Drei Personen-IDs sind interessant: Schuldner, Gläubiger und der Akteur.
+  // Bei Selbst-Toggle (Akteur == Schuldner oder Gläubiger) reicht das Lookup
+  // auf zwei IDs, weil die dritte ID identisch ist. Wir packen alle drei
+  // dedupliziert in die IN-Abfrage.
+  const ids = Array.from(
+    new Set([args.fromPersonId, args.toPersonId, args.actorPersonId]),
+  );
+
   const { data: personsRaw } = await supabase
     .from("persons")
     .select("id, display_name")
-    .in("id", [args.fromPersonId, args.toPersonId]);
+    .in("id", ids);
   const nameById = new Map<string, string>();
   for (const p of personsRaw ?? []) nameById.set(p.id, p.display_name);
 
@@ -183,6 +199,13 @@ async function sendDebtSettledMails(
 
   const debtorName = nameById.get(args.fromPersonId) ?? "Schuldner";
   const creditorName = nameById.get(args.toPersonId) ?? "Gläubiger";
+  const actorName = nameById.get(args.actorPersonId) ?? "Skipper";
+  const actorRole: "debtor" | "creditor" | "other" =
+    args.actorPersonId === args.fromPersonId
+      ? "debtor"
+      : args.actorPersonId === args.toPersonId
+        ? "creditor"
+        : "other";
   const tripDates = `${formatDate(trip.start_date)} – ${formatDate(trip.end_date)}`;
   const appUrl = `${process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.example"}/trips/${args.tripId}/debts`;
 
@@ -201,6 +224,8 @@ async function sendDebtSettledMails(
     const { html, text, subject } = renderDebtSettledMail({
       recipientName: r.name,
       recipientRole: r.role,
+      actorRole,
+      actorName,
       debtorName,
       creditorName,
       amount: args.amount,
