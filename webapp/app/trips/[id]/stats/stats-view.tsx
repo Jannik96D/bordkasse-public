@@ -82,7 +82,7 @@ export function StatsView({
         {mode === "person" && canSplit && (
           <p className="mt-1.5 flex items-center gap-1 text-xs text-ink-soft">
             <Users className="h-3.5 w-3.5" aria-hidden />
-            Geteilt durch {memberCount} Crewmitglieder
+            Geteilt durch {memberCount} Crewmitglieder (Durchschnitt)
           </p>
         )}
       </div>
