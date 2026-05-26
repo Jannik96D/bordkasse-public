@@ -65,10 +65,36 @@ async function shot(page: Page, name: string) {
   console.log(`  ✔ ${name}.png`);
 }
 
+async function hideDevArtifacts(page: Page) {
+  // Next.js DevTools-Indicator + Mailpit-Hinweis erscheinen nur in
+  // `pnpm dev`, nicht in Production — fürs Screenshot raus.
+  await page.addStyleTag({
+    content: `
+      nextjs-portal,
+      [data-nextjs-dev-tools-button],
+      [data-next-mark],
+      #__next-build-watcher,
+      #__next-prerender-indicator,
+      [data-nextjs-toast],
+      [data-nextjs-dialog-overlay] { display: none !important; }
+    `,
+  }).catch(() => {});
+  await page.evaluate(() => {
+    document.querySelectorAll("p, a").forEach((el) => {
+      if (el.textContent?.includes("Mailpit")) {
+        const p = el.closest("p");
+        if (p) (p as HTMLElement).style.display = "none";
+      }
+    });
+  }).catch(() => {});
+}
+
 async function waitForLoad(page: Page) {
   await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
   // Server Components rendern asynchron — kurze visuelle Pause
   await page.waitForTimeout(400);
+  await hideDevArtifacts(page);
+  await page.waitForTimeout(200);
 }
 
 async function main() {

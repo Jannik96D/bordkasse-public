@@ -72,12 +72,15 @@ const features: Feature[] = [
         <p>
           Die feste Bottom-Navigation bleibt überall sichtbar — Daumen-freundlich
           auch im Hafen-Trubel. Der dicke Plus-Button schwebt unten rechts und
-          öffnet die Buchungs-Eingabe in einem Schritt.
+          öffnet die Buchungs-Eingabe in einem Schritt. Nach Törn-Ende
+          erscheint oben ein Banner mit „Kaution prüfen + Abrechnung
+          verschicken" — die Crew bekommt dann eine Mail mit allen offenen
+          Schulden.
         </p>
       </>
     ),
     screenshot: "/about/04-trip-overview.png",
-    alt: "Trip-Cockpit mit Schnellzugriff-Kacheln und Bottom-Navigation",
+    alt: "Trip-Cockpit mit Settlement-Banner, Schnellzugriff und Bottom-Navigation",
   },
   {
     id: "buchungen",
@@ -97,15 +100,18 @@ const features: Feature[] = [
   },
   {
     id: "buchung-neu",
-    title: "Ausgaben buchen — 4 Aufteilungslogiken",
-    lead: "Jede Ausgabe lässt sich auf vier Arten verteilen: Gleichmäßig, nur An-Bord-Anwesende, Zeitanteilig oder Individuell.",
+    title: "Ausgaben buchen — 5 Aufteilungslogiken",
+    lead: "Jede Ausgabe lässt sich auf fünf Arten verteilen: Gleichmäßig, nur An-Bord-Anwesende, Zeitanteilig, Individuell oder Pro Person.",
     body: (
       <>
         <p>
-          Zusätzlich gibt es einen <strong>Alkohol-Anteil</strong>: Der
-          Alkohol-Teil eines Restaurant-Belegs zahlen nur die Trinker, der Rest
-          läuft nach der gewählten Aufteilung. Das Komma im Betrag versteht die
-          App selbstverständlich auf Deutsch.
+          „<strong>Pro Person</strong>" ist für Restaurants, in denen jede:r
+          die eigene Bestellung zahlt — der Gesamtbetrag ergibt sich aus den
+          Einzelbeträgen pro Person. Zusätzlich gibt es einen{" "}
+          <strong>Alkohol-Anteil</strong> (unter „Erweitert"): Den
+          Alkohol-Teil eines Belegs zahlen nur die Trinker, der Rest läuft
+          nach der gewählten Aufteilung. Das Komma im Betrag versteht die App
+          selbstverständlich auf Deutsch.
         </p>
       </>
     ),
@@ -310,7 +316,6 @@ export default function AboutPage() {
         </h2>
         <ul className="mt-3 ml-5 list-disc space-y-1 text-sm text-ink-soft">
           <li>Kein kommerzielles Produkt — privates Tool für eigene Törns.</li>
-          <li>Kein Ersatz für Buchhaltung oder Steuer.</li>
           <li>Keine Tracking-, Analyse- oder Werbe-Cookies.</li>
           <li>
             Keine Datenweitergabe an Dritte außerhalb der notwendigen
