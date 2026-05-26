@@ -13,7 +13,7 @@ JOIN persons p ON p.id = v.person_id
 WHERE trip_id = '22222222-2222-2222-2222-000000000001'
 ORDER BY days_aboard DESC, display_name;
 -- Erwartung: 9 Personen × 11 Tage, Stephan 6 Tage, 105 Personentage gesamt.
--- Trinker: Dario, Mama, Papa.
+-- Trinker: Dario, Tim, Emma.
 
 \echo '\n── S1: 100€ Lebensmittel von Jannik, Gleichmäßig ────────────────────'
 INSERT INTO transactions (id, trip_id, type, date, description, amount, paid_by, split_type)
@@ -113,7 +113,7 @@ FROM v_balances b
 JOIN persons p ON p.id = b.person_id
 WHERE b.trip_id = '22222222-2222-2222-2222-000000000001'
 ORDER BY balance DESC;
--- Erwartung: Jannik +255, Papa +105, alle anderen je -45
+-- Erwartung: Jannik +255, Emma +105, alle anderen je -45
 
 SELECT from_name, to_name, amount
 FROM simplify_debts('22222222-2222-2222-2222-000000000001');
