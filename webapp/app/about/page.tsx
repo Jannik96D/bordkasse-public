@@ -316,7 +316,6 @@ export default function AboutPage() {
         </h2>
         <ul className="mt-3 ml-5 list-disc space-y-1 text-sm text-ink-soft">
           <li>Kein kommerzielles Produkt — privates Tool für eigene Törns.</li>
-          <li>Kein Ersatz für Buchhaltung oder Steuer.</li>
           <li>Keine Tracking-, Analyse- oder Werbe-Cookies.</li>
           <li>
             Keine Datenweitergabe an Dritte außerhalb der notwendigen
