@@ -44,6 +44,11 @@ export default async function Home({
           >
             Anmelden
           </Link>
+          <p className="text-sm text-ink-soft">
+            <Link href="/about" className="underline hover:text-primary">
+              Über die Bordkassen-App
+            </Link>
+          </p>
           <div className="text-left">
             <InstallHint />
           </div>
@@ -180,6 +185,8 @@ export default async function Home({
       )}
 
       <p className="mt-8 text-center text-xs text-ink-soft">
+        <Link href="/about" className="hover:text-primary">Über die App</Link>
+        <span className="mx-2">·</span>
         <Link href="/datenschutz" className="hover:text-primary">Datenschutz</Link>
       </p>
     </main>

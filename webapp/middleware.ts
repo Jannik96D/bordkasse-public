@@ -16,6 +16,7 @@ const PUBLIC_ROUTES = new Set([
   "/auth/confirm",
   "/auth/verify",
   "/datenschutz",
+  "/about",
 ]);
 
 export async function middleware(request: NextRequest) {

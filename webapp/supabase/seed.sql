@@ -2,11 +2,11 @@
 -- seed.sql — Test-Szenarien S1–S7 aus docs/calculation-rules.md
 --
 -- Setup:
---   • 10 Personen Crew (Jannik, Lucas, Dario, Mama, Papa, Stephan, Peter,
+--   • 10 Personen Crew (Jannik, Lucas, Dario, Tim, Emma, Stephan, Peter,
 --     Harald, Tia, Ida)
 --   • Törn 5.–15. April 2026 (11 Tage)
 --   • Stephan kommt ab 10.04. (6 Tage)
---   • Trinker: Dario, Mama, Papa
+--   • Trinker: Dario, Tim, Emma
 --
 -- Wird via `supabase db reset` automatisch eingespielt (zusammen mit den
 -- Migrations).
@@ -19,8 +19,8 @@ DECLARE
   p_jannik  UUID := '11111111-1111-1111-1111-000000000001';
   p_lucas   UUID := '11111111-1111-1111-1111-000000000002';
   p_dario   UUID := '11111111-1111-1111-1111-000000000003';
-  p_mama    UUID := '11111111-1111-1111-1111-000000000004';
-  p_papa    UUID := '11111111-1111-1111-1111-000000000005';
+  p_tim    UUID := '11111111-1111-1111-1111-000000000004';
+  p_emma    UUID := '11111111-1111-1111-1111-000000000005';
   p_stephan UUID := '11111111-1111-1111-1111-000000000006';
   p_peter   UUID := '11111111-1111-1111-1111-000000000007';
   p_harald  UUID := '11111111-1111-1111-1111-000000000008';
@@ -42,8 +42,8 @@ BEGIN
     (p_jannik,  'Jannik',  'jannik@example.test',  FALSE),
     (p_lucas,   'Lucas',   'lucas@example.test',   FALSE),
     (p_dario,   'Dario',   'dario@example.test',   TRUE),
-    (p_mama,    'Mama',    NULL,                   TRUE),
-    (p_papa,    'Papa',    NULL,                   TRUE),
+    (p_tim,     'Tim',     NULL,                   TRUE),
+    (p_emma,    'Emma',    NULL,                   TRUE),
     (p_stephan, 'Stephan', 'stephan@example.test', FALSE),
     (p_peter,   'Peter',   NULL,                   FALSE),
     (p_harald,  'Harald',  NULL,                   FALSE),
@@ -60,8 +60,8 @@ BEGIN
     (trip_test, p_jannik,  NULL, NULL),
     (trip_test, p_lucas,   NULL, NULL),
     (trip_test, p_dario,   NULL, NULL),
-    (trip_test, p_mama,    NULL, NULL),
-    (trip_test, p_papa,    NULL, NULL),
+    (trip_test, p_tim,    NULL, NULL),
+    (trip_test, p_emma,    NULL, NULL),
     (trip_test, p_stephan, '2026-04-10', NULL),
     (trip_test, p_peter,   NULL, NULL),
     (trip_test, p_harald,  NULL, NULL),
