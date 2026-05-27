@@ -260,7 +260,7 @@ Schriften: Campton Bold (Display) → Arial Bold (H2) → Arial Regular (Body).
   - **Auto-Invite-Mail:** beim Anlegen eines neuen Crew-Members wird automatisch ein Magic-Link verschickt — der Skipper muss nicht extra sagen „und jetzt geh auf /login". UPSERT-Updates (z.B. Anwesenheits-Edit) lösen KEINE Re-Invite-Mail aus.
   - **Remove-Schutz:** Crew-Member, die noch Buchungen haben (paid_by / credit_from / credit_to), können nicht entfernt werden — Skipper muss erst die Buchungen umbuchen.
 - **Kategorien:** pro Trip mit lucide-react-Icon (kuratierte 23-Icon-Whitelist im Picker, `webapp/lib/categories/icons.ts`). Marineblau-monochrome Strich-Icons im Bottom-Nav-Stil. Default-Kategorien in dieser Reihenfolge: Lebensmittel→`ShoppingCart`, Restaurant→`Utensils`, Hafen / Liegeplatz→`Anchor`, Aktivitäten→`Ticket`, Ausrüstung→`Wrench`, Sprit→`Fuel`, Yacht→`Sailboat`, Versicherung→`ShieldCheck`, Kaution→`Banknote`, Sonstiges→`Package`. Render-Zeit-Fallback auf den Kategorie-Namen + Default-Icon `Tag` bei unbekannten Werten.
-- **Buchungen:** alle 4 Aufteilungslogiken + Alkohol-Modifikator. Currency-Input akzeptiert deutsches Komma. Idempotency-Key auf jeder Row gegen Doppelklick / Outbox-Replay.
+- **Buchungen:** alle 5 Aufteilungslogiken (Gleichmäßig, An Bord, Zeitanteilig, Individuell, **Pro Person** seit Migration 0014) + Alkohol-Modifikator (im UI unter „Erweitert" eingeklappt) + optionaler Tip-Betrag. Bei `per_person` werden die Einzelbeträge in `transaction_participants.amount` gespeichert; der Gesamtbetrag der Buchung ergibt sich aus der Summe. Currency-Input akzeptiert deutsches Komma. Idempotency-Key auf jeder Row gegen Doppelklick / Outbox-Replay.
   - **Edit-Modus:** `/trips/[id]/transactions/[txId]/edit` — Skipper, Admin oder Ersteller (`created_by`) darf eine Buchung nachträglich ändern (Aufteilung, paid_by, Beträge, …). Pencil-Icon in der Buchungsliste neben dem Lösch-Button.
 - **Gutschriften** (direkt oder „An Alle") — nur Skipper/Admin. „An Alle" wird abgewiesen, wenn weniger als 2 Crew-Mitglieder dabei sind (sonst kann die Bilanz nicht ausgeglichen werden).
 - **Bilanz** live aus `v_balances`.
@@ -275,6 +275,7 @@ Schriften: Campton Bold (Display) → Arial Bold (H2) → Arial Regular (Body).
 - **Audit-Log:** jede Schreib-Operation hinterlässt einen Eintrag, RLS-Lese-Schutz auf Skipper.
 - **Soft-Delete:** Buchungen tragen `deleted_at` statt physisch gelöscht zu werden.
 - **DSGVO-Datenlöschung:** täglicher Vercel-Cron `/api/cron/purge` → `purge_expired_trip_data()`. Purge nur wenn end_date + 30 Tage in Vergangenheit UND `settlement_announced_at` gesetzt UND alle `simplify_debts` in `settled_debts` abgehakt (Helper `all_debts_settled`). Single-Trip-Variante `purge_trip_data(trip_id, force)` für den manuellen Skipper-/Admin-Button in den Trip-Settings; Force überspringt Retention + Settlement, NICHT Schulden. Trip-Auswahl-Seite markiert überfällige Trips rot + Banner für Skipper/Admin (`retention_overdue`-Flag in `listMyTrips`). Aggregierte Statistik bleibt in `trip_statistics`.
+- **Public Pages (kein Login nötig):** `/`, `/login`, `/datenschutz`, `/about` — in `middleware.ts` als `PUBLIC_ROUTES` eingetragen. `/about` ist die Funktionsübersicht der App mit 14 Mobile-Screenshots aus echtem Betrieb (synthetische Crew, keine echten Personendaten). Screenshots reproduzierbar via `webapp/scripts/take-screenshots.ts` (Playwright + Mailpit-Magic-Link + lokales Supabase). Demo-Datenstand kommt aus `webapp/supabase/seed_demo.sql` — Crew Anna/Ben/Clara/David/Eva, Trip ist auf "gestern beendet" gesetzt, damit der SettlementStatus-Banner auf 04-trip-overview.png sichtbar wird. Skript blendet Next.js-Dev-Indicator + Mailpit-Hinweis per CSS-Inject aus.
 - **Hosting-Region:** Vercel `regions: ["fra1"]` in `vercel.json` (sonst US-Default `iad1`); Supabase Central EU (Frankfurt); Mailserver whost.dev (DE).
 - **Security:** RLS-Policies, Service-Role nur in Server Actions, Security-Header (HSTS/CSP/X-Frame/Referrer-Policy), `noindex`-Meta + `robots.txt`.
 
@@ -307,12 +308,16 @@ Schriften: Campton Bold (Display) → Arial Bold (H2) → Arial Regular (Body).
 │   ├── migrate_v8_to_v9.py              # Reproduzierbarer xlsx-Umbau v8→v9
 │   └── migrate_v9_to_v10.py             # Reproduzierbarer xlsx-Umbau v9→v10
 ├── webapp/                              # Web-App (Next.js + Supabase) — Setup in webapp/README.md
-│   ├── app/                             # App Router (Trips, Auth, Profile, Stats, Cron)
+│   ├── app/                             # App Router (Trips, Auth, Profile, Stats, Cron, About)
+│   │   └── about/                       # Public Funktionsübersicht mit Screenshots
 │   ├── components/                      # bottom-nav, realtime-trip, offline-banner, sw-register
 │   ├── lib/                             # supabase, auth (mit authz), actions, queries,
 │   │                                    # calc, validation, categories/icons, offline, db/audit
 │   ├── public/                          # Logo, Manifest, Service Worker, robots.txt
+│   │   └── about/                       # 14 Mobile-Screenshots für /about-Seite
+│   ├── scripts/                         # take-screenshots.ts (Playwright + Mailpit-Login)
 │   ├── supabase/                        # config.toml + migrations + email-templates + seed
+│   │                                    # + seed_demo.sql (synthetische Crew für Screenshots)
 │   ├── __tests__/                       # Vitest (calc + schema)
 │   └── e2e/                             # Playwright Smoke-Tests
 ├── .github/workflows/webapp-ci.yml      # CI für webapp/ (lint + typecheck + test)
