@@ -8,15 +8,18 @@ const DISMISS_KEY = "bordkasse:install-hint-dismissed";
 /**
  * Zeigt einen Hinweis, wie die Bordkasse als PWA auf dem Home-Screen
  * installiert wird. Zwei Varianten:
- *   - iOS Safari → exakte Schritt-für-Schritt-Anleitung mit Teilen-Symbol
- *   - alle anderen → generischer "Browser-Menü → Zum Home-Bildschirm"-Hinweis
+ *   - iOS (iPhone/iPad) → exakte Schritt-für-Schritt-Anleitung mit Teilen-Symbol
+ *   - Android → generischer "Browser-Menü → Zum Home-Bildschirm"-Hinweis
  *
- * Versteckt sich automatisch, wenn die App schon als PWA läuft
- * (`display-mode: standalone`) oder der User den Hinweis weggeklickt hat.
+ * Versteckt sich automatisch, wenn:
+ *   - das Gerät weder iOS noch Android ist (Desktop hat keinen sinnvollen
+ *     PWA-Install-Flow für unseren Use-Case)
+ *   - die App schon als PWA läuft (`display-mode: standalone`)
+ *   - der User den Hinweis weggeklickt hat
  */
 export function InstallHint() {
   const [show, setShow] = useState(false);
-  const [variant, setVariant] = useState<"ios" | "other">("other");
+  const [variant, setVariant] = useState<"ios" | "android">("android");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -31,11 +34,23 @@ export function InstallHint() {
     if (localStorage.getItem(DISMISS_KEY) === "1") return;
 
     const ua = window.navigator.userAgent;
-    const isIos = /iPhone|iPad|iPod/.test(ua);
+    const isIphone = /iPhone|iPod/.test(ua);
+    // iPadOS 13+ sendet standardmäßig einen Desktop-Safari-UA, deshalb
+    // zusätzlich der Touch-Macintosh-Trick.
+    const isIpad =
+      /iPad/.test(ua) ||
+      (/Macintosh/.test(ua) && typeof navigator !== "undefined" && navigator.maxTouchPoints > 1);
+    const isIos = isIphone || isIpad;
+    const isAndroid = /Android/i.test(ua);
+
+    // Nur auf mobilen Geräten anzeigen — Desktop hat keinen sinnvollen
+    // Install-Flow, der hier dokumentiert wird.
+    if (!isIos && !isAndroid) return;
+
     // setTimeout 0 verschiebt den Show-State aus dem Effect-Body — erfüllt
     // react-hooks/set-state-in-effect ohne UX-Auswirkung.
     const t = setTimeout(() => {
-      setVariant(isIos ? "ios" : "other");
+      setVariant(isIos ? "ios" : "android");
       setShow(true);
     }, 0);
     return () => clearTimeout(t);
