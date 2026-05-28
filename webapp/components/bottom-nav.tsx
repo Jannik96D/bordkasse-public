@@ -49,7 +49,10 @@ export function BottomNav({ tripId }: { tripId: string }) {
   const path = usePathname();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-rule bg-paper/95 backdrop-blur-sm pb-[env(safe-area-inset-bottom)]">
+    <nav
+      aria-label="Hauptnavigation"
+      className="fixed inset-x-0 bottom-0 z-20 border-t border-rule bg-paper/95 backdrop-blur-sm pb-[env(safe-area-inset-bottom)]"
+    >
       <ul className="mx-auto grid max-w-2xl grid-cols-5">
         {tabs.map((t) => {
           const active = t.match(path, tripId);
@@ -57,12 +60,13 @@ export function BottomNav({ tripId }: { tripId: string }) {
             <li key={t.label}>
               <Link
                 href={t.href(tripId)}
+                aria-current={active ? "page" : undefined}
                 className={cn(
                   "flex flex-col items-center gap-1 py-2 text-[11px] transition-colors",
                   active ? "text-primary" : "text-ink-soft hover:text-ink",
                 )}
               >
-                <t.Icon className={cn("h-5 w-5", active && "stroke-[2.5]")} />
+                <t.Icon className={cn("h-5 w-5", active && "stroke-[2.5]")} aria-hidden />
                 {t.label}
               </Link>
             </li>

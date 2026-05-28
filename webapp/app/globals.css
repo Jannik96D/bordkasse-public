@@ -48,3 +48,19 @@ body {
 button, [role="button"], input:not([type="checkbox"]):not([type="radio"]), select, textarea, a.button {
   min-height: var(--spacing-touch);
 }
+
+/* Reduced-Motion: Nutzer mit prefers-reduced-motion bekommen
+   keine Transition-Animationen mehr (Vestibular- / Migräne-
+   Sensible). Animationen werden auf 0.01ms reduziert statt
+   ganz entfernt, damit JS-Logik mit onTransitionEnd nicht
+   bricht. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

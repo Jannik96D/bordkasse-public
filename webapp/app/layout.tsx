@@ -46,9 +46,18 @@ export default function RootLayout({
   return (
     <html lang="de" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
+        {/* Skip-Link für Tastatur-/Screenreader-Nutzer: erst bei Fokus sichtbar */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-paper focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-primary/40"
+        >
+          Direkt zum Inhalt springen
+        </a>
         <ServiceWorkerRegister />
         <OfflineBanner />
-        {children}
+        <div id="main-content" tabIndex={-1} className="flex min-h-full flex-1 flex-col outline-none">
+          {children}
+        </div>
       </body>
     </html>
   );

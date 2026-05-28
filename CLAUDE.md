@@ -347,6 +347,18 @@ Schriften: Campton Bold (Display) → Arial Bold (H2) → Arial Regular (Body).
 
 **Audit-Trail.** Transaktionen sind append-only — niemand löscht versehentlich Daten. Korrekturen über neue Gutschrift-Einträge.
 
+**Barrierefreiheit mitdenken.** Bei jeder Änderung in der Web-App (`webapp/`) als Grundlinie WCAG 2.1 AA anstreben:
+- Farbe ist nie alleiniger Informationsträger (z. B. Bilanz nutzt Farbe **und** „+/−"-Zeichen + Screenreader-Text).
+- Jeder interaktive Bereich ist per Tastatur erreichbar und hat sichtbaren Fokus-Indikator (`focus:ring-2 focus:ring-primary/20` ist der Default).
+- Custom-Komponenten folgen ARIA-Patterns (Listbox mit `aria-activedescendant` + Pfeil-Navigation, kein eigenes Wheel neu erfinden).
+- Skip-Link in `app/layout.tsx` zum `#main-content`-Wrapper; `<html lang="de">` ist gesetzt.
+- `prefers-reduced-motion` wird in `globals.css` respektiert — neue Animationen brauchen kein eigenes Handling.
+- Touch-Targets mindestens 44 px (Default via `--spacing-touch` in `globals.css`).
+- Form-Inputs haben Label-Verknüpfung (`htmlFor` / `id`); Fehler-Meldungen tragen `role="alert"`, Erfolgs-Meldungen `role="status"`.
+- Bilder bekommen aussagekräftige `alt`-Texte, dekorative Icons `aria-hidden`.
+
+Vor dem Mergen einer neuen Komponente kurz prüfen: kann ich nur mit Tab + Pfeiltasten alles bedienen? Sieht der Fokus-Ring sichtbar aus? Liest VoiceOver/TalkBack sinnvolle Texte?
+
 ## Anweisungen für Claude Code
 
 Wenn du in diesem Projekt arbeitest:

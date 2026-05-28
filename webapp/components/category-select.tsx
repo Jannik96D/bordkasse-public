@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Check } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
 import { cn } from "@/lib/utils";
@@ -23,35 +23,104 @@ export function CategorySelect({
   placeholder = "— Keine —",
   invalid = false,
 }: CategorySelectProps) {
+  // Logische Liste: erstes Element = "Keine" (null), dann die Kategorien
+  // Damit lassen sich Listbox-Index und Pfeil-Navigation einheitlich behandeln.
+  const items: (Category | null)[] = useMemo(
+    () => [null, ...categories],
+    [categories],
+  );
+
   const initial = defaultCategoryId
     ? categories.find((c) => c.id === defaultCategoryId) ?? null
     : null;
   const [selected, setSelected] = useState<Category | null>(initial);
   const [open, setOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState<number>(() => {
+    if (!initial) return 0;
+    return items.findIndex((it) => it?.id === initial.id);
+  });
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const { direction, maxHeight } = useDropdownPosition(triggerRef, open);
+
+  // Beim Öffnen die aktive Option direkt setzen statt im Effect, um
+  // cascading renders zu vermeiden.
+  const openAndSyncActive = () => {
+    const i = selected ? items.findIndex((it) => it?.id === selected.id) : 0;
+    setActiveIdx(i >= 0 ? i : 0);
+    setOpen(true);
+  };
+
+  useEffect(() => {
+    if (!open || activeIdx < 0) return;
+    const el = listRef.current?.querySelector<HTMLElement>(
+      `[data-idx="${activeIdx}"]`,
+    );
+    el?.scrollIntoView({ block: "nearest" });
+  }, [activeIdx, open]);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
+    return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
   const pick = (c: Category | null) => {
     setSelected(c);
     setOpen(false);
+    triggerRef.current?.focus();
   };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    const last = items.length - 1;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!open) {
+        openAndSyncActive();
+      } else {
+        setActiveIdx((i) => (i < last ? i + 1 : 0));
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) {
+        openAndSyncActive();
+      } else {
+        setActiveIdx((i) => (i > 0 ? i - 1 : last));
+      }
+    } else if (e.key === "Home") {
+      if (open) {
+        e.preventDefault();
+        setActiveIdx(0);
+      }
+    } else if (e.key === "End") {
+      if (open) {
+        e.preventDefault();
+        setActiveIdx(last);
+      }
+    } else if (e.key === "Enter" || e.key === " ") {
+      if (open && activeIdx >= 0 && activeIdx <= last) {
+        e.preventDefault();
+        pick(items[activeIdx]);
+      } else if (!open) {
+        e.preventDefault();
+        openAndSyncActive();
+      }
+    } else if (e.key === "Escape") {
+      if (open) {
+        e.preventDefault();
+        setOpen(false);
+      }
+    } else if (e.key === "Tab") {
+      if (open) setOpen(false);
+    }
+  };
+
+  const listId = `${name}-listbox`;
+  const optionId = (idx: number) => `${name}-opt-${idx}`;
 
   return (
     <div ref={rootRef} className="relative mt-1">
@@ -61,10 +130,12 @@ export function CategorySelect({
         ref={triggerRef}
         id={name}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => (open ? setOpen(false) : openAndSyncActive())}
+        onKeyDown={handleKeyDown}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-invalid={invalid || undefined}
+        aria-controls={open ? listId : undefined}
+        aria-activedescendant={open && activeIdx >= 0 ? optionId(activeIdx) : undefined}
         className={cn(
           "flex h-11 w-full items-center justify-between gap-2 rounded-md border bg-paper px-3 text-left text-base outline-none",
           invalid
@@ -93,43 +164,46 @@ export function CategorySelect({
 
       {open && (
         <ul
+          ref={listRef}
+          id={listId}
           role="listbox"
+          aria-label="Kategorie"
           style={{ maxHeight }}
           className={cn(
             "absolute z-30 w-full overflow-auto rounded-md border border-rule bg-paper shadow-lg",
             direction === "down" ? "top-full mt-1" : "bottom-full mb-1",
           )}
         >
-          <li
-            role="option"
-            aria-selected={selected === null}
-            onClick={() => pick(null)}
-            className={cn(
-              "flex h-11 cursor-pointer items-center justify-between gap-2 px-3 text-base text-ink-soft hover:bg-paper-soft",
-              selected === null && "bg-paper-soft",
-            )}
-          >
-            <span>{placeholder}</span>
-            {selected === null && <Check className="h-4 w-4 text-primary" aria-hidden />}
-          </li>
-          {categories.map((c) => {
-            const active = selected?.id === c.id;
+          {items.map((c, idx) => {
+            const isSelected = c === null ? selected === null : selected?.id === c.id;
+            const isActive = idx === activeIdx;
             return (
               <li
-                key={c.id}
+                key={c?.id ?? "none"}
+                id={optionId(idx)}
+                data-idx={idx}
                 role="option"
-                aria-selected={active}
+                aria-selected={isSelected}
                 onClick={() => pick(c)}
+                onMouseEnter={() => setActiveIdx(idx)}
                 className={cn(
-                  "flex h-11 cursor-pointer items-center justify-between gap-2 px-3 text-base hover:bg-paper-soft",
-                  active && "bg-paper-soft",
+                  "flex h-11 cursor-pointer items-center justify-between gap-2 px-3 text-base",
+                  c === null && "text-ink-soft",
+                  isActive ? "bg-navy-light/40" : "hover:bg-paper-soft",
+                  isSelected && !isActive && "bg-paper-soft",
                 )}
               >
                 <span className="flex min-w-0 items-center gap-2">
-                  <CategoryIcon icon={c.icon} className="h-5 w-5 shrink-0 text-primary" />
-                  <span className="truncate">{c.name}</span>
+                  {c ? (
+                    <>
+                      <CategoryIcon icon={c.icon} className="h-5 w-5 shrink-0 text-primary" />
+                      <span className="truncate">{c.name}</span>
+                    </>
+                  ) : (
+                    <span>{placeholder}</span>
+                  )}
                 </span>
-                {active && <Check className="h-4 w-4 shrink-0 text-primary" aria-hidden />}
+                {isSelected && <Check className="h-4 w-4 shrink-0 text-primary" aria-hidden />}
               </li>
             );
           })}
