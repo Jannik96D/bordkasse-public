@@ -225,19 +225,24 @@ export function CrewSection({
           <input type="hidden" name="trip_id" value={tripId} />
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium">E-Mail</label>
-            <input id="email" name="email" type="email" required
+            <label htmlFor="email" className="block text-sm font-medium">
+              E-Mail <span className="text-ink-soft font-normal">(optional)</span>
+            </label>
+            <input id="email" name="email" type="email"
               placeholder="crew@example.com"
               className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
+            <p className="mt-1 text-xs text-ink-soft">
+              Ohne E-Mail wird die Person als Ghost angelegt — kein Login, aber Anzahlungs-Soll und Buchungs-Beteiligung gehen trotzdem.
+            </p>
           </div>
 
           <div>
             <label htmlFor="display_name" className="block text-sm font-medium">
-              Anzeigename <span className="text-ink-soft font-normal">(optional)</span>
+              Anzeigename
             </label>
             <input id="display_name" name="display_name" type="text"
-              placeholder="Wird aus E-Mail abgeleitet wenn leer"
+              placeholder="Pflicht wenn keine E-Mail angegeben"
               className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
           </div>
