@@ -3,7 +3,7 @@ import Link from "next/link";
 export const metadata = {
   title: "Über die Bordkassen-App · Bordkasse",
   description:
-    "Was die Bordkassen-App kann — von der Crew-Verwaltung über die vier Aufteilungslogiken bis zum DSGVO-Auto-Purge.",
+    "Was die Bordkassen-App kann — von der Crew-Verwaltung über die fünf Aufteilungs-Arten bis zur automatischen Datenlöschung.",
 };
 
 type Feature = {
@@ -19,13 +19,20 @@ const features: Feature[] = [
   {
     id: "welcome",
     title: "Willkommen an Bord",
-    lead: "Ein klarer Startbildschirm — entweder anmelden oder direkt mehr über die App erfahren.",
+    lead: "Ein klarer Startbildschirm — anmelden oder zuerst nachlesen, wozu die App da ist.",
     body: (
       <>
         <p>
           Wer noch kein Konto hat, sieht hier nur das Logo, einen
-          Anmelden-Button und einen Hinweis auf die App-Installation. Kein
-          Marketing-Geblubber, keine Banner.
+          Anmelden-Button und einen kurzen Hinweis zur Installation. Kein
+          unnötiger Schnickschnack.
+        </p>
+        <p className="mt-2">
+          Die App funktioniert sowohl auf <strong>Android</strong> als auch
+          auf <strong>iOS</strong>. Auf beiden Systemen lässt sie sich direkt
+          aus dem Browser heraus auf den Startbildschirm legen — danach
+          startet sie wie eine ganz normale App. Eine Installation aus dem
+          App Store oder Play Store ist nicht nötig.
         </p>
       </>
     ),
@@ -34,29 +41,32 @@ const features: Feature[] = [
   },
   {
     id: "anmelden",
-    title: "Anmelden per Magic-Link",
-    lead: "Kein Passwort, keine Hürde — du gibst deine E-Mail an, klickst den Link in der Mail und bist drin.",
+    title: "Anmelden per Login-Link",
+    lead: "Kein Passwort, keine Hürde — du gibst deine E-Mail-Adresse an, bekommst einen Login-Link in dein Postfach und bist drin.",
     body: (
       <>
         <p>
-          Magic-Links sind 60 Minuten gültig und nur einmalig nutzbar. Nach
-          30&nbsp;Sekunden kannst du eine neue Mail anfordern, falls die erste
-          nicht ankommt.
+          Der Link ist 60 Minuten gültig und funktioniert nur einmal. Falls
+          die Mail nicht ankommt, kannst du nach 30 Sekunden eine neue
+          anfordern.
         </p>
       </>
     ),
     screenshot: "/about/02-login.png",
-    alt: "Login-Bildschirm mit E-Mail-Eingabe für den Magic-Link",
+    alt: "Login-Bildschirm mit E-Mail-Eingabe für den Login-Link",
   },
   {
     id: "toerns",
     title: "Törn-Übersicht",
-    lead: "Alle deine Törns auf einen Blick — aktiv, archiviert, und (für Admins) auch fremde Törns.",
+    lead: "Alle deine Törns auf einen Blick — laufende und archivierte.",
     body: (
       <>
         <p>
-          Jede Törn-Kachel zeigt Reisedaten, Schiffsname und Crew-Größe.
-          Skipper sehen oben einen Button zum Anlegen neuer Törns.
+          Jede Kachel zeigt Reisedaten, Schiffsname und wie viele Personen
+          mitsegeln. Wer einen <strong>Skipper</strong>- oder
+          <strong> Admin</strong>-Zugang hat, sieht oben einen Button, um
+          einen neuen Törn anzulegen. Crew-Mitglieder sehen nur die Törns,
+          zu denen sie eingeladen wurden.
         </p>
       </>
     ),
@@ -65,33 +75,38 @@ const features: Feature[] = [
   },
   {
     id: "trip-overview",
-    title: "Trip-Cockpit",
-    lead: "Pro Törn ein eigenes Cockpit: Schnellzugriff auf Buchungen, Bilanz, Statistik und Schulden.",
+    title: "Übersicht pro Törn",
+    lead: "Pro Törn ein eigener Bereich: Schnellzugriff auf Buchungen, Bilanz, Statistik und Schulden.",
     body: (
       <>
         <p>
-          Die feste Bottom-Navigation bleibt überall sichtbar — Daumen-freundlich
-          auch im Hafen-Trubel. Der dicke Plus-Button schwebt unten rechts und
-          öffnet die Buchungs-Eingabe in einem Schritt. Nach Törn-Ende
-          erscheint oben ein Banner mit „Kaution prüfen + Abrechnung
-          verschicken“ — die Crew bekommt dann eine Mail mit allen offenen
-          Schulden.
+          Die Navigations-Leiste am unteren Bildschirmrand bleibt immer
+          sichtbar, damit auch im Hafen-Trubel alle Bereiche schnell
+          erreichbar sind. Der große Plus-Button unten rechts öffnet die
+          Eingabemaske für eine neue Buchung in einem Schritt.
+        </p>
+        <p className="mt-2">
+          Sobald der Törn vorbei ist, erscheint oben ein Hinweis-Banner:
+          „Kaution prüfen + Abrechnung verschicken“. Skipper und Admins
+          können auf einen Klick allen Beteiligten eine E-Mail mit der
+          fertigen Abrechnung schicken.
         </p>
       </>
     ),
     screenshot: "/about/04-trip-overview.png",
-    alt: "Trip-Cockpit mit Settlement-Banner, Schnellzugriff und Bottom-Navigation",
+    alt: "Übersicht pro Törn mit Hinweis-Banner, Schnellzugriff und Navigations-Leiste",
   },
   {
     id: "buchungen",
     title: "Buchungs-Liste",
-    lead: "Alle Ausgaben und Gutschriften, chronologisch — wer hat was bezahlt, mit welcher Aufteilungslogik.",
+    lead: "Alle Ausgaben und Gutschriften, nach Datum sortiert — wer hat was bezahlt, mit welcher Aufteilung.",
     body: (
       <>
         <p>
-          Pro Eintrag siehst du Beschreibung, Betrag, Zahler, Aufteilungslogik
-          und Kategorie. Gutschriften sind farblich abgesetzt. Tippen öffnet
-          die Bearbeitung.
+          Pro Eintrag siehst du Beschreibung, Betrag, wer bezahlt hat,
+          welche Aufteilung gewählt wurde und welche Kategorie. Gutschriften
+          sind farblich abgesetzt. Ein Tipper öffnet die Bearbeitung —
+          ändern darf der Ersteller, Skipper und Admin.
         </p>
       </>
     ),
@@ -100,7 +115,7 @@ const features: Feature[] = [
   },
   {
     id: "buchung-neu",
-    title: "Ausgaben buchen — 5 Aufteilungslogiken",
+    title: "Ausgaben eintragen — fünf Aufteilungs-Arten",
     lead: "Jede Ausgabe lässt sich auf fünf Arten verteilen: Gleichmäßig, nur An-Bord-Anwesende, Zeitanteilig, Individuell oder Pro Person.",
     body: (
       <>
@@ -115,9 +130,10 @@ const features: Feature[] = [
         </p>
         <p className="mt-2">
           Zusätzlich gibt es einen <strong>Alkohol-Anteil</strong> (unter
-          „Erweitert“): Den Alkohol-Teil eines Belegs zahlen nur die
-          Trinker, der Rest läuft nach der gewählten Aufteilung. Das Komma
-          im Betrag versteht die App selbstverständlich auf Deutsch.
+          „Erweitert“): Den Alkohol-Teil eines Belegs zahlen nur diejenigen,
+          die als Trinker eingetragen sind. Der Rest läuft nach der
+          gewählten Aufteilung. Das Komma im Betrag versteht die App
+          selbstverständlich auf Deutsch.
         </p>
       </>
     ),
@@ -127,12 +143,13 @@ const features: Feature[] = [
   {
     id: "bilanz",
     title: "Bilanz",
-    lead: "Wer hat insgesamt mehr gezahlt als verbraucht, wer weniger — der Saldo wird live aus allen Buchungen berechnet.",
+    lead: "Wer hat insgesamt mehr gezahlt als verbraucht, wer weniger — der Saldo wird laufend aus allen Buchungen berechnet.",
     body: (
       <>
         <p>
-          Grün = bekommt Geld zurück. Rot = zahlt nach. Die Summe aller Salden
-          ist immer null.
+          Grün heißt: bekommt Geld zurück. Rot heißt: zahlt nach. Die Summe
+          aller Salden ergibt immer null. Alle Crew-Mitglieder können die
+          Bilanz einsehen — Transparenz für die ganze Crew.
         </p>
       </>
     ),
@@ -141,14 +158,17 @@ const features: Feature[] = [
   },
   {
     id: "schulden",
-    title: "Schulden — minimale Überweisungen",
-    lead: "Statt jeder zahlt an jeden: Ein Greedy-Algorithmus reduziert das auf maximal N−1 Überweisungen bei N Personen.",
+    title: "Schulden — möglichst wenige Überweisungen",
+    lead: "Statt dass jeder an jeden zahlt, rechnet die App den Zahlungsplan auf die kleinstmögliche Anzahl Überweisungen herunter.",
     body: (
       <>
         <p>
-          Jede Zahlung kann mit einem Häkchen als „bezahlt“ markiert werden —
-          synchron für die ganze Crew in Echtzeit. Nur Schuldner, Gläubiger
-          oder Admin dürfen togglen.
+          Wer noch Geld bekommt und wer noch nachzahlen muss, wird so
+          zusammengefasst, dass die Crew mit wenigen Überweisungen
+          fertig ist. Jede Zahlung kann mit einem Häkchen als „bezahlt“
+          markiert werden — alle in der Crew sehen den Stand sofort. Das
+          Häkchen setzen dürfen nur die beiden direkt Beteiligten
+          (Schuldner und Empfänger) sowie der Skipper oder Admin.
         </p>
       </>
     ),
@@ -162,47 +182,52 @@ const features: Feature[] = [
     body: (
       <>
         <p>
-          Die Statistik bleibt auch nach der DSGVO-Löschung anonymisiert
-          erhalten: Beträge, Kategorien und Tage, aber ohne Personen-Bezug —
-          du kannst Jahre später noch nachschauen.
+          Alle Crew-Mitglieder können die Statistik einsehen. Sie bleibt
+          auch nach der automatischen Datenlöschung in anonymisierter Form
+          erhalten — also Beträge, Kategorien und Tage, aber ohne
+          Personen-Bezug. So kannst du auch Jahre später noch nachsehen,
+          wie ein vergangener Törn finanziell aussah.
         </p>
       </>
     ),
     screenshot: "/about/09-statistik.png",
-    alt: "Statistik-Tab mit Auswertung nach Kategorie",
+    alt: "Statistik-Bereich mit Auswertung nach Kategorie",
   },
   {
     id: "crew",
-    title: "Crew einladen & verwalten",
-    lead: "Crew-Mitglieder per E-Mail einladen — oder als „Ghost-Person“ für jemanden, der keine App will, mitführen.",
+    title: "Crew einladen und verwalten",
+    lead: "Skipper und Admins laden die Crew per E-Mail ein — oder tragen Personen ohne eigenen Login als Platzhalter ein.",
     body: (
       <>
         <p>
-          Pro Person hinterlegst du Anwesenheits-Zeitraum (An Bord ab/bis),
-          Alkohol-Flag (Weinglas) und Notizen. Co-Skipper helfen beim
-          Verwalten, Crew-Mitglieder sehen die anderen, aber bearbeiten nur
-          eigene Daten.
+          Wenn jemand keinen eigenen Login möchte (Eltern, Kinder, Freunde
+          ohne Lust auf Apps), legt der Skipper einfach einen Platzhalter
+          an. Pro Person werden der Anwesenheits-Zeitraum (An Bord ab/bis),
+          ein Häkchen für „trinkt Alkohol“ und optional eine Notiz
+          hinterlegt. Co-Skipper können beim Verwalten helfen. Alle
+          Crew-Mitglieder sehen die Liste, bearbeiten dürfen aber nur die
+          eigenen Daten — der Rest bleibt dem Skipper vorbehalten.
         </p>
       </>
     ),
     screenshot: "/about/10-crew.png",
-    alt: "Crew-Verwaltung mit Anwesenheits-Zeiten und Alkohol-Flag",
+    alt: "Crew-Verwaltung mit Anwesenheits-Zeiten und Alkohol-Häkchen",
   },
   {
     id: "kategorien",
-    title: "Kategorien mit Icons",
-    lead: "Lebensmittel 🛒, Sprit ⛽, Yacht ⛵, Hafen ⚓ — pro Törn frei wählbar aus einem kuratierten Icon-Set.",
+    title: "Kategorien mit Symbolen",
+    lead: "Lebensmittel 🛒, Sprit ⛽, Yacht ⛵, Hafen ⚓ — pro Törn frei wählbar aus einem Satz vorgefertigter Symbole.",
     body: (
       <>
         <p>
-          Default-Kategorien sind vorgegeben, du kannst sie umbenennen, löschen
-          oder neue hinzufügen. Jede Kategorie taucht später in der Statistik
-          wieder auf.
+          Eine Grund-Auswahl ist voreingestellt. Skipper und Admins können
+          Kategorien umbenennen, löschen oder neue hinzufügen. Jede
+          Kategorie taucht später in der Statistik wieder auf.
         </p>
       </>
     ),
     screenshot: "/about/11-kategorien.png",
-    alt: "Kategorien-Verwaltung mit Icon-Picker",
+    alt: "Kategorien-Verwaltung mit Symbol-Auswahl",
   },
   {
     id: "gutschrift",
@@ -211,9 +236,10 @@ const features: Feature[] = [
     body: (
       <>
         <p>
-          Direkt von Person zu Person oder pauschal „An Alle“, wenn jemand
-          vorab für die ganze Crew bezahlt hat. Nur Skipper und Admins können
-          Gutschriften eintragen, damit nichts versehentlich doppelt landet.
+          Eine Gutschrift kann direkt von Person zu Person laufen, oder
+          „An Alle“ — letzteres, wenn jemand vorab für die ganze Crew
+          bezahlt hat. Damit nichts versehentlich doppelt verbucht wird,
+          dürfen Gutschriften nur Skipper und Admins eintragen.
         </p>
       </>
     ),
@@ -222,30 +248,33 @@ const features: Feature[] = [
   },
   {
     id: "offline",
-    title: "Offline-fähig (PWA)",
+    title: "Funktioniert auch ohne Internet",
     lead: "Auf der Yacht ist Empfang Glückssache — die App funktioniert trotzdem.",
     body: (
       <>
         <p>
-          Buchungen, die du offline eingibst, landen in einer lokalen Outbox
-          und werden automatisch synchronisiert, sobald wieder Netz da ist.
-          Ein dezenter Banner oben zeigt den Offline-Modus an. Die App lässt
-          sich auf dem Smartphone wie eine native App installieren.
+          Buchungen, die du ohne Internet eingibst, werden auf dem Gerät
+          zwischengespeichert und automatisch übertragen, sobald wieder
+          Empfang da ist. Ein dezenter Hinweis oben am Bildschirm zeigt,
+          dass du gerade offline arbeitest. Die App lässt sich auf dem
+          Smartphone wie eine echte App installieren — du brauchst nicht
+          jedes Mal den Browser aufmachen.
         </p>
       </>
     ),
     screenshot: "/about/13-offline.png",
-    alt: "Buchungs-Liste mit Offline-Banner oben",
+    alt: "Buchungs-Liste mit Offline-Hinweis oben",
   },
   {
     id: "dsgvo",
-    title: "Automatische DSGVO-Löschung",
+    title: "Automatische Datenlöschung",
     lead: "30 Tage nach Törn-Ende werden alle personenbezogenen Daten automatisch entfernt.",
     body: (
       <>
         <p>
-          Crew-Liste, Buchungen mit Personen-Bezug, Gutschriften, Audit-Log —
-          alles weg. Was bleibt, ist eine anonymisierte Statistik. Details
+          Crew-Liste, Buchungen mit Personen-Bezug, Gutschriften, die
+          Änderungs-Historie — alles wird automatisch gelöscht. Was bleibt,
+          ist eine anonymisierte Statistik ohne Personen-Bezug. Die Details
           stehen in der{" "}
           <Link href="/datenschutz" className="underline">
             Datenschutzerklärung
@@ -273,19 +302,53 @@ export default function AboutPage() {
       </h1>
       <p className="mt-2 text-base text-ink-soft">
         Faire Aufteilung gemeinsamer Kosten auf Segel-Törns — auch wenn die
-        Crew wechselt, manche nicht trinken und der eine erst halb so lang an
-        Bord war.
+        Crew wechselt, manche keinen Alkohol trinken und einzelne erst
+        später dazustoßen oder früher von Bord gehen.
       </p>
 
       <section className="prose mt-8 max-w-none text-sm leading-relaxed">
         <p>
-          Die App ist gedacht für Skipper und Crews, die nicht jede Ausgabe
-          per Hand in eine Excel-Tabelle tippen wollen. Sie funktioniert auf
-          dem Smartphone, ohne Login-Hürde (Magic-Link), und rechnet faire
-          Salden auch dann, wenn Crewmitglieder zu unterschiedlichen Zeiten
-          ein- und aussteigen.
+          Die App ist gedacht für Skipper und ihre Crews, die nicht jede
+          Ausgabe von Hand in eine Tabelle tippen wollen. Sie läuft auf dem
+          Smartphone, das Anmelden geht ohne Passwort (Login-Link per
+          E-Mail), und sie rechnet faire Salden auch dann, wenn
+          Crew-Mitglieder zu unterschiedlichen Zeiten an und von Bord
+          gehen.
         </p>
       </section>
+
+      <nav
+        aria-label="Inhaltsverzeichnis"
+        className="mt-8 rounded-lg border border-rule bg-paper-soft p-5"
+      >
+        <p className="mb-3 text-sm font-semibold text-primary">
+          Inhalt — direkt zum Thema springen
+        </p>
+        <ol className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
+          {features.map((f, idx) => (
+            <li key={f.id}>
+              <a
+                href={`#${f.id}`}
+                className="flex items-baseline gap-2 text-ink hover:text-primary"
+              >
+                <span className="text-xs font-semibold text-gold">
+                  {String(idx + 1).padStart(2, "0")}
+                </span>
+                <span>{f.title}</span>
+              </a>
+            </li>
+          ))}
+          <li>
+            <a
+              href="#wie-entstanden"
+              className="flex items-baseline gap-2 text-ink hover:text-primary"
+            >
+              <span className="text-xs font-semibold text-gold">★</span>
+              <span>Wie diese App entstanden ist</span>
+            </a>
+          </li>
+        </ol>
+      </nav>
 
       <ol className="mt-12 space-y-16">
         {features.map((f, idx) => (
@@ -316,16 +379,75 @@ export default function AboutPage() {
         ))}
       </ol>
 
-      <section className="mt-16 rounded-lg border border-rule bg-paper-soft p-6">
+      <section
+        id="wie-entstanden"
+        className="mt-16 scroll-mt-6 rounded-lg border border-primary/30 bg-navy-light/30 p-6"
+      >
+        <h2 className="text-lg font-semibold text-primary">
+          Wie diese App entstanden ist
+        </h2>
+        <p className="mt-3 text-sm leading-relaxed text-ink">
+          Diese App wurde von <strong>Jannik</strong> gemeinsam mit{" "}
+          <strong>Claude</strong>, dem KI-Assistenten von{" "}
+          <a
+            href="https://www.anthropic.com"
+            target="_blank"
+            rel="noreferrer"
+            className="underline hover:text-primary"
+          >
+            Anthropic
+          </a>
+          , gebaut — Stichwort{" "}
+          <strong>
+            <a
+              href="https://en.wikipedia.org/wiki/Vibe_coding"
+              target="_blank"
+              rel="noreferrer"
+              className="underline hover:text-primary"
+            >
+              Vibe Coding
+            </a>
+          </strong>
+          .
+        </p>
+        <p className="mt-3 text-sm leading-relaxed text-ink-soft">
+          Der Ablauf ist simpel: Jannik beschreibt in normaler Sprache, was
+          die App können soll. Claude schreibt den passenden Code, beide
+          probieren ihn aus, verbessern, ergänzen, machen Screenshots. Aus
+          einer einfachen Excel-Idee ist so in wenigen Tagen eine voll
+          funktionsfähige Web-App geworden — inklusive Login,
+          Crew-Verwaltung, fünf verschiedener Aufteilungs-Arten, Bilanz,
+          automatischer Abrechnung per E-Mail und einer DSGVO-konformen
+          Datenlöschung.
+        </p>
+        <p className="mt-3 text-sm leading-relaxed text-ink-soft">
+          Wer das selbst ausprobieren möchte: der gesamte Quellcode liegt
+          öffentlich auf{" "}
+          <a
+            href="https://github.com/Jannik96D/bordkasse-public"
+            target="_blank"
+            rel="noreferrer"
+            className="underline hover:text-primary"
+          >
+            GitHub
+          </a>
+          .
+        </p>
+      </section>
+
+      <section className="mt-12 rounded-lg border border-rule bg-paper-soft p-6">
         <h2 className="text-lg font-semibold text-primary">
           Was die App <em>nicht</em> ist
         </h2>
         <ul className="mt-3 ml-5 list-disc space-y-1 text-sm text-ink-soft">
-          <li>Kein kommerzielles Produkt — privates Tool für eigene Törns.</li>
+          <li>
+            Kein kommerzielles Produkt — ein privates Werkzeug für eigene
+            Törns.
+          </li>
           <li>Keine Tracking-, Analyse- oder Werbe-Cookies.</li>
           <li>
-            Keine Datenweitergabe an Dritte außerhalb der notwendigen
-            Infrastruktur (siehe Datenschutz).
+            Keine Datenweitergabe an Dritte außerhalb der nötigen
+            technischen Infrastruktur (siehe Datenschutz).
           </li>
         </ul>
       </section>
