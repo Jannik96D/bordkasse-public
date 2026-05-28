@@ -2,8 +2,9 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, UserPlus } from "lucide-react";
 import { savePrepaymentPlan, saveTranches } from "@/lib/actions/prepayments";
+import { inviteMember } from "@/lib/actions/trip-members";
 import { DEFAULT_WHATSAPP_TEMPLATE } from "@/lib/prepayments/whatsapp";
 import { formatEuro, todayIso } from "@/lib/utils";
 import type {
@@ -50,6 +51,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
 
   const [splitMethod, setSplitMethod] = useState<PrepaymentSplitMethod>(plan?.split_method ?? "kojen");
   const [totalAmount, setTotalAmount] = useState(plan?.total_amount.toFixed(2).replace(".", ",") ?? "");
+  const [advancerId, setAdvancerId] = useState<string>(plan?.advancer_person_id ?? "");
   const [weroId, setWeroId] = useState(plan?.wero_id ?? "");
   const [whatsappTemplate, setWhatsappTemplate] = useState(plan?.whatsapp_template ?? DEFAULT_WHATSAPP_TEMPLATE);
 
@@ -112,6 +114,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
       trip_id: tripId,
       split_method: splitMethod,
       total_amount: Number(totalAmount.replace(",", ".")) || 0,
+      advancer_person_id: advancerId || null,
       wero_id: weroId || "",
       whatsapp_template: whatsappTemplate || "",
       cabin_types: splitMethod === "kojen"
@@ -189,6 +192,8 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
 
       {step === 1 && (
         <section className="space-y-4 rounded-lg border border-rule bg-paper p-5">
+          <CrewQuickAdd tripId={tripId} memberCount={members.length} />
+
           <label className="block text-sm">
             <span className="text-ink-soft">Gesamtsumme der Anzahlung (€)</span>
             <input
@@ -329,6 +334,25 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
           )}
 
           <label className="block text-sm">
+            <span className="text-ink-soft">Vorstrecker</span>
+            <select
+              value={advancerId}
+              onChange={(e) => setAdvancerId(e.target.value)}
+              className="mt-1 w-full rounded-md border border-rule px-3 py-2"
+            >
+              <option value="">— Trip-Skipper (Default) —</option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>{m.display_name}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-ink-soft">
+              Wer hat die Yacht-Anzahlung an die Charteragentur vorgestreckt? Alle
+              Crew-Anzahlungen werden an diese Person verbucht. Sie kann auch ihren
+              eigenen Anteil als Selbst-Verrechnung abhaken.
+            </p>
+          </label>
+
+          <label className="block text-sm">
             <span className="text-ink-soft">Wero-ID (optional)</span>
             <input
               value={weroId}
@@ -452,5 +476,94 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
         </section>
       )}
     </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// CrewQuickAdd — Inline-Anlage neuer Crew direkt im Wizard.
+// Spart den Detour über Settings, wenn der Skipper den Anzahlungs-Plan
+// noch vor dem eigentlichen Crew-Onboarding erstellt.
+// ────────────────────────────────────────────────────────────────────────
+function CrewQuickAdd({ tripId, memberCount }: { tripId: string; memberCount: number }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function add() {
+    setError(null);
+    setSuccess(null);
+    if (!name.trim() && !email.trim()) {
+      setError("Mindestens Name oder E-Mail angeben.");
+      return;
+    }
+    const fd = new FormData();
+    fd.set("trip_id", tripId);
+    fd.set("email", email.trim());
+    fd.set("display_name", name.trim());
+    startTransition(async () => {
+      const res = await inviteMember({ status: "idle" }, fd);
+      if (res.status === "error") {
+        setError(res.message);
+      } else {
+        setSuccess(`„${name.trim() || email.trim()}" hinzugefügt.`);
+        setName("");
+        setEmail("");
+        // Server-Component neu rendern lassen, damit der neue Member
+        // in der Zuordnungs-Liste + Vorstrecker-Dropdown erscheint.
+        router.refresh();
+      }
+    });
+  }
+
+  return (
+    <details
+      open={open}
+      onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
+      className="rounded-md border border-dashed border-primary/30 bg-navy-light/20 p-3 text-sm"
+    >
+      <summary className="cursor-pointer text-primary">
+        <UserPlus className="mr-1 inline h-4 w-4" />
+        Crew-Mitglied hinzufügen
+        <span className="ml-2 text-xs font-normal text-ink-soft">(aktuell {memberCount})</span>
+      </summary>
+      <div className="mt-3 space-y-2">
+        <label className="block">
+          <span className="text-xs text-ink-soft">Name</span>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="z.B. Lucas"
+            className="mt-1 w-full rounded-md border border-rule bg-paper px-3 py-1.5"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs text-ink-soft">E-Mail (optional, ermöglicht Login)</span>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="lucas@example.com"
+            className="mt-1 w-full rounded-md border border-rule bg-paper px-3 py-1.5"
+          />
+        </label>
+        {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+        {success && <p role="status" className="text-xs text-success">{success}</p>}
+        <button
+          type="button"
+          onClick={add}
+          disabled={pending}
+          className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-paper hover:bg-navy-dark disabled:opacity-50"
+        >
+          {pending ? "Lege an …" : "Crew hinzufügen"}
+        </button>
+        <p className="text-xs text-ink-soft">
+          Ohne E-Mail wird die Person als Ghost angelegt (kein Login, aber Anzahlungs-Soll und WhatsApp-Texte gehen trotzdem).
+        </p>
+      </div>
+    </details>
   );
 }

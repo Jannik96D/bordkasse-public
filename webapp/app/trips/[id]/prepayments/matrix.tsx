@@ -122,8 +122,17 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
     setWhatsAppModal({ text, title: `WhatsApp-Text für ${member.display_name}` });
   }
 
+  const advancerName = plan.advancer_person_id
+    ? members.find((m) => m.id === plan.advancer_person_id)?.display_name ?? "Vorstrecker"
+    : null;
+
   return (
     <>
+      {advancerName && (
+        <p className="mb-3 rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
+          Vorstrecker: <strong className="text-ink">{advancerName}</strong> — alle Anzahlungen werden an diese Person verbucht. Selbst-Verrechnung möglich.
+        </p>
+      )}
       {/* Header-Toolbar */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <button

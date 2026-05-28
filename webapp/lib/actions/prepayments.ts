@@ -59,7 +59,7 @@ export async function savePrepaymentPlan(
     return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
 
-  const { trip_id, split_method, total_amount, wero_id, whatsapp_template, cabin_types, obligations } = parsed.data;
+  const { trip_id, split_method, total_amount, advancer_person_id, wero_id, whatsapp_template, cabin_types, obligations } = parsed.data;
 
   const auth = await requireSkipperOrAdmin(trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
@@ -74,6 +74,7 @@ export async function savePrepaymentPlan(
         trip_id,
         split_method,
         total_amount,
+        advancer_person_id: advancer_person_id || null,
         wero_id: wero_id || null,
         whatsapp_template: whatsapp_template || null,
       },
@@ -308,16 +309,16 @@ export async function recordPayment(
 
   const supabase = createAdminClient();
 
-  // Skipper-Person-ID des Trips ermitteln — Gutschrift geht von Crew an Skipper.
-  const { data: tripRow } = await supabase
-    .from("trips")
-    .select("skipper_id")
-    .eq("id", trip_id)
-    .maybeSingle();
+  // Vorstrecker ermitteln: aus prepayment_plan.advancer_person_id, sonst
+  // Trip-Skipper als Fallback. Crew-Anzahlungen werden gegen diese Person
+  // verbucht. Self-Credit (Vorstrecker zahlt seinen eigenen Anteil) ist seit
+  // Migration 0024 für tranche-getaggte Gutschriften erlaubt — bilanz-neutral.
+  const [{ data: tripRow }, { data: planRow }] = await Promise.all([
+    supabase.from("trips").select("skipper_id").eq("id", trip_id).maybeSingle(),
+    supabase.from("prepayment_plan").select("advancer_person_id").eq("trip_id", trip_id).maybeSingle(),
+  ]);
   if (!tripRow) return { status: "error", message: "Törn nicht gefunden." };
-  if (tripRow.skipper_id === person_id) {
-    return { status: "error", message: "Skipper kann sich selbst keine Zahlung anrechnen." };
-  }
+  const advancerId = planRow?.advancer_person_id || tripRow.skipper_id;
 
   // Soll der Tranche für diese Person berechnen (für Default + Overflow-Check)
   const { data: oblRow } = await supabase
@@ -354,7 +355,6 @@ export async function recordPayment(
   const splitOverflow = overflow > 0.005 && overflow_tranche_id;
 
   const actorPersonId = person.id;
-  const skipperId = tripRow.skipper_id;
 
   async function insertCredit(targetTranche: string, targetAmount: number, idemKey?: string) {
     const { error } = await supabase
@@ -366,7 +366,7 @@ export async function recordPayment(
         description: note || `Anzahlung ${trancheLabel}`,
         amount: targetAmount,
         credit_from: person_id,
-        credit_to: skipperId,
+        credit_to: advancerId,
         tranche_id: targetTranche,
         created_by: actorPersonId,
         idempotency_key: idemKey,
