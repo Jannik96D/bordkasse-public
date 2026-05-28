@@ -12,7 +12,8 @@
   --color-navy-light:   #D6E1EE;  /* Füllungen, Hintergrundboxen */
 
   /* Akzent-Farben */
-  --color-gold:         #C8A51E;  /* Highlights, Info-Boxen */
+  --color-gold:         #C8A51E;  /* Highlights, Icons, Background-Akzente */
+  --color-gold-dark:    #8C7515;  /* WCAG-AA-konformer Text-Gold (≥ 4.5:1) */
   --color-gold-soft:    #FDF6DC;
   --color-success:      #1E8449;  /* positiver Saldo, "ok" */
   --color-danger:       #A93226;  /* negativer Saldo, Fehler */

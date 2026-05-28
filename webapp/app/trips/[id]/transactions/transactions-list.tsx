@@ -121,7 +121,7 @@ export function TransactionsList({
                       <div className="min-w-0 flex-1">
                         <p className="font-medium">
                           {t.type === "credit" && (
-                            <span className="mr-2 rounded-full bg-gold-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gold">
+                            <span className="mr-2 rounded-full bg-gold-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gold-dark">
                               Gutschrift
                             </span>
                           )}
@@ -162,7 +162,7 @@ export function TransactionsList({
                         </p>
                       </div>
                       <div className="shrink-0 text-right">
-                        <p className={`font-semibold ${t.type === "credit" ? "text-gold" : "text-primary"}`}>
+                        <p className={`font-semibold ${t.type === "credit" ? "text-gold-dark" : "text-primary"}`}>
                           {formatEuro(total)}
                         </p>
                         {t.tip_amount > 0 && (
