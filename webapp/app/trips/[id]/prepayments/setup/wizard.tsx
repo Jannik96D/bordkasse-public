@@ -26,7 +26,9 @@ interface Props {
 }
 
 interface CabinDraft {
-  id?: string;
+  /** Stable Client-ID: für neue Kojen client-seitig per crypto.randomUUID() generiert,
+   *  bestehende DB-Kojen erben ihre echte UUID. Wird im Cabin-Dropdown als value verwendet. */
+  id: string;
   label: string;
   price_per_person: string;
   capacity: string;
@@ -51,10 +53,14 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
   const [weroId, setWeroId] = useState(plan?.wero_id ?? "");
   const [whatsappTemplate, setWhatsappTemplate] = useState(plan?.whatsapp_template ?? DEFAULT_WHATSAPP_TEMPLATE);
 
+  // Cabin-Drafts: neue Kojen bekommen client-seitig eine UUID, damit der
+  // Dropdown sie eindeutig identifizieren kann (sonst kollidieren alle neuen
+  // Kojen mit "value=''" und sind nicht zuordnenbar). Der Server nimmt die
+  // ID per UPSERT, neue Rows werden mit dieser ID eingefügt.
   const [cabinDrafts, setCabinDrafts] = useState<CabinDraft[]>(
     cabins.length > 0
       ? cabins.map((c) => ({ id: c.id, label: c.label, price_per_person: c.price_per_person.toFixed(2).replace(".", ","), capacity: String(c.capacity) }))
-      : [{ label: "Doppelkoje", price_per_person: "", capacity: "2" }],
+      : [{ id: crypto.randomUUID(), label: "Doppelkoje", price_per_person: "", capacity: "2" }],
   );
 
   // Cabin-/Manual-Assignment pro Crew-Member
@@ -252,7 +258,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
               ))}
               <button
                 type="button"
-                onClick={() => setCabinDrafts([...cabinDrafts, { label: "", price_per_person: "", capacity: "2" }])}
+                onClick={() => setCabinDrafts([...cabinDrafts, { id: crypto.randomUUID(), label: "", price_per_person: "", capacity: "2" }])}
                 className="inline-flex items-center gap-1 rounded-md border border-rule px-3 py-1.5 text-sm hover:border-primary/40"
               >
                 <Plus className="h-4 w-4" /> Koje hinzufügen
@@ -270,7 +276,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
                     >
                       <option value="">— keine —</option>
                       {cabinDrafts.map((c, i) => (
-                        <option key={c.id ?? i} value={c.id ?? ""}>
+                        <option key={c.id} value={c.id}>
                           {c.label || `Koje ${i + 1}`} {c.price_per_person ? `(${c.price_per_person} €)` : ""}
                         </option>
                       ))}
@@ -282,12 +288,11 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
               {Object.entries(cabinCounts).length > 0 && (
                 <ul className="text-xs text-ink-soft">
                   {cabinDrafts.map((c) => {
-                    if (!c.id) return null;
                     const used = cabinCounts[c.id] ?? 0;
                     const over = used > Number(c.capacity);
                     return (
                       <li key={c.id} className={over ? "text-danger" : undefined}>
-                        {c.label}: {used} / {c.capacity} belegt {over && " — Überbelegung!"}
+                        {c.label || "(Koje)"}: {used} / {c.capacity} belegt {over && " — Überbelegung!"}
                       </li>
                     );
                   })}

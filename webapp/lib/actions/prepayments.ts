@@ -83,6 +83,8 @@ export async function savePrepaymentPlan(
 
   // 2. Kojen — Diff statt Full-Replace, damit FK-Verweise (cabin_type_id in
   //    Obligations) stabil bleiben. Spec: kojen entfernen setzt FK auf NULL.
+  // Client generiert UUIDs für neue Kojen (s. Wizard); deshalb haben ALLE
+  // eingehenden Kojen eine ID, und wir können einheitlich per UPSERT arbeiten.
   const { data: existingCabins } = await supabase
     .from("cabin_types")
     .select("id")
@@ -96,29 +98,22 @@ export async function savePrepaymentPlan(
     await supabase.from("cabin_types").delete().in("id", toDelete);
   }
 
-  // Upsert eingehender Kojen
-  for (const cabin of cabin_types) {
-    if (cabin.id) {
-      await supabase
-        .from("cabin_types")
-        .update({
-          label: cabin.label,
-          price_per_person: cabin.price_per_person,
-          capacity: cabin.capacity,
-          sort_order: cabin.sort_order,
-        })
-        .eq("id", cabin.id);
-    } else {
-      await supabase
-        .from("cabin_types")
-        .insert({
-          trip_id,
-          label: cabin.label,
-          price_per_person: cabin.price_per_person,
-          capacity: cabin.capacity,
-          sort_order: cabin.sort_order,
-        });
-    }
+  // Upsert: bestehende werden geupdatet, neue mit der vom Client gelieferten
+  // UUID neu angelegt — so funktioniert die cabin_type_id-Referenz in den
+  // Obligations sofort im selben Submit, ohne Roundtrip.
+  if (cabin_types.length > 0) {
+    const rows = cabin_types.map((c) => ({
+      id: c.id ?? crypto.randomUUID(),
+      trip_id,
+      label: c.label,
+      price_per_person: c.price_per_person,
+      capacity: c.capacity,
+      sort_order: c.sort_order,
+    }));
+    const { error: cabinErr } = await supabase
+      .from("cabin_types")
+      .upsert(rows, { onConflict: "id" });
+    if (cabinErr) return { status: "error", message: dbErr(cabinErr, "Kojen konnten nicht gespeichert werden.") };
   }
 
   // 3. Obligations — Skipper kann via Wizard pro Person setzen (individuell),
