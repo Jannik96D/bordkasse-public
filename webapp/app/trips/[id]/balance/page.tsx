@@ -30,37 +30,57 @@ export default async function BalancePage({
 
       <div className="overflow-hidden rounded-md border border-rule bg-paper">
         <table className="w-full text-sm">
+          <caption className="sr-only">
+            Bilanz der Crew: Saldo pro Person. Positive Beträge bekommen Geld zurück, negative zahlen nach.
+          </caption>
           <thead className="bg-paper-soft text-xs text-ink-soft">
             <tr>
-              <th className="px-3 py-2 text-left font-medium">Person</th>
-              <th className="hidden px-3 py-2 text-right font-medium sm:table-cell">Bezahlt</th>
-              <th className="hidden px-3 py-2 text-right font-medium sm:table-cell">Anteil</th>
-              <th className="px-3 py-2 text-right font-medium">Saldo</th>
+              <th scope="col" className="px-3 py-2 text-left font-medium">Person</th>
+              <th scope="col" className="hidden px-3 py-2 text-right font-medium sm:table-cell">Bezahlt</th>
+              <th scope="col" className="hidden px-3 py-2 text-right font-medium sm:table-cell">Anteil</th>
+              <th scope="col" className="px-3 py-2 text-right font-medium">
+                Saldo <span className="font-normal">(+ erhält, − zahlt)</span>
+              </th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.person_id} className="border-t border-rule">
-                <td className="px-3 py-2 font-medium">{r.display_name}</td>
-                <td className="hidden px-3 py-2 text-right tabular-nums text-ink-soft sm:table-cell">
-                  {r.paid > 0 ? formatEuro(r.paid) : "—"}
-                </td>
-                <td className="hidden px-3 py-2 text-right tabular-nums text-ink-soft sm:table-cell">
-                  {r.share > 0 ? formatEuro(r.share) : "—"}
-                </td>
-                <td
-                  className={`px-3 py-2 text-right font-semibold tabular-nums ${
-                    r.balance > 0.005
-                      ? "text-success"
-                      : r.balance < -0.005
-                      ? "text-danger"
-                      : "text-ink-soft"
-                  }`}
-                >
-                  {formatEuro(r.balance)}
-                </td>
-              </tr>
-            ))}
+            {rows.map((r) => {
+              const isPositive = r.balance > 0.005;
+              const isNegative = r.balance < -0.005;
+              const sign = isPositive ? "+" : isNegative ? "−" : "";
+              const absAmount = formatEuro(Math.abs(r.balance));
+              const srText = isPositive
+                ? `${r.display_name} bekommt ${absAmount} zurück`
+                : isNegative
+                ? `${r.display_name} zahlt ${absAmount} nach`
+                : `${r.display_name} ist ausgeglichen`;
+              return (
+                <tr key={r.person_id} className="border-t border-rule">
+                  <th scope="row" className="px-3 py-2 text-left font-medium">{r.display_name}</th>
+                  <td className="hidden px-3 py-2 text-right tabular-nums text-ink-soft sm:table-cell">
+                    {r.paid > 0 ? formatEuro(r.paid) : "—"}
+                  </td>
+                  <td className="hidden px-3 py-2 text-right tabular-nums text-ink-soft sm:table-cell">
+                    {r.share > 0 ? formatEuro(r.share) : "—"}
+                  </td>
+                  <td
+                    className={`px-3 py-2 text-right font-semibold tabular-nums ${
+                      isPositive
+                        ? "text-success"
+                        : isNegative
+                        ? "text-danger"
+                        : "text-ink-soft"
+                    }`}
+                  >
+                    <span className="sr-only">{srText}</span>
+                    <span aria-hidden>
+                      {sign}
+                      {absAmount}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
