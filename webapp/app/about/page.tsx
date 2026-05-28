@@ -120,10 +120,11 @@ const features: Feature[] = [
     body: (
       <>
         <p>
-          „<strong>Pro Person</strong>“ ist für Restaurants, in denen jede:r
-          die eigene Bestellung zahlt. Du musst die Rechnungssumme nicht
-          extra eingeben — und vor allem kein Kopfrechnen, keine
-          Nebenrechnungen, kein Taschenrechner. Du trägst die Einzelposten
+          „<strong>Pro Person</strong>“ ist für Restaurants, in denen von
+          einer Person für alle gezahlt wird, jedoch jede:r die eigene
+          Bestellung zahlt. Du musst die Rechnungssumme nicht extra
+          eingeben — und vor allem kein Kopfrechnen, keine Nebenrechnungen,
+          kein Taschenrechner. Du trägst die Einzelposten
           pro Person einfach ab vom Beleg ein, z. B.{" "}
           <em>Getränke 3,50 €</em> und <em>Essen 13 €</em> für Anna, dann{" "}
           <em>Getränke 4 €</em> und <em>Essen 15,80 €</em> für Ben — die
