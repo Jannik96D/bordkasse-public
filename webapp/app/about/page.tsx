@@ -74,7 +74,7 @@ const features: Feature[] = [
           auch im Hafen-Trubel. Der dicke Plus-Button schwebt unten rechts und
           öffnet die Buchungs-Eingabe in einem Schritt. Nach Törn-Ende
           erscheint oben ein Banner mit „Kaution prüfen + Abrechnung
-          verschicken" — die Crew bekommt dann eine Mail mit allen offenen
+          verschicken“ — die Crew bekommt dann eine Mail mit allen offenen
           Schulden.
         </p>
       </>
@@ -105,10 +105,10 @@ const features: Feature[] = [
     body: (
       <>
         <p>
-          „<strong>Pro Person</strong>" ist für Restaurants, in denen jede:r
+          „<strong>Pro Person</strong>“ ist für Restaurants, in denen jede:r
           die eigene Bestellung zahlt — der Gesamtbetrag ergibt sich aus den
           Einzelbeträgen pro Person. Zusätzlich gibt es einen{" "}
-          <strong>Alkohol-Anteil</strong> (unter „Erweitert"): Den
+          <strong>Alkohol-Anteil</strong> (unter „Erweitert“): Den
           Alkohol-Teil eines Belegs zahlen nur die Trinker, der Rest läuft
           nach der gewählten Aufteilung. Das Komma im Betrag versteht die App
           selbstverständlich auf Deutsch.
