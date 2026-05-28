@@ -308,6 +308,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
           {splitMethod === "individuell" && (
             <div className="space-y-2">
               <p className="text-sm font-medium text-primary">Soll pro Person</p>
+              <CrewQuickAdd tripId={tripId} memberCount={members.length} />
               {members.map((m) => (
                 <label key={m.id} className="flex items-center justify-between gap-3 text-sm">
                   <span className="font-medium">{m.display_name}</span>
@@ -327,9 +328,12 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
           )}
 
           {(splitMethod === "gleichmaessig" || splitMethod === "zeitanteilig") && (
-            <p className="rounded-md bg-paper-soft px-3 py-2 text-sm text-ink-soft">
-              Die Soll-Beträge werden automatisch aus der Gesamtsumme und der Crew-Anwesenheit berechnet.
-            </p>
+            <div className="space-y-3">
+              <p className="rounded-md bg-paper-soft px-3 py-2 text-sm text-ink-soft">
+                Die Soll-Beträge werden automatisch aus der Gesamtsumme und der Crew-Anwesenheit berechnet.
+              </p>
+              <CrewQuickAdd tripId={tripId} memberCount={members.length} />
+            </div>
           )}
 
           <label className="block text-sm">
