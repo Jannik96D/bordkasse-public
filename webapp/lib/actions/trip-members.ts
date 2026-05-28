@@ -324,25 +324,30 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
         .maybeSingle();
       const isFirstEmail = !priorPriv?.email;
 
-      // Gehört die E-Mail bereits einer anderen Person? Dann würde der
-      // Upsert mit der unique-constraint auf persons_private.email kollidieren.
-      // Stattdessen geben wir eine sinnvolle Meldung zurück: die andere Person
-      // ist wahrscheinlich der „echte" Eintrag — der Skipper sollte den
-      // aktuellen Ghost-Eintrag löschen und stattdessen den vorhandenen
-      // Account einladen.
+      // Gehört die E-Mail bereits einer anderen Person? Dann versuchen wir
+      // automatisch zu mergen: der aktuelle Ghost-Eintrag wird in den
+      // bestehenden Account integriert. Nur sicher, wenn der Ghost noch
+      // keine Buchungen hat — sonst Risiko von FK-Konflikten.
       const { data: emailInUse } = await supabase
         .from("persons_private")
         .select("person_id, persons!inner(display_name)")
         .ilike("email", email)
         .neq("person_id", member.person_id)
         .maybeSingle();
+
       if (emailInUse) {
-        const otherRel = (emailInUse as unknown as { persons: { display_name: string } | { display_name: string }[] }).persons;
-        const otherName = (Array.isArray(otherRel) ? otherRel[0] : otherRel)?.display_name ?? "anderem Crew-Mitglied";
-        return {
-          status: "error",
-          message: `Diese E-Mail gehört bereits zu „${otherName}". Lösche dieses Crew-Mitglied und füge stattdessen ${otherName} über „Crew hinzufügen" mit dieser E-Mail neu hinzu.`,
-        };
+        const mergeResult = await mergeGhostIntoExistingPerson(
+          supabase,
+          member.person_id,
+          emailInUse.person_id,
+          trip_id,
+          auth.personId,
+        );
+        if (!mergeResult.ok) return { status: "error", message: mergeResult.message };
+
+        revalidatePath(`/trips/${trip_id}/settings`);
+        revalidatePath(`/trips/${trip_id}`);
+        return { status: "ok" };
       }
 
       // E-Mail liegt in persons_private — upsert, weil Ghost evtl.
@@ -406,3 +411,94 @@ export async function setSkipperRole(memberId: string, tripId: string, isSkipper
   revalidatePath(`/trips/${tripId}/settings`);
   revalidatePath(`/trips/${tripId}`);
 }
+
+/**
+ * Ghost-Person in einen bestehenden Account integrieren.
+ *
+ * Use-Case: Skipper hat eine Person ohne E-Mail angelegt (Ghost) und trägt
+ * jetzt eine E-Mail nach, die schon zu einem bestehenden Account gehört.
+ * Statt einer harten Fehlermeldung zur unique-constraint-Verletzung
+ * wandern alle Trip-Member- und Anzahlungs-Verweise vom Ghost auf den
+ * bestehenden Account, der Ghost wird gelöscht.
+ *
+ * Sicherheits-Gate: wenn der Ghost in IRGENDEINEM Trip Buchungen hat
+ * (paid_by / credit_from / credit_to / transaction_participants), brechen
+ * wir ab — auto-merge wäre dann mit FK-Konflikten und Bilanz-Effekten
+ * verbunden. Der Skipper muss erst manuell umbuchen.
+ */
+async function mergeGhostIntoExistingPerson(
+  supabase: ReturnType<typeof createAdminClient>,
+  ghostId: string,
+  realId: string,
+  tripId: string,
+  actorPersonId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  // 1. Hat der Ghost Buchungen irgendwo?
+  const checks = await Promise.all([
+    supabase.from("transactions").select("id", { count: "exact", head: true }).is("deleted_at", null).eq("paid_by", ghostId),
+    supabase.from("transactions").select("id", { count: "exact", head: true }).is("deleted_at", null).eq("credit_from", ghostId),
+    supabase.from("transactions").select("id", { count: "exact", head: true }).is("deleted_at", null).eq("credit_to", ghostId),
+    supabase.from("transaction_participants").select("transaction_id", { count: "exact", head: true }).eq("person_id", ghostId),
+  ]);
+  const totalTxRefs = checks.reduce((s, c) => s + (c.count ?? 0), 0);
+  if (totalTxRefs > 0) {
+    return {
+      ok: false,
+      message:
+        "Diese Crew-Person hat schon Buchungen. Automatisches Zusammenführen mit dem bestehenden Account ist nicht möglich — bitte erst die Buchungen löschen oder auf die andere Person umbuchen.",
+    };
+  }
+
+  // 2. Anzahlungs-Obligation des Ghosts auf die bestehende Person umhängen
+  //    (falls die bestehende Person noch keine Obligation in diesem Trip hat).
+  const [{ data: ghostObl }, { data: realObl }] = await Promise.all([
+    supabase.from("prepayment_obligations").select("cabin_type_id, total_amount").eq("trip_id", tripId).eq("person_id", ghostId).maybeSingle(),
+    supabase.from("prepayment_obligations").select("person_id").eq("trip_id", tripId).eq("person_id", realId).maybeSingle(),
+  ]);
+  if (ghostObl) {
+    if (!realObl) {
+      await supabase.from("prepayment_obligations").insert({
+        trip_id: tripId,
+        person_id: realId,
+        cabin_type_id: ghostObl.cabin_type_id,
+        total_amount: ghostObl.total_amount,
+      });
+    }
+    await supabase.from("prepayment_obligations").delete().eq("trip_id", tripId).eq("person_id", ghostId);
+  }
+
+  // 3. trip_members: Ghost-Membership in real-Membership umschreiben.
+  //    Wenn die Person schon Member dieses Trips ist, hier nur den Ghost-
+  //    Eintrag löschen (sonst kollidiert UNIQUE(trip_id, person_id)).
+  const { data: realMembership } = await supabase
+    .from("trip_members")
+    .select("id")
+    .eq("trip_id", tripId)
+    .eq("person_id", realId)
+    .maybeSingle();
+
+  if (realMembership) {
+    await supabase.from("trip_members").delete().eq("trip_id", tripId).eq("person_id", ghostId);
+  } else {
+    await supabase.from("trip_members").update({ person_id: realId }).eq("trip_id", tripId).eq("person_id", ghostId);
+  }
+
+  // 4. Trip-Skipper-FK darf nicht auf den Ghost zeigen (sonst RESTRICT beim Delete)
+  await supabase.from("trips").update({ skipper_id: realId }).eq("skipper_id", ghostId);
+
+  // 5. Ghost-Person + persons_private löschen
+  await supabase.from("persons_private").delete().eq("person_id", ghostId);
+  await supabase.from("persons").delete().eq("id", ghostId);
+
+  await logAudit(supabase, {
+    table_name: "persons",
+    operation: "DELETE",
+    record_id: ghostId,
+    trip_id: tripId,
+    actor_person_id: actorPersonId,
+    payload: { kind: "ghost-merge", merged_into: realId },
+  });
+
+  return { ok: true };
+}
+
