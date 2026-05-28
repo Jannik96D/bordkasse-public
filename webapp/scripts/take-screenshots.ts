@@ -99,10 +99,15 @@ async function waitForLoad(page: Page) {
 
 async function main() {
   await mkdir(OUT_DIR, { recursive: true });
-  const browser = await chromium.launch();
+  // --lang=de-DE ist nötig, damit native <input type="date"> im deutschen
+  // DD.MM.YYYY-Format rendern. Die `locale`-Option in newContext steuert nur
+  // navigator.language + Accept-Language, nicht den Date-Picker-Formatter.
+  const browser = await chromium.launch({ args: ["--lang=de-DE"] });
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     deviceScaleFactor: 2,
+    locale: "de-DE",
+    timezoneId: "Europe/Berlin",
     userAgent:
       "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
   });
