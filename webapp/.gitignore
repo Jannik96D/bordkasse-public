@@ -19,6 +19,9 @@
 /playwright/.cache/
 /.playwright-mcp/
 
+# lighthouse-Reports (lokal generiert)
+/reports/
+
 # next.js
 /.next/
 /out/
