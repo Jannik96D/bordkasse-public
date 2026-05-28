@@ -25,7 +25,7 @@ export default async function ProfilePage() {
         <h1 className="text-2xl font-bold text-primary">Mein Profil</h1>
         {admin && (
           <span
-            className="inline-flex items-center gap-1 rounded-full bg-gold-soft px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gold-dark"
+            className="inline-flex items-center gap-1 rounded-full bg-navy-light px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
             title="Du bist Admin und darfst neue Törns anlegen."
           >
             <ShieldCheck className="h-3 w-3" />
