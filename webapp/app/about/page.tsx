@@ -106,12 +106,18 @@ const features: Feature[] = [
       <>
         <p>
           „<strong>Pro Person</strong>“ ist für Restaurants, in denen jede:r
-          die eigene Bestellung zahlt — der Gesamtbetrag ergibt sich aus den
-          Einzelbeträgen pro Person. Zusätzlich gibt es einen{" "}
-          <strong>Alkohol-Anteil</strong> (unter „Erweitert“): Den
-          Alkohol-Teil eines Belegs zahlen nur die Trinker, der Rest läuft
-          nach der gewählten Aufteilung. Das Komma im Betrag versteht die App
-          selbstverständlich auf Deutsch.
+          die eigene Bestellung zahlt. Du musst die Rechnungssumme nicht
+          extra eingeben — du trägst nur die Einzelbeträge pro Person ein,
+          und die App addiert sie automatisch zur Gesamtsumme. Das{" "}
+          <strong>Trinkgeld</strong> kommt in ein eigenes Feld und wird
+          anschließend auf alle Beteiligten umgelegt (wahlweise im
+          Verhältnis zum Rechnungsbetrag oder gleichmäßig pro Kopf).
+        </p>
+        <p className="mt-2">
+          Zusätzlich gibt es einen <strong>Alkohol-Anteil</strong> (unter
+          „Erweitert“): Den Alkohol-Teil eines Belegs zahlen nur die
+          Trinker, der Rest läuft nach der gewählten Aufteilung. Das Komma
+          im Betrag versteht die App selbstverständlich auf Deutsch.
         </p>
       </>
     ),
