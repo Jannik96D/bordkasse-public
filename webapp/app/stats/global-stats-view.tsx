@@ -102,7 +102,6 @@ export function GlobalStatsView({
               <Link
                 href={`/trips/${t.trip_id}/stats`}
                 className="block rounded-md border border-rule bg-paper p-3 transition-colors hover:border-primary/40 hover:bg-paper-soft"
-                aria-label={`Statistik für „${t.name}" öffnen`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="flex min-w-0 items-center gap-1.5 truncate font-medium">

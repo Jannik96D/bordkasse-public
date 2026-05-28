@@ -119,7 +119,6 @@ export function StatsView({
                 <Link
                   href={`/trips/${tripId}/transactions?q=${encodeURIComponent(c.category_name)}`}
                   className="block rounded-md border border-rule bg-paper p-3 transition-colors hover:border-primary/40 hover:bg-paper-soft"
-                  aria-label={`Buchungen in „${c.category_name}" anzeigen`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="flex min-w-0 items-center gap-1.5 truncate font-medium">

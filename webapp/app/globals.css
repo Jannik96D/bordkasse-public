@@ -13,7 +13,7 @@
 
   /* Akzent-Farben */
   --color-gold:         #C8A51E;  /* Highlights, Icons, Background-Akzente */
-  --color-gold-dark:    #8C7515;  /* WCAG-AA-konformer Text-Gold (≥ 4.5:1) */
+  --color-gold-dark:    #7A6210;  /* WCAG-AA-Text-Gold (5.4:1 auf gold-soft, 5.6:1 auf paper-soft) */
   --color-gold-soft:    #FDF6DC;
   --color-success:      #1E8449;  /* positiver Saldo, "ok" */
   --color-danger:       #A93226;  /* negativer Saldo, Fehler */
