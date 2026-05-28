@@ -58,6 +58,8 @@ export type ExpenseInitial = {
   splitType: SplitType;
   participantIds: string[];
   participantAmounts: Array<{ personId: string; amount: number }>;
+  /** Optional, Migration 0023 — Anzahlungs-Tranche, falls die Buchung zugeordnet ist. */
+  trancheId?: string | null;
 };
 
 export type CreditInitial = {
@@ -68,6 +70,8 @@ export type CreditInitial = {
   creditFrom: string;
   /** null = "Alle" */
   creditTo: string | null;
+  /** Optional, Migration 0023 — Anzahlungs-Tranche, falls zugeordnet. */
+  trancheId?: string | null;
 };
 
 function formDataToObject(fd: FormData): Record<string, string | string[]> {
@@ -89,6 +93,9 @@ function formatAmount(n: number): string {
   return n.toFixed(2).replace(".", ",");
 }
 
+/** Anzahlungs-Tranche (Migration 0023) — nur Auswahl-Werte für die Form. */
+export type TrancheOption = { id: string; label: string; due_date: string };
+
 interface TransactionFormProps {
   tripId: string;
   isSkipper: boolean;
@@ -96,6 +103,12 @@ interface TransactionFormProps {
   categories: Category[];
   /** person_id des eingeloggten Users — wird im "Bezahlt von"-Dropdown nach oben sortiert. */
   currentPersonId?: string;
+  /**
+   * Verfügbare Anzahlungs-Tranchen des Trips. Wenn ≥ 1, blendet die Form
+   * ein „Anzahlungs-Tranche zuordnen"-Feld ein. Sonst (kein Plan) bleibt das
+   * Feld verborgen und die Buchung landet wie bisher im Bordkasse-Pool.
+   */
+  tranches?: TrancheOption[];
   /** Wenn gesetzt, Form öffnet im Edit-Mode für eine Ausgabe. */
   expenseInitial?: ExpenseInitial;
   /** Wenn gesetzt, Form öffnet im Edit-Mode für eine Gutschrift. */
@@ -108,6 +121,7 @@ export function TransactionForm({
   members,
   categories,
   currentPersonId,
+  tranches,
   expenseInitial,
   creditInitial,
 }: TransactionFormProps) {
@@ -158,6 +172,7 @@ export function TransactionForm({
           members={members}
           categories={categories}
           currentPersonId={currentPersonId}
+          tranches={tranches}
           initial={expenseInitial}
         />
       ) : (
@@ -165,6 +180,7 @@ export function TransactionForm({
           tripId={tripId}
           members={members}
           currentPersonId={currentPersonId}
+          tranches={tranches}
           initial={creditInitial}
         />
       )}
@@ -172,17 +188,63 @@ export function TransactionForm({
   );
 }
 
+/**
+ * Wiederverwendbares Tranche-Select für Expense + Credit-Form.
+ * Rendert ein Hidden-Input + ein zusammenklappbares `<details>`. Wenn die
+ * Buchung schon einer Tranche zugeordnet ist, ist das Detail offen — damit
+ * der User das nicht aus Versehen "vergisst" und beim Edit aktiviert.
+ */
+function TrancheField({ tranches, initialTrancheId }: { tranches?: TrancheOption[]; initialTrancheId?: string | null }) {
+  const [value, setValue] = useState(initialTrancheId ?? "");
+  if (!tranches || tranches.length === 0) return null;
+  return (
+    <details open={!!initialTrancheId} className="rounded-md border border-rule bg-paper p-3 text-sm">
+      <summary className="cursor-pointer text-ink-soft">
+        Anzahlungs-Tranche zuordnen
+        {value && <span className="ml-2 text-primary">✓ aktiv</span>}
+      </summary>
+      <label className="mt-2 block">
+        <span className="text-xs text-ink-soft">Tranche</span>
+        <select
+          name="tranche_id"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="mt-1 w-full rounded-md border border-rule px-3 py-2"
+        >
+          <option value="">— Keine (Bordkasse-Pool) —</option>
+          {tranches.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label} ({formatDeDate(t.due_date)})
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="mt-2 text-xs text-ink-soft">
+        Wenn gesetzt, landet die Buchung im Anzahlungs-Pool statt in der laufenden Bordkasse.
+      </p>
+    </details>
+  );
+}
+
+function formatDeDate(iso: string): string {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${Number(d)}.${Number(m)}.${y}`;
+}
+
 function ExpenseForm({
   tripId,
   members,
   categories,
   currentPersonId,
+  tranches,
   initial,
 }: {
   tripId: string;
   members: Member[];
   categories: Category[];
   currentPersonId?: string;
+  tranches?: TrancheOption[];
   initial?: ExpenseInitial;
 }) {
   // Eingeloggten User im "Bezahlt von"-Dropdown nach oben sortieren.
@@ -572,6 +634,8 @@ function ExpenseForm({
         </>
       )}
 
+      <TrancheField tranches={tranches} initialTrancheId={initial?.trancheId ?? null} />
+
       {state.status === "error" && (
         <p className="text-sm text-danger" role="alert">{state.message}</p>
       )}
@@ -591,11 +655,13 @@ function CreditForm({
   tripId,
   members,
   currentPersonId,
+  tranches,
   initial,
 }: {
   tripId: string;
   members: Member[];
   currentPersonId?: string;
+  tranches?: TrancheOption[];
   initial?: CreditInitial;
 }) {
   const router = useRouter();
@@ -704,6 +770,8 @@ function CreditForm({
           currentUserId={currentPersonId}
         />
       </FieldGroup>
+
+      <TrancheField tranches={tranches} initialTrancheId={initial?.trancheId ?? null} />
 
       {state.status === "error" && (
         <p className="text-sm text-danger" role="alert">{state.message}</p>

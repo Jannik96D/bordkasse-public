@@ -74,6 +74,13 @@ export const ExpenseSchema = z
       },
       z.array(ParticipantAmount).default([]),
     ),
+    /**
+     * Optional: ordnet die Buchung einer Anzahlungs-Tranche zu (Migration 0023).
+     * Wenn gesetzt, landet die Buchung im Anzahlungs-Pool statt in der Bordkasse.
+     * Typischer Use-Case: Skipper bucht die Yacht-Anzahlung und ordnet sie der
+     * passenden Tranche zu.
+     */
+    tranche_id: z.string().uuid().optional().nullable(),
     idempotency_key: Uuid.optional(),
   })
   .refine(
@@ -106,6 +113,8 @@ export const CreditSchema = z
     amount: Amount,
     credit_from: requiredUuid("Zahlt (Von)"),
     credit_to: requiredUuid("Empfängt (An)").nullable(), // null = "Alle"
+    /** Optional, siehe ExpenseSchema. */
+    tranche_id: z.string().uuid().optional().nullable(),
     idempotency_key: Uuid.optional(),
   })
   .refine((d) => d.credit_to !== d.credit_from, {

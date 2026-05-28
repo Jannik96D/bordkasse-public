@@ -11,13 +11,20 @@ import { resolveOrigin } from "@/lib/auth/origin";
 
 const InviteSchema = z.object({
   trip_id: z.string().uuid(),
-  email: z.string().trim().email("Bitte gültige E-Mail-Adresse eingeben."),
+  // E-Mail ist optional, damit der Skipper Crew anlegen kann, ohne sie zu kennen.
+  // Ohne E-Mail kann sich die Person nicht einloggen, taucht aber in der App
+  // als „Ghost"-Person auf — Soll-Zuordnung, Buchungs-Beteiligung und
+  // WhatsApp-Texte funktionieren trotzdem.
+  email: z.string().trim().email("Bitte gültige E-Mail-Adresse eingeben.").optional().or(z.literal("")),
   display_name: z.string().trim().min(2).max(60).optional().or(z.literal("")),
   on_board_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal("")),
   on_board_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal("")),
   is_alcoholic: z.string().optional(),
   note: z.string().max(200).optional().or(z.literal("")),
-});
+}).refine(
+  (d) => !!d.email || (d.display_name && d.display_name.length >= 2),
+  { message: "Entweder E-Mail oder Anzeigename angeben.", path: ["email"] },
+);
 
 export type MemberState =
   | { status: "idle" }
@@ -48,21 +55,41 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
   // Person mit dieser E-Mail finden (über persons_private) oder als Ghost
   // anlegen. E-Mail liegt seit Migration 0013 ausschließlich in
   // persons_private — persons selbst hat sie nicht mehr.
-  const { data: existingPriv } = await supabase
-    .from("persons_private")
-    .select("person_id")
-    .ilike("email", email)
-    .maybeSingle();
-
+  // Sonderfall ohne E-Mail: direkt neue Ghost-Person (kein persons_private-Eintrag).
   let personId: string;
-  if (existingPriv) {
-    personId = existingPriv.person_id;
-    // Bestehender Name bleibt — wir überschreiben fremde Namen nicht.
+  if (email) {
+    const { data: existingPriv } = await supabase
+      .from("persons_private")
+      .select("person_id")
+      .ilike("email", email)
+      .maybeSingle();
+
+    if (existingPriv) {
+      personId = existingPriv.person_id;
+    } else {
+      const fallbackName = display_name || email.split("@")[0];
+      const { data: created, error } = await supabase
+        .from("persons")
+        .insert({ display_name: fallbackName })
+        .select("id")
+        .single();
+      if (error || !created) {
+        if (error?.message) console.error("[bordkasse:db]", error.message);
+        return { status: "error", message: "Person konnte nicht angelegt werden. Bitte erneut versuchen." };
+      }
+      personId = created.id;
+      const { error: privErr } = await supabase
+        .from("persons_private")
+        .insert({ person_id: personId, email });
+      if (privErr) {
+        return { status: "error", message: privErr.message };
+      }
+    }
   } else {
-    const fallbackName = display_name || email.split("@")[0];
+    // Ghost ohne E-Mail: nur persons-Row, kein persons_private.
     const { data: created, error } = await supabase
       .from("persons")
-      .insert({ display_name: fallbackName })
+      .insert({ display_name: display_name! })
       .select("id")
       .single();
     if (error || !created) {
@@ -70,12 +97,6 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
       return { status: "error", message: "Person konnte nicht angelegt werden. Bitte erneut versuchen." };
     }
     personId = created.id;
-    const { error: privErr } = await supabase
-      .from("persons_private")
-      .insert({ person_id: personId, email });
-    if (privErr) {
-      return { status: "error", message: privErr.message };
-    }
   }
 
   // Vorab prüfen ob Person schon Mitglied — entscheidet, ob die
@@ -125,10 +146,9 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
     });
   }
 
-  // Einladungs-Mail nur bei NEUER Mitgliedschaft. Fehler beim Mail-Versand
-  // werden geloggt, blocken aber nicht — die Crew-Verwaltung soll auch
-  // funktionieren, wenn Resend kurzzeitig ausfällt.
-  if (!wasAlreadyMember) {
+  // Einladungs-Mail nur bei NEUER Mitgliedschaft UND vorhandener E-Mail.
+  // Fehler beim Mail-Versand werden geloggt, blocken aber nicht.
+  if (!wasAlreadyMember && email) {
     const hdrs = await headers();
     const origin = resolveOrigin(hdrs.get("origin"));
     await sendInvitationMagicLink(email, origin);
@@ -295,6 +315,15 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
       });
     }
     if (email) {
+      // Vorher prüfen, ob das ein NEU eingetragene E-Mail (vorher keine
+      // private-Row) → dann nach dem Upsert eine Einladungs-Mail schicken.
+      const { data: priorPriv } = await supabase
+        .from("persons_private")
+        .select("email")
+        .eq("person_id", member.person_id)
+        .maybeSingle();
+      const isFirstEmail = !priorPriv?.email;
+
       // E-Mail liegt in persons_private — upsert, weil Ghost evtl.
       // noch keine private-Row hat.
       const { error: privError } = await supabase
@@ -309,6 +338,16 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
         actor_person_id: auth.personId,
         payload: { email },
       });
+
+      if (isFirstEmail) {
+        try {
+          const hdrs = await headers();
+          const origin = resolveOrigin(hdrs.get("origin"));
+          await sendInvitationMagicLink(email, origin);
+        } catch (e) {
+          console.error("[bordkasse:invite-on-edit]", e);
+        }
+      }
     }
   }
 

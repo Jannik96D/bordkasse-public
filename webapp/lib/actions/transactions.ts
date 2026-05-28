@@ -101,6 +101,7 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     split_type: formData.get("split_type"),
     participant_ids: participantIds,
     participant_amounts: formData.get("participant_amounts"),
+    tranche_id: formData.get("tranche_id") || null,
     idempotency_key: formData.get("idempotency_key") || undefined,
   });
   if (!parsed.success) {
@@ -108,7 +109,7 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     return { status: "error", message: issue?.message ?? "Ungültige Eingabe.", field: issue?.path?.[0]?.toString() };
   }
 
-  const { participant_ids, participant_amounts, idempotency_key, ...txData } = parsed.data;
+  const { participant_ids, participant_amounts, idempotency_key, tranche_id: trancheId, ...txData } = parsed.data;
 
   // Bei "Pro Person" wird der Gesamtbetrag aus den Einzelbeträgen abgeleitet,
   // damit Anzeige + DB-State garantiert konsistent sind. Trinkgeld ist nur
@@ -135,7 +136,7 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
 
   const { data: tx, error } = await supabase
     .from("transactions")
-    .insert({ ...txData, type: "expense", created_by: person.id, idempotency_key })
+    .insert({ ...txData, type: "expense", created_by: person.id, idempotency_key, tranche_id: trancheId ?? null })
     .select("id")
     .single();
 
@@ -192,6 +193,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     amount: formData.get("amount"),
     credit_from: formData.get("credit_from"),
     credit_to: creditTo,
+    tranche_id: formData.get("tranche_id") || null,
     idempotency_key: formData.get("idempotency_key") || undefined,
   });
   if (!parsed.success) {
@@ -231,6 +233,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
       amount: parsed.data.amount,
       credit_from: parsed.data.credit_from,
       credit_to: parsed.data.credit_to,
+      tranche_id: parsed.data.tranche_id ?? null,
       created_by: person.id,
       idempotency_key: parsed.data.idempotency_key,
     })
@@ -295,12 +298,13 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     split_type: formData.get("split_type"),
     participant_ids: participantIds,
     participant_amounts: formData.get("participant_amounts"),
+    tranche_id: formData.get("tranche_id") || null,
   });
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     return { status: "error", message: issue?.message ?? "Ungültige Eingabe.", field: issue?.path?.[0]?.toString() };
   }
-  const { participant_ids, participant_amounts, idempotency_key: _ignored, ...txData } = parsed.data;
+  const { participant_ids, participant_amounts, idempotency_key: _ignored, tranche_id: trancheId, ...txData } = parsed.data;
   void _ignored;
 
   if (txData.split_type === "per_person") {
@@ -356,6 +360,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
       tip_amount: txData.tip_amount,
       tip_distribution: txData.tip_distribution,
       split_type: txData.split_type,
+      tranche_id: trancheId ?? null,
     })
     .eq("id", transactionId);
   if (error) return { status: "error", message: dbErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
@@ -437,6 +442,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     amount: formData.get("amount"),
     credit_from: formData.get("credit_from"),
     credit_to: creditTo,
+    tranche_id: formData.get("tranche_id") || null,
   });
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -486,6 +492,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
       amount: parsed.data.amount,
       credit_from: parsed.data.credit_from,
       credit_to: parsed.data.credit_to,
+      tranche_id: parsed.data.tranche_id ?? null,
     })
     .eq("id", transactionId);
   if (error) return { status: "error", message: dbErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
