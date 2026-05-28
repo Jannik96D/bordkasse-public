@@ -443,6 +443,32 @@ async function mergeGhostIntoExistingPerson(
   tripId: string,
   actorPersonId: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
+  // Pre-Check: ist die echte Person bereits Crew-Mitglied DIESES Trips?
+  // Dann wäre die Verschmelzung zwar technisch lösbar (Ghost-Membership
+  // verwerfen, real-Membership behalten), aber der Skipper hat unbewusst
+  // dieselbe Person zweimal eingeladen — er soll bewusst entscheiden,
+  // welcher Eintrag bleibt (z.B. wegen abweichender Anwesenheits-Daten
+  // oder Kojen-Zuordnung).
+  const { data: realMembershipCheck } = await supabase
+    .from("trip_members")
+    .select("id, person:persons!inner(display_name)")
+    .eq("trip_id", tripId)
+    .eq("person_id", realId)
+    .maybeSingle();
+  if (realMembershipCheck) {
+    const rel = (realMembershipCheck as unknown as {
+      person: { display_name: string } | { display_name: string }[];
+    }).person;
+    const realName = (Array.isArray(rel) ? rel[0] : rel)?.display_name ?? "diese Person";
+    return {
+      ok: false,
+      message:
+        `„${realName}" ist mit dieser E-Mail-Adresse bereits Crew-Mitglied dieses Törns. ` +
+        `Lösche entweder den aktuellen Crew-Eintrag (ohne E-Mail) oder den bestehenden „${realName}"-Eintrag, ` +
+        `damit die Person nur einmal vorkommt.`,
+    };
+  }
+
   // 1. transactions: paid_by / credit_from / credit_to umhängen — keine
   //    Constraints betroffen, einfache UPDATEs.
   await supabase.from("transactions").update({ paid_by: realId }).eq("paid_by", ghostId);
@@ -515,18 +541,14 @@ async function mergeGhostIntoExistingPerson(
     await supabase.from("prepayment_obligations").delete().eq("trip_id", tripId).eq("person_id", ghostId);
   }
 
-  // 4. trip_members: UNIQUE (trip_id, person_id). Real hat Vorrang.
-  const { data: realMembership } = await supabase
+  // 4. trip_members: Ghost-Eintrag auf real umhängen. Der Pre-Check oben
+  //    hat sichergestellt, dass real noch nicht Mitglied dieses Trips ist —
+  //    UNIQUE (trip_id, person_id) ist daher safe.
+  await supabase
     .from("trip_members")
-    .select("id")
+    .update({ person_id: realId })
     .eq("trip_id", tripId)
-    .eq("person_id", realId)
-    .maybeSingle();
-  if (realMembership) {
-    await supabase.from("trip_members").delete().eq("trip_id", tripId).eq("person_id", ghostId);
-  } else {
-    await supabase.from("trip_members").update({ person_id: realId }).eq("trip_id", tripId).eq("person_id", ghostId);
-  }
+    .eq("person_id", ghostId);
 
   // 5. Trip-Skipper-FK darf nicht auf den Ghost zeigen (RESTRICT beim Delete)
   await supabase.from("trips").update({ skipper_id: realId }).eq("skipper_id", ghostId);
