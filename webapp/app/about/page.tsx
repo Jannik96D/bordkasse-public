@@ -122,11 +122,15 @@ const features: Feature[] = [
         <p>
           „<strong>Pro Person</strong>“ ist für Restaurants, in denen jede:r
           die eigene Bestellung zahlt. Du musst die Rechnungssumme nicht
-          extra eingeben — du trägst nur die Einzelbeträge pro Person ein,
-          und die App addiert sie automatisch zur Gesamtsumme. Das{" "}
-          <strong>Trinkgeld</strong> kommt in ein eigenes Feld und wird
-          anschließend auf alle Beteiligten umgelegt (wahlweise im
-          Verhältnis zum Rechnungsbetrag oder gleichmäßig pro Kopf).
+          extra eingeben — und vor allem nichts im Kopf zusammenrechnen. Du
+          trägst die Einzelposten pro Person einfach ab vom Beleg ein,
+          z. B. <em>Getränke 3,50 €</em> und <em>Essen 13 €</em> für Anna,
+          dann <em>Getränke 4 €</em> und <em>Essen 15,80 €</em> für Ben —
+          die App summiert das automatisch zum Gesamtbetrag jeder Person
+          und zur Rechnungssumme. Das <strong>Trinkgeld</strong> kommt in
+          ein eigenes Feld und wird anschließend auf alle Beteiligten
+          umgelegt (wahlweise im Verhältnis zum jeweiligen Rechnungsbetrag
+          oder gleichmäßig pro Kopf).
         </p>
         <p className="mt-2">
           Zusätzlich gibt es einen <strong>Alkohol-Anteil</strong> (unter
@@ -322,7 +326,7 @@ export default function AboutPage() {
         className="mt-8 rounded-lg border border-rule bg-paper-soft p-5"
       >
         <p className="mb-3 text-sm font-semibold text-primary">
-          Inhalt — direkt zum Thema springen
+          Überblick
         </p>
         <ol className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
           {features.map((f, idx) => (
