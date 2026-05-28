@@ -50,6 +50,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
 
   const [splitMethod, setSplitMethod] = useState<PrepaymentSplitMethod>(plan?.split_method ?? "kojen");
   const [totalAmount, setTotalAmount] = useState(plan?.total_amount.toFixed(2).replace(".", ",") ?? "");
+  const [advancerId, setAdvancerId] = useState<string>(plan?.advancer_person_id ?? "");
   const [weroId, setWeroId] = useState(plan?.wero_id ?? "");
   const [whatsappTemplate, setWhatsappTemplate] = useState(plan?.whatsapp_template ?? DEFAULT_WHATSAPP_TEMPLATE);
 
@@ -112,6 +113,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
       trip_id: tripId,
       split_method: splitMethod,
       total_amount: Number(totalAmount.replace(",", ".")) || 0,
+      advancer_person_id: advancerId || null,
       wero_id: weroId || "",
       whatsapp_template: whatsappTemplate || "",
       cabin_types: splitMethod === "kojen"
@@ -327,6 +329,25 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
               Die Soll-Beträge werden automatisch aus der Gesamtsumme und der Crew-Anwesenheit berechnet.
             </p>
           )}
+
+          <label className="block text-sm">
+            <span className="text-ink-soft">Vorstrecker</span>
+            <select
+              value={advancerId}
+              onChange={(e) => setAdvancerId(e.target.value)}
+              className="mt-1 w-full rounded-md border border-rule px-3 py-2"
+            >
+              <option value="">— Trip-Skipper (Default) —</option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>{m.display_name}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-ink-soft">
+              Wer hat die Yacht-Anzahlung an die Charteragentur vorgestreckt? Alle
+              Crew-Anzahlungen werden an diese Person verbucht. Sie kann auch ihren
+              eigenen Anteil als Selbst-Verrechnung abhaken.
+            </p>
+          </label>
 
           <label className="block text-sm">
             <span className="text-ink-soft">Wero-ID (optional)</span>

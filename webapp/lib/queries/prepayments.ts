@@ -10,6 +10,8 @@ export interface PrepaymentPlan {
   trip_id: string;
   split_method: PrepaymentSplitMethod;
   total_amount: number;
+  /** Vorstrecker der Yacht-Anzahlung. NULL = Trip-Skipper. */
+  advancer_person_id: string | null;
   wero_id: string | null;
   whatsapp_template: string | null;
 }
@@ -44,7 +46,7 @@ export async function getPlan(tripId: string): Promise<PrepaymentPlan | null> {
   const supabase = await readClient();
   const { data } = await supabase
     .from("prepayment_plan")
-    .select("trip_id, split_method, total_amount, wero_id, whatsapp_template")
+    .select("trip_id, split_method, total_amount, advancer_person_id, wero_id, whatsapp_template")
     .eq("trip_id", tripId)
     .maybeSingle();
   if (!data) return null;
