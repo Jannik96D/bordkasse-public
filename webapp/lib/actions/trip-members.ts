@@ -324,6 +324,27 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
         .maybeSingle();
       const isFirstEmail = !priorPriv?.email;
 
+      // Gehört die E-Mail bereits einer anderen Person? Dann würde der
+      // Upsert mit der unique-constraint auf persons_private.email kollidieren.
+      // Stattdessen geben wir eine sinnvolle Meldung zurück: die andere Person
+      // ist wahrscheinlich der „echte" Eintrag — der Skipper sollte den
+      // aktuellen Ghost-Eintrag löschen und stattdessen den vorhandenen
+      // Account einladen.
+      const { data: emailInUse } = await supabase
+        .from("persons_private")
+        .select("person_id, persons!inner(display_name)")
+        .ilike("email", email)
+        .neq("person_id", member.person_id)
+        .maybeSingle();
+      if (emailInUse) {
+        const otherRel = (emailInUse as unknown as { persons: { display_name: string } | { display_name: string }[] }).persons;
+        const otherName = (Array.isArray(otherRel) ? otherRel[0] : otherRel)?.display_name ?? "anderem Crew-Mitglied";
+        return {
+          status: "error",
+          message: `Diese E-Mail gehört bereits zu „${otherName}". Lösche dieses Crew-Mitglied und füge stattdessen ${otherName} über „Crew hinzufügen" mit dieser E-Mail neu hinzu.`,
+        };
+      }
+
       // E-Mail liegt in persons_private — upsert, weil Ghost evtl.
       // noch keine private-Row hat.
       const { error: privError } = await supabase
