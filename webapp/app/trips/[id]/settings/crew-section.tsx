@@ -104,7 +104,7 @@ export function CrewSection({
                     </span>
                   )}
                   {m.is_alcoholic_effective && (
-                    <span className="rounded-full bg-gold-soft px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gold">
+                    <span className="rounded-full bg-gold-soft px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gold-dark">
                       🍷
                     </span>
                   )}

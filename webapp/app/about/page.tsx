@@ -337,7 +337,7 @@ export default function AboutPage() {
                 href={`#${f.id}`}
                 className="flex items-baseline gap-2 text-ink hover:text-primary"
               >
-                <span className="text-xs font-semibold text-gold">
+                <span className="text-xs font-semibold text-gold-dark">
                   {String(idx + 1).padStart(2, "0")}
                 </span>
                 <span>{f.title}</span>
@@ -351,7 +351,7 @@ export default function AboutPage() {
         {features.map((f, idx) => (
           <li key={f.id} id={f.id} className="scroll-mt-6">
             <div className="mb-3 flex items-baseline gap-3">
-              <span className="text-xs font-semibold uppercase tracking-wide text-gold">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gold-dark">
                 {String(idx + 1).padStart(2, "0")}
               </span>
               <h2 className="text-xl font-bold text-primary">{f.title}</h2>
