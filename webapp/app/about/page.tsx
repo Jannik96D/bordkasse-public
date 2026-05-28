@@ -122,11 +122,12 @@ const features: Feature[] = [
         <p>
           „<strong>Pro Person</strong>“ ist für Restaurants, in denen jede:r
           die eigene Bestellung zahlt. Du musst die Rechnungssumme nicht
-          extra eingeben — und vor allem nichts im Kopf zusammenrechnen. Du
-          trägst die Einzelposten pro Person einfach ab vom Beleg ein,
-          z. B. <em>Getränke 3,50 €</em> und <em>Essen 13 €</em> für Anna,
-          dann <em>Getränke 4 €</em> und <em>Essen 15,80 €</em> für Ben —
-          die App summiert das automatisch zum Gesamtbetrag jeder Person
+          extra eingeben — und vor allem kein Kopfrechnen, keine
+          Nebenrechnungen, kein Taschenrechner. Du trägst die Einzelposten
+          pro Person einfach ab vom Beleg ein, z. B.{" "}
+          <em>Getränke 3,50 €</em> und <em>Essen 13 €</em> für Anna, dann{" "}
+          <em>Getränke 4 €</em> und <em>Essen 15,80 €</em> für Ben — die
+          App summiert das automatisch zum Gesamtbetrag jeder Person
           und zur Rechnungssumme. Das <strong>Trinkgeld</strong> kommt in
           ein eigenes Feld und wird anschließend auf alle Beteiligten
           umgelegt (wahlweise im Verhältnis zum jeweiligen Rechnungsbetrag
