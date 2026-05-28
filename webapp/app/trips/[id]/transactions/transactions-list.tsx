@@ -121,7 +121,7 @@ export function TransactionsList({
                       <div className="min-w-0 flex-1">
                         <p className="font-medium">
                           {t.type === "credit" && (
-                            <span className="mr-2 rounded-full bg-gold-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gold-dark">
+                            <span className="mr-2 rounded-full bg-navy-light px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
                               Gutschrift
                             </span>
                           )}
