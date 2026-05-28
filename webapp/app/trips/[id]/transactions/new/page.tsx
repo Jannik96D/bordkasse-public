@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { getTrip, getTripMembers, getCategories } from "@/lib/queries/trips";
+import { getTranches } from "@/lib/queries/prepayments";
 import { TransactionForm } from "./transaction-form";
 
 export default async function NewTransactionPage({
@@ -9,11 +10,12 @@ export default async function NewTransactionPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [trip, members, categories, person] = await Promise.all([
+  const [trip, members, categories, person, tranches] = await Promise.all([
     getTrip(id),
     getTripMembers(id),
     getCategories(id),
     getCurrentPerson(),
+    getTranches(id),
   ]);
   if (!trip) notFound();
   const isSkipper = person?.id === trip.skipper_id;
@@ -40,6 +42,7 @@ export default async function NewTransactionPage({
           display_name: m.display_name,
         }))}
         categories={categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon }))}
+        tranches={tranches.map((t) => ({ id: t.id, label: t.label, due_date: t.due_date }))}
       />
     </main>
   );

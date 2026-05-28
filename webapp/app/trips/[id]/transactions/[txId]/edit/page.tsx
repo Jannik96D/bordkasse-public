@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { getTrip, getTripMembers, getCategories } from "@/lib/queries/trips";
+import { getTranches } from "@/lib/queries/prepayments";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   TransactionForm,
@@ -20,11 +21,12 @@ export default async function EditTransactionPage({
 }) {
   const { id: tripId, txId } = await params;
 
-  const [trip, members, categories, person] = await Promise.all([
+  const [trip, members, categories, person, tranches] = await Promise.all([
     getTrip(tripId),
     getTripMembers(tripId),
     getCategories(tripId),
     getCurrentPerson(),
+    getTranches(tripId),
   ]);
   if (!trip) notFound();
   if (!person) redirect(`/login?redirect=/trips/${tripId}/transactions`);
@@ -34,7 +36,7 @@ export default async function EditTransactionPage({
     .from("transactions")
     .select(`
       id, type, date, description, amount, alcohol_amount, tip_amount, tip_distribution, split_type,
-      paid_by, category_id, credit_from, credit_to, created_by, deleted_at, trip_id,
+      paid_by, category_id, credit_from, credit_to, created_by, deleted_at, trip_id, tranche_id,
       transaction_participants(person_id, amount)
     `)
     .eq("id", txId)
@@ -88,6 +90,7 @@ export default async function EditTransactionPage({
       splitType: (tx.split_type ?? "equal") as SplitType,
       participantIds,
       participantAmounts,
+      trancheId: tx.tranche_id ?? null,
     };
   } else {
     creditInitial = {
@@ -97,6 +100,7 @@ export default async function EditTransactionPage({
       amount: Number(tx.amount),
       creditFrom: tx.credit_from ?? "",
       creditTo: tx.credit_to,
+      trancheId: tx.tranche_id ?? null,
     };
   }
 
@@ -108,6 +112,7 @@ export default async function EditTransactionPage({
         currentPersonId={person.id}
         members={memberOptions}
         categories={categoryOptions}
+        tranches={tranches.map((t) => ({ id: t.id, label: t.label, due_date: t.due_date }))}
         expenseInitial={expenseInitial}
         creditInitial={creditInitial}
       />
