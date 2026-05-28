@@ -192,8 +192,6 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
 
       {step === 1 && (
         <section className="space-y-4 rounded-lg border border-rule bg-paper p-5">
-          <CrewQuickAdd tripId={tripId} memberCount={members.length} />
-
           <label className="block text-sm">
             <span className="text-ink-soft">Gesamtsumme der Anzahlung (€)</span>
             <input
@@ -270,6 +268,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
               </button>
 
               <p className="text-sm font-medium text-primary">Zuordnung Crew → Koje</p>
+              <CrewQuickAdd tripId={tripId} memberCount={members.length} />
               <ul className="space-y-2">
                 {members.map((m) => (
                   <li key={m.id} className="flex items-center justify-between gap-3 rounded-md border border-rule px-3 py-2 text-sm">
