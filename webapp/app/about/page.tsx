@@ -342,15 +342,6 @@ export default function AboutPage() {
               </a>
             </li>
           ))}
-          <li>
-            <a
-              href="#wie-entstanden"
-              className="flex items-baseline gap-2 text-ink hover:text-primary"
-            >
-              <span className="text-xs font-semibold text-gold">★</span>
-              <span>Wie diese App entstanden ist</span>
-            </a>
-          </li>
         </ol>
       </nav>
 
@@ -383,63 +374,7 @@ export default function AboutPage() {
         ))}
       </ol>
 
-      <section
-        id="wie-entstanden"
-        className="mt-16 scroll-mt-6 rounded-lg border border-primary/30 bg-navy-light/30 p-6"
-      >
-        <h2 className="text-lg font-semibold text-primary">
-          Wie diese App entstanden ist
-        </h2>
-        <p className="mt-3 text-sm leading-relaxed text-ink">
-          Diese App wurde von <strong>Jannik</strong> gemeinsam mit{" "}
-          <strong>Claude</strong>, dem KI-Assistenten von{" "}
-          <a
-            href="https://www.anthropic.com"
-            target="_blank"
-            rel="noreferrer"
-            className="underline hover:text-primary"
-          >
-            Anthropic
-          </a>
-          , gebaut — Stichwort{" "}
-          <strong>
-            <a
-              href="https://en.wikipedia.org/wiki/Vibe_coding"
-              target="_blank"
-              rel="noreferrer"
-              className="underline hover:text-primary"
-            >
-              Vibe Coding
-            </a>
-          </strong>
-          .
-        </p>
-        <p className="mt-3 text-sm leading-relaxed text-ink-soft">
-          Der Ablauf ist simpel: Jannik beschreibt in normaler Sprache, was
-          die App können soll. Claude schreibt den passenden Code, beide
-          probieren ihn aus, verbessern, ergänzen, machen Screenshots. Aus
-          einer einfachen Excel-Idee ist so in wenigen Tagen eine voll
-          funktionsfähige Web-App geworden — inklusive Login,
-          Crew-Verwaltung, fünf verschiedener Aufteilungs-Arten, Bilanz,
-          automatischer Abrechnung per E-Mail und einer DSGVO-konformen
-          Datenlöschung.
-        </p>
-        <p className="mt-3 text-sm leading-relaxed text-ink-soft">
-          Wer das selbst ausprobieren möchte: der gesamte Quellcode liegt
-          öffentlich auf{" "}
-          <a
-            href="https://github.com/Jannik96D/bordkasse-public"
-            target="_blank"
-            rel="noreferrer"
-            className="underline hover:text-primary"
-          >
-            GitHub
-          </a>
-          .
-        </p>
-      </section>
-
-      <section className="mt-12 rounded-lg border border-rule bg-paper-soft p-6">
+      <section className="mt-16 rounded-lg border border-rule bg-paper-soft p-6">
         <h2 className="text-lg font-semibold text-primary">
           Was die App <em>nicht</em> ist
         </h2>
