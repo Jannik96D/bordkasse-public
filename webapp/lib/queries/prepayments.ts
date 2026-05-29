@@ -177,6 +177,32 @@ export async function getPrepaymentPoolBalances(tripId: string): Promise<Prepaym
 }
 
 /**
+ * Pro Tranche: was hat der Vorstrecker schon als Ausgabe (an die
+ * Charteragentur) erfasst? Wird im Reminder-Banner verwendet, um zu
+ * zeigen, was noch zu überweisen ist.
+ *
+ * Eine Skipper→Charter-Überweisung ist eine `transactions.type='expense'`
+ * Buchung mit `tranche_id` ≠ NULL und `paid_by` = der Vorstrecker.
+ */
+export async function getCharterPaymentsPerTranche(tripId: string): Promise<Record<string, number>> {
+  const supabase = await readClient();
+  const { data } = await supabase
+    .from("transactions")
+    .select("tranche_id, amount")
+    .eq("trip_id", tripId)
+    .eq("type", "expense")
+    .is("deleted_at", null)
+    .not("tranche_id", "is", null);
+  const map: Record<string, number> = {};
+  for (const r of data ?? []) {
+    if (r.tranche_id) {
+      map[r.tranche_id] = (map[r.tranche_id] ?? 0) + Number(r.amount);
+    }
+  }
+  return map;
+}
+
+/**
  * Selbst-Meldungen (Phase 2): noch nicht vom Skipper bestätigte
  * Anzahlungs-Gutschriften. Wird im Matrix-UI für ⏳-Indikatoren benutzt.
  */
