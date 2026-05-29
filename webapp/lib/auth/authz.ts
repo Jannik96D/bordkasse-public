@@ -114,6 +114,35 @@ export async function requireSkipperOrAdmin(tripId: string): Promise<AuthzResult
   return requireSkipper(tripId);
 }
 
+/**
+ * Eingeloggt UND (Skipper ODER Admin ODER Vorstrecker des Anzahlungs-Plans
+ * dieses Trips).
+ *
+ * Use-Case: der Skipper-Original ist nicht zwingend derselbe wie der, der
+ * die Yacht-Anzahlung vorstreckt. Wenn z.B. Lucas das Geld vorstreckt
+ * und Jannik der Trip-Skipper ist, darf Lucas seine eigenen eingehenden
+ * Crew-Anzahlungen ankreuzen und Selbstmeldungen bestätigen/ablehnen.
+ */
+export async function requireSkipperAdminOrAdvancer(tripId: string): Promise<AuthzResult> {
+  const auth = await requireAuth();
+  if (!auth.ok) return auth;
+  if (await isAdmin()) return auth;
+
+  const supabase = createAdminClient();
+  const [{ data: member }, { data: trip }, { data: plan }] = await Promise.all([
+    supabase.from("trip_members").select("is_skipper").eq("trip_id", tripId).eq("person_id", auth.personId).maybeSingle(),
+    supabase.from("trips").select("skipper_id").eq("id", tripId).maybeSingle(),
+    supabase.from("prepayment_plan").select("advancer_person_id").eq("trip_id", tripId).maybeSingle(),
+  ]);
+  if (member?.is_skipper) return auth;
+  const advancerId = plan?.advancer_person_id || trip?.skipper_id;
+  if (advancerId && advancerId === auth.personId) return auth;
+  return {
+    ok: false,
+    message: "Nur Skipper, Admin oder der Vorstrecker der Anzahlung dürfen das.",
+  };
+}
+
 /** Eingeloggt UND Crew-Mitglied dieses Trips (Skipper-Flag egal). */
 export async function requireMember(tripId: string): Promise<AuthzResult> {
   const auth = await requireAuth();
