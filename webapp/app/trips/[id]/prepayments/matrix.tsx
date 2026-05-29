@@ -549,7 +549,7 @@ function PendingBanner({
               <div className="min-w-0 flex-1">
                 <strong>{name}</strong> hat <strong className="text-primary">{formatEuro(p.amount)}</strong> für{" "}
                 <strong>{tranche?.label ?? "Tranche"}</strong> gemeldet
-                {p.description && <span className="block text-xs text-ink-soft">„{p.description}"</span>}
+                {p.description && <span className="block text-xs text-ink-soft">„{p.description}&ldquo;</span>}
                 <span className="block text-xs text-ink-soft">{formatDeDate(p.date)}</span>
               </div>
               <PendingActions transactionId={p.transaction_id} />
