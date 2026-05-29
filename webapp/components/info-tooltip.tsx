@@ -45,7 +45,7 @@ export function InfoTooltip({
   }, [open]);
 
   return (
-    <span ref={wrapperRef} className="relative inline-flex align-middle">
+    <span ref={wrapperRef} className="relative inline-flex shrink-0 align-middle">
       <button
         type="button"
         aria-label={label}
@@ -60,7 +60,23 @@ export function InfoTooltip({
         onMouseLeave={() => setOpen(false)}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
-        className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-rule text-[10px] font-semibold leading-none text-ink-soft hover:border-primary/40 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+        // Explizite Maße via inline-style — manche Browser-Defaults für
+        // `<button>` (min-width / padding) überschreiben Tailwind-Utilities
+        // und ziehen den Button zu einer Pille auseinander. Mit fixed
+        // width/height + box-sizing:border-box bleibt es ein Kreis,
+        // unabhängig vom Eltern-Layout (flex-Parent, etc.).
+        style={{
+          width: 16,
+          height: 16,
+          minWidth: 16,
+          minHeight: 16,
+          padding: 0,
+          boxSizing: "border-box",
+          fontStyle: "italic",
+          fontFamily: "Georgia, 'Times New Roman', serif",
+          lineHeight: 1,
+        }}
+        className="ml-1 inline-flex shrink-0 items-center justify-center rounded-full border border-rule text-[11px] font-bold text-ink-soft hover:border-primary/40 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
       >
         i
       </button>
