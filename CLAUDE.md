@@ -279,8 +279,19 @@ Schriften: Campton Bold (Display) → Arial Bold (H2) → Arial Regular (Body).
 - **Hosting-Region:** Vercel `regions: ["fra1"]` in `vercel.json` (sonst US-Default `iad1`); Supabase Central EU (Frankfurt); Mailserver whost.dev (DE).
 - **Security:** RLS-Policies, Service-Role nur in Server Actions, Security-Header (HSTS/CSP/X-Frame/Referrer-Policy), `noindex`-Meta + `robots.txt`.
 - **Explizite Data-API-GRANTs (Migration 0022):** Supabase deprecatet ab 30.10.2026 die automatischen `GRANT`s auf neue Tabellen im public-Schema. Migration `0022_explicit_grants.sql` setzt deshalb für alle bestehenden Tabellen/Views/`simplify_debts()` explizite `GRANT … TO authenticated` und definiert via `ALTER DEFAULT PRIVILEGES` Defaults für künftige Tabellen. **Konsequenz für neue Migrationen:** `CREATE TABLE foo …` reicht aus, der GRANT kommt automatisch — kein manuelles `GRANT` pro Migration nötig. RLS-Policies aus 0004 filtern weiterhin pro Row.
+- **Anzahlungs-Modul** (Migrationen 0023–0026, Spec `docs/prepayments.md`): Mechanik für Yacht-Anzahlungen, die der Skipper Monate vor Törn-Start an die Charteragentur leistet und sich von der Crew rückerstatten lässt.
+  - **Wizard** unter `/trips/[id]/prepayments/setup` (zwei Schritte): Aufteilung (`gleichmaessig` / `zeitanteilig` / `individuell` / `kojen`) + Vorstrecker-Auswahl + optional Kojen-Editor + WhatsApp-Vorlage; Schritt 2 = Tranchen-Liste mit Fälligkeit + Prozent (Σ = 100). Crew kann inline im Wizard angelegt werden (`CrewQuickAdd`).
+  - **Matrix** unter `/trips/[id]/prepayments`: Person × Tranche mit Status-Symbolen (○ offen, ◐ teilweise, ✓ bezahlt, ⏰ überfällig, ⏳ pending). Klick auf Zelle → Modal zur Zahlungs-Erfassung mit Überzahlungs-Splitting auf zweite Tranche. Pro Person-Zeile 🔔 (Erinnerungs-Mail) und 💬 (WhatsApp-Text). Sammel-Text-Button oben. Charter-Reminder-Banner für den Vorstrecker zeigt, was er an die Agentur noch überweisen muss (mit Überfälligkeits-Indikator). Vorstrecker-Zeile trägt blaues VORSTRECKER-Badge, Bell/WhatsApp-Buttons sind in seiner Zeile deaktiviert.
+  - **Vorstrecker:** wer streckt die Yacht-Anzahlung vor (Default = Trip-Skipper, im Wizard editierbar). Migration 0024 relaxed `tx_credit_self` für tranche-getaggte Credits, damit der Vorstrecker seinen eigenen Anteil als Selbst-Verrechnung abhaken kann (bilanzneutral). Der Vorstrecker darf abhaken, bestätigen, ablehnen und Erinnerungen verschicken — auch wenn er nicht Trip-Skipper ist (`requireSkipperAdminOrAdvancer` in `lib/auth/authz.ts`).
+  - **Phase 2 — Crew-Selbstmeldung** (Migration 0025): Crew klickt in `/prepayments` „Ich habe gezahlt" → Eintrag mit `transactions.confirmed_at = NULL` (= pending). Vorstrecker bekommt eine Mail (`payment-pending-template.ts`) und sieht in der Matrix einen gelben Pending-Banner mit ✓ / ✗ Buttons. Erst bei Bestätigung zählt der Eintrag in `v_prepayment_payments`. `transactions.confirmed_at` hat `DEFAULT now()` — normale Skipper-/Admin-Eingaben sind sofort bestätigt, nur `submitSelfPayment` schreibt explizit NULL.
+  - **Crew-Fälligkeit 3 Tage vor Charter:** `prepayment_tranches.due_date` ist die Charter-Fälligkeit (gegenüber Agentur). Überall, wo die Crew die Frist sieht (Matrix-Header, Crew-Self-View, Erinnerungs-Mail, WhatsApp), wird über `toCrewDueDate()` in `lib/prepayments/dates.ts` ein 3-Tage-Puffer abgezogen. Der Charter-Reminder-Banner zeigt weiterhin das echte Datum.
+  - **Bilanz Drei-Block-Übersicht** (in `/trips/[id]/balance` wenn ein Plan existiert): Anzahlungs-Pool / Bordkasse / Gesamt pro Person. Anzahlungs-Saldo = aktiv_beigetragen − soll (pragmatisch, nicht double-entry: credit_to des Vorstreckers zählt NICHT negativ bei ihm, weil treuhänderisch). Bordkasse-Saldo kommt aus separater View `v_balances_bordkasse_only` (Migration 0026, filtered auf `tranche_id IS NULL`). Untere Tabelle ist konsistent: zeigt nur Bordkasse-Buchungen wenn ein Plan existiert.
+  - **Crew-Wechsel-Workflow:** `replaceMember` in `lib/actions/prepayments.ts` legt neue Person an, überträgt Obligation + Anwesenheit + Koje, erzeugt Gegen-Gutschriften für die bereits geleisteten Anzahlungen (B zahlt A privat aus → A geht auf 0 €, B rutscht in A's Position). Ghost-Crew ohne E-Mail-Adresse möglich; bei nachträglich eingetragener E-Mail wird der Ghost automatisch in den bestehenden Account integriert (`mergeGhostIntoExistingPerson` in `lib/actions/trip-members.ts`), außer real und Ghost wären beide schon Crew des selben Trips — dann Block mit klarer Meldung.
+  - **Tranche-Dropdown in normaler Buchungs-/Gutschrift-Form** (`webapp/app/trips/[id]/transactions/new/transaction-form.tsx`): optional eine Tranche zuordnen, dann landet die Buchung im Anzahlungs-Pool (taucht nicht im Bordkasse-Saldo auf). Die Yacht-Anzahlung wird so erfasst.
+  - **Auto-Merge bei Crew-E-Mail-Kollision:** Wenn beim Inline-Edit einer Ghost-Crew eine E-Mail nachgetragen wird, die schon zu einem bestehenden Account gehört, mergt die Action den Ghost automatisch in den bestehenden Account (alle transactions, prepayment_obligations, trip_members, audit_log, settled_debts werden umgehängt). Pre-Check: ist die echte Person bereits Mitglied desselben Trips → Block mit Aufforderung, manuell aufzuräumen.
+  - **A11y:** alle interaktiven Zellen tragen einen vollen Kontext-`aria-label` („Lucas, Endzahlung: bezahlt, 180,00 € von 180,00 € bezahlt"), Status-Emojis sind `aria-hidden="true"`. Pending-Banner ist `role="region"`. Touch-Targets ≥ 44px.
 
-**Berechnungslogik:** in `webapp/supabase/migrations/0002_views.sql` (`v_transaction_shares`) und `0003_functions.sql` (`simplify_debts()`). TS-Mirror in `webapp/lib/calc/` — nur für Vitest, nicht im Render-Pfad.
+**Berechnungslogik:** in `webapp/supabase/migrations/0002_views.sql` (`v_transaction_shares`), `0003_functions.sql` (`simplify_debts()`), `0023_prepayments.sql` (`v_prepayment_payments`), `0025_self_payment_confirmation.sql` (`v_prepayment_pending`) und `0026_bordkasse_only_balances.sql` (`v_balances_bordkasse_only`). TS-Mirror in `webapp/lib/calc/` — nur für Vitest, nicht im Render-Pfad. Anzahlungs-Soll-Berechnung in `webapp/lib/calc/prepayment-shares.ts` (`calculateObligations`).
 
 **Wichtige Architektur-Entscheidungen:**
 - **Schreib-Pfad:** Server Actions schreiben mit dem Service-Role-Client (`lib/supabase/admin.ts`), weil das User-JWT in Next.js 16 Server Actions die DB nicht zuverlässig erreicht. Auth/Authz wandert dadurch ins App-Layer (`lib/auth/authz.ts` mit `requireAuth/Skipper/Admin/SkipperOrAdmin/Member` + `isEmailAllowedToSignIn`).
@@ -291,7 +302,7 @@ Schriften: Campton Bold (Display) → Arial Bold (H2) → Arial Regular (Body).
 
 **Deploy:** Vercel mit Root Directory `webapp`. Pflicht-Env-Vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_EMAILS`, `CRON_SECRET`.
 
-**Tests:** Vitest (`__tests__/calc.test.ts` + `schema.test.ts`) gegen S1–S7, Playwright (`e2e/smoke.spec.ts`) für öffentliche Routes + Auth-Schutz + Security-Header.
+**Tests:** Vitest (`__tests__/calc.test.ts` + `schema.test.ts` + `prepayments.test.ts`) gegen S1–S7 sowie das Spec-Szenario „Yacht-Anzahlung mit Kojen", Playwright (`e2e/smoke.spec.ts`) für öffentliche Routes + Auth-Schutz + Security-Header.
 
 ## Projekt-Dateien
 
@@ -304,22 +315,26 @@ Schriften: Campton Bold (Display) → Arial Bold (H2) → Arial Regular (Body).
 │   ├── apps-script-reference.md         # Apps Script Funktionen + Zell-Mapping
 │   ├── buttons-setup.md                 # Klickbare Speichern-Buttons in Google Sheets einrichten
 │   ├── protection-setup.md              # Tabellenblätter schützen, Eingabefelder offen lassen
+│   ├── prepayments.md                   # Anzahlungs-Modul Spec (Tranchen, Wizard, Matrix, Selbstmeldung)
 │   └── web-app-spec.md                  # Migrations-Spezifikation
 ├── scripts/
 │   ├── migrate_v8_to_v9.py              # Reproduzierbarer xlsx-Umbau v8→v9
 │   └── migrate_v9_to_v10.py             # Reproduzierbarer xlsx-Umbau v9→v10
 ├── webapp/                              # Web-App (Next.js + Supabase) — Setup in webapp/README.md
 │   ├── app/                             # App Router (Trips, Auth, Profile, Stats, Cron, About)
-│   │   └── about/                       # Public Funktionsübersicht mit Screenshots
+│   │   ├── about/                       # Public Funktionsübersicht mit Screenshots
+│   │   └── trips/[id]/prepayments/      # Anzahlungs-Modul: Matrix, Wizard, Crew-Self-View
 │   ├── components/                      # bottom-nav, realtime-trip, offline-banner, sw-register
 │   ├── lib/                             # supabase, auth (mit authz), actions, queries,
-│   │                                    # calc, validation, categories/icons, offline, db/audit
+│   │                                    # calc, validation, categories/icons, offline, db/audit,
+│   │                                    # prepayments/ (dates, whatsapp), email/ (templates + send)
 │   ├── public/                          # Logo, Manifest, Service Worker, robots.txt
 │   │   └── about/                       # 14 Mobile-Screenshots für /about-Seite
 │   ├── scripts/                         # take-screenshots.ts (Playwright + Mailpit-Login)
 │   ├── supabase/                        # config.toml + migrations + email-templates + seed
 │   │                                    # + seed_demo.sql (synthetische Crew für Screenshots)
-│   ├── __tests__/                       # Vitest (calc + schema)
+│   │                                    # + seed_prepayments_test.sql (Trip mit Crew für Anzahlungs-Tests)
+│   ├── __tests__/                       # Vitest (calc, schema, prepayments)
 │   └── e2e/                             # Playwright Smoke-Tests
 ├── .github/workflows/webapp-ci.yml      # CI für webapp/ (lint + typecheck + test)
 └── assets/
