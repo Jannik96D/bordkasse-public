@@ -297,7 +297,7 @@ Alle Mails nutzen [`lib/email/mail-shell.ts`](../webapp/lib/email/mail-shell.ts)
 
 ### Erinnerungsmail an Crew (`prepayment-reminder-template.ts`)
 
-Pro Person-Zeile in der Matrix ein Knopf 🔔, plus Auto-Versand vom Cron 3 Tage vor Crew-Fälligkeit. Inhalt:
+Pro Person-Zeile in der Matrix ein Knopf 🔔, plus Auto-Versand vom Cron innerhalb der letzten 3 Tage vor Crew-Fälligkeit. Crew mit pending Selbstmeldung wird automatisch übersprungen. Inhalt:
 - Anrede mit Display-Name
 - Liste der offenen Tranchen mit Soll-Betrag und Crew-Fälligkeitsdatum (= Charter-Frist minus 3 Tage)
 - Dynamischer Wero-Hinweis: „Bitte schicke **{Vorstrecker}** per Wero die fällige Anzahlung." mit Wero-ID + Verwendungszweck als Pille. **Kein Klick-Link** — Wero hat keine offene API. Falls keine Wero-ID gepflegt: „Frag {Vorstrecker} nach den Überweisungsdetails."
@@ -314,7 +314,7 @@ In der Matrix-Zeile des Vorstreckers schickt der 🔔-Button **nicht** seine per
 - Schon an Agentur überwiesen (Σ expense-Buchungen mit dieser Tranche)
 - Noch zu überweisen
 
-Wird auch automatisch vom Cron 3 Tage vor Charter-Fälligkeit verschickt. Routing-Logik: `personId === advancer_person_id` → Charter-Pfad; sonst Crew-Pfad.
+Wird auch automatisch vom Cron innerhalb der letzten 3 Tage vor Charter-Fälligkeit verschickt — aber nur wenn der Vorstrecker der Agentur noch was schuldet (`remaining_to_agency > 0`). „Crew bei dir" und „Σ Crew-Soll" klammern den Vorstrecker selbst aus, sein treuhänderischer Eigen-Anteil fließt nicht in diese Zahlen ein. In der Matrix ist die Vorstrecker-Glocke disabled, wenn nichts mehr offen ist. Routing-Logik: `personId === advancer_person_id` → Charter-Pfad; sonst Crew-Pfad.
 
 ### Selbstmeldungs-Benachrichtigung (`payment-pending-template.ts`)
 
@@ -328,6 +328,12 @@ Generisches Template mit drei Varianten:
 - `payment_rejected` → wenn jemand eine Selbstmeldung abgelehnt hat (Empfänger: Crew-Person + Vorstrecker, falls Actor ≠ beide)
 
 Self-Aktionen (Crew meldet selbst, Vorstrecker bestätigt selbst) erzeugen keine Notice-Mail.
+
+Bei Overzahlung mit Overflow-Split in `recordPayment` (part1 auf gewählte Tranche, part2 auf overflow_tranche_id) geht **pro gebuchter Tranche eine eigene Notice-Mail** mit dem jeweiligen Teilbetrag raus — nicht eine Mail mit Gesamtbetrag auf der ersten Tranche.
+
+### Observer-Mail bei Bordkasse-Schulden (`debt-observer-template.ts`)
+
+Wenn eine **dritte Person** (Admin) eine Schuld zwischen zwei Crew-Mitgliedern abhakt, bekommen Skipper und Vorstrecker (sofern sie nicht ohnehin Schuldner/Gläubiger sind) eine neutrale Info-Mail mit dem Wortlaut „Schuld zwischen A und B abgehakt" — nicht die normale debt-settled-Mail, die sie sonst irreführend als Gläubiger/Schuldner adressieren würde. Eigenes Template über `mail-shell.ts`, eigene `"observer"`-Rolle im recipients-Array.
 
 ### WhatsApp-Text — pro Person
 
@@ -377,7 +383,7 @@ Diese Punkte sind über die ursprüngliche Phase-1/Phase-2-Aufteilung hinaus daz
 - **Crew-Fälligkeit 3 Tage vor Charter** (`lib/prepayments/dates.ts:toCrewDueDate`): die Charter-Frist ist verbindlich gegenüber der Agentur — die Crew soll 3 Tage vorher gezahlt haben, damit der Vorstrecker rechtzeitig überweisen kann. Wird konsistent in Matrix-Header, Crew-Self-View, WhatsApp-Vorlage und Mails angewandt; der Charter-Reminder-Banner zeigt weiter das Originaldatum.
 - **Bordkasse vs. Anzahlungs-Pool getrennt** (Migrationen 0026 + 0027): `v_balances_bordkasse_only` und `simplify_debts_bordkasse_only` filtern auf `tranche_id IS NULL`. Die untere Bilanz-Tabelle zeigt bei aktivem Plan nur den Bordkasse-Saldo; der Anzahlungs-Pool steht oben als Drei-Block-Übersicht.
 - **Charter-Reminder-Mail an den Vorstrecker** ([`lib/email/charter-reminder-template.ts`](../webapp/lib/email/charter-reminder-template.ts)): pro Tranche Soll Agentur, Σ Crew-Eingänge bei mir, schon-überwiesen, noch offen. Wird ausgelöst entweder vom 🔔-Button in der Vorstrecker-Zeile oder automatisch vom Cron 3 Tage vor Charter-Frist. `lib/email/send-prepayment-reminder.ts` routet zwischen Crew-Pfad und Vorstrecker-Pfad anhand von `personId === advancer_person_id`.
-- **Auto-Reminder-Cron** (`/api/cron/prepayment-reminders`, täglich `0 7 * * *` in `vercel.json`, Dedup über `prepayment_reminder_log` aus Migration 0028): `crew_3d` = 3 Tage vor Crew-Fälligkeit an offene Crew-Mitglieder; `advancer_3d` = 3 Tage vor Charter-Fälligkeit an den Vorstrecker (Charter-Übersicht). Pro `(tranche_id, person_id, reminder_type)` höchstens ein Eintrag — mehrfache Cron-Läufe spammen nicht. Abgelaufene Trips übersprungen.
+- **Auto-Reminder-Cron** (`/api/cron/prepayment-reminders`, täglich `0 7 * * *` in `vercel.json`, Dedup über `prepayment_reminder_log` aus Migration 0028): `crew_3d` = innerhalb der letzten 6 Tage vor Charter-Frist an offene Crew-Mitglieder (= 3 Tage vor Crew-Frist); `advancer_3d` = innerhalb der letzten 3 Tage vor Charter-Frist an den Vorstrecker (Charter-Übersicht). Fenster statt exakter Tagesgleichheit, damit ein verpasster Cron-Tag (Outage, Deploy) keinen Reminder verliert. Pro `(tranche_id, person_id, reminder_type)` höchstens ein Eintrag. **Pending-Awareness:** Crew mit unbestätigter Selbstmeldung (`v_prepayment_pending`) wird übersprungen — sie wartet auf den Vorstrecker. **Advancer-Skip:** keine `advancer_3d`-Mail wenn die Tranche bereits voll an die Agentur überwiesen ist. **Reject räumt Dedup-Log:** `rejectSelfPayment` löscht den `crew_3d`-Eintrag der betroffenen Person, sodass eine korrigierte Mahnung folgen kann. Abgelaufene Trips übersprungen.
 - **Notice-Mails bei Admin-Aktionen** ([`lib/email/prepayment-notice-template.ts`](../webapp/lib/email/prepayment-notice-template.ts)): wenn `recordPayment` / `confirmSelfPayment` / `rejectSelfPayment` von einer dritten Person (Admin/Co-Skipper) ausgelöst wird, gehen Info-Mails an Crew-Person + Vorstrecker (sofern Actor ≠ Empfänger). Self-Aktionen erzeugen keine Notice. Pendant für Bordkasse-Schulden: bei Admin-Drittaktion bekommen Skipper und Vorstrecker zusätzliche Observer-Mails.
 - **Einheitliches Mail-Design** ([`lib/email/mail-shell.ts`](../webapp/lib/email/mail-shell.ts)): Logo-PNG-Header + Card-Wrapper + Footer als gemeinsame Shell. Alle sechs Templates (settlement, debt-settled, prepayment-reminder, charter-reminder, payment-pending, prepayment-notice) nutzen sie.
 
