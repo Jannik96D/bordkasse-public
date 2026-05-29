@@ -132,43 +132,87 @@ export interface PaymentEntry {
 }
 
 /**
- * Anzahlungs-Pool-Saldo pro Person (Eingänge − Soll).
- * Positiver Wert = die Person hat mehr eingezahlt, als sie schuldet.
- * Negativer Wert = die Person ist mit Anzahlungen noch im Rückstand.
+ * Anzahlungs-Pool-Saldo pro Person — „was muss diese Person noch zur
+ * Anzahlung beitragen?"-Sicht.
  *
- * Wird in der Bilanz-Drei-Block-Ansicht verwendet.
+ * Formel (für jede Person):
+ *   saldo = aktiv_beigetragen − soll
+ *
+ *   - aktiv_beigetragen für Crew    = Σ credit_given mit tranche_id (Zahlung an Vorstrecker)
+ *   - aktiv_beigetragen für Vorstrecker = charter_paid (an Agentur überwiesen)
+ *                                       + self_credit (Selbst-Verrechnung des eigenen Anteils)
+ *   - soll                          = prepayment_obligations.total_amount
+ *
+ * Bewusst NICHT als double-entry gezählt: Geld, das der Vorstrecker als
+ * `credit_to` erhält, ist treuhänderisch — es zählt schon beim Crew-Member
+ * als „bezahlt", nicht zusätzlich beim Vorstrecker als negativ. Dadurch
+ * spiegelt der Saldo den intuitiven „du musst noch X € liefern"-Stand
+ * statt einer formell-balanced Bilanz.
+ *
+ * Σ über alle Personen = − offen-Stand der Charter-Verpflichtung
+ *   - Niemand hat was gemacht: Σ = −Σ soll (komplette Charter offen)
+ *   - Alles erledigt: Σ = 0
  */
 export interface PrepaymentPoolBalance {
   person_id: string;
   soll: number;
+  /** Aktiv ins Anzahlungs-System eingebracht (Crew-Zahlung an Vorstrecker ODER Vorstrecker-Auslage an Charter). */
   paid: number;
-  /** paid − soll: + = überzahlt / Guthaben, − = offen */
+  /** paid − soll: + = überzahlt, − = schuldet noch, 0 = ausgeglichen. */
   balance: number;
 }
 
 export async function getPrepaymentPoolBalances(tripId: string): Promise<PrepaymentPoolBalance[]> {
   const supabase = await readClient();
-  const [{ data: oblRows }, { data: payRows }] = await Promise.all([
+  const [{ data: oblRows }, { data: planRow }, { data: tripRow }, { data: txRows }] = await Promise.all([
     supabase
       .from("prepayment_obligations")
       .select("person_id, total_amount")
       .eq("trip_id", tripId),
     supabase
-      .from("v_prepayment_payments")
-      .select("person_id, paid_amount")
-      .eq("trip_id", tripId),
+      .from("prepayment_plan")
+      .select("advancer_person_id")
+      .eq("trip_id", tripId)
+      .maybeSingle(),
+    supabase
+      .from("trips")
+      .select("skipper_id")
+      .eq("id", tripId)
+      .maybeSingle(),
+    supabase
+      .from("transactions")
+      .select("type, amount, paid_by, credit_from, credit_to, confirmed_at")
+      .eq("trip_id", tripId)
+      .not("tranche_id", "is", null)
+      .is("deleted_at", null),
   ]);
+
+  const advancerId = planRow?.advancer_person_id || tripRow?.skipper_id || null;
 
   const sollById = new Map<string, number>();
   for (const o of oblRows ?? []) sollById.set(o.person_id, Number(o.total_amount));
 
   const paidById = new Map<string, number>();
-  for (const p of payRows ?? []) {
-    if (!p.person_id) continue;
-    paidById.set(p.person_id, (paidById.get(p.person_id) ?? 0) + Number(p.paid_amount));
+  for (const t of txRows ?? []) {
+    if (!t.confirmed_at) continue; // Pending-Selbstmeldungen zählen nicht
+    const amt = Number(t.amount);
+    if (t.type === "expense" && t.paid_by) {
+      // Charter-Ausgabe → zählt als aktiver Beitrag des Auslegers (typisch Vorstrecker)
+      paidById.set(t.paid_by, (paidById.get(t.paid_by) ?? 0) + amt);
+    } else if (t.type === "credit" && t.credit_from) {
+      // Crew → Vorstrecker: zählt nur beim Crew-Member als paid (Vorstrecker bekommt
+      // das treuhänderisch, kein doppelter Eintrag).
+      // Self-Credit (Vorstrecker → Vorstrecker): zählt einmal als Beitrag — er
+      // verrechnet damit explizit seinen eigenen Anteil.
+      const isSelfCredit = t.credit_from === t.credit_to;
+      const isToAdvancer = t.credit_to === advancerId;
+      if (isSelfCredit || isToAdvancer) {
+        paidById.set(t.credit_from, (paidById.get(t.credit_from) ?? 0) + amt);
+      }
+    }
   }
 
-  const ids = new Set([...sollById.keys(), ...paidById.keys()]);
+  const ids = new Set<string>([...sollById.keys(), ...paidById.keys()]);
   return [...ids].map((person_id) => {
     const soll = sollById.get(person_id) ?? 0;
     const paid = paidById.get(person_id) ?? 0;
