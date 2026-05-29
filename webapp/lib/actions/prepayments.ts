@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
-import { requireSkipperOrAdmin, requireMember } from "@/lib/auth/authz";
+import { requireSkipperOrAdmin, requireMember, requireSkipperAdminOrAdvancer } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import {
   PlanSchema,
@@ -304,7 +304,9 @@ export async function recordPayment(
   }
   const { trip_id, tranche_id, person_id, amount, date, note, overflow_tranche_id, idempotency_key } = parsed.data;
 
-  const auth = await requireSkipperOrAdmin(trip_id);
+  // Vorstrecker darf auch Zahlungen ankreuzen — er ist Empfänger,
+  // weiß also wer ihm Geld überwiesen hat.
+  const auth = await requireSkipperAdminOrAdvancer(trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const supabase = createAdminClient();
@@ -609,7 +611,9 @@ export async function sendPrepaymentReminder(
   });
   if (!parsed.success) return { status: "error", message: "Ungültige Eingabe." };
 
-  const auth = await requireSkipperOrAdmin(parsed.data.trip_id);
+  // Vorstrecker darf auch erinnern — er ist Empfänger und hat ein
+  // berechtigtes Interesse, dass seine Crew zeitnah überweist.
+  const auth = await requireSkipperAdminOrAdvancer(parsed.data.trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const { sendPrepaymentReminderMail } = await import("@/lib/email/send-prepayment-reminder");
@@ -764,7 +768,8 @@ export async function confirmSelfPayment(
   if (!tx.tranche_id) return { status: "error", message: "Keine Anzahlungs-Buchung." };
   if (tx.confirmed_at) return { status: "error", message: "Schon bestätigt." };
 
-  const auth = await requireSkipperOrAdmin(tx.trip_id);
+  // Vorstrecker darf bestätigen — er sieht den Geldeingang auf seinem Konto.
+  const auth = await requireSkipperAdminOrAdvancer(tx.trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const { error } = await supabase
@@ -812,7 +817,8 @@ export async function rejectSelfPayment(
   if (!tx || tx.deleted_at) return { status: "error", message: "Buchung nicht gefunden." };
   if (tx.confirmed_at) return { status: "error", message: "Schon bestätigt — kann nicht mehr abgelehnt werden." };
 
-  const auth = await requireSkipperOrAdmin(tx.trip_id);
+  // Vorstrecker darf ablehnen — er sieht das Geld NICHT auf seinem Konto.
+  const auth = await requireSkipperAdminOrAdvancer(tx.trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const { error } = await supabase

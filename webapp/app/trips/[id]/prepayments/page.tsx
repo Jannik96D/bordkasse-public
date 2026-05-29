@@ -39,7 +39,11 @@ export default async function PrepaymentsPage({
 
   const myMember = members.find((m) => m.person_id === person?.id);
   const isMyTripSkipper = !!myMember?.is_skipper;
-  const canManage = admin || isMyTripSkipper;
+  // Vorstrecker darf die Matrix ebenfalls sehen + verwalten, auch wenn er
+  // nicht Skipper ist (Lucas streckt für Jannik vor → Lucas hakt seine
+  // eingegangenen Zahlungen ab).
+  const isAdvancer = !!plan && !!person && (plan.advancer_person_id ?? trip.skipper_id) === person.id;
+  const canManage = admin || isMyTripSkipper || isAdvancer;
 
   if (!canManage) {
     // Crew-Sicht: nur eigene Zeile
@@ -87,13 +91,15 @@ export default async function PrepaymentsPage({
     <main className="mx-auto max-w-4xl px-4 pb-24 pt-4">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-lg font-bold text-primary">Anzahlungen</h1>
-        <Link
-          href={`/trips/${id}/prepayments/setup`}
-          className="inline-flex items-center gap-1 rounded-md border border-rule px-3 py-1.5 text-sm hover:border-primary/40 hover:bg-navy-light/20"
-        >
-          <SettingsIcon className="h-4 w-4" />
-          Plan bearbeiten
-        </Link>
+        {(admin || isMyTripSkipper) && (
+          <Link
+            href={`/trips/${id}/prepayments/setup`}
+            className="inline-flex items-center gap-1 rounded-md border border-rule px-3 py-1.5 text-sm hover:border-primary/40 hover:bg-navy-light/20"
+          >
+            <SettingsIcon className="h-4 w-4" />
+            Plan bearbeiten
+          </Link>
+        )}
       </div>
 
       <PrepaymentMatrix

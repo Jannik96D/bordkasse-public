@@ -96,6 +96,8 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
   function bulkWhatsApp() {
     const persons = members
       .map((m) => {
+        // Vorstrecker überspringen — er ist Empfänger, nicht Schuldner
+        if (plan.advancer_person_id === m.id) return null;
         const cells = tranches.map((t) => cellFor(t.id, m.id, t.percent));
         const open = cells.reduce((s, c) => s + Math.max(0, c.open), 0);
         const firstOpen = cells.find((c) => c.open > 0.005);
@@ -145,7 +147,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
     <>
       {advancerName && (
         <p className="mb-3 rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
-          Vorstrecker: <strong className="text-ink">{advancerName}</strong> — alle Anzahlungen werden an diese Person verbucht. Selbst-Verrechnung möglich.
+          Vorstrecker: <strong className="text-ink">{advancerName}</strong> — alle Anzahlungen werden an diese Person verbucht. Eigener Anteil per Klick auf die Zelle als Selbst-Verrechnung abhaken (bilanzneutral, kein Mail-/WhatsApp-Versand).
         </p>
       )}
 
@@ -191,10 +193,21 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
               const obl = obligationByPerson.get(m.id);
               const cabin = obl?.cabin_type_id ? cabinById.get(obl.cabin_type_id) : null;
               const rowOpen = tranches.reduce((s, t) => s + Math.max(0, cellFor(t.id, m.id, t.percent).open), 0);
+              const isAdvancerRow = plan.advancer_person_id === m.id;
               return (
                 <tr key={m.id} className="border-t border-rule">
                   <th scope="row" className="sticky left-0 z-10 bg-paper px-2 py-2 text-left font-medium sm:px-3">
-                    <div>{m.display_name}</div>
+                    <div className="flex items-center gap-1">
+                      {m.display_name}
+                      {isAdvancerRow && (
+                        <span
+                          className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
+                          title="Vorstrecker — verrechnet sich selbst"
+                        >
+                          Vorstrecker
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs font-normal text-ink-soft">
                       {cabin ? `${cabin.label} · ` : ""}
                       Soll {formatEuro(obl?.total_amount ?? 0)}
@@ -229,15 +242,23 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
                       <ReminderButton
                         tripId={tripId}
                         personId={m.id}
-                        disabled={!m.email || rowOpen <= 0.005}
-                        title={!m.email ? "E-Mail fehlt" : rowOpen <= 0.005 ? "Nichts offen" : "Erinnerungsmail"}
+                        disabled={!m.email || rowOpen <= 0.005 || isAdvancerRow}
+                        title={
+                          isAdvancerRow
+                            ? "Vorstrecker erinnert sich nicht selbst — klick die Zelle zum Selbst-Verrechnen"
+                            : !m.email
+                              ? "E-Mail fehlt"
+                              : rowOpen <= 0.005
+                                ? "Nichts offen"
+                                : "Erinnerungsmail"
+                        }
                       />
                       <button
                         type="button"
                         onClick={() => personWhatsApp(m)}
-                        disabled={rowOpen <= 0.005}
+                        disabled={rowOpen <= 0.005 || isAdvancerRow}
                         className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-rule p-1.5 text-primary hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-40"
-                        title="WhatsApp-Text"
+                        title={isAdvancerRow ? "Selbst-Verrechnung statt WhatsApp" : "WhatsApp-Text"}
                         aria-label={`WhatsApp-Text für ${m.display_name}`}
                       >
                         <MessageCircle className="h-4 w-4" aria-hidden="true" />
