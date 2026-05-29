@@ -7,6 +7,7 @@ import {
   getCabinTypes,
   getObligations,
   getPaymentAggregates,
+  getPendingPayments,
 } from "@/lib/queries/prepayments";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
@@ -20,7 +21,7 @@ export default async function PrepaymentsPage({
 }) {
   const { id } = await params;
 
-  const [trip, members, person, admin, plan, tranches, cabins, obligations, payments] =
+  const [trip, members, person, admin, plan, tranches, cabins, obligations, payments, pending] =
     await Promise.all([
       getTrip(id),
       getTripMembers(id),
@@ -31,6 +32,7 @@ export default async function PrepaymentsPage({
       getCabinTypes(id),
       getObligations(id),
       getPaymentAggregates(id),
+      getPendingPayments(id),
     ]);
 
   if (!trip) return null;
@@ -41,14 +43,19 @@ export default async function PrepaymentsPage({
 
   if (!canManage) {
     // Crew-Sicht: nur eigene Zeile
+    const mine = (p: { person_id: string }) => p.person_id === person?.id;
+    const myPendingByTranche: Record<string, typeof pending[number] | undefined> = {};
+    for (const p of pending.filter(mine)) myPendingByTranche[p.tranche_id] = p;
     return (
       <main className="mx-auto max-w-2xl px-4 py-6">
         <h1 className="mb-4 text-lg font-bold text-primary">Meine Anzahlung</h1>
         <CrewSelfView
+          tripId={id}
           plan={plan}
           tranches={tranches}
-          obligation={obligations.find((o) => o.person_id === person?.id) ?? null}
-          payments={payments.filter((p) => p.person_id === person?.id)}
+          obligation={obligations.find(mine) ?? null}
+          payments={payments.filter(mine)}
+          pendingByTranche={myPendingByTranche}
         />
       </main>
     );
@@ -102,6 +109,7 @@ export default async function PrepaymentsPage({
         }))}
         obligations={obligations}
         payments={payments}
+        pending={pending}
       />
     </main>
   );

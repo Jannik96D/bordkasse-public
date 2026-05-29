@@ -1,9 +1,15 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Bell, MessageCircle, RefreshCw } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Bell, MessageCircle, RefreshCw, Check, X } from "lucide-react";
 import { formatEuro, todayIso } from "@/lib/utils";
-import { recordPayment, sendPrepaymentReminder } from "@/lib/actions/prepayments";
+import {
+  recordPayment,
+  sendPrepaymentReminder,
+  confirmSelfPayment,
+  rejectSelfPayment,
+} from "@/lib/actions/prepayments";
 import { renderWhatsAppText, renderBulkWhatsAppText, DEFAULT_WHATSAPP_TEMPLATE } from "@/lib/prepayments/whatsapp";
 import type {
   PrepaymentPlan,
@@ -11,6 +17,7 @@ import type {
   CabinType,
   Obligation,
   PaymentAggregate,
+  PendingPayment,
 } from "@/lib/queries/prepayments";
 
 interface Member {
@@ -28,6 +35,7 @@ interface Props {
   members: Member[];
   obligations: Obligation[];
   payments: PaymentAggregate[];
+  pending: PendingPayment[];
 }
 
 type CellStatus = "open" | "partial" | "paid";
@@ -40,9 +48,10 @@ interface MatrixCell {
   open: number;
   status: CellStatus;
   overdue: boolean;
+  pending: PendingPayment | null;
 }
 
-export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, members, obligations, payments }: Props) {
+export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, members, obligations, payments, pending }: Props) {
   const [paymentModal, setPaymentModal] = useState<{ cell: MatrixCell; personName: string } | null>(null);
   const [whatsAppModal, setWhatsAppModal] = useState<{ text: string; title: string } | null>(null);
 
@@ -55,6 +64,11 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
     for (const p of payments) m.set(`${p.tranche_id}::${p.person_id}`, p.paid_amount);
     return m;
   }, [payments]);
+  const pendingByKey = useMemo(() => {
+    const m = new Map<string, PendingPayment>();
+    for (const p of pending) m.set(`${p.tranche_id}::${p.person_id}`, p);
+    return m;
+  }, [pending]);
 
   const cabinById = useMemo(() => new Map(cabins.map((c) => [c.id, c])), [cabins]);
 
@@ -67,10 +81,11 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
     const open = round2(soll - paid);
     const tranche = tranches.find((t) => t.id === trancheId);
     const overdue = !!tranche && tranche.due_date < today && open > 0.005;
+    const pendingEntry = pendingByKey.get(`${trancheId}::${personId}`) ?? null;
     let status: CellStatus = "open";
     if (paid > 0.005 && open <= 0.005) status = "paid";
     else if (paid > 0.005) status = "partial";
-    return { trancheId, personId, soll, paid, open, status, overdue };
+    return { trancheId, personId, soll, paid, open, status, overdue, pending: pendingEntry };
   };
 
   function openPayment(cell: MatrixCell, personName: string) {
@@ -133,6 +148,12 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
           Vorstrecker: <strong className="text-ink">{advancerName}</strong> — alle Anzahlungen werden an diese Person verbucht. Selbst-Verrechnung möglich.
         </p>
       )}
+
+      {/* Pending-Selbstmeldungen-Banner */}
+      {pending.length > 0 && (
+        <PendingBanner pending={pending} members={members} tranches={tranches} />
+      )}
+
       {/* Header-Toolbar */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <button
@@ -148,18 +169,21 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
       </div>
 
       {/* Matrix */}
+      <p className="mb-1 text-xs text-ink-soft sm:hidden" aria-hidden="true">
+        ← horizontal wischen für Aktionen
+      </p>
       <div className="overflow-x-auto rounded-md border border-rule bg-paper">
         <table className="w-full text-sm">
           <thead className="bg-paper-soft text-xs text-ink-soft">
             <tr>
-              <th scope="col" className="sticky left-0 z-10 bg-paper-soft px-3 py-2 text-left font-medium">Person</th>
+              <th scope="col" className="sticky left-0 z-10 bg-paper-soft px-2 py-2 text-left font-medium sm:px-3">Person</th>
               {tranches.map((t) => (
-                <th key={t.id} scope="col" className="px-3 py-2 text-center font-medium">
+                <th key={t.id} scope="col" className="px-1 py-2 text-center font-medium sm:px-3">
                   <div>{t.label}</div>
                   <div className="font-normal text-ink-soft">{formatDeDate(t.due_date)} · {t.percent.toFixed(0)}%</div>
                 </th>
               ))}
-              <th scope="col" className="px-3 py-2 text-right font-medium">Aktion</th>
+              <th scope="col" className="px-2 py-2 text-right font-medium sm:px-3">Aktion</th>
             </tr>
           </thead>
           <tbody>
@@ -169,7 +193,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
               const rowOpen = tranches.reduce((s, t) => s + Math.max(0, cellFor(t.id, m.id, t.percent).open), 0);
               return (
                 <tr key={m.id} className="border-t border-rule">
-                  <th scope="row" className="sticky left-0 z-10 bg-paper px-3 py-2 text-left font-medium">
+                  <th scope="row" className="sticky left-0 z-10 bg-paper px-2 py-2 text-left font-medium sm:px-3">
                     <div>{m.display_name}</div>
                     <div className="text-xs font-normal text-ink-soft">
                       {cabin ? `${cabin.label} · ` : ""}
@@ -179,24 +203,28 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
                   </th>
                   {tranches.map((t) => {
                     const cell = cellFor(t.id, m.id, t.percent);
+                    const ariaLabel = cell.pending
+                      ? `${m.display_name}, ${t.label}: ${formatEuro(cell.pending.amount)} gemeldet, wartet auf Bestätigung`
+                      : `${m.display_name}, ${t.label}: ${statusLabel(cell)}, ${formatEuro(cell.paid)} von ${formatEuro(cell.soll)} bezahlt`;
                     return (
-                      <td key={t.id} className="px-3 py-2 text-center">
+                      <td key={t.id} className="px-1 py-2 text-center sm:px-3">
                         <button
+                          type="button"
                           onClick={() => openPayment(cell, m.display_name)}
-                          className="inline-flex flex-col items-center gap-0.5 rounded px-2 py-1 hover:bg-navy-light/30"
-                          aria-label={`${m.display_name}, ${t.label}: ${statusLabel(cell)}`}
+                          className="inline-flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 rounded px-2 py-1 hover:bg-navy-light/30 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          aria-label={ariaLabel}
                         >
-                          <span className="text-lg leading-none" aria-hidden>
+                          <span className="text-lg leading-none" aria-hidden="true">
                             {statusSymbol(cell)}
                           </span>
-                          <span className="text-xs tabular-nums text-ink-soft">
+                          <span className="whitespace-nowrap text-xs tabular-nums text-ink-soft">
                             {cell.status === "paid" ? formatEuro(cell.soll) : `${formatEuro(cell.paid)} / ${formatEuro(cell.soll)}`}
                           </span>
                         </button>
                       </td>
                     );
                   })}
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-2 py-2 text-right sm:px-3">
                     <div className="inline-flex gap-1">
                       <ReminderButton
                         tripId={tripId}
@@ -205,12 +233,14 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
                         title={!m.email ? "E-Mail fehlt" : rowOpen <= 0.005 ? "Nichts offen" : "Erinnerungsmail"}
                       />
                       <button
+                        type="button"
                         onClick={() => personWhatsApp(m)}
                         disabled={rowOpen <= 0.005}
-                        className="rounded-md border border-rule p-1.5 text-primary hover:border-primary/40 disabled:opacity-40"
+                        className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-rule p-1.5 text-primary hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-40"
                         title="WhatsApp-Text"
+                        aria-label={`WhatsApp-Text für ${m.display_name}`}
                       >
-                        <MessageCircle className="h-4 w-4" />
+                        <MessageCircle className="h-4 w-4" aria-hidden="true" />
                       </button>
                     </div>
                   </td>
@@ -238,6 +268,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
 }
 
 function statusSymbol(c: MatrixCell): string {
+  if (c.pending) return "⏳";
   if (c.status === "paid") return "✓";
   if (c.overdue) return "⏰";
   if (c.status === "partial") return "◐";
@@ -245,6 +276,7 @@ function statusSymbol(c: MatrixCell): string {
 }
 
 function statusLabel(c: MatrixCell): string {
+  if (c.pending) return "gemeldet, wartet auf Bestätigung";
   if (c.status === "paid") return "bezahlt";
   if (c.overdue) return "überfällig";
   if (c.status === "partial") return "teilweise bezahlt";
@@ -417,13 +449,20 @@ function ReminderButton({ tripId, personId, disabled, title }: { tripId: string;
 
   return (
     <button
+      type="button"
       onClick={send}
       disabled={disabled || pending}
       title={msg || title}
-      className="rounded-md border border-rule p-1.5 text-primary hover:border-primary/40 disabled:opacity-40"
+      aria-label={title}
+      className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-rule p-1.5 text-primary hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-40"
     >
-      {pending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
+      {pending ? (
+        <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
+      ) : (
+        <Bell className="h-4 w-4" aria-hidden="true" />
+      )}
       {done === "ok" && <span className="sr-only">Mail gesendet</span>}
+      {done === "err" && <span className="sr-only" role="alert">Fehler: {msg}</span>}
     </button>
   );
 }
@@ -474,3 +513,96 @@ function round2(n: number): number {
 
 // referenced default to silence unused-warning in build pipelines that strip exports
 void DEFAULT_WHATSAPP_TEMPLATE;
+
+// ────────────────────────────────────────────────────────────────────────
+// PendingBanner — Liste der noch-nicht-bestätigten Selbstmeldungen.
+// Skipper kann hier mit zwei Klicks bestätigen oder ablehnen.
+// ────────────────────────────────────────────────────────────────────────
+
+function PendingBanner({
+  pending,
+  members,
+  tranches,
+}: {
+  pending: PendingPayment[];
+  members: Member[];
+  tranches: Tranche[];
+}) {
+  const memberById = new Map(members.map((m) => [m.id, m]));
+  const trancheById = new Map(tranches.map((t) => [t.id, t]));
+
+  return (
+    <section
+      className="mb-4 rounded-md border-2 border-amber-300 bg-amber-50 p-3"
+      role="region"
+      aria-label="Selbst gemeldete Anzahlungen — warten auf Bestätigung"
+    >
+      <p className="mb-2 text-sm font-medium text-amber-900">
+        <span aria-hidden="true">⏳</span> {pending.length} Selbstmeldung{pending.length === 1 ? "" : "en"} wartet auf Bestätigung
+      </p>
+      <ul className="space-y-2">
+        {pending.map((p) => {
+          const name = memberById.get(p.person_id)?.display_name ?? "Crew-Mitglied";
+          const tranche = trancheById.get(p.tranche_id);
+          return (
+            <li key={p.transaction_id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-paper px-3 py-2 text-sm">
+              <div className="min-w-0 flex-1">
+                <strong>{name}</strong> hat <strong className="text-primary">{formatEuro(p.amount)}</strong> für{" "}
+                <strong>{tranche?.label ?? "Tranche"}</strong> gemeldet
+                {p.description && <span className="block text-xs text-ink-soft">„{p.description}&ldquo;</span>}
+                <span className="block text-xs text-ink-soft">{formatDeDate(p.date)}</span>
+              </div>
+              <PendingActions transactionId={p.transaction_id} />
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+function PendingActions({ transactionId }: { transactionId: string }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function run(action: typeof confirmSelfPayment | typeof rejectSelfPayment) {
+    setError(null);
+    const fd = new FormData();
+    fd.set("transaction_id", transactionId);
+    startTransition(async () => {
+      const res = await action({ status: "idle" }, fd);
+      if (res.status === "error") {
+        setError(res.message);
+      } else {
+        router.refresh();
+      }
+    });
+  }
+
+  return (
+    <div className="inline-flex gap-1">
+      <button
+        type="button"
+        onClick={() => run(confirmSelfPayment)}
+        disabled={pending}
+        className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1 rounded-md bg-success px-3 py-1.5 text-sm font-medium text-paper hover:bg-success/90 focus:outline-none focus:ring-2 focus:ring-success/40 disabled:opacity-50"
+        aria-label="Selbstmeldung bestätigen"
+        title="Bestätigen"
+      >
+        {pending ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
+      </button>
+      <button
+        type="button"
+        onClick={() => run(rejectSelfPayment)}
+        disabled={pending}
+        className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1 rounded-md border border-rule bg-paper px-3 py-1.5 text-sm text-danger hover:border-danger/40 focus:outline-none focus:ring-2 focus:ring-danger/40 disabled:opacity-50"
+        aria-label="Selbstmeldung ablehnen"
+        title="Ablehnen"
+      >
+        <X className="h-4 w-4" aria-hidden="true" />
+      </button>
+      {error && <span role="alert" className="sr-only">{error}</span>}
+    </div>
+  );
+}
