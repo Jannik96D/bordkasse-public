@@ -93,9 +93,11 @@ export function SettlementStatus({
     const headline = highlight
       ? "Kaution-Buchung aktualisiert — Bordkasse jetzt zur Abrechnung freigeben?"
       : "Törn vorbei — Abrechnung verschicken?";
+    // Kurzer Standard-Hinweis im Banner; die ausführliche Erklärung (was
+    // passiert beim Versand, Kaution-Hinweis) steckt im Aufklapper darunter.
     const subline = highlight
-      ? "Wenn das die finale Kaution-Buchung war, kannst du die Abrechnung jetzt verschicken — jedes Crew-Mitglied bekommt eine Mail mit seiner Bilanz."
-      : "Bitte prüfe nochmal, ob die Kaution-Buchung noch aktuell ist (Restbetrag, Schäden o.ä.). Sobald du auf „Abrechnung verschicken“ drückst, bekommt jedes Crew-Mitglied eine Mail mit seiner Bilanz und kann Zahlungen abhaken.";
+      ? "Letzte Kaution-Buchung gerade angepasst — jetzt verschicken?"
+      : "Vorab kurz prüfen, ob die Kaution-Buchung schon final ist.";
     return (
       <div className={
         highlight
@@ -112,6 +114,15 @@ export function SettlementStatus({
             <p className="font-medium text-primary">{headline}</p>
             <p className="mt-1 text-xs text-ink-soft">{subline}</p>
             <SettlementAnnounceButton tripId={tripId} />
+            <details className="mt-2 group">
+              <summary className="cursor-pointer list-none text-xs text-primary hover:underline">
+                <span className="group-open:hidden">Was passiert beim Verschicken? ›</span>
+                <span className="hidden group-open:inline">‹ Schließen</span>
+              </summary>
+              <p className="mt-1 text-xs text-ink-soft">
+                Jedes Crew-Mitglied bekommt eine Mail mit der eigenen Bilanz und dem Zahlungsplan. Häkchen für „bezahlt“ sind danach in der App freigeschaltet. Bei späteren Buchungs-Änderungen kannst du eine Update-Mail nachschicken.
+              </p>
+            </details>
           </div>
         </div>
       </div>

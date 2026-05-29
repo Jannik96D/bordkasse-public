@@ -44,6 +44,14 @@ export function TripHeader({
 
   if (inSubPage) return null;
 
+  // Datum-Zeile nur dort zeigen, wo sie inhaltlich Mehrwert hat — Übersicht
+  // und Settings. Auf Buchungen / Bilanz / Schulden / Statistik / Anzahlungen
+  // ist sie auf jedem Screen oben sichtbar, sagt aber nichts Aktuelles über
+  // den Inhalt und kostet 16 px Höhe. Der archiviert-Hinweis bleibt überall.
+  const isOverview = pathname === `/trips/${tripId}`;
+  const isSettings = pathname === `/trips/${tripId}/settings`;
+  const showDates = isOverview || isSettings;
+
   return (
     <header className="sticky top-0 z-10 border-b border-rule bg-paper/95 backdrop-blur-sm">
       <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3">
@@ -56,10 +64,14 @@ export function TripHeader({
         </Link>
         <div className="min-w-0 flex-1">
           <h1 className="truncate font-semibold text-primary">{tripName}</h1>
-          <p className="truncate text-xs text-ink-soft">
-            {formatDate(startDate)} – {formatDate(endDate)}
-            {archived && " · archiviert"}
-          </p>
+          {showDates ? (
+            <p className="truncate text-xs text-ink-soft">
+              {formatDate(startDate)} – {formatDate(endDate)}
+              {archived && " · archiviert"}
+            </p>
+          ) : archived ? (
+            <p className="truncate text-xs text-ink-soft">archiviert</p>
+          ) : null}
         </div>
         <Link
           href="/"

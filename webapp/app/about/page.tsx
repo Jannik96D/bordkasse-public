@@ -385,38 +385,66 @@ const features: Feature[] = [
   },
 ];
 
-// Anzeige-Reihenfolge nach typischem Törn-Ablauf:
-//   1–4  Einstieg + Trip anlegen
-//   5–6  Vor dem Törn: Crew + Kategorien einrichten
-//   7–9  Anzahlung planen, eintreiben, Crew meldet selbst
-//   10–14 Während des Törns: Buchungen, Gutschriften, Offline, Statistik
-//   15–16 Nach dem Törn: Bilanz + Schulden abrechnen
-//   17    Datenlöschung nach 30 Tagen
-const FEATURE_ORDER = [
-  "welcome",
-  "anmelden",
-  "toerns",
-  "trip-overview",
-  "crew",
-  "kategorien",
-  "anzahlung-setup",
-  "anzahlung-matrix",
-  "anzahlung-crew-self",
-  "buchungen",
-  "buchung-neu",
-  "gutschrift",
-  "offline",
-  "statistik",
-  "bilanz",
-  "schulden",
-  "dsgvo",
-] as const;
+// Anzeige-Reihenfolge nach typischem Törn-Ablauf, in 5 Phasen gruppiert.
+// Jede Phase bekommt eine Sektion mit kurzem Lead und einer Karten-Liste.
+type PhaseId =
+  | "loslegen"
+  | "vor-dem-toern"
+  | "waehrend-des-toerns"
+  | "abrechnung"
+  | "datenschutz";
 
-const orderedFeatures: Feature[] = FEATURE_ORDER.map((id) => {
+interface Phase {
+  id: PhaseId;
+  emoji: string;
+  title: string;
+  lead: string;
+  featureIds: string[];
+}
+
+const PHASES: Phase[] = [
+  {
+    id: "loslegen",
+    emoji: "🚀",
+    title: "Loslegen",
+    lead: "Anmelden ohne Passwort, eigene Törns im Überblick.",
+    featureIds: ["welcome", "anmelden", "toerns", "trip-overview"],
+  },
+  {
+    id: "vor-dem-toern",
+    emoji: "⚓",
+    title: "Vor dem Törn",
+    lead: "Crew einladen, Kategorien festlegen, optional Yacht-Anzahlung mit Tranchen.",
+    featureIds: ["crew", "kategorien", "anzahlung-setup", "anzahlung-matrix", "anzahlung-crew-self"],
+  },
+  {
+    id: "waehrend-des-toerns",
+    emoji: "⛵",
+    title: "Während des Törns",
+    lead: "Ausgaben erfassen — auch ohne Internet — und sehen, was ihr ausgebt.",
+    featureIds: ["buchungen", "buchung-neu", "gutschrift", "offline", "statistik"],
+  },
+  {
+    id: "abrechnung",
+    emoji: "💰",
+    title: "Abrechnung",
+    lead: "Saldo pro Person, möglichst wenige Überweisungen, Häkchen für „bezahlt“.",
+    featureIds: ["bilanz", "schulden"],
+  },
+  {
+    id: "datenschutz",
+    emoji: "🛡️",
+    title: "Datenschutz",
+    lead: "Personenbezogene Daten verschwinden 30 Tage nach Törn-Ende automatisch.",
+    featureIds: ["dsgvo"],
+  },
+];
+
+function featureById(id: string): Feature {
   const found = features.find((f) => f.id === id);
-  if (!found) throw new Error(`Feature mit id="${id}" fehlt in features[] — FEATURE_ORDER prüfen.`);
+  if (!found) throw new Error(`Feature mit id="${id}" fehlt in features[].`);
   return found;
-});
+}
 
 export default function AboutPage() {
   return (
@@ -451,54 +479,67 @@ export default function AboutPage() {
         aria-label="Inhaltsverzeichnis"
         className="mt-8 rounded-lg border border-rule bg-paper-soft p-5"
       >
-        <p className="mb-3 text-sm font-semibold text-primary">
-          Überblick
-        </p>
-        <ol className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
-          {orderedFeatures.map((f, idx) => (
-            <li key={f.id}>
+        <p className="mb-3 text-sm font-semibold text-primary">In dieser Übersicht</p>
+        <ul className="space-y-1.5 text-sm">
+          {PHASES.map((phase) => (
+            <li key={phase.id}>
               <a
-                href={`#${f.id}`}
-                className="flex items-baseline gap-2 text-ink hover:text-primary"
+                href={`#${phase.id}`}
+                className="inline-flex items-baseline gap-2 text-ink hover:text-primary"
               >
-                <span className="text-sm font-semibold text-primary">
-                  {String(idx + 1).padStart(2, "0")}
+                <span aria-hidden="true">{phase.emoji}</span>
+                <span>{phase.title}</span>
+                <span className="text-ink-soft">
+                  · {phase.featureIds.length}
+                  {phase.featureIds.length === 1 ? " Funktion" : " Funktionen"}
                 </span>
-                <span>{f.title}</span>
               </a>
             </li>
           ))}
-        </ol>
+        </ul>
       </nav>
 
-      <ol className="mt-12 space-y-16">
-        {orderedFeatures.map((f, idx) => (
-          <li key={f.id} id={f.id} className="scroll-mt-6">
-            <div className="mb-3 flex items-baseline gap-3">
-              <span className="text-xl font-bold text-primary">
-                {String(idx + 1).padStart(2, "0")}
-              </span>
-              <h2 className="text-xl font-bold text-primary">{f.title}</h2>
-            </div>
-            <p className="text-base text-ink">{f.lead}</p>
-            <div className="prose mt-3 max-w-none text-sm leading-relaxed text-ink-soft">
-              {f.body}
-            </div>
-            <figure className="mt-5 overflow-hidden rounded-lg border border-rule bg-paper-soft">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={f.screenshot}
-                alt={f.alt}
-                loading="lazy"
-                className="block w-full h-auto"
-              />
-              <figcaption className="border-t border-rule px-4 py-2 text-xs text-ink-soft">
-                {f.alt}
-              </figcaption>
-            </figure>
-          </li>
+      <div className="mt-12 space-y-12">
+        {PHASES.map((phase) => (
+          <section key={phase.id} id={phase.id} className="scroll-mt-6">
+            <header className="mb-4 border-b border-rule pb-3">
+              <h2 className="flex items-baseline gap-2 text-xl font-bold text-primary">
+                <span aria-hidden="true">{phase.emoji}</span>
+                {phase.title}
+              </h2>
+              <p className="mt-1 text-sm text-ink-soft">{phase.lead}</p>
+            </header>
+
+            <ul className="space-y-6">
+              {phase.featureIds.map((id) => {
+                const f = featureById(id);
+                return (
+                  <li key={f.id} id={f.id} className="scroll-mt-6">
+                    <h3 className="text-base font-semibold text-ink">{f.title}</h3>
+                    <p className="mt-1 text-sm text-ink">{f.lead}</p>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={f.screenshot}
+                      alt={f.alt}
+                      loading="lazy"
+                      className="mt-3 block max-h-[440px] w-full rounded-lg border border-rule bg-paper-soft object-cover object-top"
+                    />
+                    <details className="group mt-2">
+                      <summary className="cursor-pointer list-none text-xs text-primary hover:underline">
+                        <span className="group-open:hidden">Mehr Details ›</span>
+                        <span className="hidden group-open:inline">‹ Details schließen</span>
+                      </summary>
+                      <div className="prose mt-2 max-w-none text-sm leading-relaxed text-ink-soft">
+                        {f.body}
+                      </div>
+                    </details>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
         ))}
-      </ol>
+      </div>
 
       <section className="mt-16 rounded-lg border border-rule bg-paper-soft p-6">
         <h2 className="text-lg font-semibold text-primary">

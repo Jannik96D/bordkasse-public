@@ -14,6 +14,7 @@ import {
 import { enqueue } from "@/lib/offline/outbox";
 import { todayIso, cn, formatEuro } from "@/lib/utils";
 import { CategorySelect } from "@/components/category-select";
+import { InfoTooltip } from "@/components/info-tooltip";
 import { PersonSelect } from "@/components/person-select";
 import { safeMathEval } from "@/lib/utils/math-eval";
 
@@ -34,13 +35,17 @@ const SPLIT_LABEL: Record<SplitType, string> = {
   per_person: "Pro Person",
 };
 
-const SPLIT_HINT: Record<SplitType, string> = {
-  equal: "Alle zahlen gleich, unabhängig von Anwesenheit.",
-  on_board: "Nur Personen, die am Datum der Ausgabe an Bord waren.",
-  time_proportional: "Proportional zu Bord-Tagen pro Person.",
-  individual: "Nur explizit markierte Personen.",
-  per_person: "Jede Person zahlt einen eigenen Betrag (z. B. Restaurant).",
-};
+/**
+ * Eine kompakte Sammelhilfe für alle Aufteilungs-Modi — landet im Tooltip
+ * neben der „Aufteilung"-Überschrift, damit das Standard-Form nicht für
+ * jeden Tab eine eigene Hilfezeile rendern muss.
+ */
+const SPLIT_TOOLTIP =
+  "Gleichmäßig: alle teilen sich gleich. " +
+  "An Bord: nur am Buchungs-Datum anwesende Personen. " +
+  "Zeitanteilig: proportional zu den Bord-Tagen. " +
+  "Individuell: nur explizit markierte Personen. " +
+  "Pro Person: jede Person trägt einen eigenen Betrag ein (z. B. Restaurant).";
 
 const idleState: TxState = { status: "idle" };
 
@@ -450,9 +455,14 @@ function ExpenseForm({
         />
       </FieldGroup>
 
-      {/* Aufteilung als Tab-Row mit Underline für die aktive Auswahl. */}
+      {/* Aufteilung als Tab-Row mit Underline für die aktive Auswahl.
+          Die einzelnen Modi werden im ⓘ-Tooltip neben der Überschrift erklärt —
+          spart eine Hilfezeile, die das Form sonst pro Tab gerendert hat. */}
       <div>
-        <span className="block text-sm font-medium">Aufteilung</span>
+        <span className="block text-sm font-medium">
+          Aufteilung
+          <InfoTooltip text={SPLIT_TOOLTIP} label="Aufteilungs-Modi erklärt" />
+        </span>
         <div className="mt-2 flex border-b border-rule" role="tablist" aria-label="Aufteilung">
           {(Object.keys(SPLIT_LABEL) as SplitType[]).map((s) => (
             <button
@@ -472,7 +482,6 @@ function ExpenseForm({
             </button>
           ))}
         </div>
-        <p className="mt-2 text-xs text-ink-soft">{SPLIT_HINT[splitType]}</p>
       </div>
 
       {splitType === "individual" && (

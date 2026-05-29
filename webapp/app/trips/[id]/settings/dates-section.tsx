@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { CalendarDays } from "lucide-react";
 import { updateTripDates, type DateUpdateState } from "@/lib/actions/trips";
+import { InfoTooltip } from "@/components/info-tooltip";
 
 const initial: DateUpdateState = { status: "idle" };
 
@@ -31,6 +32,10 @@ export function DatesSection({
       <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold text-primary">
         <CalendarDays className="h-4 w-4" />
         Törn-Datum
+        <InfoTooltip
+          text="Existierende Buchungen werden bei Datumsänderung nicht automatisch verschoben — einzelne Einträge ggf. manuell anpassen."
+          label="Hinweis zu Datumsänderung"
+        />
       </h2>
 
       <form action={formAction} className="space-y-3 rounded-md border border-rule bg-paper p-4">
@@ -73,11 +78,6 @@ export function DatesSection({
         {state.status === "ok" && !dirty && (
           <p className="text-sm text-success" role="status">✓ Gespeichert.</p>
         )}
-
-        <p className="text-xs text-ink-soft">
-          Hinweis: Existierende Buchungen werden nicht automatisch verschoben — bei
-          Datumsänderung müssen ggf. einzelne Einträge manuell angepasst werden.
-        </p>
 
         <button
           type="submit"

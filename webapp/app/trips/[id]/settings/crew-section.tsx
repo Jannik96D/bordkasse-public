@@ -110,12 +110,19 @@ export function CrewSection({
                   )}
                 </p>
                 {m.email && <p className="text-xs text-ink-soft">{m.email}</p>}
-                <p className="mt-1 text-xs text-ink-soft">
-                  An Bord:{" "}
-                  {m.on_board_from ? formatDate(m.on_board_from) : "ab Törn-Start"}
-                  {" – "}
-                  {m.on_board_to ? formatDate(m.on_board_to) : "bis Ende"}
-                </p>
+                {/* An-Bord-Zeile NUR rendern, wenn die Anwesenheit vom
+                    Default („ganzer Törn") abweicht. Bei 5 Personen, die
+                    alle den ganzen Trip dabei sind, spart das 5 redundante
+                    Zeilen — der Default ist die Annahme, Abweichungen sind
+                    der Hinweis. */}
+                {(m.on_board_from || m.on_board_to) && (
+                  <p className="mt-1 text-xs text-ink-soft">
+                    An Bord:{" "}
+                    {m.on_board_from ? formatDate(m.on_board_from) : "ab Törn-Start"}
+                    {" – "}
+                    {m.on_board_to ? formatDate(m.on_board_to) : "bis Ende"}
+                  </p>
+                )}
                 {m.note && (
                   <p className="mt-1 text-xs italic text-ink-soft">„{m.note}“</p>
                 )}
