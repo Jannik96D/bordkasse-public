@@ -196,8 +196,14 @@ async function main() {
   console.log(`  ↳ Pfingst-Törn: ${tripId}`);
   console.log(`  ↳ Bareboat-Charter: ${tripCharterId}`);
 
-  console.log("→ Trip-Übersicht");
-  await page.goto(`${BASE_URL}/trips/${tripId}`);
+  // Trip-Übersicht bewusst vom Bareboat-Charter (Zukunft, läuft noch nicht):
+  // In der About-Flow-Reihenfolge steht die Übersicht früh (direkt nach
+  // „Trip anlegen"), da wäre der „Törn vorbei — Abrechnung verschicken"-Banner
+  // des bereits beendeten Pfingst-Törns verfrüht. Der Settlement-/Abrechnungs-
+  // Banner wird stattdessen im Schulden-Screenshot (08) gezeigt, der in der
+  // Abrechnungs-Phase sitzt.
+  console.log("→ Trip-Übersicht (Bareboat — Törn läuft noch)");
+  await page.goto(`${BASE_URL}/trips/${tripCharterId}`);
   await waitForLoad(page);
   await shot(page, "04-trip-overview");
 

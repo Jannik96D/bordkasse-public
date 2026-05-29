@@ -97,7 +97,7 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/04-trip-overview.png",
-    alt: "Übersicht pro Törn mit Hinweis-Banner, Schnellzugriff und Navigations-Leiste",
+    alt: "Übersicht eines anstehenden Törns mit Crew-Zähler, Schnellzugriff-Kacheln und Navigations-Leiste",
   },
   {
     id: "buchungen",
