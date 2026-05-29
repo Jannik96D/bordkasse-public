@@ -66,9 +66,22 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
             paid <= 0.005 ? "open" : open <= 0.005 ? "paid" : "partial";
           const crewDue = toCrewDueDate(t.due_date);
           const isOverdue = new Date(crewDue) < new Date() && status !== "paid";
-          const symbol = pending
+          const boxClass = pending
+            ? "border-amber-400 bg-amber-50 text-base"
+            : status === "paid"
+              ? "border-success bg-success text-paper"
+              : status === "partial"
+                ? `${isOverdue ? "border-danger text-danger" : "border-primary text-primary"} bg-paper`
+                : isOverdue
+                  ? "border-danger bg-danger/5"
+                  : "border-rule bg-paper";
+          const boxContent = pending
             ? "⏳"
-            : status === "paid" ? "✓" : isOverdue ? "⏰" : status === "partial" ? "◐" : "○";
+            : status === "paid"
+              ? "✓"
+              : status === "partial"
+                ? "◐"
+                : "";
           const ariaLabel = pending
             ? `Tranche ${t.label}: ${formatEuro(pending.amount)} gemeldet, wartet auf Bestätigung`
             : `Tranche ${t.label}: ${labelFor(status, isOverdue)}, offen ${formatEuro(Math.max(0, open))}`;
@@ -81,8 +94,13 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
                     Fällig {formatDeDate(crewDue)} &middot; {t.percent.toFixed(0)} %
                   </p>
                 </div>
-                <span className="text-sm font-medium" role="status" aria-label={ariaLabel}>
-                  <span aria-hidden="true">{symbol}</span>{" "}
+                <span className="inline-flex items-center gap-2 text-sm font-medium" role="status" aria-label={ariaLabel}>
+                  <span
+                    className={`inline-flex h-6 w-6 items-center justify-center rounded border-2 text-sm font-bold ${boxClass}`}
+                    aria-hidden="true"
+                  >
+                    {boxContent}
+                  </span>
                   <span className="tabular-nums">{formatEuro(Math.max(0, open))}</span>
                 </span>
               </div>

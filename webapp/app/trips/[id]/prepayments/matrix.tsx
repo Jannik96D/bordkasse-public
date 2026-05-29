@@ -237,12 +237,10 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
                         <button
                           type="button"
                           onClick={() => openPayment(cell, m.display_name)}
-                          className="inline-flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-0.5 rounded px-2 py-1 hover:bg-navy-light/30 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          className="inline-flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-1 rounded px-2 py-1 hover:bg-navy-light/30 focus:outline-none focus:ring-2 focus:ring-primary/20"
                           aria-label={ariaLabel}
                         >
-                          <span className="text-lg leading-none" aria-hidden="true">
-                            {statusSymbol(cell)}
-                          </span>
+                          <StatusBox cell={cell} />
                           <span className="whitespace-nowrap text-xs tabular-nums text-ink-soft">
                             {cell.status === "paid" ? formatEuro(cell.soll) : `${formatEuro(cell.paid)} / ${formatEuro(cell.soll)}`}
                           </span>
@@ -301,20 +299,60 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
   );
 }
 
-function statusSymbol(c: MatrixCell): string {
-  if (c.pending) return "⏳";
-  if (c.status === "paid") return "✓";
-  if (c.overdue) return "⏰";
-  if (c.status === "partial") return "◐";
-  return "○";
-}
-
 function statusLabel(c: MatrixCell): string {
   if (c.pending) return "gemeldet, wartet auf Bestätigung";
   if (c.status === "paid") return "bezahlt";
   if (c.overdue) return "überfällig";
   if (c.status === "partial") return "teilweise bezahlt";
   return "offen";
+}
+
+/**
+ * Checkbox-artige Statusbox für eine Matrix-Zelle. Visuell deutlich als
+ * „abhakbar" erkennbar (analog zur Schulden-Seite), statt einer reinen
+ * Symbol-Anzeige. Klick öffnet weiterhin das Zahlungs-Modal — bei
+ * Teilzahlungen / Überzahlung / Storno reicht eine binäre Checkbox nicht.
+ */
+function StatusBox({ cell }: { cell: MatrixCell }) {
+  if (cell.pending) {
+    return (
+      <span
+        className="inline-flex h-6 w-6 items-center justify-center rounded border-2 border-amber-400 bg-amber-50 text-base leading-none"
+        aria-hidden="true"
+      >
+        ⏳
+      </span>
+    );
+  }
+  if (cell.status === "paid") {
+    return (
+      <span
+        className="inline-flex h-6 w-6 items-center justify-center rounded border-2 border-success bg-success text-paper"
+        aria-hidden="true"
+      >
+        <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="3,8 7,12 13,4" />
+        </svg>
+      </span>
+    );
+  }
+  if (cell.status === "partial") {
+    return (
+      <span
+        className={`inline-flex h-6 w-6 items-center justify-center rounded border-2 ${cell.overdue ? "border-danger" : "border-primary"} bg-paper text-sm font-bold ${cell.overdue ? "text-danger" : "text-primary"}`}
+        aria-hidden="true"
+      >
+        ◐
+      </span>
+    );
+  }
+  // offen
+  return (
+    <span
+      className={`inline-block h-6 w-6 rounded border-2 ${cell.overdue ? "border-danger bg-danger/5" : "border-rule bg-paper"}`}
+      aria-hidden="true"
+    />
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────
