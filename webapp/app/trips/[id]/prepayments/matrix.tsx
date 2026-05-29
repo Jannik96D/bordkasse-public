@@ -181,7 +181,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
 
       {/* Matrix */}
       <p className="mb-1 text-xs text-ink-soft sm:hidden" aria-hidden="true">
-        ← horizontal wischen für Aktionen
+        Zum Anzeigen aller Spalten horizontal wischen →
       </p>
       <div className="overflow-x-auto rounded-md border border-rule bg-paper">
         <table className="w-full text-sm">

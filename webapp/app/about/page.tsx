@@ -472,7 +472,7 @@ export default function AboutPage() {
       </nav>
 
       <ol className="mt-12 space-y-16">
-        {features.map((f, idx) => (
+        {orderedFeatures.map((f, idx) => (
           <li key={f.id} id={f.id} className="scroll-mt-6">
             <div className="mb-3 flex items-baseline gap-3">
               <span className="text-xl font-bold text-primary">
