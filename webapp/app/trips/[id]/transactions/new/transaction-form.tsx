@@ -109,6 +109,13 @@ interface TransactionFormProps {
    * Feld verborgen und die Buchung landet wie bisher im Bordkasse-Pool.
    */
   tranches?: TrancheOption[];
+  /**
+   * Darf der eingeloggte User die Anzahlungs-Tranche-Zuordnung ändern?
+   * True für Skipper/Admin/Vorstrecker. False für normale Crew — sie sieht
+   * das Feld dann gar nicht (vermeidet Verwirrung), bestehende Zuordnung
+   * bleibt aber via Hidden-Input erhalten.
+   */
+  canEditTranche?: boolean;
   /** Wenn gesetzt, Form öffnet im Edit-Mode für eine Ausgabe. */
   expenseInitial?: ExpenseInitial;
   /** Wenn gesetzt, Form öffnet im Edit-Mode für eine Gutschrift. */
@@ -122,6 +129,7 @@ export function TransactionForm({
   categories,
   currentPersonId,
   tranches,
+  canEditTranche = false,
   expenseInitial,
   creditInitial,
 }: TransactionFormProps) {
@@ -173,6 +181,7 @@ export function TransactionForm({
           categories={categories}
           currentPersonId={currentPersonId}
           tranches={tranches}
+          canEditTranche={canEditTranche}
           initial={expenseInitial}
         />
       ) : (
@@ -181,6 +190,7 @@ export function TransactionForm({
           members={members}
           currentPersonId={currentPersonId}
           tranches={tranches}
+          canEditTranche={canEditTranche}
           initial={creditInitial}
         />
       )}
@@ -194,9 +204,32 @@ export function TransactionForm({
  * Buchung schon einer Tranche zugeordnet ist, ist das Detail offen — damit
  * der User das nicht aus Versehen "vergisst" und beim Edit aktiviert.
  */
-function TrancheField({ tranches, initialTrancheId }: { tranches?: TrancheOption[]; initialTrancheId?: string | null }) {
+function TrancheField({
+  tranches,
+  initialTrancheId,
+  canEdit,
+}: {
+  tranches?: TrancheOption[];
+  initialTrancheId?: string | null;
+  /**
+   * Nur Skipper/Admin/Vorstrecker dürfen die Anzahlungs-Tranche setzen
+   * oder ändern. Für die Crew bleibt die bestehende Zuordnung erhalten
+   * (über einen Hidden-Input), das Feld selbst ist aber nicht sichtbar —
+   * damit die Crew nicht versehentlich Buchungen falsch zuordnet.
+   */
+  canEdit: boolean;
+}) {
   const [value, setValue] = useState(initialTrancheId ?? "");
   if (!tranches || tranches.length === 0) return null;
+
+  // Crew bearbeitet eine vom Skipper angelegte Buchung mit tranche_id?
+  // Wert mit Hidden-Input mitsenden, sonst entfernt das Update die Zuordnung.
+  if (!canEdit) {
+    return initialTrancheId ? (
+      <input type="hidden" name="tranche_id" value={initialTrancheId} />
+    ) : null;
+  }
+
   return (
     <details open={!!initialTrancheId} className="rounded-md border border-rule bg-paper p-3 text-sm">
       <summary className="cursor-pointer text-ink-soft">
@@ -238,6 +271,7 @@ function ExpenseForm({
   categories,
   currentPersonId,
   tranches,
+  canEditTranche,
   initial,
 }: {
   tripId: string;
@@ -245,6 +279,7 @@ function ExpenseForm({
   categories: Category[];
   currentPersonId?: string;
   tranches?: TrancheOption[];
+  canEditTranche: boolean;
   initial?: ExpenseInitial;
 }) {
   // Eingeloggten User im "Bezahlt von"-Dropdown nach oben sortieren.
@@ -634,7 +669,7 @@ function ExpenseForm({
         </>
       )}
 
-      <TrancheField tranches={tranches} initialTrancheId={initial?.trancheId ?? null} />
+      <TrancheField tranches={tranches} initialTrancheId={initial?.trancheId ?? null} canEdit={canEditTranche} />
 
       {state.status === "error" && (
         <p className="text-sm text-danger" role="alert">{state.message}</p>
@@ -656,12 +691,14 @@ function CreditForm({
   members,
   currentPersonId,
   tranches,
+  canEditTranche,
   initial,
 }: {
   tripId: string;
   members: Member[];
   currentPersonId?: string;
   tranches?: TrancheOption[];
+  canEditTranche: boolean;
   initial?: CreditInitial;
 }) {
   const router = useRouter();
@@ -771,7 +808,7 @@ function CreditForm({
         />
       </FieldGroup>
 
-      <TrancheField tranches={tranches} initialTrancheId={initial?.trancheId ?? null} />
+      <TrancheField tranches={tranches} initialTrancheId={initial?.trancheId ?? null} canEdit={canEditTranche} />
 
       {state.status === "error" && (
         <p className="text-sm text-danger" role="alert">{state.message}</p>

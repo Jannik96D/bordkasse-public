@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { getTrip, getTripMembers, getCategories } from "@/lib/queries/trips";
-import { getTranches } from "@/lib/queries/prepayments";
+import { getTranches, getPlan } from "@/lib/queries/prepayments";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   TransactionForm,
@@ -21,12 +21,13 @@ export default async function EditTransactionPage({
 }) {
   const { id: tripId, txId } = await params;
 
-  const [trip, members, categories, person, tranches] = await Promise.all([
+  const [trip, members, categories, person, tranches, plan] = await Promise.all([
     getTrip(tripId),
     getTripMembers(tripId),
     getCategories(tripId),
     getCurrentPerson(),
     getTranches(tripId),
+    getPlan(tripId),
   ]);
   if (!trip) notFound();
   if (!person) redirect(`/login?redirect=/trips/${tripId}/transactions`);
@@ -113,6 +114,7 @@ export default async function EditTransactionPage({
         members={memberOptions}
         categories={categoryOptions}
         tranches={tranches.map((t) => ({ id: t.id, label: t.label, due_date: t.due_date }))}
+        canEditTranche={admin || isMyTripSkipper || (!!plan && (plan.advancer_person_id ?? trip.skipper_id) === person.id)}
         expenseInitial={expenseInitial}
         creditInitial={creditInitial}
       />
