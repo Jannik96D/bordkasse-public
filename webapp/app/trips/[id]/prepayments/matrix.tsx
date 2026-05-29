@@ -11,6 +11,7 @@ import {
   rejectSelfPayment,
 } from "@/lib/actions/prepayments";
 import { renderWhatsAppText, renderBulkWhatsAppText, DEFAULT_WHATSAPP_TEMPLATE } from "@/lib/prepayments/whatsapp";
+import { toCrewDueDate } from "@/lib/prepayments/dates";
 import type {
   PrepaymentPlan,
   Tranche,
@@ -108,7 +109,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
         return {
           name: m.display_name,
           totalOpen: open,
-          firstOpenTranche: { label: firstTranche.label, due_date: firstTranche.due_date },
+          firstOpenTranche: { label: firstTranche.label, due_date: toCrewDueDate(firstTranche.due_date) },
         };
       })
       .filter((x): x is { name: string; totalOpen: number; firstOpenTranche: { label: string; due_date: string } } => x !== null);
@@ -134,7 +135,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
       trancheLabel: firstTranche.label,
       tripName,
       amount: open,
-      dueDate: firstTranche.due_date,
+      dueDate: toCrewDueDate(firstTranche.due_date),
       weroId: plan.wero_id,
       weroLink: firstTranche.wero_request_link,
     });
@@ -192,7 +193,9 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
               {tranches.map((t) => (
                 <th key={t.id} scope="col" className="px-1 py-2 text-center font-medium sm:px-3">
                   <div>{t.label}</div>
-                  <div className="font-normal text-ink-soft">{formatDeDate(t.due_date)} · {t.percent.toFixed(0)}%</div>
+                  <div className="font-normal text-ink-soft">
+                    Crew bis {formatDeDate(toCrewDueDate(t.due_date))} · {t.percent.toFixed(0)}%
+                  </div>
                 </th>
               ))}
               <th scope="col" className="px-2 py-2 text-right font-medium sm:px-3">Aktion</th>

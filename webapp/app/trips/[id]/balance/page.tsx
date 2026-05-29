@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getBalances } from "@/lib/queries/balances";
+import { getBalances, getBordkasseOnlyBalances } from "@/lib/queries/balances";
 import { getPlan, getPrepaymentPoolBalances } from "@/lib/queries/prepayments";
 import { formatEuro } from "@/lib/utils";
 
@@ -9,8 +9,9 @@ export default async function BalancePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [rows, plan, poolBalances] = await Promise.all([
+  const [rows, bordkasseRows, plan, poolBalances] = await Promise.all([
     getBalances(id),
+    getBordkasseOnlyBalances(id),
     getPlan(id),
     getPrepaymentPoolBalances(id),
   ]);
@@ -27,19 +28,25 @@ export default async function BalancePage({
     );
   }
 
+  // Untere Tabelle: zeigt
+  //   - bei keinem Plan: v_balances (= alles)
+  //   - mit Plan: v_balances_bordkasse_only (= nur laufende Trip-Kosten),
+  //     damit sie konsistent mit der Drei-Block-Übersicht oben ist.
+  const tableRows = plan ? bordkasseRows.map((b) => ({
+    ...b,
+    display_name: rows.find((r) => r.person_id === b.person_id)?.display_name ?? "—",
+  })) : rows;
   // Saldo-Summe für Sanity-Check
-  const sum = rows.reduce((a, r) => a + r.balance, 0);
+  const sum = tableRows.reduce((a, r) => a + r.balance, 0);
 
-  // Anzahlungs-Pool-Saldo pro Person (für die Drei-Block-Ansicht).
-  // v_balances enthält schon ALLE Buchungen inkl. Anzahlungs-Gutschriften, daher:
-  //   Bordkasse-Saldo = Gesamt-Saldo − Anzahlungs-Pool-Saldo (Eingang − Soll-Anteil)
-  // Hinweis: Anzahlungs-Pool wird in v_balances asymmetrisch verbucht — Skipper
-  // bekommt die credit_received-Seite, Crew die credit_given-Seite. Der Soll-
-  // Betrag bleibt buchhalterisch über die Yacht-Buchungen (mit tranche_id)
-  // verbunden, läuft daher ebenfalls über v_balances. Die Differenz hier
-  // ist deshalb in erster Linie ein UI-Konstrukt: zeigt, wie weit jede Person
-  // mit ihrer Soll-Erfüllung ist.
+  // Drei-Block-Ansicht: Anzahlungs-Pool, Bordkasse-Pool, Gesamt — sauber getrennt.
+  //   - Anzahlungs-Pool-Saldo: aus getPrepaymentPoolBalances (paid + charter_paid
+  //     − received − soll). Negativ = Person schuldet noch.
+  //   - Bordkasse-Pool-Saldo: aus v_balances_bordkasse_only (Migration 0026) —
+  //     berücksichtigt nur transactions WHERE tranche_id IS NULL.
+  //   - Gesamt = Anzahlung + Bordkasse (= r.balance MINUS prepayment_obligations.soll)
   const poolBalanceById = new Map(poolBalances.map((p) => [p.person_id, p]));
+  const bordkasseBalanceById = new Map(bordkasseRows.map((r) => [r.person_id, r.balance]));
   const hasPlan = !!plan;
 
   return (
@@ -50,19 +57,20 @@ export default async function BalancePage({
         <section className="mb-4 rounded-lg border border-rule bg-paper p-4">
           <h2 className="mb-3 text-sm font-semibold text-primary">Drei-Block-Übersicht</h2>
           <p className="mb-3 text-xs text-ink-soft">
-            Anzahlungs-Pool = was die Crew dem Skipper vorab schuldet (Yacht-Charter). Bordkasse-Pool = laufende Kosten des Törns.
+            Anzahlungs-Pool = was die Crew dem Vorstrecker noch schuldet (Yacht-Charter). Bordkasse-Pool = laufende Kosten des Törns.
           </p>
           <ul className="divide-y divide-rule text-sm">
             {rows.map((r) => {
               const pool = poolBalanceById.get(r.person_id);
               const prepayBalance = pool?.balance ?? 0;
-              const tripBalance = r.balance - prepayBalance;
+              const tripBalance = bordkasseBalanceById.get(r.person_id) ?? 0;
+              const total = prepayBalance + tripBalance;
               return (
                 <li key={r.person_id} className="grid grid-cols-4 gap-2 py-2">
                   <span className="font-medium">{r.display_name}</span>
                   <BalanceCell label="Anzahlung" value={prepayBalance} />
                   <BalanceCell label="Bordkasse" value={tripBalance} />
-                  <BalanceCell label="Gesamt" value={r.balance} bold />
+                  <BalanceCell label="Gesamt" value={total} bold />
                 </li>
               );
             })}
@@ -73,6 +81,9 @@ export default async function BalancePage({
         </section>
       )}
 
+      <h2 className="mb-2 text-sm font-semibold text-primary">
+        {plan ? "Bordkasse — laufende Trip-Kosten" : "Bilanz"}
+      </h2>
       <div className="overflow-hidden rounded-md border border-rule bg-paper">
         <table className="w-full text-sm">
           <caption className="sr-only">
@@ -89,7 +100,7 @@ export default async function BalancePage({
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {tableRows.map((r) => {
               const isPositive = r.balance > 0.005;
               const isNegative = r.balance < -0.005;
               const sign = isPositive ? "+" : isNegative ? "−" : "";

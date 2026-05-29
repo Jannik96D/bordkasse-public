@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { CheckCircle2, RefreshCw } from "lucide-react";
 import { formatEuro, todayIso } from "@/lib/utils";
 import { submitSelfPayment } from "@/lib/actions/prepayments";
+import { toCrewDueDate } from "@/lib/prepayments/dates";
 import type {
   PrepaymentPlan,
   Tranche,
@@ -63,7 +64,8 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
           const pending = pendingByTranche[t.id];
           const status: "open" | "partial" | "paid" =
             paid <= 0.005 ? "open" : open <= 0.005 ? "paid" : "partial";
-          const isOverdue = new Date(t.due_date) < new Date() && status !== "paid";
+          const crewDue = toCrewDueDate(t.due_date);
+          const isOverdue = new Date(crewDue) < new Date() && status !== "paid";
           const symbol = pending
             ? "⏳"
             : status === "paid" ? "✓" : isOverdue ? "⏰" : status === "partial" ? "◐" : "○";
@@ -76,7 +78,7 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{t.label}</p>
                   <p className="text-xs text-ink-soft">
-                    Fällig {formatDeDate(t.due_date)} &middot; {t.percent.toFixed(0)} %
+                    Fällig {formatDeDate(crewDue)} &middot; {t.percent.toFixed(0)} %
                   </p>
                 </div>
                 <span className="text-sm font-medium" role="status" aria-label={ariaLabel}>

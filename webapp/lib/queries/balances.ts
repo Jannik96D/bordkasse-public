@@ -11,9 +11,22 @@ export interface BalanceRow {
 }
 
 export async function getBalances(tripId: string): Promise<BalanceRow[]> {
+  return getBalancesFromView(tripId, "v_balances");
+}
+
+/**
+ * Wie getBalances, aber nur über Bordkasse-Pool-Buchungen
+ * (transactions WHERE tranche_id IS NULL). Wird für die Drei-Block-
+ * Bilanz benutzt, um den Anzahlungs-Pool sauber zu trennen.
+ */
+export async function getBordkasseOnlyBalances(tripId: string): Promise<BalanceRow[]> {
+  return getBalancesFromView(tripId, "v_balances_bordkasse_only");
+}
+
+async function getBalancesFromView(tripId: string, view: "v_balances" | "v_balances_bordkasse_only"): Promise<BalanceRow[]> {
   const supabase = await readClient();
   const { data, error } = await supabase
-    .from("v_balances")
+    .from(view)
     .select(`
       person_id, paid, share, credit_given, credit_received, balance,
       persons(display_name)

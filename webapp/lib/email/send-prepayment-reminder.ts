@@ -8,6 +8,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendMail } from "@/lib/email/send";
 import { renderPrepaymentReminderMail, type ReminderTrancheItem } from "@/lib/email/prepayment-reminder-template";
+import { toCrewDueDate } from "@/lib/prepayments/dates";
 
 const SITE_URL = process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.dieter.ms";
 
@@ -58,7 +59,7 @@ export async function sendPrepaymentReminderMail(params: {
     if (open > 0.005) {
       openTranches.push({
         label: t.label,
-        due_date: formatDeDate(t.due_date),
+        due_date: formatDeDate(toCrewDueDate(t.due_date)),
         amount_due: round2(open),
         amount_total: round2(trancheSoll),
         wero_request_link: t.wero_request_link,
