@@ -369,6 +369,8 @@ export async function recordPayment(
         credit_to: advancerId,
         tranche_id: targetTranche,
         created_by: actorPersonId,
+        // recordPayment ist die Skipper-Aktion → direkt bestätigt
+        confirmed_at: new Date().toISOString(),
         idempotency_key: idemKey,
       });
     if (error && !(error.code === PG_UNIQUE_VIOLATION && idemKey)) {
@@ -637,7 +639,197 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-// Stilles Import zur Vermeidung von "unused"-Warnings (redirect/requireMember
-// werden in zukünftigen Phase-2-Erweiterungen gebraucht).
-void redirect;
-void requireMember;
+void redirect; // import-Side-Effect, im File benutzt
+
+// ════════════════════════════════════════════════════════════════════════
+// PHASE 2 — Crew-Selbstmeldung
+// Crew klickt „Ich habe gezahlt" → pending-Eintrag, Skipper bestätigt/lehnt ab.
+// ════════════════════════════════════════════════════════════════════════
+
+const SubmitSelfPaymentSchema = z.object({
+  trip_id: z.string().uuid(),
+  tranche_id: z.string().uuid(),
+  amount: z.preprocess(
+    (v) => (typeof v === "string" ? v.replace(",", ".") : v),
+    z.coerce.number().positive("Betrag muss > 0 sein."),
+  ),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum-Format YYYY-MM-DD."),
+  note: z.string().trim().max(200).optional().or(z.literal("")),
+});
+
+/**
+ * Crew-Mitglied meldet eine geleistete Anzahlung. Erzeugt eine reguläre
+ * Gutschrift mit `confirmed_at = NULL` (= pending). Der Skipper bekommt
+ * eine Mail und kann in der Matrix bestätigen oder ablehnen.
+ */
+export async function submitSelfPayment(
+  _prev: PrepaymentState,
+  formData: FormData,
+): Promise<PrepaymentState> {
+  const person = await getCurrentPerson();
+  if (!person) return { status: "error", message: "Nicht angemeldet." };
+
+  const parsed = SubmitSelfPaymentSchema.safeParse({
+    trip_id: formData.get("trip_id"),
+    tranche_id: formData.get("tranche_id"),
+    amount: formData.get("amount"),
+    date: formData.get("date"),
+    note: formData.get("note") || "",
+  });
+  if (!parsed.success) {
+    return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
+  }
+  const { trip_id, tranche_id, amount, date, note } = parsed.data;
+
+  const auth = await requireMember(trip_id);
+  if (!auth.ok) return { status: "error", message: auth.message };
+
+  const supabase = createAdminClient();
+
+  // Vorstrecker (Empfänger) ermitteln
+  const [{ data: tripRow }, { data: planRow }, { data: trancheRow }] = await Promise.all([
+    supabase.from("trips").select("skipper_id, name").eq("id", trip_id).maybeSingle(),
+    supabase.from("prepayment_plan").select("advancer_person_id").eq("trip_id", trip_id).maybeSingle(),
+    supabase.from("prepayment_tranches").select("label").eq("id", tranche_id).maybeSingle(),
+  ]);
+  if (!tripRow || !trancheRow) return { status: "error", message: "Törn/Tranche nicht gefunden." };
+  const advancerId = planRow?.advancer_person_id || tripRow.skipper_id;
+
+  // Crew-Mitglied kann nur für SICH selbst melden (nicht für andere).
+  // Per definitionem ist auth.personId = die meldende Person.
+  const { data: tx, error } = await supabase
+    .from("transactions")
+    .insert({
+      trip_id,
+      type: "credit",
+      date,
+      description: note || `Anzahlung ${trancheRow.label} (selbst gemeldet)`,
+      amount,
+      credit_from: auth.personId,
+      credit_to: advancerId,
+      tranche_id,
+      created_by: auth.personId,
+      confirmed_at: null, // ← pending
+    })
+    .select("id")
+    .single();
+  if (error || !tx) return { status: "error", message: dbErr(error, "Meldung konnte nicht gespeichert werden.") };
+
+  await logAudit(supabase, {
+    table_name: "transactions",
+    operation: "INSERT",
+    record_id: tx.id,
+    trip_id,
+    actor_person_id: auth.personId,
+    payload: { kind: "self-payment-pending", tranche_id, amount },
+  });
+
+  // Mail an Skipper (fire-and-forget)
+  try {
+    const { sendPaymentPendingMail } = await import("@/lib/email/send-payment-pending");
+    await sendPaymentPendingMail({ tripId: trip_id, transactionId: tx.id });
+  } catch (e) {
+    console.error("[bordkasse:pending-mail]", e);
+  }
+
+  revalidatePath(`/trips/${trip_id}/prepayments`);
+  return { status: "ok" };
+}
+
+const ConfirmRejectSchema = z.object({
+  transaction_id: z.string().uuid(),
+});
+
+/**
+ * Skipper bestätigt eine selbst gemeldete Anzahlung — `confirmed_at = now()`,
+ * Buchung zählt ab sofort in `v_prepayment_payments`.
+ */
+export async function confirmSelfPayment(
+  _prev: PrepaymentState,
+  formData: FormData,
+): Promise<PrepaymentState> {
+  const person = await getCurrentPerson();
+  if (!person) return { status: "error", message: "Nicht angemeldet." };
+
+  const parsed = ConfirmRejectSchema.safeParse({ transaction_id: formData.get("transaction_id") });
+  if (!parsed.success) return { status: "error", message: "Ungültige Buchungs-ID." };
+
+  const supabase = createAdminClient();
+  const { data: tx } = await supabase
+    .from("transactions")
+    .select("trip_id, tranche_id, credit_from, amount, confirmed_at, deleted_at")
+    .eq("id", parsed.data.transaction_id)
+    .maybeSingle();
+  if (!tx || tx.deleted_at) return { status: "error", message: "Buchung nicht gefunden." };
+  if (!tx.tranche_id) return { status: "error", message: "Keine Anzahlungs-Buchung." };
+  if (tx.confirmed_at) return { status: "error", message: "Schon bestätigt." };
+
+  const auth = await requireSkipperOrAdmin(tx.trip_id);
+  if (!auth.ok) return { status: "error", message: auth.message };
+
+  const { error } = await supabase
+    .from("transactions")
+    .update({ confirmed_at: new Date().toISOString() })
+    .eq("id", parsed.data.transaction_id);
+  if (error) return { status: "error", message: dbErr(error, "Bestätigung fehlgeschlagen.") };
+
+  await logAudit(supabase, {
+    table_name: "transactions",
+    operation: "UPDATE",
+    record_id: parsed.data.transaction_id,
+    trip_id: tx.trip_id,
+    actor_person_id: auth.personId,
+    payload: { kind: "self-payment-confirmed" },
+  });
+
+  revalidatePath(`/trips/${tx.trip_id}/prepayments`);
+  revalidatePath(`/trips/${tx.trip_id}/balance`);
+  revalidatePath(`/trips/${tx.trip_id}/transactions`);
+  return { status: "ok" };
+}
+
+/**
+ * Skipper lehnt eine selbst gemeldete Anzahlung ab — Soft-Delete via
+ * deleted_at. Crew-Mitglied bekommt (laut Spec) keine freitext-Antwort,
+ * Klärung läuft per WhatsApp. TODO Phase 2 + 1: optional Mail-Notif.
+ */
+export async function rejectSelfPayment(
+  _prev: PrepaymentState,
+  formData: FormData,
+): Promise<PrepaymentState> {
+  const person = await getCurrentPerson();
+  if (!person) return { status: "error", message: "Nicht angemeldet." };
+
+  const parsed = ConfirmRejectSchema.safeParse({ transaction_id: formData.get("transaction_id") });
+  if (!parsed.success) return { status: "error", message: "Ungültige Buchungs-ID." };
+
+  const supabase = createAdminClient();
+  const { data: tx } = await supabase
+    .from("transactions")
+    .select("trip_id, tranche_id, deleted_at, confirmed_at")
+    .eq("id", parsed.data.transaction_id)
+    .maybeSingle();
+  if (!tx || tx.deleted_at) return { status: "error", message: "Buchung nicht gefunden." };
+  if (tx.confirmed_at) return { status: "error", message: "Schon bestätigt — kann nicht mehr abgelehnt werden." };
+
+  const auth = await requireSkipperOrAdmin(tx.trip_id);
+  if (!auth.ok) return { status: "error", message: auth.message };
+
+  const { error } = await supabase
+    .from("transactions")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", parsed.data.transaction_id);
+  if (error) return { status: "error", message: dbErr(error, "Ablehnen fehlgeschlagen.") };
+
+  await logAudit(supabase, {
+    table_name: "transactions",
+    operation: "DELETE",
+    record_id: parsed.data.transaction_id,
+    trip_id: tx.trip_id,
+    actor_person_id: auth.personId,
+    payload: { kind: "self-payment-rejected" },
+  });
+
+  revalidatePath(`/trips/${tx.trip_id}/prepayments`);
+  return { status: "ok" };
+}

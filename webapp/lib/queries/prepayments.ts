@@ -176,6 +176,38 @@ export async function getPrepaymentPoolBalances(tripId: string): Promise<Prepaym
   });
 }
 
+/**
+ * Selbst-Meldungen (Phase 2): noch nicht vom Skipper bestätigte
+ * Anzahlungs-Gutschriften. Wird im Matrix-UI für ⏳-Indikatoren benutzt.
+ */
+export interface PendingPayment {
+  transaction_id: string;
+  tranche_id: string;
+  person_id: string;
+  amount: number;
+  date: string;
+  description: string | null;
+  created_at: string;
+}
+
+export async function getPendingPayments(tripId: string): Promise<PendingPayment[]> {
+  const supabase = await readClient();
+  const { data } = await supabase
+    .from("v_prepayment_pending")
+    .select("transaction_id, tranche_id, person_id, amount, date, description, created_at")
+    .eq("trip_id", tripId)
+    .order("created_at", { ascending: false });
+  return (data ?? []).map((p) => ({
+    transaction_id: p.transaction_id as string,
+    tranche_id: p.tranche_id as string,
+    person_id: p.person_id as string,
+    amount: Number(p.amount),
+    date: p.date as string,
+    description: p.description as string | null,
+    created_at: p.created_at as string,
+  }));
+}
+
 export async function listPaymentsFor(
   tripId: string,
   trancheId: string,
