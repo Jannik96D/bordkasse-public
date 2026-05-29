@@ -11,12 +11,14 @@ Zwei Varianten parallel im Repo:
 
 - **Auth:** Magic-Link per E-Mail, PKCE-Flow (Single-Use-Tokens, 60 Min TTL).
 - **Rollen:** Admin (über `ADMIN_EMAILS`-Env), Skipper, Co-Skipper, Crew-Member. Admin kann Törns für Freunde anlegen ohne selbst Crew zu sein.
-- **Aufteilungslogiken:** Gleichmäßig, An Bord, Zeitanteilig, Individuell + Alkohol-Modifikator.
+- **Aufteilungslogiken:** Gleichmäßig, An Bord, Zeitanteilig, Individuell, **Pro Person** + Alkohol-Modifikator.
 - **Bilanz & Schulden:** Live-View, Greedy-Schulden-Vereinfachung; Bezahlt-Häkchen Crew-weit synchronisiert (nur Schuldner/Gläubiger/Admin dürfen abhaken).
-- **Statistik:** Live-Aggregation nach Kategorie + Tag, bleibt nach Törn-Ende anonymisiert erhalten.
+- **Settlement-Mail-Workflow:** Skipper schließt die Bordkasse mit einem Klick ab — jedes Crew-Mitglied bekommt eine personalisierte Mail mit Saldo + Zahlungsplan + Link zum Häkchen-Setzen. Update-Mail bei nachträglichen Änderungen.
+- **Anzahlungs-Modul:** Yacht-Anzahlungen Monate vor Törn-Start planen (Tranchen + Kojen-Preise + Vorstrecker). Crew kann via „Ich habe gezahlt"-Button selbst melden, Vorstrecker bestätigt. Auto-Reminder-Cron schickt 3 Tage vor jeder Frist eine Erinnerung an offene Crew-Mitglieder bzw. eine Charter-Übersicht an den Vorstrecker.
+- **Statistik:** Live-Aggregation nach Kategorie + Tag pro Trip + Cross-Trip-Gesamtsicht. Bleibt nach Törn-Ende anonymisiert erhalten.
 - **PWA:** App lässt sich zum Home-Bildschirm hinzufügen, Buchungen können offline erfasst und werden bei Reconnect automatisch synchronisiert.
 - **Sicherheit:** RLS auf allen Tabellen, Service-Role-Bypass nur in Server Actions, Security-Header (HSTS/CSP/X-Frame), `noindex`-Meta + `robots.txt` blocken Crawler, Audit-Log für Schreib-Operationen, Soft-Delete für Buchungen.
-- **DSGVO:** Personenbezogene Daten werden 30 Tage nach Törn-Ende automatisch gepurged (Vercel-Cron-Job ruft `purge_expired_trip_data()`). Anonymisiertes Statistik-Aggregat bleibt für die Auswertung erhalten.
+- **DSGVO:** Personenbezogene Daten werden 30 Tage nach Törn-Ende automatisch gepurged (Vercel-Cron-Job ruft `purge_expired_trip_data()`). Anonymisiertes Statistik-Aggregat bleibt für die Auswertung erhalten. Self-Service-Kontolöschung unter `/profile`.
 
 ## Schnellstart
 
@@ -33,9 +35,11 @@ cd webapp
 pnpm install
 supabase start
 cp .env.local.example .env.local   # Werte aus `supabase status` einsetzen
-supabase db reset                   # Migrations + Seed einspielen
+./scripts/seed-demo.sh             # Migrations + Demo-Daten + Auth-User
 pnpm dev                            # http://localhost:3000
 ```
+
+Das Helper-Skript umgeht zwei Stolpersteine: das mitgelieferte `supabase/seed.sql` ist seit Migration 0013 inkompatibel (`persons.email`-Spalte ist weg), und direkte `auth.users`-INSERTs liefern in der aktuellen Supabase-Version „Database error finding user" beim Login. Stattdessen legt das Skript die Auth-User via Admin-API an und verknüpft `persons.auth_user_id` nachträglich.
 
 Magic-Link-Mails landen lokal in Mailpit unter http://127.0.0.1:54324.
 
@@ -61,6 +65,7 @@ Vollständige Anleitung + Deploy-Schritte: [`webapp/README.md`](webapp/README.md
 │   ├── apps-script-reference.md    Apps Script v11 Funktions-Mapping
 │   ├── buttons-setup.md            Speichern-Buttons in Google Sheets
 │   ├── protection-setup.md         Sheets-Schutz für Crew-tauglichen Einsatz
+│   ├── prepayments.md              Anzahlungs-Modul Spec (Tranchen, Kojen, Vorstrecker)
 │   └── web-app-spec.md             Web-App-Architektur-Spec
 ├── scripts/                        openpyxl-Migrationen v8→v9, v9→v10
 ├── webapp/                         Next.js Web-App (siehe webapp/README.md)

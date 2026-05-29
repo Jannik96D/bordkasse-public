@@ -46,7 +46,12 @@ Next.js 16 + Supabase Web-App-Variante der Bordkasse. Spec: [`../docs/web-app-sp
 - **Settlement-Workflow:** Ab dem letzten Törn-Tag sieht der Skipper in der Trip-Übersicht + Schulden-Seite einen Banner „Törn vorbei — Abrechnung verschicken?". Klick auf den Button (`announceSettlement`) berechnet aktuelle Bilanz + simplified-debts, schickt jedem Crew-Mitglied mit hinterlegter Email eine personalisierte HTML-Mail (Saldo + konkrete Zahlungsanweisungen + Link auf die Schulden-Seite zum direkten Abhaken, via SMTP/nodemailer), setzt `trips.settlement_announced_at`. Erst danach sind die Bezahlt-Häkchen in der Schulden-Ansicht freigeschaltet — vorher sehen Crew-Mitglieder einen Hinweis „Skipper schließt die Bordkasse gerade ab". Bei nachträglicher Bearbeitung/Löschung einer Kaution-Buchung leitet die App den Skipper automatisch zur Trip-Übersicht mit prominentem Highlight-Banner, damit die Abrechnung nicht vergessen wird. Mail-Layout 1:1 wie das Magic-Link-Template (Logo, Card auf #FAFBFC, Bordkasse-Farben, Outlook-safe table-Layout). Env-Vars: `SMTP_HOST` / `SMTP_PORT` (587 STARTTLS oder 465 SSL) / `SMTP_USER` / `SMTP_PASS` (dieselben Credentials wie für Supabase-Auth-Mails) + `MAIL_FROM` (z. B. `"Bordkasse <bordkasse@dieter.ms>"`) + `NEXT_PUBLIC_APP_ORIGIN`.
 - **Settlement-Update-Mail:** Buchungs-Änderungen nach dem initialen Mailversand (create/update/delete von Expense/Credit) setzen den Marker `trips.changes_pending_since` über den SQL-Helper `mark_post_settlement_change()` (aufgerufen in `lib/actions/transactions.ts`). Solange der Marker gesetzt ist, sieht **jedes Crew-Mitglied** einen gelben Banner „Bilanz hat sich seit der Abrechnung geändert" mit Button „Update-Mail verschicken" — typischerweise löst die Person, die soeben die nachträgliche Buchung erfasst hat, die Mail direkt selbst aus, ohne den Skipper bemühen zu müssen. `resendSettlement` nutzt das gleiche Mail-Template mit `isUpdate=true` (Subject „Bordkasse-Update", Wortlaut „Bilanz aktualisiert" + optionale ChangeSummary aus dem Audit-Log, z. B. „3 neu, 1 geändert"), setzt `trips.last_settlement_resend_at` und löscht den Marker. Spam-Schutz: Resend funktioniert nur bei gesetztem Marker — nach jedem erfolgreichen Versand verschwindet der Banner bis zur nächsten Änderung.
 - **Trip-Datum nachträglich ändern:** Skipper/Co-Skipper/Admin können in den Trip-Settings unter „Törn-Datum" Start- und End-Datum korrigieren. Refine prüft `end_date >= start_date`. Bestehende Buchungen werden nicht automatisch verschoben — der Hinweis-Text macht das klar.
-- **Public-Funktionsübersicht** `/about`: 14 Mobile-Screenshots aus echtem Betrieb mit synthetischer Crew (Anna/Ben/Clara/David/Eva), erklärt jede Hauptfunktion in 1–2 Sätzen. Verlinkt vom Welcome-Screen + Footer der Trip-Liste. Public route in `middleware.ts`. Aufnahme reproduzierbar via `scripts/take-screenshots.ts` (Playwright + Mailpit-Magic-Link); Demo-Daten in `supabase/seed_demo.sql` (Trip auf „gestern beendet" gesetzt, damit der SettlementStatus-Banner sichtbar ist).
+- **Public-Funktionsübersicht** `/about`: 17 Mobile-Screenshots aus echtem Betrieb mit synthetischer Crew (Anna/Ben/Clara/David/Eva), erklärt jede Hauptfunktion in 1–2 Sätzen. Verlinkt vom Welcome-Screen + Footer der Trip-Liste. Public route in `middleware.ts`. Aufnahme reproduzierbar via `scripts/take-screenshots.ts` (Playwright + Mailpit-Magic-Link); komplettes Demo-Setup über [`scripts/seed-demo.sh`](scripts/seed-demo.sh). Demo enthält zwei Trips: „Pfingst-Törn Ostsee 2026" (Settlement-Workflow) + „Bareboat-Charter Sommer 2027" (Anzahlungs-Modul mit Kojen, Vorstrecker, gemischte Tranchen-Stati).
+- **Anzahlungs-Modul** (Migrationen 0023–0028, Spec [`../docs/prepayments.md`](../docs/prepayments.md)): Mechanik für Yacht-Anzahlungen Monate vor dem Törn. Wizard mit vier Aufteilungs-Arten (Gleichmäßig, Zeitanteilig, Individuell, **Kojen** mit Preis pro Person), Vorstrecker-Auswahl (Default Skipper), Tranchen-Editor. Matrix unter `/trips/[id]/prepayments` mit Status-Symbolen (○/◐/✓/⏰/⏳), Charter-Reminder-Banner für den Vorstrecker, Pending-Banner für Crew-Selbstmeldungen, 🔔/💬-Buttons pro Zeile. Crew-Self-View für Nicht-Skipper/Nicht-Admin/Nicht-Vorstrecker. Crew-Wechsel-Workflow (`replaceMember`) erzeugt Gegen-Gutschriften.
+- **Auto-Reminder-Cron** (`/api/cron/prepayment-reminders`, täglich 7:00 UTC in `vercel.json`): 3 Tage vor Crew-Fälligkeit Reminder an offene Crew-Mitglieder, 3 Tage vor Charter-Fälligkeit Charter-Übersicht an den Vorstrecker. Dedup über `prepayment_reminder_log(tranche_id, person_id, reminder_type)` aus Migration 0028 — mehrfache Cron-Läufe spammen nicht.
+- **Mail-Design einheitlich:** `lib/email/mail-shell.ts` rendert Logo-PNG-Header + Card-Wrapper + Footer, Helper `renderActionButton` und `renderHintBlock`. Alle Templates (settlement, debt-settled, prepayment-reminder, charter-reminder, payment-pending, prepayment-notice) nutzen dasselbe Shell.
+- **Notice-Mails bei Admin-Aktionen:** wenn `recordPayment` / `confirmSelfPayment` / `rejectSelfPayment` von einer dritten Person ausgelöst wird, gehen Info-Mails an Crew-Person + Vorstrecker (sofern Actor ≠ Empfänger). Schulden-Häkchen analog: bei Admin-Drittaktion bekommen Skipper und Vorstrecker zusätzliche Observer-Mails.
+- **Wero-Hinweis-Text** in der Reminder-Mail dynamisch: „Bitte schicke {Vorstrecker} per Wero die fällige Anzahlung". **Keine Klick-Links** — Wero hat keine öffentliche API; die Wero-ID + Verwendungszweck stehen als Pille zum manuellen Übernehmen in der Wero-App. `prepayment_tranches.wero_request_link`-Spalte bleibt im Schema, das Feld ist aber aus dem Wizard entfernt.
 
 ## Lokales Setup
 
@@ -68,12 +73,23 @@ cp .env.local.example .env.local
 # Für Vercel-Cron-Schutz in Production zusätzlich:
 #   CRON_SECRET = <zufälliger Wert>
 
-# 4. Migrations + Seed in lokale DB einspielen
-supabase db reset
+# 4. Migrations einspielen (+ Demo-Daten via Helper)
+./scripts/seed-demo.sh
+# Wrapper-Skript, weil:
+#   - supabase/seed.sql ist kaputt (referenziert persons.email; Spalte ist
+#     seit Migration 0013 weg) → wir umgehen den Auto-Seed.
+#   - Auth-User müssen via Admin-API erzeugt werden, direkte
+#     auth.users-INSERTs liefern "Database error finding user" beim Login.
+# Das Skript erledigt beides und legt zwei Demo-Trips an.
 
 # 5. Dev-Server
 pnpm dev   # http://localhost:3000
+
+# Optional: alle About-Screenshots neu schießen (Dev-Server muss laufen)
+./scripts/seed-demo.sh --screenshots
 ```
+
+Login lokal: `skipper@example.com` (Anna, Admin) oder `clara@example.com` (Crew). Magic-Link landet in Mailpit.
 
 **Hilfreiche lokale Endpoints:**
 - App: <http://localhost:3000>
@@ -120,7 +136,10 @@ app/                            Next.js App Router
     debts/                      Vereinfachte Überweisungen + Bezahlt-Häkchen
     stats/                      Live-Statistik (Kategorie + Tag)
     settings/                   Crew (Skipper-Toggle, Edit) + Kategorien (Icon-Picker) + Archiv
+    prepayments/                Anzahlungs-Matrix · /setup (Wizard) · CrewSelfView
+  /stats                        Cross-Trip-Statistik (aktiver Live + gepurgte aus trip_statistics)
   /api/cron/purge               Cron-Endpoint (DSGVO-Löschung), via vercel.json täglich
+  /api/cron/prepayment-reminders Cron-Endpoint (Anzahlungs-Reminder 3 Tage vor Frist), täglich
 
 components/
   bottom-nav.tsx                Bottom-Tabs + FAB
@@ -162,8 +181,17 @@ supabase/
                                 · 0019 settlement_resend (changes_pending_since)
                                 · 0020 trip_statistics_audience (Cross-Trip-Sicht nach Purge)
                                 · 0021 self_account_deletion (DSGVO Art. 17)
+                                · 0022 explicit_grants (Pre-30.10.2026 Supabase-Deprecation)
+                                · 0023 prepayments (Plan + Kojen + Tranchen + Obligations)
+                                · 0024 prepayment_advancer (Vorstrecker, Self-Credit)
+                                · 0025 self_payment_confirmation (confirmed_at)
+                                · 0026 bordkasse_only_balances (v_balances_bordkasse_only)
+                                · 0027 simplify_debts_bordkasse_only
+                                · 0028 prepayment_reminder_log (Auto-Reminder-Dedup)
   email-templates/              Branded Magic-Link-Mail (deutsch + Logo)
-  seed.sql                      10-Personen-Crew + Test-Törn
+  seed.sql                      10-Personen-Crew + Test-Törn (KAPUTT seit 0013 — Setup nutzt seed-demo.sh)
+  seed_demo.sql                 Demo-Daten für /about Screenshots (zwei Trips inkl. Anzahlungen)
+  seed_prepayments_test.sql     Test-Setup nur für Anzahlungs-Modul
 
 __tests__/                      Vitest-Suiten (calc + schema)
 e2e/                            Playwright Smoke-Tests
@@ -195,12 +223,15 @@ supabase db push
   - `NEXT_PUBLIC_SUPABASE_URL`
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
   - `SUPABASE_SERVICE_ROLE_KEY`
+  - `NEXT_PUBLIC_SITE_URL` — Production-Origin (z. B. `https://bordkasse.dieter.ms`). `lib/auth/origin.ts` wirft fail-loud, wenn das fehlt UND kein Origin-Header verfügbar ist — sonst würden Magic-Links und Mail-Links aus Cron-/Background-Pfaden auf `localhost` zeigen.
+  - `NEXT_PUBLIC_APP_ORIGIN` — gleicher Wert; wird in den Mail-Templates für Absolute-URLs (Logo, Datenschutz-Link) verwendet.
   - `ADMIN_EMAILS` (Komma-separiert)
-  - `CRON_SECRET` (für `/api/cron/purge`-Schutz; zufällig generieren)
+  - `CRON_SECRET` (für `/api/cron/*`-Schutz; zufällig generieren — schützt sowohl `purge` als auch `prepayment-reminders`)
+  - SMTP: `SMTP_HOST`, `SMTP_PORT` (587 STARTTLS oder 465 SSL), `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` (z. B. `"Bordkasse <bordkasse@dieter.ms>"`)
 
 **5. Deploy.** Domain auf eigene Subdomain mappen (CNAME → `cname.vercel-dns.com.`).
 
-**6. Cron-Job aktivieren:** Vercel liest `vercel.json` automatisch und richtet den täglichen Purge-Cron ein. Die Route ist via `Authorization: Bearer ${CRON_SECRET}` abgesichert.
+**6. Cron-Jobs aktivieren:** Vercel liest `vercel.json` automatisch und richtet zwei tägliche Cron-Jobs ein — `/api/cron/purge` (DSGVO-Löschung, 3:00 UTC) und `/api/cron/prepayment-reminders` (Anzahlungs-Reminder 3 Tage vor Frist, 7:00 UTC). Beide via `Authorization: Bearer ${CRON_SECRET}` abgesichert.
 
 ### PWA-Updates auf installierten Geräten
 

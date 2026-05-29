@@ -113,16 +113,6 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
               )}
 
               <div className="mt-3 flex flex-wrap gap-2">
-                {t.wero_request_link && (
-                  <a
-                    href={t.wero_request_link}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper px-3 py-1.5 text-sm text-primary hover:border-primary/40"
-                  >
-                    Per Wero zahlen
-                  </a>
-                )}
                 {open > 0.005 && !pending && (
                   <button
                     type="button"

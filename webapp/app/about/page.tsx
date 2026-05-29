@@ -76,7 +76,7 @@ const features: Feature[] = [
   {
     id: "trip-overview",
     title: "Übersicht pro Törn",
-    lead: "Pro Törn ein eigener Bereich: Schnellzugriff auf Buchungen, Bilanz, Statistik und Schulden.",
+    lead: "Pro Törn ein eigener Bereich: Schnellzugriff auf Buchungen, Bilanz, Anzahlungen und Schulden.",
     body: (
       <>
         <p>
@@ -89,7 +89,10 @@ const features: Feature[] = [
           Sobald der Törn vorbei ist, erscheint oben ein Hinweis-Banner:
           „Kaution prüfen + Abrechnung verschicken“. Skipper und Admins
           können auf einen Klick allen Beteiligten eine E-Mail mit der
-          fertigen Abrechnung schicken.
+          fertigen Abrechnung schicken. Bei nachträglichen Änderungen
+          erinnert die App, eine Update-Mail rauszuschicken — und für
+          Yacht-Anzahlungen verschickt sie 3 Tage vor jeder Frist
+          selbstständig Erinnerungen.
         </p>
       </>
     ),
@@ -176,6 +179,13 @@ const features: Feature[] = [
           Häkchen setzen dürfen nur die beiden direkt Beteiligten
           (Schuldner und Empfänger) sowie der Skipper oder Admin.
         </p>
+        <p className="mt-2">
+          Sobald ein Häkchen gesetzt wird, gehen automatisch
+          Bestätigungs-Mails an Schuldner und Empfänger. Wenn ein Admin
+          stellvertretend abhakt, bekommen Skipper und Vorstrecker
+          zusätzlich eine Info-Mail — damit niemand übersieht, dass
+          jemand anderes in seinem Trip-Kontext geklickt hat.
+        </p>
       </>
     ),
     screenshot: "/about/08-schulden.png",
@@ -251,6 +261,87 @@ const features: Feature[] = [
     ),
     screenshot: "/about/12-gutschrift.png",
     alt: "Gutschrift-Formular mit „Zahlt“ und „Empfängt“ Auswahl",
+  },
+  {
+    id: "anzahlung-setup",
+    title: "Yacht-Anzahlung — Plan einrichten",
+    lead: "Wenn der Skipper Monate vor dem Törn die Charter-Anzahlung an die Agentur leistet, hilft die App, das Geld bei der Crew einzusammeln.",
+    body: (
+      <>
+        <p>
+          Im Anzahlungs-Wizard wird zuerst festgelegt, wie sich die
+          Gesamtsumme auf die Crew verteilt — <strong>gleichmäßig</strong>,{" "}
+          <strong>zeitanteilig</strong>, <strong>individuell</strong>{" "}
+          oder nach <strong>Kojen</strong> (jede Kabine bekommt einen
+          eigenen Preis, Crew-Mitglieder werden den Kabinen zugewiesen).
+          Wer das Geld vorstreckt, ist meistens der Skipper, kann aber
+          auch jemand anderes sein („Vorstrecker“). An diese Person zahlt
+          die Crew dann.
+        </p>
+        <p className="mt-2">
+          Im zweiten Schritt werden die <strong>Tranchen</strong> definiert
+          — typischerweise 30 % Reservierungs-Anzahlung Monate vorab und
+          70 % Endzahlung kurz vor dem Törn. Die Summe muss 100 % ergeben.
+          Eine WhatsApp-Vorlage und eine optionale Wero-ID lassen sich
+          ebenfalls hier hinterlegen.
+        </p>
+      </>
+    ),
+    screenshot: "/about/15-anzahlung-setup.png",
+    alt: "Anzahlungs-Wizard mit Tranchen-Editor (Datum, Label, Prozent)",
+  },
+  {
+    id: "anzahlung-matrix",
+    title: "Anzahlungs-Matrix — wer hat wann was gezahlt",
+    lead: "Eine Person-mal-Tranche-Tabelle mit Status-Symbolen: offen, teilweise, bezahlt, überfällig, gemeldet aber unbestätigt.",
+    body: (
+      <>
+        <p>
+          Ein Klick auf eine Zelle öffnet ein Modal zum Erfassen einer
+          Zahlung. Überschuss kann automatisch auf die nächste Tranche
+          übertragen werden. Mit dem <strong>🔔-Symbol</strong> in der
+          Zeile schickt der Skipper eine persönliche Erinnerungs-Mail
+          mit Wero-ID und Verwendungszweck; mit dem{" "}
+          <strong>💬-Symbol</strong> bekommt er einen
+          WhatsApp-Vorschlagstext zum Kopieren.
+        </p>
+        <p className="mt-2">
+          Oben sieht der Vorstrecker eine Übersicht, was er noch an die
+          Charter-Agentur überweisen muss — basierend auf dem, was die
+          Crew schon bei ihm eingezahlt hat. 3 Tage vor jeder
+          Charter-Frist verschickt die App diese Übersicht zusätzlich
+          per Mail; 3 Tage vor der Crew-Frist gehen automatisch
+          Erinnerungen an alle Crew-Mitglieder mit offenem Betrag.
+        </p>
+      </>
+    ),
+    screenshot: "/about/16-anzahlung-matrix.png",
+    alt: "Anzahlungs-Matrix mit Charter-Reminder-Banner, Pending-Hinweis und Vorstrecker-Markierung",
+  },
+  {
+    id: "anzahlung-crew-self",
+    title: "Crew meldet selbst",
+    lead: "Crew-Mitglieder sehen ihre eigenen Anzahlungen und können mit einem Klick melden, dass sie überwiesen haben.",
+    body: (
+      <>
+        <p>
+          Statt dass der Skipper jeden Eingang manuell abhaken muss, kann
+          die Crew selbst „Ich habe gezahlt“ drücken. Der Vorstrecker
+          bekommt eine Mail und sieht in der Matrix ein gelbes
+          ⏳-Symbol — er bestätigt mit ✓, sobald das Geld auf seinem Konto
+          ist, oder lehnt mit ✗ ab. Erst nach Bestätigung zählt die
+          Zahlung in der Bilanz.
+        </p>
+        <p className="mt-2">
+          Sobald der Vorstrecker bestätigt oder ablehnt, bekommt das
+          Crew-Mitglied eine kurze Info-Mail. Bei einer Ablehnung
+          enthält die Mail einen Hinweis, mit dem Skipper Rücksprache zu
+          halten.
+        </p>
+      </>
+    ),
+    screenshot: "/about/17-anzahlung-crew-self.png",
+    alt: "Crew-Self-View mit „Ich habe gezahlt“-Button pro offener Tranche",
   },
   {
     id: "offline",

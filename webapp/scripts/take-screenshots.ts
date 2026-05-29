@@ -17,19 +17,20 @@ import { resolve } from "node:path";
 
 const BASE_URL = "http://localhost:3000";
 const MAILPIT_URL = "http://127.0.0.1:54324";
-const EMAIL = "skipper@example.com";
+const SKIPPER_EMAIL = "skipper@example.com";   // Anna (Skipper + Admin)
+const CREW_EMAIL = "clara@example.com";        // Clara (reguläres Crew-Member)
 const OUT_DIR = resolve(__dirname, "../public/about");
 
-async function fetchMagicLink(): Promise<string> {
-  // Mailpit-API: letzte Mail an EMAIL holen
+async function fetchMagicLink(email: string): Promise<string> {
+  // Mailpit-API: letzte Mail an die angegebene Adresse holen
   const url = new URL(`${MAILPIT_URL}/api/v1/search`);
-  url.searchParams.set("query", `to:"${EMAIL}"`);
+  url.searchParams.set("query", `to:"${email}"`);
   url.searchParams.set("limit", "1");
   const res = await fetch(url.toString());
   if (!res.ok) throw new Error(`Mailpit search failed: ${res.status}`);
   const data = (await res.json()) as { messages: Array<{ ID: string }> };
   const id = data.messages[0]?.ID;
-  if (!id) throw new Error("Keine Magic-Link-Mail in Mailpit gefunden");
+  if (!id) throw new Error(`Keine Magic-Link-Mail in Mailpit gefunden (to: ${email})`);
 
   const msgRes = await fetch(`${MAILPIT_URL}/api/v1/message/${id}`);
   const msg = (await msgRes.json()) as { Text?: string; HTML?: string };
@@ -97,6 +98,48 @@ async function waitForLoad(page: Page) {
   await page.waitForTimeout(200);
 }
 
+/**
+ * Komplett-Login per Magic-Link für eine beliebige E-Mail-Adresse.
+ * - klickt sich durchs /login-Formular,
+ * - holt den frischen Link aus Mailpit (vorher leeren),
+ * - extrahiert ggf. den ?code= und ruft /auth/callback explizit auf
+ *   (Workaround: lokale site_url ist 127.0.0.1:3000/ statt /auth/callback),
+ * - landet final auf "/" als eingeloggter User.
+ */
+async function loginAs(page: Page, email: string) {
+  console.log(`→ Login als ${email}`);
+  await clearMailpit();
+  await page.goto(`${BASE_URL}/login`);
+  await waitForLoad(page);
+  await page.locator('input[type="email"]').fill(email);
+  await page.getByRole("button", { name: /Magic-Link anfordern/i }).click();
+  await page.waitForTimeout(2000);
+
+  const magicLink = await fetchMagicLink(email);
+  console.log(`  ↳ Magic-Link: ${magicLink.slice(0, 80)}…`);
+  await page.goto(magicLink);
+  await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+
+  const landed = new URL(page.url());
+  const code = landed.searchParams.get("code");
+  if (code) {
+    await page.goto(`${BASE_URL}/auth/callback?code=${code}`);
+    await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+  }
+
+  await page.goto(BASE_URL);
+  await waitForLoad(page);
+  const heading = await page.locator("h1").first().textContent().catch(() => "");
+  console.log(`  ↳ Eingeloggt als ${email}, H1 = "${heading}"`);
+}
+
+/** Logout über Profil-Seite — danach ist die Session sicher gekappt. */
+async function logout(page: Page, context: { clearCookies: () => Promise<void> }) {
+  // Schnellster Weg: alle Cookies wegwerfen. Supabase-SSR-Cookies + sb-*-auth-token
+  // werden damit ungültig, beim nächsten Request wirft der Server uns auf /login.
+  await context.clearCookies();
+}
+
 async function main() {
   await mkdir(OUT_DIR, { recursive: true });
   // --lang=de-DE ist nötig, damit native <input type="date"> im deutschen
@@ -123,48 +166,35 @@ async function main() {
   await waitForLoad(page);
   await shot(page, "02-login");
 
-  console.log("→ Magic-Link anfordern");
-  await clearMailpit();
-  await page.locator('input[type="email"]').fill(EMAIL);
-  await page.getByRole("button", { name: /Magic-Link anfordern/i }).click();
-  await page.waitForTimeout(2000);
-
-  const magicLink = await fetchMagicLink();
-  console.log(`  ↳ Magic-Link: ${magicLink.slice(0, 80)}…`);
-  await page.goto(magicLink);
-  await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
-  console.log(`  ↳ Nach Magic-Link: ${page.url()}`);
-
-  // Workaround: site_url ist auf 127.0.0.1:3000/ statt /auth/callback gesetzt.
-  // Wir holen uns den ?code= aus der URL und rufen /auth/callback selbst auf.
-  const landed = new URL(page.url());
-  const code = landed.searchParams.get("code");
-  if (code) {
-    await page.goto(`${BASE_URL}/auth/callback?code=${code}`);
-    await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
-    console.log(`  ↳ Nach Callback: ${page.url()}`);
-  }
-
-  // Sollte jetzt auf "/" als eingeloggter Skipper sein
-  await page.goto(BASE_URL);
-  await waitForLoad(page);
-  console.log(`  ↳ Auf "/" gelandet bei: ${page.url()}`);
-  const headingText = await page.locator("h1").first().textContent().catch(() => "");
-  console.log(`  ↳ H1 = "${headingText}"`);
+  await loginAs(page, SKIPPER_EMAIL);
 
   console.log("→ Trips-Übersicht (eingeloggt)");
   await shot(page, "03-trips");
 
-  // Trip-ID aus dem Link in der Liste holen (UUID-Pattern, ignoriert /trips/new)
-  const tripHrefs = await page.locator('a[href^="/trips/"]').evaluateAll((els) =>
+  // Aus der Trip-Liste die beiden Demo-Trips per Namen heraussuchen:
+  // - „Pfingst-Törn Ostsee 2026" → Trip 1 für Screenshots 04–14
+  // - „Bareboat-Charter Sommer 2027" → Trip 2 für 15–17 (Anzahlungen)
+  const tripsByName = await page.locator('a[href^="/trips/"]').evaluateAll((els) =>
     els
-      .map((el) => (el as HTMLAnchorElement).getAttribute("href") ?? "")
-      .filter((h) => /^\/trips\/[0-9a-f-]{36}$/.test(h)),
+      .map((el) => ({
+        href: (el as HTMLAnchorElement).getAttribute("href") ?? "",
+        text: el.textContent ?? "",
+      }))
+      .filter((t) => /^\/trips\/[0-9a-f-]{36}$/.test(t.href)),
   );
-  const tripHref = tripHrefs[0];
-  if (!tripHref) throw new Error(`Kein Trip-UUID-Link gefunden. Gefunden: ${JSON.stringify(tripHrefs)}`);
-  const tripId = tripHref.replace("/trips/", "");
-  console.log(`  ↳ Trip-ID: ${tripId}`);
+  const findTripId = (needle: string): string => {
+    const hit = tripsByName.find((t) => t.text.includes(needle));
+    if (!hit) {
+      throw new Error(
+        `Trip „${needle}" nicht in Liste. Gefunden: ${JSON.stringify(tripsByName.map((t) => t.text.trim().slice(0, 40)))}`,
+      );
+    }
+    return hit.href.replace("/trips/", "");
+  };
+  const tripId = findTripId("Pfingst-Törn");
+  const tripCharterId = findTripId("Bareboat-Charter");
+  console.log(`  ↳ Pfingst-Törn: ${tripId}`);
+  console.log(`  ↳ Bareboat-Charter: ${tripCharterId}`);
 
   console.log("→ Trip-Übersicht");
   await page.goto(`${BASE_URL}/trips/${tripId}`);
@@ -246,6 +276,53 @@ async function main() {
   });
   await page.waitForTimeout(400);
   await shot(page, "14-dsgvo");
+
+  // ────────────────────────────────────────────────────────────────────
+  // Anzahlungs-Modul (Trip 2 — Bareboat-Charter)
+  //   15-anzahlung-setup    Wizard Step 2 (Tranchen-Editor)
+  //   16-anzahlung-matrix   Matrix mit Charter-Banner + Vorstrecker-Zeile
+  //   17-anzahlung-crew-self  Crew-Self-View (als Clara, nicht-Skipper)
+  // ────────────────────────────────────────────────────────────────────
+
+  console.log("→ Anzahlungs-Wizard (Step 1 mit Kojen + Vorstrecker)");
+  await page.goto(`${BASE_URL}/trips/${tripCharterId}/prepayments/setup`);
+  await waitForLoad(page);
+  // Wir zeigen Step 1 mit Kojen-Editor + Vorstrecker-Auswahl. Step 2
+  // wäre der Tranchen-Editor, lässt sich aber nicht direkt anspringen
+  // (nur via setState nach erfolgreichem Server-Save) — und ein Click
+  // hier sendet sonst das ganze Plan-Payload nochmal an den Server. Step 1
+  // erklärt das Konzept ohnehin am besten: Aufteilungs-Methode, Kojen,
+  // Vorstrecker, Wero-ID. Wir scrollen zur Kojen-Sektion, weil das der
+  // visuell interessanteste Teil ist.
+  await page.evaluate(() => {
+    const h = Array.from(document.querySelectorAll("label, h2, h3")).find((el) =>
+      (el.textContent ?? "").toLowerCase().includes("kojen"),
+    );
+    h?.scrollIntoView({ block: "start" });
+  });
+  await page.waitForTimeout(400);
+  await shot(page, "15-anzahlung-setup");
+
+  console.log("→ Anzahlungs-Matrix (Charter-Banner + Pending + Vorstrecker)");
+  await page.goto(`${BASE_URL}/trips/${tripCharterId}/prepayments`);
+  await waitForLoad(page);
+  // Etwas nach unten scrollen, damit der Charter-Reminder-Banner + ein
+  // Stück Matrix sichtbar sind (volle Matrix passt nicht ins Mobile-Viewport).
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(300);
+  await shot(page, "16-anzahlung-matrix");
+
+  console.log("→ Crew-Self-View — Re-Login als Clara");
+  await logout(page, context);
+  await loginAs(page, CREW_EMAIL);
+  await page.goto(`${BASE_URL}/trips/${tripCharterId}/prepayments`);
+  await waitForLoad(page);
+  await shot(page, "17-anzahlung-crew-self");
+
+  // Zurück zum Skipper, damit der finale About-Preview-Screenshot vom
+  // eingeloggten Standardzustand kommt.
+  await logout(page, context);
+  await loginAs(page, SKIPPER_EMAIL);
 
   console.log("→ /about-Seite selbst (Preview)");
   await page.goto(`${BASE_URL}/about`);

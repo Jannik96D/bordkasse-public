@@ -1,8 +1,8 @@
 # Anzahlungs-Tranchen — Spec
 
-Modul zur Erfassung, Planung und Nachverfolgung von Anzahlungen, die Crew-Mitglieder lange **vor** dem Törn an den Skipper leisten — typischerweise als Beteiligung an der Yacht-Charter, die der Skipper bereits Monate vor Reisebeginn buchen und (in Tranchen) bezahlen muss.
+Modul zur Erfassung, Planung und Nachverfolgung von Anzahlungen, die Crew-Mitglieder lange **vor** dem Törn an den Skipper oder einen anderen Vorstrecker leisten — typischerweise als Beteiligung an der Yacht-Charter, die der Skipper bereits Monate vor Reisebeginn buchen und (in Tranchen) bezahlen muss.
 
-> Status: Design-Spec, noch nicht implementiert. Iteriert mit Jannik am 28.05.2026.
+> **Status: Implementiert** über Migrationen 0023–0028. Phase 1 (Kern) + Phase 2 (Crew-Selbstmeldung) + Auto-Reminder-Cron + Vorstrecker-Konzept + Charter-Reminder-Mail sind live. Diese Spec spiegelt den aktuellen Stand und beschreibt die Mechanik im Detail.
 
 ## Problem
 
@@ -31,11 +31,13 @@ Das aktuelle Modell (Buchung + Gutschrift + Bilanz) bildet das Geldfluss-Modell 
 ```sql
 -- Konfiguration pro Trip
 prepayment_plan
-  trip_id        UUID PK REFERENCES trips(id) ON DELETE CASCADE
-  split_method   TEXT CHECK (split_method IN ('gleichmaessig','zeitanteilig','individuell','kojen'))
-  total_amount   NUMERIC(10,2)  -- Gesamt-Anzahlungssumme (z.B. Yacht-Charter-Preis)
-  wero_id        TEXT           -- Wero-ID des Skippers (Mobil/E-Mail), optional pro Trip
-  whatsapp_template TEXT        -- Editierbare Vorlage mit Platzhaltern
+  trip_id            UUID PK REFERENCES trips(id) ON DELETE CASCADE
+  split_method       TEXT CHECK (split_method IN ('gleichmaessig','zeitanteilig','individuell','kojen'))
+  total_amount       NUMERIC(10,2)  -- Gesamt-Anzahlungssumme (z.B. Yacht-Charter-Preis)
+  advancer_person_id UUID NULL REFERENCES persons(id) ON DELETE SET NULL
+                                    -- Wer streckt vor? NULL = Trip-Skipper als Fallback. (Migration 0024)
+  wero_id            TEXT           -- Wero-ID des Vorstreckers (Mobil/E-Mail), optional pro Trip
+  whatsapp_template  TEXT           -- Editierbare Vorlage mit Platzhaltern
 
 -- Nur wenn split_method = 'kojen': Kojen-Typen mit Preis pro Person
 cabin_types
@@ -56,17 +58,29 @@ prepayment_obligations
 
 -- Zeitliche Aufteilung
 prepayment_tranches
-  id             UUID PK
-  trip_id        UUID REFERENCES trips(id) ON DELETE CASCADE
-  due_date       DATE
-  label          TEXT  -- z.B. '1. Anzahlung', 'Endzahlung'
-  percent        NUMERIC(5,2)  -- 0..100, Summe aller Tranchen eines Trips = 100
-  wero_request_link TEXT NULL  -- optional: vom Skipper aus Wero-App kopierter Request-Link
-  sort_order     INT
+  id                UUID PK
+  trip_id           UUID REFERENCES trips(id) ON DELETE CASCADE
+  due_date          DATE          -- Charter-Frist gegenüber der Agentur (Crew-Frist = due_date − 3 Tage)
+  label             TEXT          -- z.B. '1. Anzahlung', 'Endzahlung'
+  percent           NUMERIC(5,2)  -- 0..100, Summe aller Tranchen eines Trips = 100
+  wero_request_link TEXT NULL     -- DEPRECATED: aus UI entfernt (Wero hat keine offene API).
+                                  -- Spalte bleibt aus Schema-Stabilität, ist immer NULL/leer.
+  sort_order        INT
 
 -- Bestehende transactions-Tabelle bekommt eine Spalte:
 transactions
   + tranche_id   UUID NULL REFERENCES prepayment_tranches(id) ON DELETE SET NULL
+  + confirmed_at TIMESTAMPTZ NULL DEFAULT now()  -- Migration 0025: NULL = pending Selbstmeldung
+
+-- Auto-Reminder-Dedup (Migration 0028)
+prepayment_reminder_log
+  id            UUID PK DEFAULT gen_random_uuid()
+  trip_id       UUID NOT NULL REFERENCES trips(id) ON DELETE CASCADE
+  tranche_id    UUID NOT NULL REFERENCES prepayment_tranches(id) ON DELETE CASCADE
+  person_id     UUID NOT NULL REFERENCES persons(id) ON DELETE CASCADE
+  reminder_type TEXT NOT NULL CHECK (reminder_type IN ('crew_3d', 'advancer_3d'))
+  sent_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+  UNIQUE (tranche_id, person_id, reminder_type)
 ```
 
 **Anmerkungen:**
@@ -155,26 +169,27 @@ Bestehende „Neue Gutschrift"-Maske bekommt ein zusätzliches Dropdown **„Anz
 - Default: `— Keine —` (= Bordkasse-Pool)
 - Sonst: Auswahl einer Tranche des Trips → landet im Anzahlungs-Pool
 
-### Weg 3 — Crew-Selbstmeldung (Phase 2)
+### Weg 3 — Crew-Selbstmeldung (Phase 2, implementiert)
 
-Crew-Mitglied sieht in seiner Trip-Sicht den eigenen Tranchen-Status + Button **„Ich habe gezahlt"**:
-- Klick → erzeugt Eintrag mit Status `pending_confirmation`
-- Skipper bekommt Mail + Hinweis in der Matrix (Symbol ⏳)
-- Skipper bestätigt mit einem Klick → Status ✅
-- Bei Ablehnung: Eintrag wird verworfen, Crew-Member bekommt Mail mit Hinweis (kein freier Antwort-Text, um Streit zu vermeiden — Klärung per WhatsApp)
+Crew-Mitglied sieht in seiner Trip-Sicht (CrewSelfView) den eigenen Tranchen-Status + Button **„Ich habe gezahlt"**:
+- Klick → erzeugt eine reguläre Gutschrift mit `confirmed_at = NULL` (= pending). Der Empfänger ist der **Vorstrecker** des Trips, nicht zwingend der Skipper.
+- Vorstrecker bekommt Mail (`payment-pending-template.ts`) + Hinweis in der Matrix (Symbol ⏳, Pending-Banner mit ✓/✗-Buttons)
+- Vorstrecker bestätigt mit ✓ → `confirmed_at = now()`, Eintrag zählt ab sofort in `v_prepayment_payments`
+- Bei Ablehnung mit ✗ → Soft-Delete via `deleted_at`. Crew-Mitglied bekommt eine Notice-Mail mit Hinweis „sprich mit dem Vorstrecker, falls das ein Versehen war" (kein freier Antwort-Text, um Streit zu vermeiden — Klärung per WhatsApp)
 
-> Datenmodell-Erweiterung in Phase 2: Spalte `confirmed_at TIMESTAMPTZ NULL` auf `transactions` (oder eine separate Pending-Tabelle, je nach Komplexität bei der Implementierung).
+**Datenmodell:** `transactions.confirmed_at TIMESTAMPTZ NULL DEFAULT now()` aus Migration 0025. Normale Skipper-/Admin-/Vorstrecker-Eingaben sind dadurch sofort bestätigt, nur `submitSelfPayment` schreibt explizit `NULL`. View `v_prepayment_pending` aus derselben Migration listet alle offenen Selbstmeldungen.
 
 ## Status-Symbole
 
-| Symbol | Bedeutung | Bedingung |
+In der Matrix als gerahmte Checkbox-Boxen gerendert (vgl. Schulden-Seite), Status-Glyphe als `aria-hidden`-Span darin:
+
+| Glyphe | Bedeutung | Bedingung |
 |--------|-----------|-----------|
-| ⚠️ | Offen | keine Zahlung erfasst |
+| ○ (leere Box) | Offen | keine Zahlung erfasst |
 | ◐ | Teilweise | 0 < Σ Zahlungen < Soll |
-| ✅ | Bezahlt | Σ Zahlungen ≥ Soll |
-| ⏰ | Überfällig | `due_date < heute` UND Status ∈ {⚠️, ◐} |
-| ➕ | Überzahlt | Σ Zahlungen > Soll (Guthaben in dieser Tranche) |
-| ⏳ | Gemeldet, unbestätigt | nur Phase 2: Crew hat „Ich habe gezahlt" geklickt, Skipper hat noch nicht bestätigt |
+| ✓ (grüner Haken) | Bezahlt | Σ Zahlungen ≥ Soll |
+| ⏰ + roter Rahmen | Überfällig | `due_date < heute` UND Status ∈ {offen, teilweise} |
+| ⏳ + gelber Rahmen | Gemeldet, unbestätigt | Selbstmeldung mit `confirmed_at = NULL` |
 
 ## Bilanz-Ansicht (drei Blöcke)
 
@@ -276,17 +291,43 @@ Schritte:
 
 ## Mail-Templates + WhatsApp-Texte
 
-Beide Versand-Wege werden manuell durch Skipper ausgelöst, kein Auto-Trigger.
+WhatsApp-Versand läuft immer manuell. Mail-Versand läuft entweder manuell (🔔-Button) oder automatisch via Cron (siehe „Implementierte Erweiterungen" → Auto-Reminder).
 
-### Erinnerungsmail an Crew
+Alle Mails nutzen [`lib/email/mail-shell.ts`](../webapp/lib/email/mail-shell.ts) — gemeinsamer Logo-PNG-Header + Card + Footer.
 
-Pro Person-Zeile in der Matrix ein Knopf 🔔. Mail-Template ähnlich Settlement-Mail (siehe `lib/email/`):
+### Erinnerungsmail an Crew (`prepayment-reminder-template.ts`)
+
+Pro Person-Zeile in der Matrix ein Knopf 🔔, plus Auto-Versand vom Cron 3 Tage vor Crew-Fälligkeit. Inhalt:
 - Anrede mit Display-Name
-- Liste der offenen Tranchen mit Soll-Betrag und Fälligkeitsdatum
-- Wero-ID des Skippers + ggf. Wero-Request-Link der Tranche
-- Link zur Trip-Übersicht (führt nach Login auf eigene Anzahlungs-Sicht)
+- Liste der offenen Tranchen mit Soll-Betrag und Crew-Fälligkeitsdatum (= Charter-Frist minus 3 Tage)
+- Dynamischer Wero-Hinweis: „Bitte schicke **{Vorstrecker}** per Wero die fällige Anzahlung." mit Wero-ID + Verwendungszweck als Pille. **Kein Klick-Link** — Wero hat keine offene API. Falls keine Wero-ID gepflegt: „Frag {Vorstrecker} nach den Überweisungsdetails."
+- Hint-Block am Mail-Ende erklärt die Wero-Limitation
+- Link zur Bordkasse (`/trips/{id}/prepayments`)
 
 Voraussetzung: Crew-Mitglied hat E-Mail-Adresse. Sonst ist der 🔔-Button deaktiviert mit Tooltip „E-Mail fehlt".
+
+### Charter-Reminder-Mail an den Vorstrecker (`charter-reminder-template.ts`)
+
+In der Matrix-Zeile des Vorstreckers schickt der 🔔-Button **nicht** seine persönlichen Tranchen, sondern eine Charter-Übersicht pro Tranche:
+- Soll Agentur (Tranchen-Prozent × `total_amount`)
+- Σ Crew-Eingänge bei dir vs. Σ Crew-Soll
+- Schon an Agentur überwiesen (Σ expense-Buchungen mit dieser Tranche)
+- Noch zu überweisen
+
+Wird auch automatisch vom Cron 3 Tage vor Charter-Fälligkeit verschickt. Routing-Logik: `personId === advancer_person_id` → Charter-Pfad; sonst Crew-Pfad.
+
+### Selbstmeldungs-Benachrichtigung (`payment-pending-template.ts`)
+
+Geht an den Vorstrecker, wenn ein Crew-Mitglied „Ich habe gezahlt" geklickt hat. Enthält Tranche-Label, Crew-Fälligkeit, Betrag, optionale Notiz, Direktlink zur Matrix zum Bestätigen.
+
+### Notice-Mails bei Admin-Aktionen (`prepayment-notice-template.ts`)
+
+Generisches Template mit drei Varianten:
+- `payment_recorded` → wenn jemand für eine andere Person eine Zahlung erfasst hat
+- `payment_confirmed` → wenn jemand eine Selbstmeldung bestätigt hat (Empfänger: Vorstrecker, falls Actor ≠ Vorstrecker)
+- `payment_rejected` → wenn jemand eine Selbstmeldung abgelehnt hat (Empfänger: Crew-Person + Vorstrecker, falls Actor ≠ beide)
+
+Self-Aktionen (Crew meldet selbst, Vorstrecker bestätigt selbst) erzeugen keine Notice-Mail.
 
 ### WhatsApp-Text — pro Person
 
@@ -312,46 +353,60 @@ Platzhalter werden zur Render-Zeit ersetzt. Modal hat „In Zwischenablage kopie
 
 ## Wero-Integration
 
-- **Profil-Feld:** `prepayment_plan.wero_id` pro Trip (Mobilnummer oder E-Mail des Skipper-Wero-Accounts). Wird in den Trip-Settings eingegeben.
-- **Tranche-Feld:** `prepayment_tranches.wero_request_link` — optional pro Tranche, vom Skipper aus der Wero-App per Copy-Paste eingefügt.
-- **Crew-Sicht:** „Jetzt via Wero zahlen"-Button — wenn `wero_request_link` gesetzt ist, öffnet er den Link; sonst zeigt er den `wero_id`-Text + Verwendungszweck-Vorlage zum manuellen Eingeben.
-- **Kein IBAN-Fallback:** explizite Entscheidung. Crew ohne Wero muss sich beim Skipper melden.
-
-> Wero hat aktuell **keine offene API** für Drittanbieter — wir können keine Request-Links **generieren**, nur vom Skipper bereitgestellte **wiederverwenden**.
+- **Profil-Feld:** `prepayment_plan.wero_id` pro Trip (Mobilnummer oder E-Mail des Vorstrecker-Wero-Accounts, **nicht zwingend Skipper**). Wird im Wizard eingegeben.
+- **Tranche-Feld:** `prepayment_tranches.wero_request_link` — Spalte existiert noch im Schema, ist aber aus der UI entfernt (Wero-Link-Eingabe im Wizard fehlt, In-App- und Mail-Buttons rendern keinen Link mehr). Hintergrund: Wero hat **keine öffentliche API** für Klick-Links, die wir zuverlässig generieren könnten; vom Nutzer eingegebene Links funktionieren in der Praxis nicht.
+- **Crew-Sicht:** statt eines Klick-Buttons zeigt die App eine Wero-Pille mit Wero-ID + Verwendungszweck — die Crew kopiert das manuell in ihre Wero-App.
+- **Mail-Hinweis dynamisch:** „Bitte schicke **{Vorstrecker}** per Wero die fällige Anzahlung." Wero-ID + Verwendungszweck als Pille. Bei fehlender Wero-ID: „Frag {Vorstrecker} nach den Überweisungsdetails."
+- **Kein IBAN-Fallback:** explizite Entscheidung. Crew ohne Wero muss sich beim Vorstrecker melden.
 
 ## Sichtbarkeit
 
 | Rolle | Sicht |
 |---|---|
-| Skipper / Co-Skipper / Admin | Komplette Matrix, alle Aktionen |
-| Crew-Mitglied (eingeloggt) | Nur eigene Zeile mit eigenen Tranchen + „Jetzt zahlen"-Button |
+| Skipper / Co-Skipper / Admin / **Vorstrecker** | Komplette Matrix, alle Aktionen (`requireSkipperAdminOrAdvancer`) |
+| Crew-Mitglied (eingeloggt, kein Manage-Recht) | CrewSelfView: nur eigene Zeile mit eigenen Tranchen + „Ich habe gezahlt"-Button |
 | Ghost-Crew (kein Login) | Keine — nutzt nur die vom Skipper ausgelösten WhatsApp-Texte |
 
-RLS-Policy auf `prepayment_obligations`: Self-Read für eigene `person_id`, Skipper-Read für gesamten Trip (analog zu `persons_private`).
+RLS-Policy auf `prepayment_obligations`: Self-Read für eigene `person_id`, Skipper-Read für gesamten Trip (analog zu `persons_private`). Vorstrecker-Aktionen laufen über App-Layer-Authz (`lib/auth/authz.ts:requireSkipperAdminOrAdvancer`), Schreib-Pfad nutzt ohnehin den Service-Role-Client.
 
-## Phasen-Plan
+## Implementierte Erweiterungen (Stand heute)
 
-### Phase 1 — Kern
-- DB-Migration (4 Tabellen + `transactions.tranche_id`)
-- Skipper-Wizard zwei Schritte (Aufteilung + Tranchen, inkl. Kojen-Editor)
+Diese Punkte sind über die ursprüngliche Phase-1/Phase-2-Aufteilung hinaus dazugekommen:
+
+- **Vorstrecker-Konzept** (Migration 0024): `prepayment_plan.advancer_person_id` — wer streckt die Charter-Anzahlung tatsächlich vor (Default = Skipper, im Wizard editierbar). Alle Crew-Anzahlungen werden gegen diese Person verbucht. `tx_credit_self` relaxiert für tranche-getaggte Buchungen, damit der Vorstrecker seinen eigenen Anteil als Selbst-Verrechnung abhaken kann.
+- **Crew-Fälligkeit 3 Tage vor Charter** (`lib/prepayments/dates.ts:toCrewDueDate`): die Charter-Frist ist verbindlich gegenüber der Agentur — die Crew soll 3 Tage vorher gezahlt haben, damit der Vorstrecker rechtzeitig überweisen kann. Wird konsistent in Matrix-Header, Crew-Self-View, WhatsApp-Vorlage und Mails angewandt; der Charter-Reminder-Banner zeigt weiter das Originaldatum.
+- **Bordkasse vs. Anzahlungs-Pool getrennt** (Migrationen 0026 + 0027): `v_balances_bordkasse_only` und `simplify_debts_bordkasse_only` filtern auf `tranche_id IS NULL`. Die untere Bilanz-Tabelle zeigt bei aktivem Plan nur den Bordkasse-Saldo; der Anzahlungs-Pool steht oben als Drei-Block-Übersicht.
+- **Charter-Reminder-Mail an den Vorstrecker** ([`lib/email/charter-reminder-template.ts`](../webapp/lib/email/charter-reminder-template.ts)): pro Tranche Soll Agentur, Σ Crew-Eingänge bei mir, schon-überwiesen, noch offen. Wird ausgelöst entweder vom 🔔-Button in der Vorstrecker-Zeile oder automatisch vom Cron 3 Tage vor Charter-Frist. `lib/email/send-prepayment-reminder.ts` routet zwischen Crew-Pfad und Vorstrecker-Pfad anhand von `personId === advancer_person_id`.
+- **Auto-Reminder-Cron** (`/api/cron/prepayment-reminders`, täglich `0 7 * * *` in `vercel.json`, Dedup über `prepayment_reminder_log` aus Migration 0028): `crew_3d` = 3 Tage vor Crew-Fälligkeit an offene Crew-Mitglieder; `advancer_3d` = 3 Tage vor Charter-Fälligkeit an den Vorstrecker (Charter-Übersicht). Pro `(tranche_id, person_id, reminder_type)` höchstens ein Eintrag — mehrfache Cron-Läufe spammen nicht. Abgelaufene Trips übersprungen.
+- **Notice-Mails bei Admin-Aktionen** ([`lib/email/prepayment-notice-template.ts`](../webapp/lib/email/prepayment-notice-template.ts)): wenn `recordPayment` / `confirmSelfPayment` / `rejectSelfPayment` von einer dritten Person (Admin/Co-Skipper) ausgelöst wird, gehen Info-Mails an Crew-Person + Vorstrecker (sofern Actor ≠ Empfänger). Self-Aktionen erzeugen keine Notice. Pendant für Bordkasse-Schulden: bei Admin-Drittaktion bekommen Skipper und Vorstrecker zusätzliche Observer-Mails.
+- **Einheitliches Mail-Design** ([`lib/email/mail-shell.ts`](../webapp/lib/email/mail-shell.ts)): Logo-PNG-Header + Card-Wrapper + Footer als gemeinsame Shell. Alle sechs Templates (settlement, debt-settled, prepayment-reminder, charter-reminder, payment-pending, prepayment-notice) nutzen sie.
+
+## Phasen-Plan (historisch)
+
+Beide Phasen sind abgeschlossen — die Liste bleibt als Referenz drin, falls jemand den ursprünglichen Schnitt nachvollziehen will.
+
+### Phase 1 — Kern (Migrationen 0023 + 0024) — erledigt
+- DB-Migration (4 Tabellen + `transactions.tranche_id` + `advancer_person_id`)
+- Skipper-Wizard zwei Schritte (Aufteilung + Tranchen, inkl. Kojen-Editor + CrewQuickAdd)
 - Anzahlungs-Matrix mit Status-Symbolen + Weg-1-Modal
 - Erweiterung der Gutschrift-Maske (Weg 2) und Buchungs-Maske um Tranche-Dropdown
-- Bilanz-Erweiterung (drei Blöcke)
+- Bilanz-Erweiterung (drei Blöcke) + Bordkasse-Pool-Trennung
 - Crew-Sicht (Read-Only Status für eigene Zeile)
 - Mail-Versand 🔔 + WhatsApp-Modal 💬 (pro Person + Sammel)
-- Crew-Wechsel-Workflow
+- Crew-Wechsel-Workflow + Auto-Merge bei Ghost→Real-E-Mail-Kollision
 - Crew-Anlage ohne E-Mail
 - Vitest-Tests gegen Test-Szenario „Yacht-Anzahlung mit Kojen, 2 Tranchen, 1 Crew-Wechsel"
 
-### Phase 2 — Selbstmeldung
-- Crew-Button „Ich habe gezahlt" → `pending_confirmation`-Status
-- Skipper-Bestätigungs-Workflow
-- Mail-Notifications an Skipper bei Selbstmeldung
-- Erweiterung des Status-Symbols (⏳)
+### Phase 2 — Selbstmeldung (Migration 0025) — erledigt
+- Crew-Button „Ich habe gezahlt" → `transactions.confirmed_at = NULL` (= pending)
+- Vorstrecker-Bestätigungs-Workflow (✓/✗ in der Matrix)
+- Mail-Notifications an den Vorstrecker bei Selbstmeldung
+- Status-Symbol ⏳ + Pending-Banner
 
 ### Out of Scope
-- Automatische Erinnerungs-Mails nach X Tagen — bewusste Entscheidung: nur manueller Knopf
+- ~~Automatische Erinnerungs-Mails~~ → **Implementiert** als Cron-Job (Migration 0028 + `/api/cron/prepayment-reminders`, täglich, 3 Tage vor Frist).
 - Wero-API-Anbindung — nicht öffentlich verfügbar
+- Wero-Klick-Links — entfernt, weil Wero keine offene Schnittstelle bietet
 - IBAN-Fallback — bewusste Entscheidung
 - Pro-Person-Override der Tranchen-Prozente — bewusste Entscheidung (einheitlich für alle)
 
@@ -395,7 +450,9 @@ Wird in `__tests__/prepayments.test.ts` umgesetzt, sobald die Implementierung be
 - Anzahlungs-Pool: alle 0 €
 - Bordkasse: noch nicht relevant, kommt im normalen Settlement
 
-## Aufwand-Schätzung
+## Aufwand-Schätzung (historisch)
+
+Ursprüngliche Planung — alle Punkte sind umgesetzt, der Aufwand-Block bleibt als Referenz drin. Tatsächliche Implementierung verlief grob auf dieser Linie, plus die später dazugekommenen Erweiterungen (Vorstrecker-Konzept, Charter-Reminder-Mail, Auto-Reminder-Cron, Notice-Mails, Bordkasse-Pool-Trennung — siehe Abschnitt „Implementierte Erweiterungen" oben).
 
 | Komponente | Tage |
 |------------|------|

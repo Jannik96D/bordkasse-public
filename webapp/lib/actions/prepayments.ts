@@ -403,6 +403,24 @@ export async function recordPayment(
     payload: { kind: "prepayment", tranche_id, person_id, amount, overflow_tranche_id, note },
   });
 
+  // Info-Mails (Crew-Person + Vorstrecker, falls Actor ≠ beide). Selbst-
+  // verrechnung des Vorstreckers (person_id == advancerId == actorPersonId)
+  // schickt keine Mail — das ist bilanzneutral.
+  try {
+    if (person_id !== actorPersonId || advancerId !== actorPersonId) {
+      await sendPrepaymentNoticeMails(supabase, {
+        tripId: trip_id,
+        trancheId: tranche_id,
+        kind: "payment_recorded",
+        actorPersonId,
+        subjectPersonId: person_id,
+        amount,
+      });
+    }
+  } catch (e) {
+    console.error("[bordkasse:notice-mail]", e);
+  }
+
   revalidatePath(`/trips/${trip_id}/prepayments`);
   revalidatePath(`/trips/${trip_id}/balance`);
   revalidatePath(`/trips/${trip_id}/transactions`);
@@ -787,6 +805,20 @@ export async function confirmSelfPayment(
     payload: { kind: "self-payment-confirmed" },
   });
 
+  // Info-Mails verschicken (best-effort, blockiert die Action nicht).
+  try {
+    await sendPrepaymentNoticeMails(supabase, {
+      tripId: tx.trip_id,
+      trancheId: tx.tranche_id!,
+      kind: "payment_confirmed",
+      actorPersonId: auth.personId,
+      subjectPersonId: tx.credit_from,
+      amount: Number(tx.amount),
+    });
+  } catch (e) {
+    console.error("[bordkasse:notice-mail]", e);
+  }
+
   revalidatePath(`/trips/${tx.trip_id}/prepayments`);
   revalidatePath(`/trips/${tx.trip_id}/balance`);
   revalidatePath(`/trips/${tx.trip_id}/transactions`);
@@ -811,7 +843,7 @@ export async function rejectSelfPayment(
   const supabase = createAdminClient();
   const { data: tx } = await supabase
     .from("transactions")
-    .select("trip_id, tranche_id, deleted_at, confirmed_at")
+    .select("trip_id, tranche_id, credit_from, amount, deleted_at, confirmed_at")
     .eq("id", parsed.data.transaction_id)
     .maybeSingle();
   if (!tx || tx.deleted_at) return { status: "error", message: "Buchung nicht gefunden." };
@@ -836,6 +868,138 @@ export async function rejectSelfPayment(
     payload: { kind: "self-payment-rejected" },
   });
 
+  // Info-Mails (Vorstrecker + Crew-Person) — best-effort.
+  try {
+    await sendPrepaymentNoticeMails(supabase, {
+      tripId: tx.trip_id,
+      trancheId: tx.tranche_id!,
+      kind: "payment_rejected",
+      actorPersonId: auth.personId,
+      subjectPersonId: tx.credit_from,
+      amount: Number(tx.amount),
+    });
+  } catch (e) {
+    console.error("[bordkasse:notice-mail]", e);
+  }
+
   revalidatePath(`/trips/${tx.trip_id}/prepayments`);
   return { status: "ok" };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Notice-Mail-Helper — verschickt Info-Mails bei Anzahlungs-Aktionen, die
+// von einer DRITTEN Person ausgelöst werden (Admin/Skipper/Vorstrecker).
+//
+// Empfänger:
+//   - payment_recorded   → Crew-Person (Subject) + Vorstrecker (sofern ≠ Actor)
+//   - payment_confirmed  → Vorstrecker (sofern ≠ Actor)
+//   - payment_rejected   → Crew-Person + Vorstrecker (sofern ≠ Actor)
+//
+// Self-Aktionen (Actor == Crew-Person ODER Actor == Vorstrecker bei
+// Confirm/Reject) erzeugen KEINE Notice-Mail an die handelnde Person.
+//
+// Fehler beim Versand blockieren die Action nicht.
+// ════════════════════════════════════════════════════════════════════════
+
+async function sendPrepaymentNoticeMails(
+  supabase: ReturnType<typeof createAdminClient>,
+  args: {
+    tripId: string;
+    trancheId: string;
+    kind: "payment_recorded" | "payment_confirmed" | "payment_rejected";
+    actorPersonId: string;
+    subjectPersonId: string;
+    amount: number;
+  },
+): Promise<void> {
+  const SITE_URL = process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.dieter.ms";
+
+  const [{ data: trip }, { data: plan }, { data: tranche }] = await Promise.all([
+    supabase.from("trips").select("name, skipper_id").eq("id", args.tripId).maybeSingle(),
+    supabase
+      .from("prepayment_plan")
+      .select("advancer_person_id")
+      .eq("trip_id", args.tripId)
+      .maybeSingle(),
+    supabase
+      .from("prepayment_tranches")
+      .select("label")
+      .eq("id", args.trancheId)
+      .maybeSingle(),
+  ]);
+  if (!trip || !tranche) return;
+  const advancerPersonId = plan?.advancer_person_id ?? trip.skipper_id;
+
+  // Empfänger-Set: je nach Aktionsart.
+  const recipientIds = new Set<string>();
+  if (args.kind === "payment_recorded" || args.kind === "payment_rejected") {
+    recipientIds.add(args.subjectPersonId);
+  }
+  recipientIds.add(advancerPersonId);
+  // Actor sieht keine Notice über die eigene Aktion.
+  recipientIds.delete(args.actorPersonId);
+  if (recipientIds.size === 0) return;
+
+  const allIds = Array.from(
+    new Set([
+      ...recipientIds,
+      args.actorPersonId,
+      args.subjectPersonId,
+      advancerPersonId,
+    ]),
+  );
+
+  const [{ data: personsRaw }, { data: privsRaw }] = await Promise.all([
+    supabase.from("persons").select("id, display_name").in("id", allIds),
+    supabase
+      .from("persons_private")
+      .select("person_id, email")
+      .in("person_id", Array.from(recipientIds)),
+  ]);
+  const nameById = new Map<string, string>();
+  for (const p of personsRaw ?? []) nameById.set(p.id, p.display_name);
+  const emailById = new Map<string, string>();
+  for (const p of privsRaw ?? []) if (p.email) emailById.set(p.person_id, p.email);
+
+  const actorName = nameById.get(args.actorPersonId) ?? "Skipper";
+  const subjectPersonName = nameById.get(args.subjectPersonId) ?? "Crew-Mitglied";
+  const advancerName = nameById.get(advancerPersonId) ?? "Vorstrecker";
+
+  const { renderPrepaymentNoticeMail } = await import(
+    "@/lib/email/prepayment-notice-template"
+  );
+  const { sendMail } = await import("@/lib/email/send");
+
+  for (const personId of recipientIds) {
+    const email = emailById.get(personId);
+    if (!email) continue;
+    const recipientName = nameById.get(personId) ?? "Crew-Mitglied";
+    const isAdvancer = personId === advancerPersonId;
+
+    const mail = renderPrepaymentNoticeMail({
+      kind: args.kind,
+      recipientName,
+      actorName,
+      subjectPersonName,
+      advancerName: isAdvancer ? undefined : advancerName,
+      amount: args.amount,
+      trancheLabel: tranche.label,
+      tripName: trip.name,
+      appUrl: `${SITE_URL}/trips/${args.tripId}/prepayments`,
+    });
+
+    const res = await sendMail({
+      to: email,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
+    });
+    if (!res.ok) {
+      console.error("[bordkasse:notice-mail] failed", {
+        person_id: personId,
+        kind: args.kind,
+        error: res.error,
+      });
+    }
+  }
 }

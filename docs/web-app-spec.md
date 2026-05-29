@@ -1,5 +1,7 @@
 # Web-App Spezifikation — Bordkasse 2.0
 
+> **Status: Komplett implementiert + erweitert.** Phasen 1–4 dieser Roadmap sind live. Aktuelle Architektur und Feature-Liste stehen in [`../webapp/README.md`](../webapp/README.md), die Mechanik des Anzahlungs-Moduls (kam nach dieser Spec dazu) in [`prepayments.md`](prepayments.md). Diese Datei bleibt als historische Roadmap erhalten — sie zeigt, womit das Projekt gestartet ist.
+
 Migrations-Roadmap von der Sheets-Lösung zu einer dedizierten Web-App. Nicht zwingend nötig, aber sinnvoll wenn die Sheets-Variante an Grenzen stößt.
 
 ## Wann diese Migration sinnvoll ist

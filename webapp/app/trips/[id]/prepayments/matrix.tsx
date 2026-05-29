@@ -117,7 +117,6 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
       template: plan.whatsapp_template,
       tripName,
       weroId: plan.wero_id,
-      weroLink: tranches[0]?.wero_request_link,
       persons,
     });
     setWhatsAppModal({ text, title: `Sammel-Text für ${persons.length} Personen` });
@@ -137,7 +136,6 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
       amount: open,
       dueDate: toCrewDueDate(firstTranche.due_date),
       weroId: plan.wero_id,
-      weroLink: firstTranche.wero_request_link,
     });
     setWhatsAppModal({ text, title: `WhatsApp-Text für ${member.display_name}` });
   }
@@ -253,10 +251,12 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
                       <ReminderButton
                         tripId={tripId}
                         personId={m.id}
-                        disabled={!m.email || rowOpen <= 0.005 || isAdvancerRow}
+                        disabled={!m.email || (!isAdvancerRow && rowOpen <= 0.005)}
                         title={
                           isAdvancerRow
-                            ? "Vorstrecker erinnert sich nicht selbst — klick die Zelle zum Selbst-Verrechnen"
+                            ? !m.email
+                              ? "Vorstrecker hat keine E-Mail hinterlegt"
+                              : "Charter-Übersicht an dich selbst schicken (Σ Crew-Eingänge / Soll Agentur / noch zu überweisen)"
                             : !m.email
                               ? "E-Mail fehlt"
                               : rowOpen <= 0.005

@@ -40,7 +40,6 @@ interface TrancheDraft {
   due_date: string;
   label: string;
   percent: string;
-  wero_request_link: string;
 }
 
 export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obligations }: Props) {
@@ -85,11 +84,10 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
           due_date: t.due_date,
           label: t.label,
           percent: t.percent.toString().replace(".", ","),
-          wero_request_link: t.wero_request_link ?? "",
         }))
       : [
-          { due_date: todayIso(), label: "Reservierungs-Anzahlung", percent: "30", wero_request_link: "" },
-          { due_date: todayIso(), label: "Endzahlung", percent: "70", wero_request_link: "" },
+          { due_date: todayIso(), label: "Reservierungs-Anzahlung", percent: "30" },
+          { due_date: todayIso(), label: "Endzahlung", percent: "70" },
         ],
   );
 
@@ -155,7 +153,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
         due_date: t.due_date,
         label: t.label,
         percent: Number(t.percent.replace(",", ".")),
-        wero_request_link: t.wero_request_link || "",
+        wero_request_link: "",
         sort_order: i,
       })),
     };
@@ -375,6 +373,10 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
             />
             <p className="mt-1 text-xs text-ink-soft">
               Platzhalter: {`{{name}}, {{tranche_label}}, {{trip_name}}, {{amount}}, {{due_date}}, {{wero_link_or_id}}`}
+              <br />
+              <span className="text-ink-soft/70">
+                Hinweis: {`{{wero_link_or_id}}`} fällt automatisch auf die Wero-ID zurück, da Wero aktuell keine öffentliche Schnittstelle für Klick-Links bereitstellt.
+              </span>
             </p>
           </details>
 
@@ -409,7 +411,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
                   className="mt-1 w-full rounded-md border border-rule px-2 py-1.5"
                 />
               </label>
-              <label className="col-span-4 text-sm">
+              <label className="col-span-5 text-sm">
                 <span className="text-xs text-ink-soft">Label</span>
                 <input
                   value={t.label}
@@ -417,21 +419,12 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
                   className="mt-1 w-full rounded-md border border-rule px-2 py-1.5"
                 />
               </label>
-              <label className="col-span-2 text-sm">
+              <label className="col-span-3 text-sm">
                 <span className="text-xs text-ink-soft">Anteil %</span>
                 <input
                   inputMode="decimal"
                   value={t.percent}
                   onChange={(e) => setTrancheDrafts(trancheDrafts.map((x, i) => (i === idx ? { ...x, percent: e.target.value } : x)))}
-                  className="mt-1 w-full rounded-md border border-rule px-2 py-1.5"
-                />
-              </label>
-              <label className="col-span-2 text-sm">
-                <span className="text-xs text-ink-soft">Wero-Link</span>
-                <input
-                  value={t.wero_request_link}
-                  onChange={(e) => setTrancheDrafts(trancheDrafts.map((x, i) => (i === idx ? { ...x, wero_request_link: e.target.value } : x)))}
-                  placeholder="(optional)"
                   className="mt-1 w-full rounded-md border border-rule px-2 py-1.5"
                 />
               </label>
@@ -447,7 +440,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
           ))}
           <button
             type="button"
-            onClick={() => setTrancheDrafts([...trancheDrafts, { due_date: todayIso(), label: "", percent: "0", wero_request_link: "" }])}
+            onClick={() => setTrancheDrafts([...trancheDrafts, { due_date: todayIso(), label: "", percent: "0" }])}
             className="inline-flex items-center gap-1 rounded-md border border-rule px-3 py-1.5 text-sm hover:border-primary/40"
           >
             <Plus className="h-4 w-4" /> Tranche hinzufügen

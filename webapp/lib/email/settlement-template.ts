@@ -3,23 +3,19 @@
  * Crew-Mitglied. Inhalt ist personalisiert auf den eigenen Saldo + die
  * konkreten Zahlungsanweisungen (du-zahlst-an / an-dich-zahlt).
  *
- * Layout 1:1 wie `supabase/email-templates/magic-link.html` — Card auf
- * #FAFBFC-Hintergrund, Logo oben, Bordkasse-Farbpalette, table-basiert für
- * Mail-Client-Kompatibilität (Outlook, GMail etc.).
+ * Layout über `mail-shell.ts` — identisch zu allen anderen Bordkasse-Mails.
  *
  * Farben (Single Source of Truth: docs/design-system.md):
  *   #114884 primary       Texte, Akzente
  *   #1D4281 primary-dark  Sub-Headlines
  *   #587EA8 mid-blue      Hint-Text
- *   #D6E1EE soft-blue     Borders
  *   #1A2533 ink           Body
- *   #FAFBFC paper         Page-Background
  *   #1E8449 success       Guthaben
  *   #A93226 danger        Schulden
  *   #F4F2EC paper-soft    Zahlungsplan-Pillen
  */
 
-const SITE_URL = process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.dieter.ms";
+import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, stripHtml } from "./mail-shell";
 
 export type DebtItem = {
   counterparty_name: string;
@@ -101,47 +97,7 @@ export function renderSettlementMail(p: SettlementMailParams): { html: string; t
               </td>
             </tr>`;
 
-  const html = `<!DOCTYPE html>
-<html lang="de">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="color-scheme" content="light">
-    <meta name="supported-color-schemes" content="light">
-    <title>${escapeHtml(subject)}</title>
-  </head>
-  <body style="margin:0;padding:0;background-color:#FAFBFC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1A2533;">
-    <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">
-      Die Bordkasse für ${escapeHtml(p.tripName)} ist abgerechnet — ${stripHtml(balanceText)}
-    </div>
-
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#FAFBFC;">
-      <tr>
-        <td align="center" style="padding:32px 16px;">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background-color:#FFFFFF;border:1px solid #D6E1EE;border-radius:12px;overflow:hidden;">
-            <!-- Header mit Logo -->
-            <tr>
-              <td align="center" style="padding:32px 24px 8px 24px;">
-                <img src="${SITE_URL}/logo.png" alt="Bordkasse" width="160" height="123"
-                     style="display:block;width:160px;height:auto;border:0;outline:none;text-decoration:none;">
-              </td>
-            </tr>
-            <tr>
-              <td align="center" style="padding:0 24px 8px 24px;">
-                <h1 style="margin:0;font-size:24px;line-height:1.25;font-weight:700;color:#114884;letter-spacing:-0.01em;">
-                  Bordkasse
-                </h1>
-              </td>
-            </tr>
-            <tr>
-              <td align="center" style="padding:4px 24px 0 24px;">
-                <p style="margin:0;font-size:14px;color:#587EA8;">
-                  ${escapeHtml(p.tripName)} · ${escapeHtml(p.tripDates)}
-                </p>
-              </td>
-            </tr>
-
-            <!-- Hauptinhalt -->
+  const body = `
             <tr>
               <td style="padding:32px 32px 8px 32px;">
                 <h2 style="margin:0 0 12px 0;font-size:18px;font-weight:600;color:#1D4281;">
@@ -159,70 +115,17 @@ export function renderSettlementMail(p: SettlementMailParams): { html: string; t
               </td>
             </tr>
 ${changeSummaryBlock}${debtsBlock}
+${renderActionButton(p.appUrl, "Zahlungen in der App abhaken")}
+${renderHintBlock(
+  "Tipp: In der App kannst du deine Zahlung als erledigt abhaken — alle in der Crew sehen den Status live. Sollte sich nachträglich etwas an der Bordkasse ändern, bekommst du eine neue Mail.",
+)}`;
 
-            <!-- Button -->
-            <tr>
-              <td align="center" style="padding:24px 32px 8px 32px;">
-                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                  <tr>
-                    <td align="center" style="border-radius:8px;background-color:#114884;">
-                      <a href="${p.appUrl}"
-                         style="display:inline-block;padding:14px 28px;font-size:16px;font-weight:600;color:#FFFFFF;text-decoration:none;border-radius:8px;">
-                        Zahlungen in der App abhaken
-                      </a>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-
-            <!-- Fallback-Link -->
-            <tr>
-              <td style="padding:8px 32px 16px 32px;">
-                <p style="margin:0;font-size:12px;line-height:1.5;color:#587EA8;text-align:center;">
-                  Funktioniert der Button nicht? Kopiere diesen Link in deinen Browser:
-                </p>
-                <p style="margin:6px 0 0 0;font-size:11px;line-height:1.5;color:#587EA8;text-align:center;word-break:break-all;">
-                  <a href="${p.appUrl}" style="color:#114884;text-decoration:underline;">${escapeHtml(p.appUrl)}</a>
-                </p>
-              </td>
-            </tr>
-
-            <!-- Trenner -->
-            <tr>
-              <td style="padding:0 32px;">
-                <hr style="border:none;border-top:1px solid #D6E1EE;margin:8px 0;">
-              </td>
-            </tr>
-
-            <!-- Hinweis -->
-            <tr>
-              <td style="padding:16px 32px 24px 32px;">
-                <p style="margin:0;font-size:12px;line-height:1.55;color:#587EA8;">
-                  Tipp: In der App kannst du deine Zahlung als erledigt abhaken — alle in der
-                  Crew sehen den Status live. Sollte sich nachträglich etwas an der Bordkasse
-                  ändern, bekommst du eine neue Mail.
-                </p>
-              </td>
-            </tr>
-          </table>
-
-          <!-- Footer -->
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
-            <tr>
-              <td align="center" style="padding:16px 24px;">
-                <p style="margin:0;font-size:11px;line-height:1.6;color:#7A8DA1;">
-                  Bordkasse · Faire Kostenaufteilung auf Segel-Törns<br>
-                  <a href="${SITE_URL}/datenschutz" style="color:#587EA8;text-decoration:underline;">Datenschutz</a>
-                </p>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>`;
+  const html = renderMailShell({
+    title: subject,
+    preheader: `Die Bordkasse für ${p.tripName} ist abgerechnet — ${stripHtml(balanceText)}`,
+    subtitle: `${p.tripName} · ${p.tripDates}`,
+    body,
+  });
 
   const text = `${p.isUpdate ? "Bordkasse-Update" : "Bordkasse-Abrechnung"}
 ${p.tripName} · ${p.tripDates}
@@ -251,17 +154,4 @@ Bordkasse · Faire Kostenaufteilung auf Segel-Törns
 `;
 
   return { html, text, subject };
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (ch) =>
-    ch === "&" ? "&amp;" :
-    ch === "<" ? "&lt;" :
-    ch === ">" ? "&gt;" :
-    ch === '"' ? "&quot;" : "&#39;",
-  );
-}
-
-function stripHtml(s: string): string {
-  return s.replace(/<[^>]+>/g, "");
 }
