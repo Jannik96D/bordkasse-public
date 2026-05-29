@@ -213,22 +213,17 @@ function TrancheField({
   initialTrancheId?: string | null;
   /**
    * Nur Skipper/Admin/Vorstrecker dürfen die Anzahlungs-Tranche setzen
-   * oder ändern. Für die Crew bleibt die bestehende Zuordnung erhalten
-   * (über einen Hidden-Input), das Feld selbst ist aber nicht sichtbar —
-   * damit die Crew nicht versehentlich Buchungen falsch zuordnet.
+   * oder ändern. Crew sieht das Feld gar nicht. Die canEditTransaction-
+   * Policy in lib/actions/transactions.ts erlaubt Crew sowieso nur
+   * eigene Buchungen zu editieren — eine vom Skipper mit tranche_id
+   * angelegte Buchung kann die Crew nie aufrufen, daher kein Bedarf
+   * für eine Hidden-Input-Preservation.
    */
   canEdit: boolean;
 }) {
   const [value, setValue] = useState(initialTrancheId ?? "");
   if (!tranches || tranches.length === 0) return null;
-
-  // Crew bearbeitet eine vom Skipper angelegte Buchung mit tranche_id?
-  // Wert mit Hidden-Input mitsenden, sonst entfernt das Update die Zuordnung.
-  if (!canEdit) {
-    return initialTrancheId ? (
-      <input type="hidden" name="tranche_id" value={initialTrancheId} />
-    ) : null;
-  }
+  if (!canEdit) return null;
 
   return (
     <details open={!!initialTrancheId} className="rounded-md border border-rule bg-paper p-3 text-sm">
