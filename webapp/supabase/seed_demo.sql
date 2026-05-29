@@ -259,17 +259,20 @@ BEGIN
   INSERT INTO transactions (id, trip_id, type, date, description, amount, credit_from, credit_to, tranche_id, created_by, confirmed_at)
     VALUES (tx, trip_charter, 'credit', '2026-05-12', 'Anzahlung Reservierung', 202.50, p_ben, p_anna, tranche_1, p_anna, now());
 
-  -- Clara: Teilzahlung Tranche 1 (100€ von 202.50€)
+  -- Clara: Tranche 1 voll bezahlt (202.50€)
   tx := gen_random_uuid();
   INSERT INTO transactions (id, trip_id, type, date, description, amount, credit_from, credit_to, tranche_id, created_by, confirmed_at)
-    VALUES (tx, trip_charter, 'credit', '2026-05-15', 'Anzahlung Reservierung (Teilbetrag)', 100.00, p_clara, p_anna, tranche_1, p_anna, now());
+    VALUES (tx, trip_charter, 'credit', '2026-05-15', 'Anzahlung Reservierung', 202.50, p_clara, p_anna, tranche_1, p_anna, now());
 
   -- David: Selbstmeldung — confirmed_at = NULL (= pending)
   tx := gen_random_uuid();
   INSERT INTO transactions (id, trip_id, type, date, description, amount, credit_from, credit_to, tranche_id, created_by, confirmed_at)
     VALUES (tx, trip_charter, 'credit', '2026-05-24', 'Anzahlung Reservierung (selbst gemeldet)', 202.50, p_david, p_anna, tranche_1, p_david, NULL);
 
-  -- Eva: noch nichts → keine Transaktion
+  -- Eva: Teilzahlung 80€ (von 202.50€) — zeigt den ◐-Status in der Matrix
+  tx := gen_random_uuid();
+  INSERT INTO transactions (id, trip_id, type, date, description, amount, credit_from, credit_to, tranche_id, created_by, confirmed_at)
+    VALUES (tx, trip_charter, 'credit', '2026-05-22', 'Anzahlung Reservierung (Teilbetrag)', 80.00, p_eva, p_anna, tranche_1, p_anna, now());
 
   -- ── Anna an die Charteragentur ───────────────────────────────────────
   -- Expense mit tranche_id = Tranche 1, paid_by = Anna. Bedeutet:

@@ -710,23 +710,29 @@ function PendingBanner({
 
   return (
     <section
-      className="mb-4 rounded-md border-2 border-amber-300 bg-amber-50 p-3"
+      className="mb-3 rounded-md border border-rule border-l-4 border-l-primary bg-paper p-3"
       role="region"
       aria-label="Selbst gemeldete Anzahlungen — warten auf Bestätigung"
     >
-      <p className="mb-2 text-sm font-medium text-amber-900">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
         <span aria-hidden="true">⏳</span> {pending.length} Selbstmeldung{pending.length === 1 ? "" : "en"} wartet auf Bestätigung
       </p>
-      <ul className="space-y-2">
+      <ul className="space-y-1.5">
         {pending.map((p) => {
           const name = memberById.get(p.person_id)?.display_name ?? "Crew-Mitglied";
           const tranche = trancheById.get(p.tranche_id);
           return (
-            <li key={p.transaction_id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-paper px-3 py-2 text-sm">
+            <li
+              key={p.transaction_id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-paper-soft px-3 py-2 text-sm"
+            >
               <div className="min-w-0 flex-1">
-                <strong>{name}</strong> hat <strong className="text-primary">{formatEuro(p.amount)}</strong> für{" "}
+                <strong>{name}</strong> hat{" "}
+                <strong className="text-primary">{formatEuro(p.amount)}</strong> für{" "}
                 <strong>{tranche?.label ?? "Tranche"}</strong> gemeldet
-                {p.description && <span className="block text-xs text-ink-soft">„{p.description}&ldquo;</span>}
+                {p.description && (
+                  <span className="block text-xs text-ink-soft">„{p.description}&ldquo;</span>
+                )}
                 <span className="block text-xs text-ink-soft">{formatDeDate(p.date)}</span>
               </div>
               <PendingActions transactionId={p.transaction_id} />

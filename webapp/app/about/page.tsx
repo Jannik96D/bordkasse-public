@@ -385,6 +385,39 @@ const features: Feature[] = [
   },
 ];
 
+// Anzeige-Reihenfolge nach typischem Törn-Ablauf:
+//   1–4  Einstieg + Trip anlegen
+//   5–6  Vor dem Törn: Crew + Kategorien einrichten
+//   7–9  Anzahlung planen, eintreiben, Crew meldet selbst
+//   10–14 Während des Törns: Buchungen, Gutschriften, Offline, Statistik
+//   15–16 Nach dem Törn: Bilanz + Schulden abrechnen
+//   17    Datenlöschung nach 30 Tagen
+const FEATURE_ORDER = [
+  "welcome",
+  "anmelden",
+  "toerns",
+  "trip-overview",
+  "crew",
+  "kategorien",
+  "anzahlung-setup",
+  "anzahlung-matrix",
+  "anzahlung-crew-self",
+  "buchungen",
+  "buchung-neu",
+  "gutschrift",
+  "offline",
+  "statistik",
+  "bilanz",
+  "schulden",
+  "dsgvo",
+] as const;
+
+const orderedFeatures: Feature[] = FEATURE_ORDER.map((id) => {
+  const found = features.find((f) => f.id === id);
+  if (!found) throw new Error(`Feature mit id="${id}" fehlt in features[] — FEATURE_ORDER prüfen.`);
+  return found;
+});
+
 export default function AboutPage() {
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-10">
@@ -422,7 +455,7 @@ export default function AboutPage() {
           Überblick
         </p>
         <ol className="grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
-          {features.map((f, idx) => (
+          {orderedFeatures.map((f, idx) => (
             <li key={f.id}>
               <a
                 href={`#${f.id}`}

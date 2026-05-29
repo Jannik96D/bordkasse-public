@@ -129,12 +129,6 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
         })}
       </ul>
 
-      {plan.wero_id && (
-        <p className="rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
-          Wero: <strong className="text-ink">{plan.wero_id}</strong>
-        </p>
-      )}
-
       {modal && (
         <SelfPaymentModal
           tripId={tripId}
