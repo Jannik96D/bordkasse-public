@@ -36,6 +36,8 @@ interface Props {
   obligations: Obligation[];
   payments: PaymentAggregate[];
   pending: PendingPayment[];
+  /** Pro Tranche: was hat der Vorstrecker schon an die Charteragentur überwiesen? */
+  charterPaidByTranche: Record<string, number>;
 }
 
 type CellStatus = "open" | "partial" | "paid";
@@ -51,7 +53,7 @@ interface MatrixCell {
   pending: PendingPayment | null;
 }
 
-export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, members, obligations, payments, pending }: Props) {
+export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, members, obligations, payments, pending, charterPaidByTranche }: Props) {
   const [paymentModal, setPaymentModal] = useState<{ cell: MatrixCell; personName: string } | null>(null);
   const [whatsAppModal, setWhatsAppModal] = useState<{ text: string; title: string } | null>(null);
 
@@ -150,6 +152,14 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
           Vorstrecker: <strong className="text-ink">{advancerName}</strong> — alle Anzahlungen werden an diese Person verbucht. Eigener Anteil per Klick auf die Zelle als Selbst-Verrechnung abhaken (bilanzneutral, kein Mail-/WhatsApp-Versand).
         </p>
       )}
+
+      {/* Charter-Reminder: was MUSS der Vorstrecker noch an die Charteragentur überweisen? */}
+      <CharterReminderBanner
+        tripId={tripId}
+        tranches={tranches}
+        totalAmount={plan.total_amount}
+        charterPaidByTranche={charterPaidByTranche}
+      />
 
       {/* Pending-Selbstmeldungen-Banner */}
       {pending.length > 0 && (
@@ -534,6 +544,111 @@ function round2(n: number): number {
 
 // referenced default to silence unused-warning in build pipelines that strip exports
 void DEFAULT_WHATSAPP_TEMPLATE;
+
+// ────────────────────────────────────────────────────────────────────────
+// CharterReminderBanner — Erinnert den Vorstrecker an seine eigenen
+// Überweisungen an die Charteragentur.
+//
+// Eine Tranche braucht buchhalterisch eine `transactions.expense` mit
+// `tranche_id` = diese Tranche (laut Spec). Wir aggregieren diese pro
+// Tranche und vergleichen mit dem Soll (total_amount × percent / 100).
+// ────────────────────────────────────────────────────────────────────────
+
+function CharterReminderBanner({
+  tripId,
+  tranches,
+  totalAmount,
+  charterPaidByTranche,
+}: {
+  tripId: string;
+  tranches: Tranche[];
+  totalAmount: number;
+  charterPaidByTranche: Record<string, number>;
+}) {
+  if (tranches.length === 0 || totalAmount <= 0) return null;
+
+  const today = todayIso();
+  const inDays = (iso: string) => {
+    const t = new Date(`${iso}T00:00:00Z`).getTime();
+    const now = new Date(`${today}T00:00:00Z`).getTime();
+    return Math.round((t - now) / 86_400_000);
+  };
+
+  const rows = tranches.map((t) => {
+    const soll = round2((totalAmount * t.percent) / 100);
+    const paid = round2(charterPaidByTranche[t.id] ?? 0);
+    const remaining = round2(soll - paid);
+    const daysLeft = inDays(t.due_date);
+    const overdue = daysLeft < 0 && remaining > 0.005;
+    const soon = daysLeft >= 0 && daysLeft <= 14 && remaining > 0.005;
+    return { tranche: t, soll, paid, remaining, daysLeft, overdue, soon };
+  });
+
+  const anythingOutstanding = rows.some((r) => r.remaining > 0.005);
+  if (!anythingOutstanding) {
+    return (
+      <p className="mb-3 rounded-md border border-success/30 bg-success/5 px-3 py-2 text-xs text-success">
+        <span aria-hidden="true">✓</span> Alle Charter-Anzahlungen sind vollständig überwiesen.
+      </p>
+    );
+  }
+
+  return (
+    <section
+      className="mb-3 rounded-md border border-rule bg-paper p-3"
+      aria-label="Eigene Überweisungen an die Charteragentur"
+    >
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
+        Charter-Anzahlungen — deine Überweisungen
+      </p>
+      <ul className="space-y-1.5 text-sm">
+        {rows.map((r) => {
+          const dot = r.overdue ? "⏰" : r.soon ? "⚠" : r.remaining <= 0.005 ? "✓" : "○";
+          const tone = r.overdue
+            ? "text-danger"
+            : r.soon
+              ? "text-amber-700"
+              : r.remaining <= 0.005
+                ? "text-success"
+                : "text-ink-soft";
+          const dueText = r.overdue
+            ? `seit ${-r.daysLeft} Tag${r.daysLeft === -1 ? "" : "en"} überfällig`
+            : r.soon
+              ? `in ${r.daysLeft} Tag${r.daysLeft === 1 ? "" : "en"} fällig`
+              : r.remaining <= 0.005
+                ? "überwiesen"
+                : `fällig ${formatDeDate(r.tranche.due_date)}`;
+          return (
+            <li key={r.tranche.id} className="flex flex-wrap items-center justify-between gap-2">
+              <span className={`inline-flex items-center gap-2 ${tone}`}>
+                <span className="text-base leading-none" aria-hidden="true">{dot}</span>
+                <span className="font-medium text-ink">{r.tranche.label}</span>
+                <span>·</span>
+                <span>{dueText}</span>
+              </span>
+              <span className="tabular-nums text-ink-soft">
+                {r.remaining > 0.005
+                  ? <>noch <strong className={tone}>{formatEuro(r.remaining)}</strong> von {formatEuro(r.soll)}</>
+                  : <strong className="text-success">{formatEuro(r.soll)} überwiesen</strong>
+                }
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-2 text-xs text-ink-soft">
+        Erfasse die Überweisung als{" "}
+        <a
+          href={`/trips/${tripId}/transactions/new`}
+          className="text-primary underline hover:no-underline"
+        >
+          neue Ausgabe
+        </a>
+        {" "}und ordne sie der passenden Tranche zu — sie taucht dann hier mit angerechnet auf.
+      </p>
+    </section>
+  );
+}
 
 // ────────────────────────────────────────────────────────────────────────
 // PendingBanner — Liste der noch-nicht-bestätigten Selbstmeldungen.

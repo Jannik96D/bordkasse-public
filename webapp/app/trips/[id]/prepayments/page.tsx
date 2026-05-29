@@ -8,6 +8,7 @@ import {
   getObligations,
   getPaymentAggregates,
   getPendingPayments,
+  getCharterPaymentsPerTranche,
 } from "@/lib/queries/prepayments";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
@@ -21,7 +22,7 @@ export default async function PrepaymentsPage({
 }) {
   const { id } = await params;
 
-  const [trip, members, person, admin, plan, tranches, cabins, obligations, payments, pending] =
+  const [trip, members, person, admin, plan, tranches, cabins, obligations, payments, pending, charterPaid] =
     await Promise.all([
       getTrip(id),
       getTripMembers(id),
@@ -33,6 +34,7 @@ export default async function PrepaymentsPage({
       getObligations(id),
       getPaymentAggregates(id),
       getPendingPayments(id),
+      getCharterPaymentsPerTranche(id),
     ]);
 
   if (!trip) return null;
@@ -116,6 +118,7 @@ export default async function PrepaymentsPage({
         obligations={obligations}
         payments={payments}
         pending={pending}
+        charterPaidByTranche={charterPaid}
       />
     </main>
   );
