@@ -135,28 +135,24 @@ export interface PaymentEntry {
  * Anzahlungs-Pool-Saldo pro Person — „was muss diese Person noch zur
  * Anzahlung beitragen?"-Sicht.
  *
- * Formel (für jede Person):
- *   saldo = aktiv_beigetragen − soll
+ * NUR Crew-Beiträge zählen in `paid`:
+ *   - für normale Crew:  Σ credit_given mit tranche_id (Zahlung an Vorstrecker)
+ *   - für Vorstrecker:   Σ self_credit (Selbst-Verrechnung des eigenen Anteils)
  *
- *   - aktiv_beigetragen für Crew    = Σ credit_given mit tranche_id (Zahlung an Vorstrecker)
- *   - aktiv_beigetragen für Vorstrecker = charter_paid (an Agentur überwiesen)
- *                                       + self_credit (Selbst-Verrechnung des eigenen Anteils)
- *   - soll                          = prepayment_obligations.total_amount
+ * Charter-Auslagen (`paid_by` mit tranche_id, typisch Vorstrecker → Agentur)
+ * zählen NICHT in `paid` — sie sind kein „Beitrag zum Crew-Pool", sondern
+ * eine separate Bewegung „Geld aus Pool an Vercharterer". Wird in einem
+ * eigenen Block angezeigt (siehe getCharterPaidTotal).
  *
- * Bewusst NICHT als double-entry gezählt: Geld, das der Vorstrecker als
- * `credit_to` erhält, ist treuhänderisch — es zählt schon beim Crew-Member
- * als „bezahlt", nicht zusätzlich beim Vorstrecker als negativ. Dadurch
- * spiegelt der Saldo den intuitiven „du musst noch X € liefern"-Stand
- * statt einer formell-balanced Bilanz.
+ * `soll` kommt aus prepayment_obligations.total_amount.
  *
- * Σ über alle Personen = − offen-Stand der Charter-Verpflichtung
- *   - Niemand hat was gemacht: Σ = −Σ soll (komplette Charter offen)
- *   - Alles erledigt: Σ = 0
+ * Σ über alle Personen ≈ 0 wenn alle Crew ihren Anteil geleistet haben
+ * (oder treuhänderisch beim Vorstrecker via Self-Credit erfüllt ist).
  */
 export interface PrepaymentPoolBalance {
   person_id: string;
   soll: number;
-  /** Aktiv ins Anzahlungs-System eingebracht (Crew-Zahlung an Vorstrecker ODER Vorstrecker-Auslage an Charter). */
+  /** Crew-Beitrag (Zahlung an Vorstrecker bzw. Self-Credit). Charter-Auslagen sind NICHT enthalten. */
   paid: number;
   /** paid − soll: + = überzahlt, − = schuldet noch, 0 = ausgeglichen. */
   balance: number;
@@ -194,21 +190,14 @@ export async function getPrepaymentPoolBalances(tripId: string): Promise<Prepaym
 
   const paidById = new Map<string, number>();
   for (const t of txRows ?? []) {
-    if (!t.confirmed_at) continue; // Pending-Selbstmeldungen zählen nicht
-    const amt = Number(t.amount);
-    if (t.type === "expense" && t.paid_by) {
-      // Charter-Ausgabe → zählt als aktiver Beitrag des Auslegers (typisch Vorstrecker)
-      paidById.set(t.paid_by, (paidById.get(t.paid_by) ?? 0) + amt);
-    } else if (t.type === "credit" && t.credit_from) {
-      // Crew → Vorstrecker: zählt nur beim Crew-Member als paid (Vorstrecker bekommt
-      // das treuhänderisch, kein doppelter Eintrag).
-      // Self-Credit (Vorstrecker → Vorstrecker): zählt einmal als Beitrag — er
-      // verrechnet damit explizit seinen eigenen Anteil.
-      const isSelfCredit = t.credit_from === t.credit_to;
-      const isToAdvancer = t.credit_to === advancerId;
-      if (isSelfCredit || isToAdvancer) {
-        paidById.set(t.credit_from, (paidById.get(t.credit_from) ?? 0) + amt);
-      }
+    if (!t.confirmed_at) continue;
+    if (t.type !== "credit" || !t.credit_from) continue;
+    // Charter-Expenses (paid_by) zählen NICHT — sie sind separat als
+    // Charter-Auslage zu betrachten, nicht als Crew-Pool-Beitrag.
+    const isSelfCredit = t.credit_from === t.credit_to;
+    const isToAdvancer = t.credit_to === advancerId;
+    if (isSelfCredit || isToAdvancer) {
+      paidById.set(t.credit_from, (paidById.get(t.credit_from) ?? 0) + Number(t.amount));
     }
   }
 
@@ -218,6 +207,23 @@ export async function getPrepaymentPoolBalances(tripId: string): Promise<Prepaym
     const paid = paidById.get(person_id) ?? 0;
     return { person_id, soll, paid, balance: paid - soll };
   });
+}
+
+/**
+ * Σ aller Charter-Überweisungen (Vorstrecker → Vercharterer).
+ * Eine Charter-Überweisung ist `transactions.type='expense'` mit
+ * `tranche_id` ≠ NULL — wird separat von den Crew-Pool-Beiträgen angezeigt.
+ */
+export async function getCharterPaidTotal(tripId: string): Promise<number> {
+  const supabase = await readClient();
+  const { data } = await supabase
+    .from("transactions")
+    .select("amount")
+    .eq("trip_id", tripId)
+    .eq("type", "expense")
+    .not("tranche_id", "is", null)
+    .is("deleted_at", null);
+  return (data ?? []).reduce((s, r) => s + Number(r.amount), 0);
 }
 
 /**

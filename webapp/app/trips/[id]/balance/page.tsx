@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getBalances, getBordkasseOnlyBalances } from "@/lib/queries/balances";
 import { getTrip } from "@/lib/queries/trips";
-import { getPlan, getPrepaymentPoolBalances } from "@/lib/queries/prepayments";
+import { getPlan, getPrepaymentPoolBalances, getCharterPaidTotal } from "@/lib/queries/prepayments";
 import { formatEuro, todayIso } from "@/lib/utils";
 import type { PrepaymentPoolBalance } from "@/lib/queries/prepayments";
 import type { BalanceRow } from "@/lib/queries/balances";
@@ -12,12 +12,13 @@ export default async function BalancePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [rows, bordkasseRows, plan, poolBalances, trip] = await Promise.all([
+  const [rows, bordkasseRows, plan, poolBalances, trip, charterPaid] = await Promise.all([
     getBalances(id),
     getBordkasseOnlyBalances(id),
     getPlan(id),
     getPrepaymentPoolBalances(id),
     getTrip(id),
+    getCharterPaidTotal(id),
   ]);
 
   if (rows.length === 0) {
@@ -53,13 +54,25 @@ export default async function BalancePage({
       <h1 className="mb-4 text-lg font-bold text-primary">Bilanz</h1>
 
       {!tripStarted && hasPlan && (
-        <PrepaymentsSummary tripId={id} poolBalances={poolBalances} nameById={nameById} />
+        <PrepaymentsSummary
+          tripId={id}
+          poolBalances={poolBalances}
+          nameById={nameById}
+          planTotal={plan?.total_amount ?? 0}
+          charterPaid={charterPaid}
+        />
       )}
 
       <BordkasseTable rows={tableRows} sum={sum} hasPlan={hasPlan} />
 
       {tripStarted && hasPlan && (
-        <PrepaymentsSummary tripId={id} poolBalances={poolBalances} nameById={nameById} />
+        <PrepaymentsSummary
+          tripId={id}
+          poolBalances={poolBalances}
+          nameById={nameById}
+          planTotal={plan?.total_amount ?? 0}
+          charterPaid={charterPaid}
+        />
       )}
     </main>
   );
@@ -73,15 +86,26 @@ function PrepaymentsSummary({
   tripId,
   poolBalances,
   nameById,
+  planTotal,
+  charterPaid,
 }: {
   tripId: string;
   poolBalances: PrepaymentPoolBalance[];
   nameById: Map<string, string>;
+  /** Gesamt-Anzahlungssumme aus dem Plan (= Charter-Preis ggü. Agentur). */
+  planTotal: number;
+  /** Σ aller Charter-Überweisungen (Vorstrecker → Vercharterer). */
+  charterPaid: number;
 }) {
-  // Σ pro Pool für Header-Zeile
+  // Σ Crew-Beiträge (für Header-Zeile)
   const sumSoll = poolBalances.reduce((s, p) => s + p.soll, 0);
   const sumPaid = poolBalances.reduce((s, p) => s + Math.min(p.paid, p.soll), 0);
   const sumOpen = Math.max(0, sumSoll - sumPaid);
+
+  // Charter-Auslage: was wurde an die Agentur überwiesen vs. Soll
+  const charterSoll = planTotal;
+  const charterOpen = Math.max(0, charterSoll - charterPaid);
+  const charterFulfilled = charterSoll > 0 && charterOpen <= 0.005;
 
   return (
     <section className="mb-4 rounded-lg border border-rule bg-paper p-4">
@@ -92,7 +116,8 @@ function PrepaymentsSummary({
         </Link>
       </div>
 
-      {/* Header mit Gesamtstand */}
+      {/* Block 1: Crew-Beiträge */}
+      <p className="mb-2 text-xs uppercase tracking-wide text-ink-soft">Crew-Beiträge</p>
       <p className="mb-3 text-xs text-ink-soft">
         Insgesamt <strong className="text-ink">{formatEuro(sumPaid)}</strong> von{" "}
         <strong className="text-ink">{formatEuro(sumSoll)}</strong> bezahlt
@@ -128,6 +153,28 @@ function PrepaymentsSummary({
             );
           })}
       </ul>
+
+      {/* Block 2: Charter-Auslage (Vorstrecker → Vercharterer) */}
+      {charterSoll > 0 && (
+        <div className="mt-4 border-t border-rule pt-3">
+          <p className="mb-2 text-xs uppercase tracking-wide text-ink-soft">An Vercharterer überwiesen</p>
+          <div className="flex items-center justify-between gap-3 rounded-md bg-paper-soft px-3 py-2 text-sm">
+            <span className="font-medium">Charter-Anzahlung</span>
+            <span className="inline-flex items-center gap-2">
+              <StatusBadge status={charterFulfilled ? "paid" : charterPaid > 0.005 ? "partial" : "open"} />
+              <span className="tabular-nums text-ink-soft">
+                {formatEuro(charterPaid)} <span className="text-ink-soft">/</span>{" "}
+                <span className="text-ink">{formatEuro(charterSoll)}</span>
+              </span>
+            </span>
+          </div>
+          {charterOpen > 0.005 && (
+            <p className="mt-2 text-xs text-ink-soft">
+              Noch <strong className="text-danger">{formatEuro(charterOpen)}</strong> an die Charteragentur zu überweisen.
+            </p>
+          )}
+        </div>
+      )}
     </section>
   );
 }
