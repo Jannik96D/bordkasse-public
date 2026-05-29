@@ -18,6 +18,7 @@ import { calculateObligations } from "@/lib/calc/prepayment-shares";
 import type { PrepaymentMember, PrepaymentCabin } from "@/lib/calc/prepayment-shares";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
 import { resolveOrigin } from "@/lib/auth/origin";
+import { round2 } from "@/lib/utils";
 
 const PG_UNIQUE_VIOLATION = "23505";
 
@@ -380,14 +381,25 @@ export async function recordPayment(
     }
   }
 
+  // Tatsächlich gebuchte Splits — für Audit-Log + Notice-Mails behalten,
+  // damit die Mails den Betrag pro Tranche korrekt nennen können (bei
+  // Overflow geht part1 auf tranche_id, part2 auf overflow_tranche_id).
+  const bookedCredits: Array<{ trancheId: string; amount: number }> = [];
   try {
     if (splitOverflow) {
-      const part1 = Math.max(0, Math.min(open, amount));
-      const part2 = amount - part1;
-      if (part1 > 0) await insertCredit(tranche_id, round2(part1), idempotency_key);
-      if (part2 > 0) await insertCredit(overflow_tranche_id!, round2(part2));
+      const part1 = round2(Math.max(0, Math.min(open, amount)));
+      const part2 = round2(amount - part1);
+      if (part1 > 0) {
+        await insertCredit(tranche_id, part1, idempotency_key);
+        bookedCredits.push({ trancheId: tranche_id, amount: part1 });
+      }
+      if (part2 > 0) {
+        await insertCredit(overflow_tranche_id!, part2);
+        bookedCredits.push({ trancheId: overflow_tranche_id!, amount: part2 });
+      }
     } else {
       await insertCredit(tranche_id, amount, idempotency_key);
+      bookedCredits.push({ trancheId: tranche_id, amount });
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -405,20 +417,24 @@ export async function recordPayment(
 
   // Info-Mails (Crew-Person + Vorstrecker, falls Actor ≠ beide). Selbst-
   // verrechnung des Vorstreckers (person_id == advancerId == actorPersonId)
-  // schickt keine Mail — das ist bilanzneutral.
-  try {
-    if (person_id !== actorPersonId || advancerId !== actorPersonId) {
-      await sendPrepaymentNoticeMails(supabase, {
-        tripId: trip_id,
-        trancheId: tranche_id,
-        kind: "payment_recorded",
-        actorPersonId,
-        subjectPersonId: person_id,
-        amount,
-      });
+  // schickt keine Mail — das ist bilanzneutral. Bei Overflow eine Mail
+  // PRO gebuchter Tranche mit dem korrekten Teilbetrag, sonst stimmten
+  // Betrag und Tranche in der Mail nicht überein.
+  if (person_id !== actorPersonId || advancerId !== actorPersonId) {
+    for (const credit of bookedCredits) {
+      try {
+        await sendPrepaymentNoticeMails(supabase, {
+          tripId: trip_id,
+          trancheId: credit.trancheId,
+          kind: "payment_recorded",
+          actorPersonId,
+          subjectPersonId: person_id,
+          amount: credit.amount,
+        });
+      } catch (e) {
+        console.error("[bordkasse:notice-mail]", e);
+      }
     }
-  } catch (e) {
-    console.error("[bordkasse:notice-mail]", e);
   }
 
   revalidatePath(`/trips/${trip_id}/prepayments`);
@@ -657,10 +673,6 @@ function daysBetween(fromIso: string, toIso: string): number {
   return Math.max(0, diff);
 }
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
 void redirect; // import-Side-Effect, im File benutzt
 
 // ════════════════════════════════════════════════════════════════════════
@@ -867,6 +879,18 @@ export async function rejectSelfPayment(
     actor_person_id: auth.personId,
     payload: { kind: "self-payment-rejected" },
   });
+
+  // Dedup-Log-Eintrag für diese Tranche × Person löschen, damit der
+  // Cron einen korrigierten Reminder verschicken kann — die Person
+  // hat jetzt wieder offene Schuld und braucht eine neue Mahnung.
+  if (tx.tranche_id && tx.credit_from) {
+    await supabase
+      .from("prepayment_reminder_log")
+      .delete()
+      .eq("tranche_id", tx.tranche_id)
+      .eq("person_id", tx.credit_from)
+      .eq("reminder_type", "crew_3d");
+  }
 
   // Info-Mails (Vorstrecker + Crew-Person) — best-effort.
   try {

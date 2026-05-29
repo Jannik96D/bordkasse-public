@@ -6,6 +6,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendMail } from "@/lib/email/send";
 import { renderPaymentPendingMail } from "@/lib/email/payment-pending-template";
+import { formatDeDate } from "@/lib/prepayments/dates";
 
 const SITE_URL = process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.dieter.ms";
 
@@ -67,7 +68,3 @@ export async function sendPaymentPendingMail(params: {
   return result.ok ? { ok: true } : { ok: false, message: result.error };
 }
 
-function formatDeDate(iso: string): string {
-  const [y, m, d] = iso.split("-");
-  return `${Number(d)}.${Number(m)}.${y}`;
-}

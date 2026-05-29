@@ -12,7 +12,7 @@
  * Layout über `mail-shell.ts`.
  */
 
-import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml } from "./mail-shell";
+import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
 
 export type CharterReminderTranche = {
   label: string;
@@ -33,9 +33,6 @@ export type CharterReminderParams = {
   isAutomated?: boolean;
 };
 
-const fmtEuro = (n: number) =>
-  new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
-
 export function renderCharterReminderMail(p: CharterReminderParams): {
   html: string;
   text: string;
@@ -52,8 +49,10 @@ export function renderCharterReminderMail(p: CharterReminderParams): {
 
   const trancheRows = p.tranches
     .map((t) => {
+      // „Überfällig" nur wenn das Datum strikt in der Vergangenheit liegt —
+      // am Stichtag selbst zählt es noch nicht als verpasst.
       const overdueBadge =
-        t.remaining_to_agency > 0.005 && isDueWithinDays(t.charter_due_date, 0)
+        t.remaining_to_agency > 0.005 && isDueInPast(t.charter_due_date)
           ? `<span style="display:inline-block;margin-left:6px;padding:1px 6px;background-color:#A93226;color:#FFFFFF;border-radius:3px;font-size:10px;font-weight:600;text-transform:uppercase;">Überfällig</span>`
           : "";
       return `
@@ -168,9 +167,9 @@ Bordkasse · Faire Kostenaufteilung auf Segel-Törns
   return { html, text, subject };
 }
 
-function isDueWithinDays(dueDate: string, days: number): boolean {
+/** True wenn das formatierte Datum „d.m.yyyy" strikt vor heute liegt. */
+function isDueInPast(dueDate: string): boolean {
   if (!dueDate) return false;
-  // dueDate kommt formatiert ("15.07.2026") rein — wir versuchen zu parsen
   const parts = dueDate.split(".");
   if (parts.length !== 3) return false;
   const [dStr, mStr, yStr] = parts;
@@ -178,6 +177,5 @@ function isDueWithinDays(dueDate: string, days: number): boolean {
   if (Number.isNaN(due.getTime())) return false;
   const nowIso = new Date().toISOString().slice(0, 10);
   const now = new Date(`${nowIso}T00:00:00Z`);
-  const diffDays = Math.round((due.getTime() - now.getTime()) / 86_400_000);
-  return diffDays <= days;
+  return due.getTime() < now.getTime();
 }

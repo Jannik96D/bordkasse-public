@@ -1,0 +1,94 @@
+/**
+ * Neutraler Info-Mail-Wortlaut für Skipper / Vorstrecker, wenn eine DRITTE
+ * Person (z. B. Admin) eine Schuld zwischen zwei anderen Crew-Mitgliedern
+ * abgehakt hat. Skipper/Vorstrecker bekommen damit Bescheid, ohne dass die
+ * normale debt-settled-Mail sie irreführend als „Schuldner" / „Gläubiger"
+ * adressiert.
+ *
+ * Layout via `mail-shell.ts` — identisch zu allen anderen Bordkasse-Mails.
+ */
+
+import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
+
+export type DebtObserverMailParams = {
+  recipientName: string;
+  actorName: string;
+  debtorName: string;
+  creditorName: string;
+  amount: number;
+  tripName: string;
+  tripDates: string;
+  appUrl: string;
+};
+
+export function renderDebtObserverMail(p: DebtObserverMailParams): {
+  html: string;
+  text: string;
+  subject: string;
+} {
+  const amount = fmtEuro(p.amount);
+  const subject = `Schuld abgehakt: ${p.debtorName} → ${p.creditorName} (${p.tripName})`;
+  const detailLine = `${p.debtorName} → ${p.creditorName} · ${amount}`;
+  const introText = `${p.actorName} hat soeben in der Bordkasse markiert, dass die Zahlung von ${p.debtorName} in Höhe von ${amount} an ${p.creditorName} erledigt ist.`;
+
+  const body = `
+            <tr>
+              <td style="padding:32px 32px 8px 32px;">
+                <h2 style="margin:0 0 12px 0;font-size:18px;font-weight:600;color:#1D4281;">
+                  Schuld in deinem Törn abgehakt
+                </h2>
+                <p style="margin:0 0 12px 0;font-size:15px;line-height:1.55;color:#1A2533;">
+                  Hi ${escapeHtml(p.recipientName)},
+                </p>
+                <p style="margin:0 0 16px 0;font-size:15px;line-height:1.55;color:#1A2533;">
+                  ${escapeHtml(introText)}
+                </p>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:0 32px 8px 32px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="padding:12px 16px;background-color:#F4F2EC;border-left:3px solid #1E8449;border-radius:6px;font-size:14px;color:#1A2533;">
+                      <strong>${escapeHtml(p.debtorName)}</strong>
+                      &nbsp;→&nbsp;
+                      <strong>${escapeHtml(p.creditorName)}</strong>
+                      &nbsp;·&nbsp;
+                      <span style="color:#1E8449;font-weight:600;">${escapeHtml(amount)}</span>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+${renderActionButton(p.appUrl, "Schulden in der App ansehen")}
+${renderHintBlock(
+  "Du bekommst diese Info-Mail, weil du Skipper oder Vorstrecker dieses Törns bist. Falls etwas nicht stimmt, kann das Häkchen in der App wieder entfernt werden.",
+)}`;
+
+  const html = renderMailShell({
+    title: subject,
+    preheader: `${detailLine} — ${p.tripName}`,
+    subtitle: `${p.tripName} · ${p.tripDates}`,
+    body,
+  });
+
+  const text = `Schuld in deinem Törn abgehakt
+${p.tripName} · ${p.tripDates}
+
+Hi ${p.recipientName},
+
+${introText}
+
+  ${detailLine}
+
+Du bekommst diese Info-Mail, weil du Skipper oder Vorstrecker dieses Törns bist — falls etwas nicht stimmt, kann das Häkchen in der App wieder entfernt werden.
+
+Schulden in der App: ${p.appUrl}
+
+—
+Bordkasse · Faire Kostenaufteilung auf Segel-Törns
+`;
+
+  return { html, text, subject };
+}

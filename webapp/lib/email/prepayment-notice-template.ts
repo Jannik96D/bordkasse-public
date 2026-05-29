@@ -16,7 +16,7 @@
  * Layout via mail-shell.
  */
 
-import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml } from "./mail-shell";
+import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
 
 export type PrepaymentNoticeKind = "payment_recorded" | "payment_confirmed" | "payment_rejected";
 
@@ -33,9 +33,6 @@ export type PrepaymentNoticeParams = {
   tripName: string;
   appUrl: string;
 };
-
-const fmtEuro = (n: number) =>
-  new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
 
 export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
   html: string;

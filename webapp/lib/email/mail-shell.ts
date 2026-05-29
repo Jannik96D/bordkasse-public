@@ -166,3 +166,13 @@ export function escapeHtml(s: string): string {
 export function stripHtml(s: string): string {
   return s.replace(/<[^>]+>/g, "");
 }
+
+/** Einheitliches EUR-Format für alle Mail-Templates. */
+export function fmtEuro(n: number): string {
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+}

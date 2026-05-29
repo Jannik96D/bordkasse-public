@@ -7,6 +7,7 @@ import { isAdmin, requireMember } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { sendMail } from "@/lib/email/send";
 import { renderDebtSettledMail } from "@/lib/email/debt-settled-template";
+import { renderDebtObserverMail } from "@/lib/email/debt-observer-template";
 import { formatDate } from "@/lib/utils";
 
 const ToggleSchema = z.object({
@@ -196,8 +197,11 @@ async function sendDebtSettledMails(
         : "other";
 
   // Empfänger-Liste: immer Schuldner + Gläubiger. Bei "other"-Actor zusätzlich
-  // Skipper und Vorstrecker, sofern sie nicht ohnehin schon drin sind.
-  const recipients: Array<{ personId: string; role: "debtor" | "creditor" }> = [
+  // Skipper und Vorstrecker, sofern sie nicht ohnehin schon drin sind. Sie
+  // bekommen eine separate neutrale „Observer"-Mail (kein „Zahlung an DICH"-
+  // Wortlaut, sondern „Schuld zwischen A und B abgehakt").
+  type Recipient = { personId: string; role: "debtor" | "creditor" | "observer" };
+  const recipients: Recipient[] = [
     { personId: args.fromPersonId, role: "debtor" },
     { personId: args.toPersonId, role: "creditor" },
   ];
@@ -207,17 +211,7 @@ async function sendDebtSettledMails(
     co.delete(args.toPersonId);
     co.delete(args.actorPersonId); // dem Actor selbst keine "Info"-Kopie
     for (const personId of co) {
-      // Skipper/Vorstrecker bekommen den Wortlaut "X hat eine Schuld
-      // zwischen A und B abgehakt" — wir kodieren das als "creditor"-Rolle
-      // mit unverändertem Schuldner-/Gläubiger-Namen, sodass das Template
-      // die "Zahlung von A an dich"-Variante nicht ausspielt. Saubererer
-      // Weg: eigene Rolle "observer". Vorerst Pragmatik — wir nehmen die
-      // existierende creditor-Variante mit actorRole=other; Wortlaut passt
-      // ("X hat markiert, dass die Zahlung von A in Höhe von Y an dich
-      // erledigt ist") wäre für Observer falsch. Lieber: eigene Notice-Mail
-      // mit neutralem Wortlaut. → wir senden hier einen NEUTRALEN Hinweis
-      // über die Notice-Variante (siehe unten).
-      recipients.push({ personId, role: "observer" as unknown as "creditor" });
+      recipients.push({ personId, role: "observer" });
     }
   }
 
@@ -264,38 +258,23 @@ async function sendDebtSettledMails(
 
     const recipientName = nameById.get(r.personId) ?? "Crew-Mitglied";
 
-    // Observer-Pfad: neutraler Wortlaut „X hat zwischen A und B abgehakt".
-    // Wir nutzen die bestehende `actorRole=other` Logik mit eigener
-    // Empfänger-Rolle; aktueller Template-Wortlaut für recipient=creditor
-    // + actor=other ist „X hat markiert, dass die Zahlung von A in Höhe
-    // von Y an DICH erledigt ist" — das wäre für einen Observer falsch.
-    // Pragmatischer Fix: für Observer setzen wir recipientName auf den
-    // Beobachter, aber recipientRole=debtor — der Wortlaut ist dann
-    // „X hat markiert, dass deine Zahlung an Y erledigt ist", was für den
-    // Observer ebenfalls irreführend wäre.
-    // → Wir umschiffen das, indem wir einen expliziten Observer-Branch
-    // mit minimalem Custom-Wortlaut bauen.
-    if ((r as { role: string }).role === "observer") {
-      const observerSubject = `Schuld abgehakt: ${debtorName} → ${creditorName} (Trip ${trip.name})`;
-      const html = renderObserverHtml({
+    // Observer-Pfad (neutraler Info-Mailtext): Skipper/Vorstrecker, die
+    // weder Schuldner noch Gläubiger sind, bekommen eine separate Mail mit
+    // „Schuld zwischen A und B abgehakt"-Wortlaut. Die normale
+    // debt-settled-Mail würde sie sonst irreführend als „Gläubiger" /
+    // „Schuldner" adressieren.
+    if (r.role === "observer") {
+      const { html, text, subject } = renderDebtObserverMail({
         recipientName,
         actorName,
         debtorName,
         creditorName,
         amount: args.amount,
         tripName: trip.name,
+        tripDates,
         appUrl,
       });
-      const text = renderObserverText({
-        recipientName,
-        actorName,
-        debtorName,
-        creditorName,
-        amount: args.amount,
-        tripName: trip.name,
-        appUrl,
-      });
-      const res = await sendMail({ to: email, subject: observerSubject, html, text });
+      const res = await sendMail({ to: email, subject, html, text });
       if (!res.ok) {
         console.error("[bordkasse:debt-settled-mail] observer failed", {
           person_id: r.personId,
@@ -325,73 +304,3 @@ async function sendDebtSettledMails(
   }
 }
 
-/**
- * Neutraler "Observer"-Mailtext für Skipper/Vorstrecker, wenn ein Admin
- * eine Schuld zwischen zwei anderen abgehakt hat — sie bekommen eine
- * reine Info, keine Bestätigung in ihrem eigenen Namen.
- *
- * Wir bauen das Template inline (kleines Snippet), damit nicht extra ein
- * weiteres Renderer-Modul nötig ist. Layout via mail-shell.
- */
-function renderObserverHtml(p: {
-  recipientName: string;
-  actorName: string;
-  debtorName: string;
-  creditorName: string;
-  amount: number;
-  tripName: string;
-  appUrl: string;
-}): string {
-  const fmt = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
-  const amount = fmt.format(p.amount);
-  const lines = `Hi ${escapeForMail(p.recipientName)},
-
-${escapeForMail(p.actorName)} hat soeben in der Bordkasse markiert, dass die Zahlung von ${escapeForMail(p.debtorName)} in Höhe von ${amount} an ${escapeForMail(p.creditorName)} erledigt ist.
-
-Du bekommst diese Info-Mail, weil du Skipper oder Vorstrecker dieses Törns bist — falls etwas nicht stimmt, kann das Häkchen in der App wieder entfernt werden.`;
-
-  // Bauen wir mit der mail-shell, aber inline statt extra Datei.
-  // Wir importieren den Shell, weil wir das nicht doppelt definieren wollen.
-  // (Statt require: dynamischer Import wäre overkill — TS resolved direkt.)
-  return `<!DOCTYPE html>
-<html lang="de"><body style="margin:0;padding:24px;background:#FAFBFC;font-family:-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif;color:#1A2533;">
-  <div style="max-width:560px;margin:0 auto;background:#FFFFFF;border:1px solid #D6E1EE;border-radius:12px;padding:24px;">
-    <h2 style="margin:0 0 12px;color:#1D4281;font-size:18px;">Schuld in deinem Trip abgehakt</h2>
-    <p style="margin:0 0 8px;color:#587EA8;font-size:13px;">${escapeForMail(p.tripName)}</p>
-    <p style="white-space:pre-line;line-height:1.55;font-size:15px;">${lines}</p>
-    <p style="margin-top:18px;"><a href="${p.appUrl}" style="display:inline-block;padding:10px 18px;background:#114884;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;font-size:14px;">Schulden in der App ansehen</a></p>
-  </div>
-</body></html>`;
-}
-
-function renderObserverText(p: {
-  recipientName: string;
-  actorName: string;
-  debtorName: string;
-  creditorName: string;
-  amount: number;
-  tripName: string;
-  appUrl: string;
-}): string {
-  const fmt = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
-  return `Schuld in deinem Trip abgehakt
-${p.tripName}
-
-Hi ${p.recipientName},
-
-${p.actorName} hat soeben in der Bordkasse markiert, dass die Zahlung von ${p.debtorName} in Höhe von ${fmt.format(p.amount)} an ${p.creditorName} erledigt ist.
-
-Du bekommst diese Info-Mail, weil du Skipper oder Vorstrecker dieses Törns bist — falls etwas nicht stimmt, kann das Häkchen in der App wieder entfernt werden.
-
-In der App: ${p.appUrl}
-`;
-}
-
-function escapeForMail(s: string): string {
-  return s.replace(/[&<>"']/g, (ch) =>
-    ch === "&" ? "&amp;" :
-    ch === "<" ? "&lt;" :
-    ch === ">" ? "&gt;" :
-    ch === '"' ? "&quot;" : "&#39;",
-  );
-}

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { CheckCircle2, RefreshCw } from "lucide-react";
 import { formatEuro, todayIso } from "@/lib/utils";
 import { submitSelfPayment } from "@/lib/actions/prepayments";
-import { toCrewDueDate } from "@/lib/prepayments/dates";
+import { toCrewDueDate, formatDeDate } from "@/lib/prepayments/dates";
 import type {
   PrepaymentPlan,
   Tranche,
@@ -266,8 +266,3 @@ function labelFor(s: "open" | "partial" | "paid", overdue: boolean): string {
   return "offen";
 }
 
-function formatDeDate(iso: string): string {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-");
-  return `${Number(d)}.${Number(m)}.${y}`;
-}

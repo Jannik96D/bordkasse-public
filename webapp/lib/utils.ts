@@ -26,6 +26,11 @@ export function formatDate(iso: string): string {
   }).format(d);
 }
 
+/** Kaufmännisch auf 2 Nachkommastellen runden. */
+export function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 /** Heute als ISO-Date YYYY-MM-DD (in lokaler Zeitzone, ohne Zeit). */
 export function todayIso(): string {
   const d = new Date();

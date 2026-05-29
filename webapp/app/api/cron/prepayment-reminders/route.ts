@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPrepaymentReminderMail } from "@/lib/email/send-prepayment-reminder";
-import { CREW_DUE_DAYS_BEFORE_CHARTER } from "@/lib/prepayments/dates";
+import { CREW_DUE_DAYS_BEFORE_CHARTER, addDays } from "@/lib/prepayments/dates";
 
 /**
  * Täglicher Cron — verschickt Anzahlungs-Erinnerungen 3 Tage vor der
@@ -12,19 +12,30 @@ import { CREW_DUE_DAYS_BEFORE_CHARTER } from "@/lib/prepayments/dates";
  *                       Tranche. Vorstrecker wird übersprungen (eigene Mail).
  *
  *   - "advancer_3d"  → 3 Tage vor Charter-Fälligkeit (= echtes due_date in 3 Tagen)
- *                       an den Vorstrecker — mit der Charter-Übersicht für
- *                       diese Tranche.
+ *                       an den Vorstrecker — nur wenn er der Agentur noch was
+ *                       schuldet. Hat er die Tranche bereits voll überwiesen,
+ *                       wird übersprungen.
  *
- * Dedup-Mechanik: `prepayment_reminder_log` hält pro (tranche × person × type)
- * höchstens einen Eintrag. Vor jedem Versand prüfen, beim erfolgreichen
- * Versand eintragen. So spammen wir nicht, falls Vercel den Cron mehrfach
- * triggert.
+ * Datums-Fenster statt exaktem Tag: wir akzeptieren JEDE Tranche, deren
+ * Frist innerhalb der nächsten REMINDER_DAYS_BEFORE … REMINDER_DAYS_BEFORE
+ * + CREW_DUE_DAYS_BEFORE_CHARTER Tage liegt. Damit verlieren wir keinen
+ * Reminder, wenn der Cron einen Tag ausfällt — der Dedup-Log sorgt
+ * dafür, dass jede Person × Tranche × Typ-Kombi nur einmal eine Mail
+ * bekommt.
+ *
+ * Pending-Awareness: eine bereits selbst-gemeldete (aber noch nicht
+ * bestätigte) Zahlung wird beim Crew-Reminder als "schon erledigt"
+ * gewertet — die Person hat ihren Teil getan und wartet auf den
+ * Vorstrecker. Sonst würde der Cron sie weiter mahnen, obwohl sie in
+ * der App ⏳ pending steht.
  *
  * Sicherheit: Bearer-Token-Check via CRON_SECRET (siehe purge-Cron).
  */
 export const dynamic = "force-dynamic";
 
 const REMINDER_DAYS_BEFORE = 3;
+const CREW_WINDOW_MAX_DAYS = REMINDER_DAYS_BEFORE + CREW_DUE_DAYS_BEFORE_CHARTER;
+const FLOAT_TOL = 0.005;
 
 interface ReminderJob {
   trancheId: string;
@@ -52,19 +63,17 @@ export async function GET(request: NextRequest) {
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
 
-  // Target-Datum für "advancer_3d": charter_due_date == today + 3 days
-  const advancerTarget = addDays(todayIso, REMINDER_DAYS_BEFORE);
-  // Target-Datum für "crew_3d": crew_due_date == today + 3 days
-  // crew_due_date = charter_due_date - CREW_DUE_DAYS_BEFORE_CHARTER
-  // → charter_due_date = today + 3 + CREW_DUE_DAYS_BEFORE_CHARTER
-  const crewTarget = addDays(todayIso, REMINDER_DAYS_BEFORE + CREW_DUE_DAYS_BEFORE_CHARTER);
+  // Fenster: jede Tranche, deren Charter-Frist in [heute, heute + max] liegt.
+  // Innerhalb des Fensters entscheiden wir pro Tranche, ob crew_3d (≥ 6 Tage
+  // vorher) und/oder advancer_3d (≥ 3 Tage vorher) angesagt sind. Vergangene
+  // Fristen werden NICHT mehr beworben.
+  const windowEnd = addDays(todayIso, CREW_WINDOW_MAX_DAYS);
 
-  // Tranchen mit relevanten Fälligkeitsdaten laden + Trip-Daten (skipper_id
-  // als Vorstrecker-Fallback, end_date um abgeschlossene Trips auszuschließen).
   const { data: tranches, error: trancheErr } = await supabase
     .from("prepayment_tranches")
     .select("id, trip_id, label, due_date, percent")
-    .in("due_date", [advancerTarget, crewTarget]);
+    .gte("due_date", todayIso)
+    .lte("due_date", windowEnd);
   if (trancheErr) {
     console.error("[bordkasse:cron] tranche query failed:", trancheErr.message);
     return NextResponse.json({ ok: false, error: trancheErr.message }, { status: 500 });
@@ -74,27 +83,50 @@ export async function GET(request: NextRequest) {
   }
 
   const tripIds = Array.from(new Set(tranches.map((t) => t.trip_id)));
+  const trancheIds = tranches.map((t) => t.id);
 
-  const [{ data: trips }, { data: plans }, { data: obligations }, { data: payments }, { data: logRows }] =
-    await Promise.all([
-      supabase.from("trips").select("id, name, skipper_id, end_date").in("id", tripIds),
-      supabase
-        .from("prepayment_plan")
-        .select("trip_id, advancer_person_id, total_amount")
-        .in("trip_id", tripIds),
-      supabase
-        .from("prepayment_obligations")
-        .select("trip_id, person_id, total_amount")
-        .in("trip_id", tripIds),
-      supabase
-        .from("v_prepayment_payments")
-        .select("trip_id, tranche_id, person_id, paid_amount")
-        .in("trip_id", tripIds),
-      supabase
-        .from("prepayment_reminder_log")
-        .select("tranche_id, person_id, reminder_type")
-        .in("tranche_id", tranches.map((t) => t.id)),
-    ]);
+  // Bulk-Load: alles für die betroffenen Trips/Tranchen parallel.
+  // - confirmed payments aus v_prepayment_payments (für Soll-vs-Ist der Crew)
+  // - pending self-reports aus v_prepayment_pending (zählen als "Person hat gemeldet")
+  // - charter expenses (Vorstrecker → Agentur) für advancer-skip
+  const [
+    { data: trips },
+    { data: plans },
+    { data: obligations },
+    { data: payments },
+    { data: pendingRows },
+    { data: charterExpenses },
+    { data: logRows },
+  ] = await Promise.all([
+    supabase.from("trips").select("id, name, skipper_id, end_date").in("id", tripIds),
+    supabase
+      .from("prepayment_plan")
+      .select("trip_id, advancer_person_id, total_amount")
+      .in("trip_id", tripIds),
+    supabase
+      .from("prepayment_obligations")
+      .select("trip_id, person_id, total_amount")
+      .in("trip_id", tripIds),
+    supabase
+      .from("v_prepayment_payments")
+      .select("trip_id, tranche_id, person_id, paid_amount")
+      .in("trip_id", tripIds),
+    supabase
+      .from("v_prepayment_pending")
+      .select("trip_id, tranche_id, person_id")
+      .in("trip_id", tripIds),
+    supabase
+      .from("transactions")
+      .select("trip_id, tranche_id, amount")
+      .in("trip_id", tripIds)
+      .eq("type", "expense")
+      .is("deleted_at", null)
+      .not("tranche_id", "is", null),
+    supabase
+      .from("prepayment_reminder_log")
+      .select("tranche_id, person_id, reminder_type")
+      .in("tranche_id", trancheIds),
+  ]);
 
   const tripById = new Map(
     (trips ?? []).map((t) => [t.id, t as { id: string; name: string; skipper_id: string; end_date: string }]),
@@ -106,13 +138,11 @@ export async function GET(request: NextRequest) {
     ]),
   );
 
-  // Soll pro Person/Trip
   const sollByTripPerson = new Map<string, number>();
   for (const o of obligations ?? []) {
     sollByTripPerson.set(`${o.trip_id}::${o.person_id}`, Number(o.total_amount));
   }
 
-  // Bezahlt pro Tranche/Person
   const paidByTranchePerson = new Map<string, number>();
   for (const p of payments ?? []) {
     if (p.tranche_id && p.person_id) {
@@ -121,7 +151,27 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Bereits verschickt — Dedup-Set
+  // Pending = Person hat „Ich habe gezahlt" geklickt, Vorstrecker noch nicht
+  // bestätigt. Wir wollen die Person NICHT erneut mahnen — sie sieht in der
+  // App ⏳ pending und wartet auf den Vorstrecker.
+  const pendingByTranchePerson = new Set<string>();
+  for (const r of pendingRows ?? []) {
+    if (r.tranche_id && r.person_id) {
+      pendingByTranchePerson.add(`${r.tranche_id}::${r.person_id}`);
+    }
+  }
+
+  // Wie viel hat der Vorstrecker schon an die Agentur überwiesen — pro Tranche?
+  const paidToAgencyByTranche = new Map<string, number>();
+  for (const e of charterExpenses ?? []) {
+    if (e.tranche_id) {
+      paidToAgencyByTranche.set(
+        e.tranche_id,
+        (paidToAgencyByTranche.get(e.tranche_id) ?? 0) + Number(e.amount),
+      );
+    }
+  }
+
   const alreadySent = new Set<string>();
   for (const r of logRows ?? []) {
     alreadySent.add(`${r.tranche_id}::${r.person_id}::${r.reminder_type}`);
@@ -132,24 +182,30 @@ export async function GET(request: NextRequest) {
   for (const t of tranches) {
     const trip = tripById.get(t.trip_id);
     if (!trip) continue;
-    // Bereits abgelaufene Trips überspringen (Anzahlungs-Mahnung nach Törn macht keinen Sinn)
+    // Bereits abgelaufene Trips überspringen (Anzahlungs-Mahnung nach Törn macht keinen Sinn).
     if (trip.end_date && trip.end_date < todayIso) continue;
 
     const plan = planByTrip.get(t.trip_id);
     if (!plan) continue;
     const advancerId = plan.advancer_person_id ?? trip.skipper_id;
 
-    if (t.due_date === advancerTarget) {
-      // Vorstrecker-Reminder: ein Empfänger pro Tranche.
+    // Wie viele Tage sind es noch bis zur Charter-Frist?
+    const daysToCharter = daysBetween(todayIso, t.due_date);
+
+    // advancer_3d: ab 3 Tage vor Charter-Frist UND nur wenn er der Agentur noch was schuldet
+    if (daysToCharter <= REMINDER_DAYS_BEFORE) {
+      const sollAgency = (Number(plan.total_amount) * Number(t.percent)) / 100;
+      const paidAgency = paidToAgencyByTranche.get(t.id) ?? 0;
+      const remainingAgency = sollAgency - paidAgency;
       const key = `${t.id}::${advancerId}::advancer_3d`;
-      if (!alreadySent.has(key)) {
+      if (remainingAgency > FLOAT_TOL && !alreadySent.has(key)) {
         jobs.push({ trancheId: t.id, tripId: t.trip_id, personId: advancerId, type: "advancer_3d" });
       }
     }
 
-    if (t.due_date === crewTarget) {
-      // Crew-Reminder: alle Crew-Mitglieder, deren Soll > 0 und noch
-      // nicht voll bezahlt — Vorstrecker übersprungen.
+    // crew_3d: ab 6 Tage vor Charter-Frist (= 3 Tage vor Crew-Frist).
+    // Crew, deren Soll > 0 ist und die weder voll bezahlt noch pending sind.
+    if (daysToCharter <= CREW_WINDOW_MAX_DAYS) {
       const tripPersons = Array.from(
         new Set(
           (obligations ?? [])
@@ -162,7 +218,9 @@ export async function GET(request: NextRequest) {
         if (totalSoll <= 0) continue;
         const trancheSoll = (totalSoll * Number(t.percent)) / 100;
         const paid = paidByTranchePerson.get(`${t.id}::${personId}`) ?? 0;
-        if (trancheSoll - paid <= 0.005) continue;
+        if (trancheSoll - paid <= FLOAT_TOL) continue;
+        // Pending = Person hat selbst gemeldet → keinen Reminder mehr.
+        if (pendingByTranchePerson.has(`${t.id}::${personId}`)) continue;
         const key = `${t.id}::${personId}::crew_3d`;
         if (alreadySent.has(key)) continue;
         jobs.push({ trancheId: t.id, tripId: t.trip_id, personId, type: "crew_3d" });
@@ -216,8 +274,9 @@ export async function GET(request: NextRequest) {
   });
 }
 
-function addDays(isoDate: string, days: number): string {
-  const d = new Date(`${isoDate}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
+/** Anzahl Tage zwischen zwei ISO-Dates, beide UTC-anchored. */
+function daysBetween(fromIso: string, toIso: string): number {
+  const from = new Date(`${fromIso}T00:00:00Z`).getTime();
+  const to = new Date(`${toIso}T00:00:00Z`).getTime();
+  return Math.round((to - from) / 86_400_000);
 }

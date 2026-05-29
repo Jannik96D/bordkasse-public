@@ -24,7 +24,8 @@ import {
   renderCharterReminderMail,
   type CharterReminderTranche,
 } from "@/lib/email/charter-reminder-template";
-import { toCrewDueDate } from "@/lib/prepayments/dates";
+import { toCrewDueDate, formatDeDate } from "@/lib/prepayments/dates";
+import { round2 } from "@/lib/utils";
 
 const SITE_URL = process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.dieter.ms";
 
@@ -208,16 +209,18 @@ async function sendCharterReminder(
     return { ok: false, message: "Keine Tranchen vorhanden." };
   }
 
-  // Σ Crew-Beiträge pro Tranche (alles, was bei dir reingekommen ist —
-  // bestätigt + pending zählen wir hier mit, weil der Vorstrecker eh
-  // hingehen muss).
+  // Σ Crew-Beiträge pro Tranche — nur bestätigte Zahlungen (v_prepayment_payments
+  // filtert confirmed_at IS NOT NULL). Pending Selbstmeldungen tauchen erst nach
+  // Bestätigung durch den Vorstrecker auf — der Vorstrecker sieht in der Matrix
+  // den ⏳-Banner separat. Eigene Selbst-Verrechnung des Vorstreckers fließt
+  // NICHT in „Crew bei dir" ein.
   const { data: paymentRows } = await supabase
     .from("v_prepayment_payments")
-    .select("tranche_id, paid_amount")
+    .select("tranche_id, person_id, paid_amount")
     .eq("trip_id", args.tripId);
   const crewPaidByTranche = new Map<string, number>();
   for (const r of paymentRows ?? []) {
-    if (r.tranche_id) {
+    if (r.tranche_id && r.person_id !== args.advancerPersonId) {
       crewPaidByTranche.set(
         r.tranche_id,
         (crewPaidByTranche.get(r.tranche_id) ?? 0) + Number(r.paid_amount),
@@ -225,12 +228,16 @@ async function sendCharterReminder(
     }
   }
 
-  // Σ Soll pro Tranche aus prepayment_obligations × percent
+  // Σ Crew-Soll pro Tranche aus prepayment_obligations × percent — OHNE den
+  // Vorstrecker selbst (sein Anteil ist treuhänderisch, zählt nicht als
+  // „Crew schuldet mir").
   const { data: obls } = await supabase
     .from("prepayment_obligations")
-    .select("total_amount")
+    .select("person_id, total_amount")
     .eq("trip_id", args.tripId);
-  const crewSollTotal = (obls ?? []).reduce((s, o) => s + Number(o.total_amount), 0);
+  const crewSollTotal = (obls ?? [])
+    .filter((o) => o.person_id !== args.advancerPersonId)
+    .reduce((s, o) => s + Number(o.total_amount), 0);
 
   // Σ schon-an-Agentur-überwiesen pro Tranche (expense mit dieser tranche_id).
   const { data: expenseRows } = await supabase
@@ -285,12 +292,3 @@ async function sendCharterReminder(
   return { ok: true };
 }
 
-function formatDeDate(iso: string): string {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-");
-  return `${Number(d)}.${Number(m)}.${y}`;
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}

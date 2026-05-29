@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, MessageCircle, RefreshCw, Check, X } from "lucide-react";
-import { formatEuro, todayIso } from "@/lib/utils";
+import { formatEuro, todayIso, round2 } from "@/lib/utils";
 import {
   recordPayment,
   sendPrepaymentReminder,
@@ -11,7 +11,7 @@ import {
   rejectSelfPayment,
 } from "@/lib/actions/prepayments";
 import { renderWhatsAppText, renderBulkWhatsAppText, DEFAULT_WHATSAPP_TEMPLATE } from "@/lib/prepayments/whatsapp";
-import { toCrewDueDate } from "@/lib/prepayments/dates";
+import { toCrewDueDate, formatDeDate } from "@/lib/prepayments/dates";
 import type {
   PrepaymentPlan,
   Tranche,
@@ -200,11 +200,21 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
             </tr>
           </thead>
           <tbody>
-            {members.map((m) => {
+            {(() => {
+              // Wie viel muss der Vorstrecker insgesamt noch an die Agentur
+              // überweisen? Wird für den 🔔-Button in seiner Zeile gebraucht
+              // (Mail nur sinnvoll wenn noch was offen ist).
+              const charterOutstanding = tranches.reduce((sum, t) => {
+                const soll = (plan.total_amount * t.percent) / 100;
+                const paid = charterPaidByTranche[t.id] ?? 0;
+                return sum + Math.max(0, soll - paid);
+              }, 0);
+              return members.map((m) => {
               const obl = obligationByPerson.get(m.id);
               const cabin = obl?.cabin_type_id ? cabinById.get(obl.cabin_type_id) : null;
               const rowOpen = tranches.reduce((s, t) => s + Math.max(0, cellFor(t.id, m.id, t.percent).open), 0);
               const isAdvancerRow = plan.advancer_person_id === m.id;
+              const advancerNothingOpen = isAdvancerRow && charterOutstanding <= 0.005;
               return (
                 <tr key={m.id} className="border-t border-rule">
                   <th scope="row" className="sticky left-0 z-10 bg-paper px-2 py-2 text-left font-medium sm:px-3">
@@ -251,12 +261,17 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
                       <ReminderButton
                         tripId={tripId}
                         personId={m.id}
-                        disabled={!m.email || (!isAdvancerRow && rowOpen <= 0.005)}
+                        disabled={
+                          !m.email ||
+                          (isAdvancerRow ? advancerNothingOpen : rowOpen <= 0.005)
+                        }
                         title={
                           isAdvancerRow
                             ? !m.email
                               ? "Vorstrecker hat keine E-Mail hinterlegt"
-                              : "Charter-Übersicht an dich selbst schicken (Σ Crew-Eingänge / Soll Agentur / noch zu überweisen)"
+                              : advancerNothingOpen
+                                ? "Alles an die Agentur überwiesen — keine Erinnerung nötig"
+                                : "Charter-Übersicht an dich selbst schicken (Σ Crew-Eingänge / Soll Agentur / noch zu überweisen)"
                             : !m.email
                               ? "E-Mail fehlt"
                               : rowOpen <= 0.005
@@ -278,7 +293,8 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
                   </td>
                 </tr>
               );
-            })}
+              });
+            })()}
           </tbody>
         </table>
       </div>
@@ -573,15 +589,6 @@ function WhatsAppModal({ title, text, onClose }: { title: string; text: string; 
   );
 }
 
-function formatDeDate(iso: string): string {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-");
-  return `${Number(d)}.${Number(m)}.${y}`;
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
 
 // referenced default to silence unused-warning in build pipelines that strip exports
 void DEFAULT_WHATSAPP_TEMPLATE;

@@ -6,7 +6,7 @@
  * Layout über `mail-shell.ts` — identisch zu allen anderen Bordkasse-Mails.
  */
 
-import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml } from "./mail-shell";
+import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
 
 export type PaymentPendingParams = {
   /** Empfänger der Mail — typischerweise der Vorstrecker (Default = Skipper). */
@@ -19,9 +19,6 @@ export type PaymentPendingParams = {
   note?: string | null;
   appUrl: string;          // Link auf /trips/{id}/prepayments
 };
-
-const fmtEuro = (n: number) =>
-  new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
 
 export function renderPaymentPendingMail(p: PaymentPendingParams): {
   html: string;

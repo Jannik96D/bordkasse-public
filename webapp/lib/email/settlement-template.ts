@@ -15,7 +15,7 @@
  *   #F4F2EC paper-soft    Zahlungsplan-Pillen
  */
 
-import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, stripHtml } from "./mail-shell";
+import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, stripHtml, fmtEuro } from "./mail-shell";
 
 export type DebtItem = {
   counterparty_name: string;
@@ -37,9 +37,6 @@ export type SettlementMailParams = {
   /** Optionaler Diff-Hinweis ("3 neue Buchungen, 1 geändert"). Nur bei isUpdate. */
   changeSummary?: string;
 };
-
-const fmtEuro = (n: number) =>
-  new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
 
 export function renderSettlementMail(p: SettlementMailParams): { html: string; text: string; subject: string } {
   const subject = p.isUpdate
