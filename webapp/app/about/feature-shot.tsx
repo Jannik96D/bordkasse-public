@@ -46,7 +46,7 @@ export function FeatureShot({
           type="button"
           onClick={() => setOpen(true)}
           aria-label={`${alt} — Vollbild anzeigen`}
-          className="group relative w-full max-w-[248px] rounded-[2.4rem] bg-ink p-[9px] shadow-[0_18px_40px_-16px_rgba(17,72,132,0.45)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_24px_50px_-16px_rgba(17,72,132,0.55)] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+          className="group relative w-full max-w-[248px] rounded-[2rem] bg-ink p-[9px] shadow-[0_18px_40px_-16px_rgba(17,72,132,0.45)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_24px_50px_-16px_rgba(17,72,132,0.55)] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
         >
           {/* Seiten-Tasten — dezenter Realismus, gleiche Farbfamilie wie der Rahmen */}
           <span
@@ -63,7 +63,7 @@ export function FeatureShot({
           />
 
           {/* Screen */}
-          <span className="block overflow-hidden rounded-[1.9rem] bg-paper">
+          <span className="block overflow-hidden rounded-[1.5rem] bg-paper">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={src}
