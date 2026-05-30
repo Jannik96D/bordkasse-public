@@ -7,7 +7,7 @@ import {
   ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
-import { FeatureShot } from "./feature-shot";
+import { AboutExplorer, type ExplorerPhase } from "./about-explorer";
 
 export const metadata = {
   title: "Über die Bordkassen-App · Bordkasse",
@@ -456,8 +456,16 @@ function featureById(id: string): Feature {
 }
 
 export default function AboutPage() {
+  const phasesData: ExplorerPhase[] = PHASES.map((phase) => ({
+    id: phase.id,
+    title: phase.title,
+    lead: phase.lead,
+    icon: <phase.Icon className="h-5 w-5" aria-hidden="true" />,
+    features: phase.featureIds.map(featureById),
+  }));
+
   return (
-    <main className="mx-auto w-full max-w-2xl px-6 py-10">
+    <main className="mx-auto w-full max-w-3xl px-6 py-10">
       <div className="mb-6">
         <Link href="/" className="text-sm text-ink-soft hover:text-primary">
           ← Übersicht
@@ -484,65 +492,7 @@ export default function AboutPage() {
         </p>
       </section>
 
-      <nav
-        aria-label="Inhaltsverzeichnis"
-        className="mt-8 rounded-lg border border-rule bg-paper-soft p-5"
-      >
-        <p className="mb-3 text-sm font-semibold text-primary">In dieser Übersicht</p>
-        <ul className="space-y-1.5 text-sm">
-          {PHASES.map((phase) => (
-            <li key={phase.id}>
-              <a
-                href={`#${phase.id}`}
-                className="inline-flex items-center gap-2 text-ink hover:text-primary"
-              >
-                <phase.Icon className="h-4 w-4 text-primary" aria-hidden="true" />
-                <span>{phase.title}</span>
-                <span className="text-ink-soft">
-                  · {phase.featureIds.length}
-                  {phase.featureIds.length === 1 ? " Funktion" : " Funktionen"}
-                </span>
-              </a>
-            </li>
-          ))}
-        </ul>
-      </nav>
-
-      <div className="mt-12 space-y-12">
-        {PHASES.map((phase) => (
-          <section key={phase.id} id={phase.id} className="scroll-mt-6">
-            <header className="mb-4 border-b border-rule pb-3">
-              <h2 className="flex items-center gap-2 text-xl font-bold text-primary">
-                <phase.Icon className="h-5 w-5" aria-hidden="true" />
-                {phase.title}
-              </h2>
-              <p className="mt-1 text-sm text-ink-soft">{phase.lead}</p>
-            </header>
-
-            <ul className="space-y-6">
-              {phase.featureIds.map((id) => {
-                const f = featureById(id);
-                return (
-                  <li key={f.id} id={f.id} className="scroll-mt-6">
-                    <h3 className="text-base font-semibold text-ink">{f.title}</h3>
-                    <p className="mt-1 text-sm text-ink">{f.lead}</p>
-                    <FeatureShot src={f.screenshot} alt={f.alt} />
-                    <details className="group mt-2">
-                      <summary className="cursor-pointer list-none text-sm text-ink-soft hover:text-ink">
-                        <span className="group-open:hidden">Mehr Details ›</span>
-                        <span className="hidden group-open:inline">‹ Details schließen</span>
-                      </summary>
-                      <div className="prose mt-2 max-w-none text-sm leading-relaxed text-ink-soft">
-                        {f.body}
-                      </div>
-                    </details>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ))}
-      </div>
+      <AboutExplorer phases={phasesData} />
 
       <section className="mt-16 rounded-lg border border-rule bg-paper-soft p-6">
         <h2 className="text-lg font-semibold text-primary">
