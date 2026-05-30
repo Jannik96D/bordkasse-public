@@ -142,16 +142,16 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
   }
 
   const advancerName = plan.advancer_person_id
-    ? members.find((m) => m.id === plan.advancer_person_id)?.display_name ?? "Vorstrecker"
+    ? members.find((m) => m.id === plan.advancer_person_id)?.display_name ?? "—"
     : null;
 
   return (
     <>
       {advancerName && (
         <p className="mb-3 text-xs text-ink-soft">
-          Vorstrecker: <strong className="text-ink">{advancerName}</strong>
+          Vorgestreckt von <strong className="text-ink">{advancerName}</strong>
           <InfoTooltip
-            label="Was bedeutet Vorstrecker?"
+            label="Wer streckt vor?"
             text="Alle Anzahlungen werden an diese Person verbucht. Eigener Anteil per Klick auf die Zelle als Selbst-Verrechnung abhaken (bilanzneutral, kein Mail-/WhatsApp-Versand)."
           />
         </p>
@@ -228,9 +228,9 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
                       {isAdvancerRow && (
                         <span
                           className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
-                          title="Vorstrecker — verrechnet sich selbst"
+                          title="Streckt vor — verrechnet sich selbst"
                         >
-                          Vorstrecker
+                          Streckt vor
                         </span>
                       )}
                     </div>
@@ -273,7 +273,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
                         title={
                           isAdvancerRow
                             ? !m.email
-                              ? "Vorstrecker hat keine E-Mail hinterlegt"
+                              ? "Für die vorstreckende Person ist keine E-Mail hinterlegt"
                               : advancerNothingOpen
                                 ? "Alles an die Agentur überwiesen — keine Erinnerung nötig"
                                 : "Charter-Übersicht an dich selbst schicken (Σ Crew-Eingänge / Soll Agentur / noch zu überweisen)"

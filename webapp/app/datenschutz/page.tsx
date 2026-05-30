@@ -48,7 +48,7 @@ export default function DatenschutzPage() {
               den gleichen Vornamen haben.
             </li>
             <li>
-              <strong>Optionales Profil-Flag</strong> „Alkohol-Trinker während des Törns“ —
+              <strong>Optionales Profil-Flag</strong> „Trinkt während des Törns Alkohol mit“ —
               beeinflusst, wer den Alkohol-Anteil bei Ausgaben mitträgt.
             </li>
             <li>

@@ -50,7 +50,7 @@ export async function toggleDebtSettled(input: {
   // dürfen das Häkchen setzen — unbeteiligte Crew-Mitglieder nicht.
   const admin = await isAdmin();
   if (!admin && auth.personId !== from_person_id && auth.personId !== to_person_id) {
-    return { ok: false, message: "Nur Schuldner oder Gläubiger dürfen das Häkchen setzen." };
+    return { ok: false, message: "Nur wer zahlt oder das Geld bekommt darf das Häkchen setzen." };
   }
 
   const supabase = createAdminClient();
@@ -240,8 +240,8 @@ async function sendDebtSettledMails(
   const emailById = new Map<string, string>();
   for (const p of privsRaw ?? []) if (p.email) emailById.set(p.person_id, p.email);
 
-  const debtorName = nameById.get(args.fromPersonId) ?? "Schuldner";
-  const creditorName = nameById.get(args.toPersonId) ?? "Gläubiger";
+  const debtorName = nameById.get(args.fromPersonId) ?? "die zahlende Person";
+  const creditorName = nameById.get(args.toPersonId) ?? "die empfangende Person";
   const actorName = nameById.get(args.actorPersonId) ?? "Skipper";
   const tripDates = `${formatDate(trip.start_date)} – ${formatDate(trip.end_date)}`;
   const appUrl = `${process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.example"}/trips/${args.tripId}/debts`;
@@ -264,8 +264,13 @@ async function sendDebtSettledMails(
     // debt-settled-Mail würde sie sonst irreführend als „Gläubiger" /
     // „Schuldner" adressieren.
     if (r.role === "observer") {
+      // Jeder Observer ist garantiert Skipper oder Vorstrecker (die Liste wird
+      // nur aus diesen beiden IDs gebaut). Bei Personalunion gewinnt „skipper".
+      const recipientReason: "skipper" | "advancer" =
+        r.personId === trip.skipper_id ? "skipper" : "advancer";
       const { html, text, subject } = renderDebtObserverMail({
         recipientName,
+        recipientReason,
         actorName,
         debtorName,
         creditorName,

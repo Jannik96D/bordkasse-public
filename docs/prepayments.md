@@ -4,6 +4,8 @@ Modul zur Erfassung, Planung und Nachverfolgung von Anzahlungen, die Crew-Mitgli
 
 > **Status: Implementiert** über Migrationen 0023–0028. Phase 1 (Kern) + Phase 2 (Crew-Selbstmeldung) + Auto-Reminder-Cron + Vorstrecker-Konzept + Charter-Reminder-Mail sind live. Diese Spec spiegelt den aktuellen Stand und beschreibt die Mechanik im Detail.
 
+> **Sprachregelung:** „Vorstrecker" ist in dieser Spec der interne Konzept-Name (Code-Identifier `advancer_*`, `requireSkipperAdminOrAdvancer`). In **Endnutzer-Texten (UI/Mail)** wird die Rolle geschlechtsneutral formuliert: Badge „Streckt vor", sonst „die vorstreckende Person" bzw. das Verb „vorstrecken". Analog werden „Schuldner/Gläubiger" im UI als „wer zahlt / wer das Geld bekommt" ausgedrückt.
+
 ## Problem
 
 Ein realer Fall: Skipper bucht die Yacht 10 Monate vor dem Törn und streckt die Anzahlung vor. Crew-Mitglieder sagen zu und überweisen ihre Beteiligung **in unterschiedlichem Tempo** — manche sofort, manche erst kurz vor Törn-Start, manche gar nicht. Zwischendurch fällt Person A ab, Person B rückt nach; B übernimmt die Anzahlung, die A bereits geleistet hatte.

@@ -340,9 +340,9 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
 
           <label className="block text-sm">
             <span className="text-ink-soft">
-              Vorstrecker
+              Wer streckt vor?
               <InfoTooltip
-                label="Was ist der Vorstrecker?"
+                label="Wer streckt vor?"
                 text="Wer die Yacht-Anzahlung an die Charteragentur vorstreckt. Alle Crew-Anzahlungen werden an diese Person verbucht; ihren eigenen Anteil kann sie bilanzneutral als Selbst-Verrechnung abhaken. Default ist der Trip-Skipper."
               />
             </span>

@@ -68,7 +68,7 @@ export function renderPaymentPendingMail(p: PaymentPendingParams): {
 ${noteBlock}
 ${renderActionButton(p.appUrl, "In der Bordkasse bestätigen")}
 ${renderHintBlock(
-  "Du bekommst diese Mail, weil du der Vorstrecker für diesen Törn bist. Bestätige die Zahlung in der App, sobald sie auf deinem Konto angekommen ist — sonst zählt sie nicht zur Crew-Bilanz.",
+  "Du bekommst diese Mail, weil du für diesen Törn vorstreckst. Bestätige die Zahlung in der App, sobald sie auf deinem Konto angekommen ist — sonst zählt sie nicht zur Crew-Bilanz.",
 )}`;
 
   const html = renderMailShell({

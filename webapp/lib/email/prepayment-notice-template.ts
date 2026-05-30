@@ -70,8 +70,8 @@ export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
 
   const followupText =
     p.kind === "payment_rejected"
-      ? "Falls die Ablehnung ein Versehen war, sprich kurz mit dem Vorstrecker oder Skipper — die Buchung kann neu erfasst werden."
-      : "Falls etwas nicht stimmt, sprich kurz mit dem Vorstrecker oder Skipper — Buchungen können in der App noch geändert werden.";
+      ? "Falls die Ablehnung ein Versehen war, sprich kurz mit der vorstreckenden Person oder dem Skipper — die Buchung kann neu erfasst werden."
+      : "Falls etwas nicht stimmt, sprich kurz mit der vorstreckenden Person oder dem Skipper — Buchungen können in der App noch geändert werden.";
 
   const detailLine = `${p.subjectPersonName} · ${escapeHtml(p.trancheLabel)} · ${fmtEuro(p.amount)}`;
 
@@ -112,7 +112,7 @@ export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
 ${renderActionButton(p.appUrl, "In der Bordkasse ansehen")}
 ${renderHintBlock(
   p.advancerName
-    ? `Du bekommst diese Mail, weil du Empfänger der Anzahlung bist (Vorstrecker für diesen Törn). Aktionen anderer Personen — wie ${p.actorName} hier — landen automatisch bei dir.`
+    ? `Du bekommst diese Mail, weil die Anzahlungen an dich gehen (du streckst für diesen Törn vor). Aktionen anderer Personen — wie ${p.actorName} hier — landen automatisch bei dir.`
     : "Diese Mail wurde automatisch verschickt, weil eine andere Person eine Aktion zu deiner Anzahlung ausgelöst hat.",
 )}`;
 
