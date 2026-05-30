@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { Info } from "lucide-react";
 
 /**
  * Kleines ⓘ-Icon, das auf Hover (Desktop) oder Tap (Mobile) eine kurze
@@ -61,10 +62,9 @@ export function InfoTooltip({
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
         // Explizite Maße via inline-style — manche Browser-Defaults für
-        // `<button>` (min-width / padding) überschreiben Tailwind-Utilities
-        // und ziehen den Button zu einer Pille auseinander. Mit fixed
-        // width/height + box-sizing:border-box bleibt es ein Kreis,
-        // unabhängig vom Eltern-Layout (flex-Parent, etc.).
+        // `<button>` (min-width / min-height) ziehen den Button sonst auf
+        // Touch-Target-Größe auf. Fixe 16×16 + box-sizing:border-box halten
+        // das Icon kompakt, unabhängig vom Eltern-Layout.
         style={{
           width: 16,
           height: 16,
@@ -72,13 +72,10 @@ export function InfoTooltip({
           minHeight: 16,
           padding: 0,
           boxSizing: "border-box",
-          fontStyle: "italic",
-          fontFamily: "Georgia, 'Times New Roman', serif",
-          lineHeight: 1,
         }}
-        className="ml-1 inline-flex shrink-0 items-center justify-center rounded-full border border-rule text-[11px] font-bold text-ink-soft hover:border-primary/40 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+        className="ml-1 inline-flex shrink-0 items-center justify-center rounded-full text-ink-soft hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
       >
-        i
+        <Info className="h-4 w-4" aria-hidden="true" />
       </button>
       {open && (
         <span
