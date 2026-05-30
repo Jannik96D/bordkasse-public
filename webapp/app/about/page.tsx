@@ -111,7 +111,7 @@ const features: Feature[] = [
   {
     id: "buchungen",
     title: "Buchungs-Liste",
-    lead: "Alle Ausgaben und Gutschriften, nach Datum sortiert — wer hat was bezahlt, mit welcher Aufteilung.",
+    lead: "Alle Ausgaben und Gutschriften, nach Datum sortiert — wer hat was bezahlt, mit welcher Aufteilung. So bleibt für alle nachvollziehbar, wohin das Geld geht.",
     body: (
       <>
         <p>
@@ -202,7 +202,7 @@ const features: Feature[] = [
   },
   {
     id: "statistik",
-    title: "Statistik",
+    title: "Auswertung der Ausgaben",
     lead: "Wie viel haben wir für Sprit ausgegeben? Welche Kategorie war am teuersten? — pro Törn aufgeschlüsselt.",
     body: (
       <>
@@ -240,7 +240,7 @@ const features: Feature[] = [
   },
   {
     id: "kategorien",
-    title: "Kategorien mit Symbolen",
+    title: "Ausgaben übersichtlich einordnen",
     lead: "Lebensmittel 🛒, Sprit ⛽, Yacht ⛵, Hafen ⚓ — pro Törn frei wählbar aus einem Satz vorgefertigter Symbole.",
     body: (
       <>
@@ -473,7 +473,7 @@ export default function AboutPage() {
       </div>
 
       <h1 className="text-3xl font-bold text-primary">
-        Über die Bordkassen-App
+        Wer schuldet am Ende wem? Diese App rechnet&rsquo;s aus.
       </h1>
       <p className="mt-2 text-base text-ink-soft">
         Faire Aufteilung gemeinsamer Kosten auf Segel-Törns — auch wenn die
@@ -509,6 +509,16 @@ export default function AboutPage() {
             technischen Infrastruktur (siehe Datenschutz).
           </li>
         </ul>
+      </section>
+
+      <section className="mt-12 text-center">
+        <p className="text-sm text-ink-soft">Mit an Bord?</p>
+        <Link
+          href="/login"
+          className="mt-3 inline-flex items-center justify-center rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-paper shadow-sm transition hover:bg-navy-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+        >
+          Anmelden
+        </Link>
       </section>
 
       <p className="mt-12 text-center text-xs text-ink-soft">
