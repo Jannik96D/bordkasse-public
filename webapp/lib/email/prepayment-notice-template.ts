@@ -112,8 +112,8 @@ export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
 ${renderActionButton(p.appUrl, "In der Bordkasse ansehen")}
 ${renderHintBlock(
   p.advancerName
-    ? `Du bekommst diese Mail, weil die Anzahlungen an dich gehen (du streckst für diesen Törn vor). Aktionen anderer Personen — wie ${p.actorName} hier — landen automatisch bei dir.`
-    : "Diese Mail wurde automatisch verschickt, weil eine andere Person eine Aktion zu deiner Anzahlung ausgelöst hat.",
+    ? `Du bekommst diese Mail, weil ${p.advancerName} für diesen Törn vorstreckt und ${p.actorName} eine Aktion zu deiner Anzahlung ausgelöst hat.`
+    : `Du bekommst diese Mail, weil die Anzahlungen an dich gehen (du streckst für diesen Törn vor). Aktionen anderer Personen — wie ${p.actorName} hier — landen automatisch bei dir.`,
 )}`;
 
   const html = renderMailShell({
