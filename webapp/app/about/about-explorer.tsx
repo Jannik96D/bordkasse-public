@@ -45,6 +45,31 @@ export function AboutExplorer({ phases }: { phases: ExplorerPhase[] }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const interacted = useRef(false);
 
+  // Alle Phasen-Screenshots nach dem ersten Paint im Hintergrund vorladen,
+  // damit der Phone-Frame beim Tab-Wechsel sofort aus dem Cache rendert
+  // (statt verzögert nachzuladen). Läuft in der Idle-Zeit, um den initialen
+  // Seitenaufbau nicht auszubremsen.
+  useEffect(() => {
+    const urls = phases.flatMap((p) => p.features.map((f) => f.screenshot));
+    const preload = () => {
+      for (const url of urls) {
+        const img = new window.Image();
+        img.src = url;
+      }
+    };
+    const ric = (
+      window as typeof window & {
+        requestIdleCallback?: (cb: () => void) => number;
+      }
+    ).requestIdleCallback;
+    if (typeof ric === "function") {
+      ric(preload);
+    } else {
+      const t = window.setTimeout(preload, 200);
+      return () => window.clearTimeout(t);
+    }
+  }, [phases]);
+
   const findPhaseIndexByHash = useCallback(
     (hash: string): { phase: number; featureId: string | null } | null => {
       const id = hash.replace(/^#/, "");
