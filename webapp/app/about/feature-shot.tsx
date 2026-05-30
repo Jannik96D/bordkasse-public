@@ -4,14 +4,17 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 
 /**
- * About-Seite: Screenshot mit Tap-to-Lightbox.
+ * About-Seite: Screenshot in einem schlanken, modernen Phone-Frame.
  *
- * Standardansicht zeigt das Bild beschnitten (`object-cover object-top`,
- * max-h-[440px]), damit die Karten kompakt bleiben. Tap öffnet ein
- * Vollbild-Modal mit dem unbeschnittenen Bild.
+ * Der Frame zeigt den Screenshot vollständig (kein Crop) im aktuellen
+ * iPhone-Seitenverhältnis (Bilder sind 780×1688 ≈ 0,462). Bewusst
+ * minimal-flach gehalten — dünne, gleichmäßige Bezels, große Eckenradien,
+ * on-brand dunkler Rahmen (kein reines Schwarz), dezente Seiten-Tasten.
+ * KEINE Notch/Dynamic-Island: würde Inhalt verdecken und schneller
+ * veraltet wirken (vgl. Apples flache 2D-Marketing-Frames).
  *
- * Esc oder Klick außerhalb schließt; body-scroll wird im offenen Zustand
- * gesperrt, damit der Hintergrund nicht mitscrollt.
+ * Tap öffnet eine Vollbild-Lightbox zum Reinzoomen. Esc oder Klick
+ * außerhalb schließt; body-scroll wird im offenen Zustand gesperrt.
  */
 export function FeatureShot({
   src,
@@ -38,20 +41,39 @@ export function FeatureShot({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="mt-3 block w-full overflow-hidden rounded-lg border border-rule bg-paper-soft focus:outline-none focus:ring-2 focus:ring-primary/30"
-        aria-label={`${alt} — Vollbild anzeigen`}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={alt}
-          loading="lazy"
-          className="block max-h-[440px] w-full object-cover object-top"
-        />
-      </button>
+      <div className="mt-4 flex justify-center">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label={`${alt} — Vollbild anzeigen`}
+          className="group relative w-full max-w-[248px] rounded-[2.4rem] bg-ink p-[9px] shadow-[0_18px_40px_-16px_rgba(17,72,132,0.45)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_24px_50px_-16px_rgba(17,72,132,0.55)] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
+        >
+          {/* Seiten-Tasten — dezenter Realismus, gleiche Farbfamilie wie der Rahmen */}
+          <span
+            aria-hidden="true"
+            className="absolute -left-[2px] top-[88px] h-7 w-[3px] rounded-l bg-ink-soft/60"
+          />
+          <span
+            aria-hidden="true"
+            className="absolute -left-[2px] top-[124px] h-10 w-[3px] rounded-l bg-ink-soft/60"
+          />
+          <span
+            aria-hidden="true"
+            className="absolute -right-[2px] top-[104px] h-12 w-[3px] rounded-r bg-ink-soft/60"
+          />
+
+          {/* Screen */}
+          <span className="block overflow-hidden rounded-[1.9rem] bg-paper">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={src}
+              alt={alt}
+              loading="lazy"
+              className="block w-full"
+            />
+          </span>
+        </button>
+      </div>
 
       {open && (
         <div
