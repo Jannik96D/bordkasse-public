@@ -100,6 +100,28 @@ export function NewTripForm() {
           </p>
         </div>
 
+        <div className="rounded-md border border-rule bg-paper-soft p-3">
+          <label htmlFor="has_charter_prepayment" className="flex items-start gap-3">
+            <input
+              id="has_charter_prepayment"
+              name="has_charter_prepayment"
+              type="checkbox"
+              className="mt-0.5 h-5 w-5 shrink-0 rounded border-rule text-primary focus:ring-2 focus:ring-primary/20"
+            />
+            <span>
+              <span className="block text-sm font-medium">
+                Mit Charter-Anzahlung
+              </span>
+              <span className="mt-1 block text-xs text-ink-soft">
+                Für Bareboat-Charter: Du streckst die Yacht-Anzahlung vorab vor
+                und lässt sie dir von der Crew erstatten. Schaltet das Anzahlungs-
+                Modul in der Törn-Checkliste frei — später in den Einstellungen
+                änderbar.
+              </span>
+            </span>
+          </label>
+        </div>
+
         {state.status === "error" && (
           <p className="text-sm text-danger" role="alert">{state.message}</p>
         )}

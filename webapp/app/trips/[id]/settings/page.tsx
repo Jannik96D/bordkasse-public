@@ -5,6 +5,7 @@ import { CrewSection } from "./crew-section";
 import { CategorySection } from "./category-section";
 import { ArchiveBlock } from "./archive-block";
 import { DatesSection } from "./dates-section";
+import { CharterSection } from "./charter-section";
 import { RetentionBlock } from "./retention-block";
 
 export default async function SettingsPage({
@@ -40,6 +41,12 @@ export default async function SettingsPage({
           tripId={id}
           startDate={trip.start_date}
           endDate={trip.end_date}
+        />
+      )}
+      {canEdit && (
+        <CharterSection
+          tripId={id}
+          enabled={!!trip.has_charter_prepayment}
         />
       )}
       <CrewSection
