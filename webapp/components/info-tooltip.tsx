@@ -46,7 +46,16 @@ export function InfoTooltip({
   }, [open]);
 
   return (
-    <span ref={wrapperRef} className="relative inline-flex shrink-0 align-middle">
+    <span
+      ref={wrapperRef}
+      // `align-middle` zentriert die 16px-Icon-Box vertikal zum Text;
+      // der 1px-Nudge (`-top-px`) korrigiert, dass `vertical-align: middle`
+      // zur x-Höhe statt zur optischen Textmitte ausrichtet und das Icon
+      // sonst minimal zu tief sitzt. `ml-1` am Button hält den Abstand
+      // einheitlich bei 4px — daher InfoTooltip immer DIREKT an den Text
+      // hängen (nicht als gap-Flex-Kind, sonst doppelter Abstand).
+      className="relative -top-px inline-flex shrink-0 align-middle"
+    >
       <button
         type="button"
         aria-label={label}
