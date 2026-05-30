@@ -45,12 +45,18 @@ export function AboutExplorer({ phases }: { phases: ExplorerPhase[] }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const interacted = useRef(false);
 
-  // Alle Phasen-Screenshots nach dem ersten Paint im Hintergrund vorladen,
-  // damit der Phone-Frame beim Tab-Wechsel sofort aus dem Cache rendert
-  // (statt verzögert nachzuladen). Läuft in der Idle-Zeit, um den initialen
-  // Seitenaufbau nicht auszubremsen.
+  // Screenshots der NACHBARPHASEN (aktive ±1) nach dem ersten Paint in der
+  // Idle-Zeit vorladen, damit der Phone-Frame beim Weiterblättern sofort aus
+  // dem Cache rendert. Bewusst nicht alle Phasen auf einmal — das spart
+  // Bandbreite auf langsamen Verbindungen; ferne Sprünge laden dank kleiner
+  // WebP-Dateien trotzdem schnell. Läuft bei jedem Phasenwechsel neu.
   useEffect(() => {
-    const urls = phases.flatMap((p) => p.features.map((f) => f.screenshot));
+    const neighbours = [active - 1, active + 1].filter(
+      (i) => i >= 0 && i < phases.length,
+    );
+    const urls = neighbours.flatMap((i) =>
+      phases[i].features.map((f) => f.screenshot),
+    );
     const preload = () => {
       for (const url of urls) {
         const img = new window.Image();
@@ -68,7 +74,7 @@ export function AboutExplorer({ phases }: { phases: ExplorerPhase[] }) {
       const t = window.setTimeout(preload, 200);
       return () => window.clearTimeout(t);
     }
-  }, [phases]);
+  }, [phases, active]);
 
   const findPhaseIndexByHash = useCallback(
     (hash: string): { phase: number; featureId: string | null } | null => {
@@ -206,9 +212,13 @@ export function AboutExplorer({ phases }: { phases: ExplorerPhase[] }) {
                 id={f.id}
                 className="scroll-mt-24 md:grid md:grid-cols-2 md:items-center md:gap-10"
               >
-                {/* Phone-Frame */}
+                {/* Phone-Frame — Top-Bild der Phase eager (LCP) */}
                 <div className={phoneRight ? "md:order-2" : "md:order-1"}>
-                  <FeatureShot src={f.screenshot} alt={f.alt} />
+                  <FeatureShot
+                    src={f.screenshot}
+                    alt={f.alt}
+                    priority={i === 0}
+                  />
                 </div>
 
                 {/* Text */}

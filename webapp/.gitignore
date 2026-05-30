@@ -23,6 +23,7 @@
 /reports/
 
 # Screenshot-Debug-Artefakt — Preview der /about-Seite selbst, nicht im App-Code referenziert
+/public/about/00-about-preview.webp
 /public/about/00-about-preview.png
 
 # next.js

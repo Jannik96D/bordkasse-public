@@ -19,9 +19,12 @@ import { X } from "lucide-react";
 export function FeatureShot({
   src,
   alt,
+  priority = false,
 }: {
   src: string;
   alt: string;
+  /** Erstes sichtbares Bild (LCP) eager + hochpriorisiert laden statt lazy. */
+  priority?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -68,7 +71,8 @@ export function FeatureShot({
             <img
               src={src}
               alt={alt}
-              loading="lazy"
+              loading={priority ? "eager" : "lazy"}
+              fetchPriority={priority ? "high" : "auto"}
               className="block w-full"
             />
           </span>
