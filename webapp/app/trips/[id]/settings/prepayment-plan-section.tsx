@@ -25,14 +25,14 @@ export function PrepaymentPlanSection({
         Anzahlungs-Plan
         <InfoTooltip
           label="Was ist ein Anzahlungs-Plan?"
-          text="Für Yacht-Anzahlungen, die der Vorstrecker Monate vor dem Törn an die Charteragentur leistet und sich von der Crew in Tranchen zurückerstatten lässt."
+          text="Für Yacht-Anzahlungen, die die vorstreckende Person Monate vor dem Törn an die Charteragentur leistet und sich von der Crew in Tranchen zurückerstatten lässt."
         />
       </h2>
 
       <div className="rounded-md border border-rule bg-paper p-4">
         <p className="text-sm text-ink-soft">
           {planExists
-            ? "Aufteilung, Kojen und Tranchen anpassen oder den Vorstrecker ändern."
+            ? "Aufteilung, Kojen und Tranchen anpassen oder die vorstreckende Person ändern."
             : "Lege fest, wie sich die Yacht-Anzahlung auf die Crew verteilt und in welchen Tranchen sie fällig wird."}
         </p>
         <Link

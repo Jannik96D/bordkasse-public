@@ -192,9 +192,9 @@ async function sendCharterReminder(
       .eq("person_id", args.advancerPersonId)
       .maybeSingle(),
   ]);
-  if (!person) return { ok: false, message: "Vorstrecker nicht gefunden." };
+  if (!person) return { ok: false, message: "Vorstreckende Person nicht gefunden." };
   if (!priv?.email)
-    return { ok: false, message: "Vorstrecker hat keine E-Mail-Adresse hinterlegt." };
+    return { ok: false, message: "Für die vorstreckende Person ist keine E-Mail-Adresse hinterlegt." };
 
   // Tranchen laden (alle oder gefiltert auf eine).
   const { data: tranches } = await supabase

@@ -77,7 +77,7 @@ export function renderDebtSettledMail(p: DebtSettledMailParams): {
       subject = `${p.debtorName} hat seine Zahlung an dich abgehakt`;
       headline = "Zahlung wurde abgehakt";
       introText = `${p.debtorName} hat soeben in der Bordkasse markiert, dass die Zahlung in Höhe von ${amount} an dich erledigt ist.`;
-      followupText = "Falls etwas nicht stimmt, sprich kurz mit dem Schuldner oder dem Skipper — das Häkchen kann in der App auch wieder entfernt werden.";
+      followupText = `Falls etwas nicht stimmt, sprich kurz mit ${p.debtorName} — das Häkchen kann in der App auch wieder entfernt werden.`;
     } else if (p.actorRole === "creditor") {
       subject = `Bestätigung: Zahlung von ${p.debtorName} als erhalten markiert`;
       headline = "Empfang bestätigt";

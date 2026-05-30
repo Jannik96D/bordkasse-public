@@ -217,7 +217,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     if ((count ?? 0) <= 1) {
       return {
         status: "error",
-        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crew-Mitglieder. Wähle einen Empfänger.',
+        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crew-Mitglieder. Wähle, wer das Geld bekommt.',
         field: "credit_to",
       };
     }
@@ -478,7 +478,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     if ((count ?? 0) <= 1) {
       return {
         status: "error",
-        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crew-Mitglieder. Wähle einen Empfänger.',
+        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crew-Mitglieder. Wähle, wer das Geld bekommt.',
         field: "credit_to",
       };
     }
