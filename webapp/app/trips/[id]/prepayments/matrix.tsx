@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, MessageCircle, RefreshCw, Check, X } from "lucide-react";
+import { InfoTooltip } from "@/components/info-tooltip";
 import { formatEuro, todayIso, round2 } from "@/lib/utils";
 import {
   recordPayment,
@@ -147,8 +148,12 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
   return (
     <>
       {advancerName && (
-        <p className="mb-3 rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
-          Vorstrecker: <strong className="text-ink">{advancerName}</strong> — alle Anzahlungen werden an diese Person verbucht. Eigener Anteil per Klick auf die Zelle als Selbst-Verrechnung abhaken (bilanzneutral, kein Mail-/WhatsApp-Versand).
+        <p className="mb-3 text-xs text-ink-soft">
+          Vorstrecker: <strong className="text-ink">{advancerName}</strong>
+          <InfoTooltip
+            label="Was bedeutet Vorstrecker?"
+            text="Alle Anzahlungen werden an diese Person verbucht. Eigener Anteil per Klick auf die Zelle als Selbst-Verrechnung abhaken (bilanzneutral, kein Mail-/WhatsApp-Versand)."
+          />
         </p>
       )}
 
@@ -685,14 +690,18 @@ function CharterReminderBanner({
         })}
       </ul>
       <p className="mt-2 text-xs text-ink-soft">
-        Erfasse die Überweisung als{" "}
+        Überweisung als{" "}
         <a
           href={`/trips/${tripId}/transactions/new`}
           className="text-primary underline hover:no-underline"
         >
           neue Ausgabe
         </a>
-        {" "}und ordne sie der passenden Tranche zu — sie taucht dann hier mit angerechnet auf.
+        {" "}erfassen und der Tranche zuordnen.
+        <InfoTooltip
+          label="Was passiert dann?"
+          text="Sobald die Ausgabe der passenden Tranche zugeordnet ist, taucht sie hier mit angerechnet auf und reduziert den noch offenen Betrag."
+        />
       </p>
     </section>
   );

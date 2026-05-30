@@ -1,4 +1,13 @@
 import Link from "next/link";
+import {
+  Compass,
+  Anchor,
+  Sailboat,
+  Wallet,
+  ShieldCheck,
+  type LucideIcon,
+} from "lucide-react";
+import { FeatureShot } from "./feature-shot";
 
 export const metadata = {
   title: "Über die Bordkassen-App · Bordkasse",
@@ -396,7 +405,7 @@ type PhaseId =
 
 interface Phase {
   id: PhaseId;
-  emoji: string;
+  Icon: LucideIcon;
   title: string;
   lead: string;
   featureIds: string[];
@@ -405,35 +414,35 @@ interface Phase {
 const PHASES: Phase[] = [
   {
     id: "loslegen",
-    emoji: "🚀",
+    Icon: Compass,
     title: "Loslegen",
     lead: "Anmelden ohne Passwort, eigene Törns im Überblick.",
     featureIds: ["welcome", "anmelden", "toerns", "trip-overview"],
   },
   {
     id: "vor-dem-toern",
-    emoji: "⚓",
+    Icon: Anchor,
     title: "Vor dem Törn",
     lead: "Crew einladen, Kategorien festlegen, optional Yacht-Anzahlung mit Tranchen.",
     featureIds: ["crew", "kategorien", "anzahlung-setup", "anzahlung-matrix", "anzahlung-crew-self"],
   },
   {
     id: "waehrend-des-toerns",
-    emoji: "⛵",
+    Icon: Sailboat,
     title: "Während des Törns",
     lead: "Ausgaben erfassen — auch ohne Internet — und sehen, was ihr ausgebt.",
     featureIds: ["buchungen", "buchung-neu", "gutschrift", "offline", "statistik"],
   },
   {
     id: "abrechnung",
-    emoji: "💰",
+    Icon: Wallet,
     title: "Abrechnung",
     lead: "Saldo pro Person, möglichst wenige Überweisungen, Häkchen für „bezahlt“.",
     featureIds: ["bilanz", "schulden"],
   },
   {
     id: "datenschutz",
-    emoji: "🛡️",
+    Icon: ShieldCheck,
     title: "Datenschutz",
     lead: "Personenbezogene Daten verschwinden 30 Tage nach Törn-Ende automatisch.",
     featureIds: ["dsgvo"],
@@ -485,9 +494,9 @@ export default function AboutPage() {
             <li key={phase.id}>
               <a
                 href={`#${phase.id}`}
-                className="inline-flex items-baseline gap-2 text-ink hover:text-primary"
+                className="inline-flex items-center gap-2 text-ink hover:text-primary"
               >
-                <span aria-hidden="true">{phase.emoji}</span>
+                <phase.Icon className="h-4 w-4 text-primary" aria-hidden="true" />
                 <span>{phase.title}</span>
                 <span className="text-ink-soft">
                   · {phase.featureIds.length}
@@ -503,8 +512,8 @@ export default function AboutPage() {
         {PHASES.map((phase) => (
           <section key={phase.id} id={phase.id} className="scroll-mt-6">
             <header className="mb-4 border-b border-rule pb-3">
-              <h2 className="flex items-baseline gap-2 text-xl font-bold text-primary">
-                <span aria-hidden="true">{phase.emoji}</span>
+              <h2 className="flex items-center gap-2 text-xl font-bold text-primary">
+                <phase.Icon className="h-5 w-5" aria-hidden="true" />
                 {phase.title}
               </h2>
               <p className="mt-1 text-sm text-ink-soft">{phase.lead}</p>
@@ -517,15 +526,9 @@ export default function AboutPage() {
                   <li key={f.id} id={f.id} className="scroll-mt-6">
                     <h3 className="text-base font-semibold text-ink">{f.title}</h3>
                     <p className="mt-1 text-sm text-ink">{f.lead}</p>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={f.screenshot}
-                      alt={f.alt}
-                      loading="lazy"
-                      className="mt-3 block max-h-[440px] w-full rounded-lg border border-rule bg-paper-soft object-cover object-top"
-                    />
+                    <FeatureShot src={f.screenshot} alt={f.alt} />
                     <details className="group mt-2">
-                      <summary className="cursor-pointer list-none text-xs text-primary hover:underline">
+                      <summary className="cursor-pointer list-none text-sm text-ink-soft hover:text-ink">
                         <span className="group-open:hidden">Mehr Details ›</span>
                         <span className="hidden group-open:inline">‹ Details schließen</span>
                       </summary>
