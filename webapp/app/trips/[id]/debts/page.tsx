@@ -6,6 +6,7 @@ import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { formatEuro } from "@/lib/utils";
 import { SettlementStatus } from "@/components/settlement-status";
+import { InfoTooltip } from "@/components/info-tooltip";
 import { DebtCheckbox } from "./debt-checkbox";
 
 export default async function DebtsPage({
@@ -58,7 +59,13 @@ export default async function DebtsPage({
         />
       )}
       <header className="mb-4">
-        <h1 className="text-lg font-bold text-primary">Schulden</h1>
+        <h1 className="text-lg font-bold text-primary">
+          Schulden
+          <InfoTooltip
+            label="Wie funktionieren die Bezahlt-Häkchen?"
+            text="Das Bezahlt-Häkchen wird crew-weit geteilt — alle sehen denselben Stand live. Sobald sich der Betrag durch eine neue Buchung ändert, ist die Schuld eine neue und das Häkchen verschwindet automatisch."
+          />
+        </h1>
         <p className="mt-1 text-xs text-ink-soft">
           {debts.length} Überweisungen · gesamt {formatEuro(total)}
           {settledCount > 0 && (
@@ -121,12 +128,6 @@ export default async function DebtsPage({
           );
         })}
       </ul>
-
-      <p className="mt-4 text-xs text-ink-soft">
-        Bezahlt-Häkchen wird mit der Crew geteilt — alle sehen denselben Stand
-        live. Sobald sich der Betrag durch eine neue Buchung ändert, ist die
-        Schuld eine neue und das Häkchen verschwindet automatisch.
-      </p>
     </main>
   );
 }

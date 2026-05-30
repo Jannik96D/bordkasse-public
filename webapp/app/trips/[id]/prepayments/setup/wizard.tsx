@@ -7,6 +7,7 @@ import { savePrepaymentPlan, saveTranches } from "@/lib/actions/prepayments";
 import { inviteMember } from "@/lib/actions/trip-members";
 import { DEFAULT_WHATSAPP_TEMPLATE } from "@/lib/prepayments/whatsapp";
 import { formatEuro, todayIso } from "@/lib/utils";
+import { InfoTooltip } from "@/components/info-tooltip";
 import type {
   PrepaymentPlan,
   CabinType,
@@ -202,7 +203,13 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
           </label>
 
           <label className="block text-sm">
-            <span className="text-ink-soft">Aufteilungs-Methode</span>
+            <span className="text-ink-soft">
+              Aufteilungs-Methode
+              <InfoTooltip
+                label="Wie werden die Soll-Beträge berechnet?"
+                text="Bei „Gleichmäßig“ und „Zeitanteilig“ werden die Soll-Beträge automatisch aus der Gesamtsumme und der Crew-Anwesenheit berechnet. Bei „Individuell“ und „Nach Kojen“ gibst du sie pro Person bzw. pro Koje vor."
+              />
+            </span>
             <select
               value={splitMethod}
               onChange={(e) => setSplitMethod(e.target.value as PrepaymentSplitMethod)}
@@ -327,15 +334,18 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
 
           {(splitMethod === "gleichmaessig" || splitMethod === "zeitanteilig") && (
             <div className="space-y-3">
-              <p className="rounded-md bg-paper-soft px-3 py-2 text-sm text-ink-soft">
-                Die Soll-Beträge werden automatisch aus der Gesamtsumme und der Crew-Anwesenheit berechnet.
-              </p>
               <CrewQuickAdd tripId={tripId} memberCount={members.length} />
             </div>
           )}
 
           <label className="block text-sm">
-            <span className="text-ink-soft">Vorstrecker</span>
+            <span className="text-ink-soft">
+              Vorstrecker
+              <InfoTooltip
+                label="Was ist der Vorstrecker?"
+                text="Wer die Yacht-Anzahlung an die Charteragentur vorstreckt. Alle Crew-Anzahlungen werden an diese Person verbucht; ihren eigenen Anteil kann sie bilanzneutral als Selbst-Verrechnung abhaken. Default ist der Trip-Skipper."
+              />
+            </span>
             <select
               value={advancerId}
               onChange={(e) => setAdvancerId(e.target.value)}
@@ -346,11 +356,6 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
                 <option key={m.id} value={m.id}>{m.display_name}</option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-ink-soft">
-              Wer hat die Yacht-Anzahlung an die Charteragentur vorgestreckt? Alle
-              Crew-Anzahlungen werden an diese Person verbucht. Sie kann auch ihren
-              eigenen Anteil als Selbst-Verrechnung abhaken.
-            </p>
           </label>
 
           <label className="block text-sm">
@@ -373,10 +378,10 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
             />
             <p className="mt-1 text-xs text-ink-soft">
               Platzhalter: {`{{name}}, {{tranche_label}}, {{trip_name}}, {{amount}}, {{due_date}}, {{wero_link_or_id}}`}
-              <br />
-              <span className="text-ink-soft/70">
-                Hinweis: {`{{wero_link_or_id}}`} fällt automatisch auf die Wero-ID zurück, da Wero aktuell keine öffentliche Schnittstelle für Klick-Links bereitstellt.
-              </span>
+              <InfoTooltip
+                label="Hinweis zum Wero-Platzhalter"
+                text="{{wero_link_or_id}} fällt automatisch auf die Wero-ID zurück, da Wero aktuell keine öffentliche Schnittstelle für Klick-Links bereitstellt."
+              />
             </p>
           </details>
 

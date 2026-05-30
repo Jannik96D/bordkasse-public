@@ -11,6 +11,7 @@ import {
 } from "@/lib/actions/trip-members";
 import type { TripMemberRow } from "@/lib/queries/trips";
 import { formatDate } from "@/lib/utils";
+import { InfoTooltip } from "@/components/info-tooltip";
 
 const initial: MemberState = { status: "idle" };
 
@@ -234,14 +235,15 @@ export function CrewSection({
           <div>
             <label htmlFor="email" className="block text-sm font-medium">
               E-Mail <span className="text-ink-soft font-normal">(optional)</span>
+              <InfoTooltip
+                label="Was passiert ohne E-Mail?"
+                text="Ohne E-Mail wird die Person als Ghost angelegt — kein Login, aber Anzahlungs-Soll und Buchungs-Beteiligung funktionieren trotzdem. E-Mail später nachtragbar."
+              />
             </label>
             <input id="email" name="email" type="email"
               placeholder="crew@example.com"
               className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
-            <p className="mt-1 text-xs text-ink-soft">
-              Ohne E-Mail wird die Person als Ghost angelegt — kein Login, aber Anzahlungs-Soll und Buchungs-Beteiligung gehen trotzdem.
-            </p>
           </div>
 
           <div>

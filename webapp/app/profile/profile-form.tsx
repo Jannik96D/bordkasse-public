@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { updateProfile, type ProfileState } from "./actions";
+import { InfoTooltip } from "@/components/info-tooltip";
 
 const initial: ProfileState = { status: "idle" };
 
@@ -58,10 +59,12 @@ export function ProfileForm({
             className="mt-1 h-5 w-5 rounded border-rule"
           />
           <span>
-            <span className="block font-medium">Ich trinke Alkohol</span>
-            <span className="mt-1 block text-xs text-ink-soft">
-              Default für neue Törns. Pro Törn kannst du das übersteuern.
-              Beeinflusst, wer den Alkohol-Anteil bei Ausgaben mitträgt.
+            <span className="block font-medium">
+              Ich trinke Alkohol
+              <InfoTooltip
+                label="Wofür ist diese Angabe?"
+                text="Default für neue Törns, pro Törn überschreibbar. Bestimmt, wer den Alkohol-Anteil einer Ausgabe mitträgt."
+              />
             </span>
           </span>
         </label>

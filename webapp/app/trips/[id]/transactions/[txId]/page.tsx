@@ -6,6 +6,7 @@ import { isAdmin } from "@/lib/auth/authz";
 import { getTransactionDetail } from "@/lib/queries/transactions";
 import { getTripMembers } from "@/lib/queries/trips";
 import { CategoryIcon } from "@/components/category-icon";
+import { InfoTooltip } from "@/components/info-tooltip";
 import { formatDate, formatEuro } from "@/lib/utils";
 
 const SPLIT_LABEL = {
@@ -127,7 +128,15 @@ export default async function TransactionDetailPage({
 
           {!isExpense && (
             <Field label="Empfänger">
-              <p className="font-medium">{detail.credit_to_name ?? "Alle Crew-Mitglieder anteilig"}</p>
+              <p className="font-medium">
+                {detail.credit_to_name ?? "Alle Crew-Mitglieder anteilig"}
+                {detail.credit_to_id == null && (
+                  <InfoTooltip
+                    label="Was bedeutet „An Alle“?"
+                    text="Der Betrag wird gleichmäßig auf alle Crew-Mitglieder außer den Zahler verteilt."
+                  />
+                )}
+              </p>
             </Field>
           )}
         </div>
@@ -198,12 +207,6 @@ export default async function TransactionDetailPage({
         </section>
       )}
 
-      {!isExpense && detail.credit_to_id == null && (
-        <section className="mt-6 rounded-md border border-rule bg-paper p-3 text-sm text-ink-soft">
-          „An Alle“-Gutschrift: Der Betrag wird gleichmäßig auf alle Crew-Mitglieder
-          außer den Zahler verteilt.
-        </section>
-      )}
       </div>
     </main>
   );
