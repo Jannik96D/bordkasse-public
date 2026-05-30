@@ -145,6 +145,39 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
     ? members.find((m) => m.id === plan.advancer_person_id)?.display_name ?? "Vorstrecker"
     : null;
 
+  // Wie viel muss der Vorstrecker insgesamt noch an die Agentur überweisen?
+  // Steuert den 🔔-Button in seiner Zeile (Mail nur sinnvoll wenn offen).
+  const charterOutstanding = tranches.reduce((sum, t) => {
+    const soll = (plan.total_amount * t.percent) / 100;
+    const paid = charterPaidByTranche[t.id] ?? 0;
+    return sum + Math.max(0, soll - paid);
+  }, 0);
+
+  // Pro Person einmal berechnen — von Mobile-Karten UND Desktop-Tabelle genutzt.
+  const memberRows = members.map((m) => {
+    const obl = obligationByPerson.get(m.id);
+    const cabin = obl?.cabin_type_id ? cabinById.get(obl.cabin_type_id) : null;
+    const cells = tranches.map((t) => cellFor(t.id, m.id, t.percent));
+    const rowOpen = cells.reduce((s, c) => s + Math.max(0, c.open), 0);
+    const isAdvancerRow = plan.advancer_person_id === m.id;
+    const advancerNothingOpen = isAdvancerRow && charterOutstanding <= 0.005;
+    return { m, obl, cabin, cells, rowOpen, isAdvancerRow, advancerNothingOpen };
+  });
+
+  // Fortschritts-Kennzahlen für den Header (#1).
+  const collected = memberRows.reduce((s, r) => s + r.cells.reduce((a, c) => a + c.paid, 0), 0);
+  const withObligation = memberRows.filter((r) => (r.obl?.total_amount ?? 0) > 0).length;
+  const fullyPaid = memberRows.filter((r) => (r.obl?.total_amount ?? 0) > 0 && r.rowOpen <= 0.005).length;
+  const overdueCount = memberRows.filter((r) => r.cells.some((c) => c.overdue)).length;
+  const pct = plan.total_amount > 0
+    ? Math.min(100, Math.max(0, Math.round((collected / plan.total_amount) * 100)))
+    : 0;
+
+  const cellAria = (cell: MatrixCell, name: string, label: string) =>
+    cell.pending
+      ? `${name}, ${label}: ${formatEuro(cell.pending.amount)} gemeldet, wartet auf Bestätigung`
+      : `${name}, ${label}: ${statusLabel(cell)}, ${formatEuro(cell.paid)} von ${formatEuro(cell.soll)} bezahlt`;
+
   return (
     <>
       {advancerName && (
@@ -157,7 +190,41 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
         </p>
       )}
 
-      {/* Charter-Reminder: was MUSS der Vorstrecker noch an die Charteragentur überweisen? */}
+      {/* Fortschritts-Header (#1): Pool-Überblick auf einen Blick */}
+      <section className="mb-3 rounded-md border border-rule bg-paper p-3" aria-label="Anzahlungs-Fortschritt">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-sm">
+            <strong className="tabular-nums text-primary">{formatEuro(collected)}</strong>
+            <span className="text-ink-soft"> von {formatEuro(plan.total_amount)} eingegangen</span>
+          </p>
+          <span className="text-xs tabular-nums text-ink-soft">{pct} %</span>
+        </div>
+        <div
+          className="mt-2 h-2 w-full overflow-hidden rounded-full bg-navy-light/40"
+          role="progressbar"
+          aria-valuenow={pct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Anteil eingegangener Anzahlungen"
+        >
+          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+        </div>
+        <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-soft">
+          <span><strong className="text-ink">{fullyPaid}</strong> von {withObligation} vollständig</span>
+          {pending.length > 0 && (
+            <span className="text-amber-700">{pending.length} wartet auf Bestätigung</span>
+          )}
+          {overdueCount > 0 && (
+            <span className="text-danger">{overdueCount} überfällig</span>
+          )}
+        </p>
+      </section>
+
+      {/* Status-Bereich (#5): Selbstmeldungen zuerst (sofort aktionierbar),
+          Charter-Übersicht eingeklappt darunter (#2). */}
+      {pending.length > 0 && (
+        <PendingBanner pending={pending} members={members} tranches={tranches} />
+      )}
       <CharterReminderBanner
         tripId={tripId}
         tranches={tranches}
@@ -165,13 +232,8 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
         charterPaidByTranche={charterPaidByTranche}
       />
 
-      {/* Pending-Selbstmeldungen-Banner */}
-      {pending.length > 0 && (
-        <PendingBanner pending={pending} members={members} tranches={tranches} />
-      )}
-
-      {/* Header-Toolbar */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      {/* Sammel-Text */}
+      <div className="mb-3">
         <button
           onClick={bulkWhatsApp}
           className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper px-3 py-1.5 text-sm hover:border-primary/40"
@@ -179,16 +241,75 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
           <MessageCircle className="h-4 w-4" />
           Sammel-Text für alle Offenen
         </button>
-        <p className="ml-auto text-xs text-ink-soft">
-          Gesamt: <strong>{formatEuro(plan.total_amount)}</strong>
-        </p>
       </div>
 
-      {/* Matrix */}
-      <p className="mb-1 text-xs text-ink-soft sm:hidden" aria-hidden="true">
-        Zum Anzeigen aller Spalten horizontal wischen →
-      </p>
-      <div className="overflow-x-auto rounded-md border border-rule bg-paper">
+      {/* Mobile: eine Karte pro Person — kein Seitwärts-Wischen (#4) */}
+      <div className="space-y-2 sm:hidden">
+        {memberRows.map(({ m, obl, cabin, cells, rowOpen, isAdvancerRow, advancerNothingOpen }) => (
+          <article key={m.id} className="rounded-lg border border-rule bg-paper p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="flex flex-wrap items-center gap-1 font-medium">
+                  {m.display_name}
+                  {isAdvancerRow && (
+                    <span
+                      className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
+                      title="Vorstrecker — verrechnet sich selbst"
+                    >
+                      Vorstrecker
+                    </span>
+                  )}
+                  {!m.email && (
+                    <span className="text-amber-700" title="E-Mail fehlt" aria-label="E-Mail fehlt">⚠</span>
+                  )}
+                </p>
+                <p className="text-xs text-ink-soft">
+                  {cabin ? `${cabin.label} · ` : ""}Soll {formatEuro(obl?.total_amount ?? 0)}
+                </p>
+              </div>
+              <RowActions
+                tripId={tripId}
+                member={m}
+                isAdvancerRow={isAdvancerRow}
+                advancerNothingOpen={advancerNothingOpen}
+                rowOpen={rowOpen}
+                onWhatsApp={personWhatsApp}
+              />
+            </div>
+            <ul className="mt-3 space-y-1.5">
+              {tranches.map((t, i) => {
+                const cell = cells[i];
+                return (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      onClick={() => openPayment(cell, m.display_name)}
+                      aria-label={cellAria(cell, m.display_name, t.label)}
+                      className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-md border border-rule px-3 py-2 text-left hover:bg-navy-light/30 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <StatusBox cell={cell} />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium">{t.label}</span>
+                          <span className="block text-xs text-ink-soft">
+                            Crew bis {formatDeDate(toCrewDueDate(t.due_date))} · {t.percent.toFixed(0)} %
+                          </span>
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right text-sm tabular-nums">
+                        <CellValue cell={cell} />
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </article>
+        ))}
+      </div>
+
+      {/* Tablet/Desktop: Tabelle für den Quervergleich (dichtere Zellen #3) */}
+      <div className="hidden overflow-x-auto rounded-md border border-rule bg-paper sm:block">
         <table className="w-full text-sm">
           <thead className="bg-paper-soft text-xs text-ink-soft">
             <tr>
@@ -205,101 +326,58 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
             </tr>
           </thead>
           <tbody>
-            {(() => {
-              // Wie viel muss der Vorstrecker insgesamt noch an die Agentur
-              // überweisen? Wird für den 🔔-Button in seiner Zeile gebraucht
-              // (Mail nur sinnvoll wenn noch was offen ist).
-              const charterOutstanding = tranches.reduce((sum, t) => {
-                const soll = (plan.total_amount * t.percent) / 100;
-                const paid = charterPaidByTranche[t.id] ?? 0;
-                return sum + Math.max(0, soll - paid);
-              }, 0);
-              return members.map((m) => {
-              const obl = obligationByPerson.get(m.id);
-              const cabin = obl?.cabin_type_id ? cabinById.get(obl.cabin_type_id) : null;
-              const rowOpen = tranches.reduce((s, t) => s + Math.max(0, cellFor(t.id, m.id, t.percent).open), 0);
-              const isAdvancerRow = plan.advancer_person_id === m.id;
-              const advancerNothingOpen = isAdvancerRow && charterOutstanding <= 0.005;
-              return (
-                <tr key={m.id} className="border-t border-rule">
-                  <th scope="row" className="sticky left-0 z-10 bg-paper px-2 py-2 text-left font-medium sm:px-3">
-                    <div className="flex items-center gap-1">
-                      {m.display_name}
-                      {isAdvancerRow && (
-                        <span
-                          className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
-                          title="Vorstrecker — verrechnet sich selbst"
-                        >
-                          Vorstrecker
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs font-normal text-ink-soft">
-                      {cabin ? `${cabin.label} · ` : ""}
-                      Soll {formatEuro(obl?.total_amount ?? 0)}
-                      {!m.email && <span className="ml-1 text-amber-700" title="E-Mail fehlt">⚠</span>}
-                    </div>
-                  </th>
-                  {tranches.map((t) => {
-                    const cell = cellFor(t.id, m.id, t.percent);
-                    const ariaLabel = cell.pending
-                      ? `${m.display_name}, ${t.label}: ${formatEuro(cell.pending.amount)} gemeldet, wartet auf Bestätigung`
-                      : `${m.display_name}, ${t.label}: ${statusLabel(cell)}, ${formatEuro(cell.paid)} von ${formatEuro(cell.soll)} bezahlt`;
-                    return (
-                      <td key={t.id} className="px-1 py-2 text-center sm:px-3">
-                        <button
-                          type="button"
-                          onClick={() => openPayment(cell, m.display_name)}
-                          className="inline-flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-1 rounded px-2 py-1 hover:bg-navy-light/30 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                          aria-label={ariaLabel}
-                        >
-                          <StatusBox cell={cell} />
-                          <span className="whitespace-nowrap text-xs tabular-nums text-ink-soft">
-                            {cell.status === "paid" ? formatEuro(cell.soll) : `${formatEuro(cell.paid)} / ${formatEuro(cell.soll)}`}
-                          </span>
-                        </button>
-                      </td>
-                    );
-                  })}
-                  <td className="px-2 py-2 text-right sm:px-3">
-                    <div className="inline-flex gap-1">
-                      <ReminderButton
-                        tripId={tripId}
-                        personId={m.id}
-                        disabled={
-                          !m.email ||
-                          (isAdvancerRow ? advancerNothingOpen : rowOpen <= 0.005)
-                        }
-                        title={
-                          isAdvancerRow
-                            ? !m.email
-                              ? "Vorstrecker hat keine E-Mail hinterlegt"
-                              : advancerNothingOpen
-                                ? "Alles an die Agentur überwiesen — keine Erinnerung nötig"
-                                : "Charter-Übersicht an dich selbst schicken (Σ Crew-Eingänge / Soll Agentur / noch zu überweisen)"
-                            : !m.email
-                              ? "E-Mail fehlt"
-                              : rowOpen <= 0.005
-                                ? "Nichts offen"
-                                : "Erinnerungsmail"
-                        }
-                      />
+            {memberRows.map(({ m, obl, cabin, cells, rowOpen, isAdvancerRow, advancerNothingOpen }) => (
+              <tr key={m.id} className="border-t border-rule">
+                <th scope="row" className="sticky left-0 z-10 bg-paper px-2 py-2 text-left font-medium sm:px-3">
+                  <div className="flex items-center gap-1">
+                    {m.display_name}
+                    {isAdvancerRow && (
+                      <span
+                        className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
+                        title="Vorstrecker — verrechnet sich selbst"
+                      >
+                        Vorstrecker
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs font-normal text-ink-soft">
+                    {cabin ? `${cabin.label} · ` : ""}
+                    Soll {formatEuro(obl?.total_amount ?? 0)}
+                    {!m.email && <span className="ml-1 text-amber-700" title="E-Mail fehlt">⚠</span>}
+                  </div>
+                </th>
+                {tranches.map((t, i) => {
+                  const cell = cells[i];
+                  return (
+                    <td key={t.id} className="px-1 py-2 text-center sm:px-3">
                       <button
                         type="button"
-                        onClick={() => personWhatsApp(m)}
-                        disabled={rowOpen <= 0.005 || isAdvancerRow}
-                        className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-rule p-1.5 text-primary hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-40"
-                        title={isAdvancerRow ? "Selbst-Verrechnung statt WhatsApp" : "WhatsApp-Text"}
-                        aria-label={`WhatsApp-Text für ${m.display_name}`}
+                        onClick={() => openPayment(cell, m.display_name)}
+                        className="inline-flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-1 rounded px-2 py-1 hover:bg-navy-light/30 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        aria-label={cellAria(cell, m.display_name, t.label)}
                       >
-                        <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                        <StatusBox cell={cell} />
+                        {cell.status !== "paid" && (
+                          <span className="whitespace-nowrap text-xs tabular-nums text-ink-soft">
+                            {formatEuro(Math.max(0, cell.open))}
+                          </span>
+                        )}
                       </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-              });
-            })()}
+                    </td>
+                  );
+                })}
+                <td className="px-2 py-2 text-right sm:px-3">
+                  <RowActions
+                    tripId={tripId}
+                    member={m}
+                    isAdvancerRow={isAdvancerRow}
+                    advancerNothingOpen={advancerNothingOpen}
+                    rowOpen={rowOpen}
+                    onWhatsApp={personWhatsApp}
+                  />
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -373,6 +451,66 @@ function StatusBox({ cell }: { cell: MatrixCell }) {
       className={`inline-block h-6 w-6 rounded border-2 ${cell.overdue ? "border-danger bg-danger/5" : "border-rule bg-paper"}`}
       aria-hidden="true"
     />
+  );
+}
+
+/** Einzelwert rechts in der Mobile-Karte — Restbetrag, „bezahlt" oder Pending. */
+function CellValue({ cell }: { cell: MatrixCell }) {
+  if (cell.pending) {
+    return <span className="text-amber-700">{formatEuro(cell.pending.amount)} gemeldet</span>;
+  }
+  if (cell.status === "paid") {
+    return <span className="text-success">bezahlt</span>;
+  }
+  return (
+    <span className={cell.overdue ? "text-danger" : "text-ink-soft"}>
+      {formatEuro(Math.max(0, cell.open))} offen
+    </span>
+  );
+}
+
+/** Erinnerungs- + WhatsApp-Button einer Person — von Karte und Tabelle geteilt. */
+function RowActions({
+  tripId,
+  member,
+  isAdvancerRow,
+  advancerNothingOpen,
+  rowOpen,
+  onWhatsApp,
+}: {
+  tripId: string;
+  member: Member;
+  isAdvancerRow: boolean;
+  advancerNothingOpen: boolean;
+  rowOpen: number;
+  onWhatsApp: (m: Member) => void;
+}) {
+  const reminderDisabled = !member.email || (isAdvancerRow ? advancerNothingOpen : rowOpen <= 0.005);
+  const reminderTitle = isAdvancerRow
+    ? !member.email
+      ? "Vorstrecker hat keine E-Mail hinterlegt"
+      : advancerNothingOpen
+        ? "Alles an die Agentur überwiesen — keine Erinnerung nötig"
+        : "Charter-Übersicht an dich selbst schicken (Σ Crew-Eingänge / Soll Agentur / noch zu überweisen)"
+    : !member.email
+      ? "E-Mail fehlt"
+      : rowOpen <= 0.005
+        ? "Nichts offen"
+        : "Erinnerungsmail";
+  return (
+    <div className="inline-flex shrink-0 gap-1">
+      <ReminderButton tripId={tripId} personId={member.id} disabled={reminderDisabled} title={reminderTitle} />
+      <button
+        type="button"
+        onClick={() => onWhatsApp(member)}
+        disabled={rowOpen <= 0.005 || isAdvancerRow}
+        className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-rule p-1.5 text-primary hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-40"
+        title={isAdvancerRow ? "Selbst-Verrechnung statt WhatsApp" : "WhatsApp-Text"}
+        aria-label={`WhatsApp-Text für ${member.display_name}`}
+      >
+        <MessageCircle className="h-4 w-4" aria-hidden="true" />
+      </button>
+    </div>
   );
 }
 
@@ -646,15 +784,29 @@ function CharterReminderBanner({
     );
   }
 
+  // Einzeiler-Zusammenfassung für den eingeklappten Zustand: nächste noch
+  // offene Tranche (rows sind in Tranchen-Reihenfolge).
+  const nextOpen = rows.find((r) => r.remaining > 0.005);
+  const summaryTone = nextOpen?.overdue ? "text-danger" : nextOpen?.soon ? "text-amber-700" : "text-ink-soft";
+
   return (
-    <section
-      className="mb-3 rounded-md border border-rule bg-paper p-3"
-      aria-label="Eigene Überweisungen an die Charteragentur"
+    <details
+      className="group mb-3 rounded-md border border-rule bg-paper [&_summary::-webkit-details-marker]:hidden"
     >
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
-        Charter-Anzahlungen — deine Überweisungen
-      </p>
-      <ul className="space-y-1.5 text-sm">
+      <summary
+        className="flex cursor-pointer flex-wrap items-center justify-between gap-2 p-3 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+        aria-label="Eigene Überweisungen an die Charteragentur — aufklappen"
+      >
+        <span className="text-xs font-semibold uppercase tracking-wide text-primary">
+          Charter-Anzahlungen — deine Überweisungen
+        </span>
+        {nextOpen && (
+          <span className={`tabular-nums ${summaryTone}`}>
+            nächste: {nextOpen.tranche.label} · noch <strong>{formatEuro(nextOpen.remaining)}</strong>
+          </span>
+        )}
+      </summary>
+      <ul className="space-y-1.5 px-3 text-sm">
         {rows.map((r) => {
           const dot = r.overdue ? "⏰" : r.soon ? "⚠" : r.remaining <= 0.005 ? "✓" : "○";
           const tone = r.overdue
@@ -689,7 +841,7 @@ function CharterReminderBanner({
           );
         })}
       </ul>
-      <p className="mt-2 text-xs text-ink-soft">
+      <p className="px-3 pb-3 pt-2 text-xs text-ink-soft">
         Überweisung als{" "}
         <a
           href={`/trips/${tripId}/transactions/new`}
@@ -703,7 +855,7 @@ function CharterReminderBanner({
           text="Sobald die Ausgabe der passenden Tranche zugeordnet ist, taucht sie hier mit angerechnet auf und reduziert den noch offenen Betrag."
         />
       </p>
-    </section>
+    </details>
   );
 }
 
