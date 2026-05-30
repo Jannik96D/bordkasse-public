@@ -31,11 +31,15 @@ export function DatesSection({
     <section>
       <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold text-primary">
         <CalendarDays className="h-4 w-4" />
-        Törn-Datum
-        <InfoTooltip
-          text="Existierende Buchungen werden bei Datumsänderung nicht automatisch verschoben — einzelne Einträge ggf. manuell anpassen."
-          label="Hinweis zu Datumsänderung"
-        />
+        {/* Titel + Info gruppiert, damit das flex-`gap-2` nicht zum
+            ml-1 des Tooltips addiert (sonst doppelter Abstand vor dem i). */}
+        <span>
+          Törn-Datum
+          <InfoTooltip
+            text="Existierende Buchungen werden bei Datumsänderung nicht automatisch verschoben — einzelne Einträge ggf. manuell anpassen."
+            label="Hinweis zu Datumsänderung"
+          />
+        </span>
       </h2>
 
       <form action={formAction} className="space-y-3 rounded-md border border-rule bg-paper p-4">

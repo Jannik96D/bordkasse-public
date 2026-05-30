@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Plus, Euro, ScaleIcon, Wallet, BarChart3, Settings } from "lucide-react";
+import { LayoutDashboard, Plus, Euro, ScaleIcon, Wallet, BarChart3, Coins, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Tab {
@@ -45,16 +45,37 @@ const tabs: Tab[] = [
   },
 ];
 
-export function BottomNav({ tripId }: { tripId: string }) {
+// Kontextueller Anzahlungs-Tab — wird nur eingeblendet, solange Anzahlungen
+// für den Betrachter relevant sind (siehe getPrepaymentNavState). Position:
+// zwischen Bilanz und Schulden (Geld-Fluss-Block). Eigenes Icon, weil
+// "Schulden" bereits das Wallet-Icon belegt.
+const prepaymentTab: Tab = {
+  href: (id) => `/trips/${id}/prepayments`,
+  match: (p, id) => p.startsWith(`/trips/${id}/prepayments`),
+  label: "Anzahlung",
+  Icon: Coins,
+};
+
+export function BottomNav({
+  tripId,
+  showPrepayments = false,
+}: {
+  tripId: string;
+  showPrepayments?: boolean;
+}) {
   const path = usePathname();
+
+  const visibleTabs = showPrepayments
+    ? [...tabs.slice(0, 4), prepaymentTab, tabs[4]]
+    : tabs;
 
   return (
     <nav
       aria-label="Hauptnavigation"
       className="fixed inset-x-0 bottom-0 z-20 border-t border-rule bg-paper/95 backdrop-blur-sm pb-[env(safe-area-inset-bottom)]"
     >
-      <ul className="mx-auto grid max-w-2xl grid-cols-5">
-        {tabs.map((t) => {
+      <ul className={cn("mx-auto grid max-w-2xl", showPrepayments ? "grid-cols-6" : "grid-cols-5")}>
+        {visibleTabs.map((t) => {
           const active = t.match(path, tripId);
           return (
             <li key={t.label}>

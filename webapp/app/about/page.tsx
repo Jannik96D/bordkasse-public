@@ -315,7 +315,13 @@ const features: Feature[] = [
           WhatsApp-Vorschlagstext zum Kopieren.
         </p>
         <p className="mt-2">
-          Oben sieht die vorstreckende Person eine Übersicht, was sie noch an die
+          Ein Fortschritts-Balken oben zeigt auf einen Blick, wie viel
+          schon eingegangen ist. Auf dem Smartphone erscheint jede Person
+          als eigene Karte — kein horizontales Wischen nötig; am größeren
+          Bildschirm bleibt die Tabelle für den Quervergleich.
+        </p>
+        <p className="mt-2">
+          Daneben sieht die vorstreckende Person eine Übersicht, was sie noch an die
           Charter-Agentur überweisen muss — basierend auf dem, was die
           Crew schon bei ihm eingezahlt hat. 3 Tage vor jeder
           Charter-Frist verschickt die App diese Übersicht zusätzlich
@@ -325,7 +331,7 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/16-anzahlung-matrix.webp",
-    alt: "Anzahlungs-Matrix mit Charter-Reminder-Banner, Pending-Hinweis und Markierung, wer vorstreckt",
+    alt: "Anzahlungs-Matrix als Karten-Ansicht mit Fortschritts-Header, Charter-Hinweis und Pending-Bestätigung",
   },
   {
     id: "anzahlung-crew-self",
@@ -346,6 +352,12 @@ const features: Feature[] = [
           Crew-Mitglied eine kurze Info-Mail. Bei einer Ablehnung
           enthält die Mail einen Hinweis, mit dem Skipper Rücksprache zu
           halten.
+        </p>
+        <p className="mt-2">
+          Anzahlungen tauchen für Crew-Mitglieder nur in der Navigation
+          auf, solange sie selbst noch etwas offen haben — ist alles
+          bezahlt, verschwindet der Punkt wieder. So bleibt die App für
+          alle anderen aufgeräumt.
         </p>
       </>
     ),
