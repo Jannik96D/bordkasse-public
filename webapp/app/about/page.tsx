@@ -45,7 +45,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/01-welcome.png",
+    screenshot: "/about/01-welcome.webp",
     alt: "Startbildschirm der Bordkasse mit Logo und Anmelden-Button",
   },
   {
@@ -61,7 +61,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/02-login.png",
+    screenshot: "/about/02-login.webp",
     alt: "Login-Bildschirm mit E-Mail-Eingabe für den Login-Link",
   },
   {
@@ -79,7 +79,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/03-trips.png",
+    screenshot: "/about/03-trips.webp",
     alt: "Liste aller eigenen Törns",
   },
   {
@@ -105,7 +105,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/04-trip-overview.png",
+    screenshot: "/about/04-trip-overview.webp",
     alt: "Übersicht eines anstehenden Törns mit Crew-Zähler, Schnellzugriff-Kacheln und Navigations-Leiste",
   },
   {
@@ -122,7 +122,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/05-buchungen.png",
+    screenshot: "/about/05-buchungen.webp",
     alt: "Buchungs-Liste eines laufenden Törns",
   },
   {
@@ -155,7 +155,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/06-buchung-neu.png",
+    screenshot: "/about/06-buchung-neu.webp",
     alt: "Neue Buchung anlegen mit Aufteilungs-Auswahl",
   },
   {
@@ -171,7 +171,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/07-bilanz.png",
+    screenshot: "/about/07-bilanz.webp",
     alt: "Bilanz-Übersicht mit Saldo pro Person",
   },
   {
@@ -197,7 +197,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/08-schulden.png",
+    screenshot: "/about/08-schulden.webp",
     alt: "Schulden-Übersicht mit Bezahlt-Häkchen",
   },
   {
@@ -215,7 +215,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/09-statistik.png",
+    screenshot: "/about/09-statistik.webp",
     alt: "Statistik-Bereich mit Auswertung nach Kategorie",
   },
   {
@@ -235,7 +235,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/10-crew.png",
+    screenshot: "/about/10-crew.webp",
     alt: "Crew-Verwaltung mit Anwesenheits-Zeiten und Alkohol-Häkchen",
   },
   {
@@ -251,7 +251,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/11-kategorien.png",
+    screenshot: "/about/11-kategorien.webp",
     alt: "Kategorien-Verwaltung mit Symbol-Auswahl",
   },
   {
@@ -268,7 +268,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/12-gutschrift.png",
+    screenshot: "/about/12-gutschrift.webp",
     alt: "Gutschrift-Formular mit „Zahlt“ und „Empfängt“ Auswahl",
   },
   {
@@ -296,7 +296,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/15-anzahlung-setup.png",
+    screenshot: "/about/15-anzahlung-setup.webp",
     alt: "Anzahlungs-Wizard mit Tranchen-Editor (Datum, Label, Prozent)",
   },
   {
@@ -324,7 +324,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/16-anzahlung-matrix.png",
+    screenshot: "/about/16-anzahlung-matrix.webp",
     alt: "Anzahlungs-Matrix mit Charter-Reminder-Banner, Pending-Hinweis und Vorstrecker-Markierung",
   },
   {
@@ -349,7 +349,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/17-anzahlung-crew-self.png",
+    screenshot: "/about/17-anzahlung-crew-self.webp",
     alt: "Crew-Self-View mit „Ich habe gezahlt“-Button pro offener Tranche",
   },
   {
@@ -368,7 +368,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/13-offline.png",
+    screenshot: "/about/13-offline.webp",
     alt: "Buchungs-Liste mit Offline-Hinweis oben",
   },
   {
@@ -389,7 +389,7 @@ const features: Feature[] = [
         </p>
       </>
     ),
-    screenshot: "/about/14-dsgvo.png",
+    screenshot: "/about/14-dsgvo.webp",
     alt: "Datenschutz-Abschnitt zur 30-Tage-Löschung nach Törn-Ende",
   },
 ];

@@ -44,12 +44,13 @@
  *   - Login läuft über Mailpit (lokaler Magic-Link); seed-demo.sh legt
  *     Anna (skipper@) + Clara (clara@) via Admin-API an und verknüpft
  *     persons.auth_user_id (direkte auth.users-INSERTs sind unzuverlässig).
- *   - `public/about/00-about-preview.png` ist gitignored (Meta-Vorschau).
- *   - 18 Dateien werden geschrieben; rc=0 + „Alle Screenshots … abgelegt".
+ *   - `public/about/00-about-preview.webp` ist gitignored (Meta-Vorschau).
+ *   - 18 WebP-Dateien werden geschrieben; rc=0 + „Alle Screenshots … abgelegt".
  */
 import { chromium, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
+import sharp from "sharp";
 
 const BASE_URL = "http://localhost:3000";
 const MAILPIT_URL = "http://127.0.0.1:54324";
@@ -97,9 +98,12 @@ async function clearMailpit() {
 }
 
 async function shot(page: Page, name: string) {
-  const path = resolve(OUT_DIR, `${name}.png`);
-  await page.screenshot({ path, fullPage: false });
-  console.log(`  ✔ ${name}.png`);
+  // Playwright kann nur PNG/JPEG; wir nehmen den PNG-Buffer und schreiben
+  // ihn als WebP raus (~65 % kleiner, von der /about-Seite referenziert).
+  const buf = await page.screenshot({ fullPage: false });
+  const path = resolve(OUT_DIR, `${name}.webp`);
+  await sharp(buf).webp({ quality: 80, effort: 6 }).toFile(path);
+  console.log(`  ✔ ${name}.webp`);
 }
 
 async function hideDevArtifacts(page: Page) {
