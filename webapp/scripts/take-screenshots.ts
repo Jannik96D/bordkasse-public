@@ -3,13 +3,49 @@
  * Loggt sich als skipper@example.com via Magic-Link (Mailpit) ein
  * und klickt die wichtigsten Screens durch.
  *
- * Voraussetzungen:
- *   - supabase start
- *   - supabase db reset
- *   - psql ... -f supabase/seed_demo.sql
- *   - pnpm dev (Port 3000)
+ * ═══════════════════════════════════════════════════════════════════════
+ * RUNBOOK — erprobter, stabiler Weg (gegen Production-Server, NICHT Dev!)
+ * ═══════════════════════════════════════════════════════════════════════
  *
- * Aufruf: pnpm tsx scripts/take-screenshots.ts
+ * WARUM Production-Server statt `pnpm dev`:
+ *   Turbopack-Dev kompiliert Routen erst beim ersten Aufruf (lazy). Playwright
+ *   trifft die Route bevor sie kompiliert ist → 30s-`load`-Timeout, und unter
+ *   gleichzeitiger Last (frisch gestartetes colima+supabase+dev) kann der Mac
+ *   einfrieren. `next start` serviert vorkompilierte Seiten → CPU-arm, sofort,
+ *   keine Timeouts. Das ist der Weg, der zuverlässig durchläuft.
+ *
+ * REGELN (so vermeide ich Hänger/Absturz):
+ *   1. Schritte 1–4 als JE EIGENES, abgeschlossenes Kommando ausführen
+ *      (nicht fusionieren) — colima, supabase, seed, build sind je eine
+ *      bounded CPU-Spitze, danach wieder ruhig.
+ *   2. NUR Schritt 5 fusionieren (Server-Start + Vorwärmen + Shoot in einem
+ *      Bash-Kommando), weil der Prod-Server leicht ist UND als Kind-Prozess
+ *      des Shoot-Kommandos leben muss (Background-Server überlebt Turns nicht).
+ *   3. KEIN Background-Polling-Loop über mehrere Turns, KEIN `|| echo` das
+ *      Fehler maskiert, KEIN Retry-Loop. Bei Fehler: stoppen + Log berichten.
+ *   4. Code-Auslieferung (commit/push) IMMER von der Screenshot-Erzeugung
+ *      entkoppeln — Screenshots dürfen nie das Pushen von grünem Code blocken.
+ *
+ * SCHRITTE:
+ *   1) colima start                 # Docker-VM; verify: `docker info`
+ *   2) supabase start               # + blockieren bis API 200:
+ *        for i in $(seq 1 50); do curl -sf http://127.0.0.1:54321/rest/v1/ -o /dev/null && break || sleep 3; done
+ *   3) ./scripts/seed-demo.sh       # DB reset + Auth-User via Admin-API + seed_demo.sql
+ *   4) pnpm build                   # Production-Build (einmalige Spitze)
+ *   5) Server + Vorwärmen + Shoot in EINEM Kommando:
+ *        pnpm start >/tmp/start.log 2>&1 &
+ *        SRV=$!
+ *        for i in $(seq 1 20); do curl -sf http://localhost:3000/ -o /dev/null && break || sleep 3; done
+ *        for r in / /login /about; do curl -sf "http://localhost:3000$r" -o /dev/null; done   # vorwärmen
+ *        npx tsx scripts/take-screenshots.ts; RC=$?
+ *        kill $SRV
+ *
+ * Hinweise:
+ *   - Login läuft über Mailpit (lokaler Magic-Link); seed-demo.sh legt
+ *     Anna (skipper@) + Clara (clara@) via Admin-API an und verknüpft
+ *     persons.auth_user_id (direkte auth.users-INSERTs sind unzuverlässig).
+ *   - `public/about/00-about-preview.png` ist gitignored (Meta-Vorschau).
+ *   - 18 Dateien werden geschrieben; rc=0 + „Alle Screenshots … abgelegt".
  */
 import { chromium, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
