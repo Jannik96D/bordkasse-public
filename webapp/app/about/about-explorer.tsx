@@ -10,7 +10,7 @@ export type FeatureRole = "skipper" | "crew" | "alle";
 export type ExplorerFeature = {
   id: string;
   title: string;
-  lead: string;
+  lead: React.ReactNode;
   body: React.ReactNode;
   screenshot: string;
   alt: string;
