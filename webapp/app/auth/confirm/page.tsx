@@ -89,14 +89,6 @@ export default async function ConfirmPage({
             Jetzt einloggen
           </button>
         </form>
-
-        <p className="text-xs leading-relaxed text-ink-soft">
-          Wir holen die Bestätigung deines Klicks bewusst hier ab: manche
-          Mail-Programme rufen Links automatisch im Hintergrund auf, um sie
-          auf Sicherheit zu prüfen, und würden den Login-Token sonst vorzeitig
-          verbrauchen. Mit deinem Klick ist sichergestellt, dass du es selbst
-          bist.
-        </p>
       </div>
     </main>
   );
