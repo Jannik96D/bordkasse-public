@@ -64,7 +64,11 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Alles außer Next.js-Internals und statischen Assets
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    // Alles außer Next.js-Internals und statischen Assets. robots.txt,
+    // manifest.json und sw.js sind öffentliche Dateien aus public/ und
+    // müssen OHNE Auth erreichbar sein — sonst 307 → /login: Crawler lesen
+    // robots.txt nicht, PWA-Manifest + Service Worker laden auf den
+    // öffentlichen Seiten (Welcome/About/Login) nicht.
+    "/((?!_next/static|_next/image|favicon.ico|robots.txt|manifest.json|sw.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
