@@ -147,7 +147,7 @@ ${
 Zahlungen abhaken: ${p.appUrl}
 
 —
-Bordkasse · Faire Kostenaufteilung auf Segel-Törns
+Bordkasse · Faire Kostenaufteilung auf Segeltörns
 `;
 
   return { html, text, subject };

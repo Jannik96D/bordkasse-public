@@ -96,7 +96,7 @@ ${reasonText} Falls etwas nicht stimmt, kann das Häkchen in der App wieder entf
 Schulden in der App: ${p.appUrl}
 
 —
-Bordkasse · Faire Kostenaufteilung auf Segel-Törns
+Bordkasse · Faire Kostenaufteilung auf Segeltörns
 `;
 
   return { html, text, subject };

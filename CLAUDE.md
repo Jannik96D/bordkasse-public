@@ -1,6 +1,6 @@
-# Bordkasse für Segel-Törns — Claude Code Projekt
+# Bordkasse für Segeltörns — Claude Code Projekt
 
-> Tool zur fairen Aufteilung gemeinsamer Kosten auf Segel-Törns mit wechselnden Crews.
+> Tool zur fairen Aufteilung gemeinsamer Kosten auf Segeltörns mit wechselnden Crews.
 > Zwei Implementationen parallel im Repo:
 > - **Sheets-Lösung** (Apps Script v11) — pragmatisch, kein Login, eingefroren.
 > - **Web-App** (`webapp/`) — Next.js + Supabase + Vercel, Crew-fähig, Magic-Link-Auth, Realtime, PWA-Offline, Statistik, Audit-Log, automatische DSGVO-Löschung 30 Tage nach Törn-Ende.
