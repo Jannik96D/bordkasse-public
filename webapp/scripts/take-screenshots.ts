@@ -45,7 +45,7 @@
  *     Anna (skipper@) + Clara (clara@) via Admin-API an und verknüpft
  *     persons.auth_user_id (direkte auth.users-INSERTs sind unzuverlässig).
  *   - `public/about/00-about-preview.webp` ist gitignored (Meta-Vorschau).
- *   - 18 WebP-Dateien werden geschrieben; rc=0 + „Alle Screenshots … abgelegt".
+ *   - 19 WebP-Dateien werden geschrieben; rc=0 + „Alle Screenshots … abgelegt".
  */
 import { chromium, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
@@ -209,6 +209,17 @@ async function main() {
   await loginAs(page, SKIPPER_EMAIL);
 
   console.log("→ Trips-Übersicht (eingeloggt)");
+  // Den PWA-Installations-Hinweis hier ausblenden: er steht schon prominent
+  // auf dem Welcome-Screenshot (01) und würde in der Törn-Übersicht nur von
+  // den eigentlichen Inhalten ablenken.
+  await page.evaluate(() => {
+    document.querySelectorAll('aside[role="note"]').forEach((el) => {
+      if (/installier/i.test(el.textContent ?? "")) {
+        (el as HTMLElement).style.display = "none";
+      }
+    });
+  });
+  await page.waitForTimeout(150);
   await shot(page, "03-trips");
 
   // Aus der Trip-Liste die beiden Demo-Trips per Namen heraussuchen:
@@ -369,6 +380,21 @@ async function main() {
   // eingeloggten Standardzustand kommt.
   await logout(page, context);
   await loginAs(page, SKIPPER_EMAIL);
+
+  console.log("→ Törn-Fortschritt-Karte (Skipper, unter Schnellzugriff)");
+  await page.goto(`${BASE_URL}/trips/${tripCharterId}`);
+  await waitForLoad(page);
+  // Die Karte „Dein Törn im Überblick“ sitzt unter dem Schnellzugriff-Fold —
+  // erst in den Viewport scrollen, dann schießen.
+  await page.evaluate(() => {
+    const h = Array.from(document.querySelectorAll("h2")).find((el) =>
+      el.textContent?.includes("Dein Törn im Überblick"),
+    );
+    h?.closest("section")?.scrollIntoView({ block: "start" });
+  });
+  await page.waitForTimeout(400);
+  await hideDevArtifacts(page);
+  await shot(page, "18-toern-fortschritt");
 
   console.log("→ /about-Seite selbst (Preview)");
   await page.goto(`${BASE_URL}/about`);

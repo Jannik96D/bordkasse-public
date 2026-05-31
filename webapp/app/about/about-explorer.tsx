@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Anchor, Users, type LucideIcon } from "lucide-react";
 import { FeatureShot } from "./feature-shot";
+
+/** Für wen ist ein Feature primär relevant? Steuert Badge + Filter. */
+export type FeatureRole = "skipper" | "crew" | "alle";
 
 export type ExplorerFeature = {
   id: string;
@@ -10,6 +14,7 @@ export type ExplorerFeature = {
   body: React.ReactNode;
   screenshot: string;
   alt: string;
+  role: FeatureRole;
 };
 
 export type ExplorerPhase = {
@@ -19,6 +24,45 @@ export type ExplorerPhase = {
   icon: React.ReactNode;
   features: ExplorerFeature[];
 };
+
+type RoleFilter = "alle" | "skipper" | "crew";
+
+// Lucide-Strich-Icons wie im Rest der App (Bottom-Nav-Stil), nicht Emoji:
+//   Skipper → Anchor, Crew/Alle → Users (wie die Crew-Icons der App).
+const ROLE_BADGE: Record<FeatureRole, { label: string; Icon: LucideIcon; cls: string }> = {
+  skipper: { label: "Skipper", Icon: Anchor, cls: "border-primary/30 bg-navy-light/50 text-primary" },
+  crew: { label: "Crew", Icon: Users, cls: "border-rule bg-paper-soft text-ink" },
+  alle: { label: "Alle", Icon: Users, cls: "border-rule bg-paper-soft text-ink-soft" },
+};
+
+const FILTERS: { id: RoleFilter; label: string; Icon?: LucideIcon }[] = [
+  { id: "alle", label: "Alle" },
+  { id: "skipper", label: "Nur Skipper", Icon: Anchor },
+  { id: "crew", label: "Nur Crew", Icon: Users },
+];
+
+/**
+ * Ein „Alle"-Feature ist für jede Rolle relevant und bleibt unter jedem
+ * Filter sichtbar. „Nur Skipper" / „Nur Crew" blenden lediglich die
+ * rollenspezifischen Funktionen der jeweils anderen Seite aus.
+ */
+function isVisibleUnder(role: FeatureRole, filter: RoleFilter): boolean {
+  if (filter === "alle") return true;
+  return role === "alle" || role === filter;
+}
+
+function RoleBadge({ role }: { role: FeatureRole }) {
+  const b = ROLE_BADGE[role];
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${b.cls}`}
+    >
+      <b.Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span className="sr-only">Für </span>
+      {b.label}
+    </span>
+  );
+}
 
 /**
  * About-Seite: Phasen-Explorer.
@@ -31,19 +75,36 @@ export type ExplorerPhase = {
  *  3. Tabs: die Leiste schaltet zwischen den Phasen um (eine Phase sichtbar),
  *     statt alles zu einer sehr langen Seite zu stapeln.
  *
- * „Mehr Details“ ist progressive disclosure NUR dort, wo der Platz knapp ist:
+ * Rollen-Filter: ein Chip-Filter (Alle · Nur Skipper · Nur Crew) blendet
+ * rollenspezifische Funktionen aus; die Tab-Zähler zeigen die gefilterte
+ * Anzahl, leere Phasen werden ausgegraut. Jedes Feature trägt ein
+ * Rollen-Badge (Text + Emoji, nicht nur Farbe).
+ *
+ * „Mehr Details" ist progressive disclosure NUR dort, wo der Platz knapp ist:
  * auf Mobile hinter einem `<details>` eingeklappt, auf Desktop direkt neben
  * dem Phone offen.
  *
  * Deep-Links: `#<phaseId>` öffnet die Phase, `#<featureId>` öffnet die
- * passende Phase und scrollt zum Feature. Hash-Änderungen werden live
- * verarbeitet, damit Links von außen (und der Skip-Anker) funktionieren.
+ * passende Phase und scrollt zum Feature. Ein per Deep-Link adressiertes
+ * Feature setzt den Filter auf „Alle", damit es garantiert sichtbar ist.
  */
-export function AboutExplorer({ phases }: { phases: ExplorerPhase[] }) {
+export function AboutExplorer({
+  phases,
+  intro,
+}: {
+  phases: ExplorerPhase[];
+  intro?: React.ReactNode;
+}) {
   const [active, setActive] = useState(0);
+  const [filter, setFilter] = useState<RoleFilter>("alle");
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const interacted = useRef(false);
+
+  const visibleCount = useCallback(
+    (i: number) => phases[i].features.filter((f) => isVisibleUnder(f.role, filter)).length,
+    [phases, filter],
+  );
 
   // Screenshots der NACHBARPHASEN (aktive ±1) nach dem ersten Paint in der
   // Idle-Zeit vorladen, damit der Phone-Frame beim Weiterblättern sofort aus
@@ -96,9 +157,11 @@ export function AboutExplorer({ phases }: { phases: ExplorerPhase[] }) {
     function applyHash() {
       const match = findPhaseIndexByHash(window.location.hash);
       if (!match) return;
+      // Deep-Link auf ein Feature → Filter zurücksetzen, sonst könnte das
+      // Ziel ausgeblendet sein.
+      if (match.featureId) setFilter("alle");
       setActive(match.phase);
       if (match.featureId) {
-        // Nach dem Render zum Feature scrollen.
         requestAnimationFrame(() => {
           document.getElementById(match.featureId!)?.scrollIntoView({
             behavior: "smooth",
@@ -112,36 +175,85 @@ export function AboutExplorer({ phases }: { phases: ExplorerPhase[] }) {
     return () => window.removeEventListener("hashchange", applyHash);
   }, [findPhaseIndexByHash]);
 
+  // Filter wechseln — wenn die aktuelle Phase darunter leer wäre, direkt auf
+  // die erste nicht-leere springen (im Event-Handler, nicht im Effect).
+  function changeFilter(next: RoleFilter) {
+    setFilter(next);
+    const countUnder = (i: number) =>
+      phases[i].features.filter((f) => isVisibleUnder(f.role, next)).length;
+    if (countUnder(active) === 0) {
+      const idx = phases.findIndex((_, i) => countUnder(i) > 0);
+      if (idx >= 0) setActive(idx);
+    }
+  }
+
   function selectPhase(index: number) {
     interacted.current = true;
     setActive(index);
   }
 
-  // Nach einem Tab-Wechsel per Klick/Taste an den Panel-Anfang scrollen,
-  // damit man den Beginn der Phase sieht (scroll-mt hält die Sticky-Leiste frei).
+  // Nach einem Tab-Wechsel per Klick/Taste an den Panel-Anfang scrollen.
   useEffect(() => {
     if (!interacted.current) return;
     panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [active]);
 
-  // ARIA-Tabs-Tastatursteuerung: Pfeile, Home/End.
+  // ARIA-Tabs-Tastatursteuerung: Pfeile, Home/End — leere Tabs überspringen.
   function onTabKeyDown(e: React.KeyboardEvent, index: number) {
+    const step = (from: number, dir: number) => {
+      let n = from;
+      for (let k = 0; k < phases.length; k++) {
+        n = (n + dir + phases.length) % phases.length;
+        if (visibleCount(n) > 0) return n;
+      }
+      return from;
+    };
     let next = index;
-    if (e.key === "ArrowRight") next = (index + 1) % phases.length;
-    else if (e.key === "ArrowLeft")
-      next = (index - 1 + phases.length) % phases.length;
-    else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = phases.length - 1;
+    if (e.key === "ArrowRight") next = step(index, 1);
+    else if (e.key === "ArrowLeft") next = step(index, -1);
+    else if (e.key === "Home") next = phases.findIndex((_, i) => visibleCount(i) > 0);
+    else if (e.key === "End")
+      next = phases.length - 1 - [...phases].reverse().findIndex((_, i) => visibleCount(phases.length - 1 - i) > 0);
     else return;
     e.preventDefault();
+    if (next < 0 || next === index) return;
     selectPhase(next);
     tabRefs.current[next]?.focus();
   }
 
   const phase = phases[active];
+  const visibleFeatures = phase.features.filter((f) => isVisibleUnder(f.role, filter));
 
   return (
     <div className="mt-8">
+      {intro}
+
+      {/* Rollen-Filter */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-ink-soft">Für wen?</span>
+        <div role="group" aria-label="Nach Rolle filtern" className="flex flex-wrap gap-2">
+          {FILTERS.map((f) => {
+            const on = filter === f.id;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => changeFilter(f.id)}
+                className={`inline-flex min-h-touch items-center gap-1 rounded-full px-3 py-1.5 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-paper ${
+                  on
+                    ? "bg-primary text-paper shadow-sm"
+                    : "border border-rule bg-paper-soft text-ink-soft hover:text-ink"
+                }`}
+              >
+                {f.Icon && <f.Icon className="h-4 w-4" aria-hidden="true" />}
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Sticky Phasen-Tabs */}
       <div
         role="tablist"
@@ -150,6 +262,8 @@ export function AboutExplorer({ phases }: { phases: ExplorerPhase[] }) {
       >
         {phases.map((p, i) => {
           const selected = i === active;
+          const count = visibleCount(i);
+          const disabled = count === 0;
           return (
             <button
               key={p.id}
@@ -160,13 +274,16 @@ export function AboutExplorer({ phases }: { phases: ExplorerPhase[] }) {
               id={`tab-${p.id}`}
               aria-selected={selected}
               aria-controls={`panel-${p.id}`}
+              aria-disabled={disabled}
               tabIndex={selected ? 0 : -1}
-              onClick={() => selectPhase(i)}
+              onClick={() => !disabled && selectPhase(i)}
               onKeyDown={(e) => onTabKeyDown(e, i)}
               className={`flex min-h-touch shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-paper ${
                 selected
                   ? "bg-primary text-paper shadow-sm"
-                  : "border border-rule bg-paper-soft text-ink-soft hover:text-ink"
+                  : disabled
+                    ? "border border-rule bg-paper-soft text-ink-soft/40 cursor-not-allowed"
+                    : "border border-rule bg-paper-soft text-ink-soft hover:text-ink"
               }`}
             >
               <span aria-hidden="true" className="shrink-0">
@@ -174,12 +291,10 @@ export function AboutExplorer({ phases }: { phases: ExplorerPhase[] }) {
               </span>
               <span className="whitespace-nowrap">{p.title}</span>
               <span
-                className={
-                  selected ? "text-paper/70" : "text-ink-soft/70"
-                }
+                className={selected ? "text-paper/70" : "text-ink-soft/70"}
                 aria-hidden="true"
               >
-                {p.features.length}
+                {count}
               </span>
             </button>
           );
@@ -204,7 +319,7 @@ export function AboutExplorer({ phases }: { phases: ExplorerPhase[] }) {
         </header>
 
         <ul className="space-y-14 md:space-y-20">
-          {phase.features.map((f, i) => {
+          {visibleFeatures.map((f, i) => {
             const phoneRight = i % 2 === 1; // abwechselnd: Phone mal links, mal rechts
             return (
               <li
@@ -227,12 +342,15 @@ export function AboutExplorer({ phases }: { phases: ExplorerPhase[] }) {
                     phoneRight ? "md:order-1" : "md:order-2"
                   }`}
                 >
-                  <h3 className="text-lg font-semibold text-ink">{f.title}</h3>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-lg font-semibold text-ink">{f.title}</h3>
+                    <RoleBadge role={f.role} />
+                  </div>
                   <p className="mt-1.5 text-sm leading-relaxed text-ink">
                     {f.lead}
                   </p>
 
-                  {/* Mobile: eingeklappt hinter „Mehr Details“ */}
+                  {/* Mobile: eingeklappt hinter „Mehr Details" */}
                   <details className="group mt-2 md:hidden">
                     <summary className="cursor-pointer list-none text-sm text-ink-soft hover:text-ink">
                       <span className="group-open:hidden">Mehr Details ›</span>

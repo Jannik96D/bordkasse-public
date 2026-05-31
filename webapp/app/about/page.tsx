@@ -7,7 +7,7 @@ import {
   ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
-import { AboutExplorer, type ExplorerPhase } from "./about-explorer";
+import { AboutExplorer, type ExplorerPhase, type FeatureRole } from "./about-explorer";
 
 export const metadata = {
   title: "Über die Bordkassen-App · Bordkasse",
@@ -107,6 +107,30 @@ const features: Feature[] = [
     ),
     screenshot: "/about/04-trip-overview.webp",
     alt: "Übersicht eines anstehenden Törns mit Crew-Zähler, Schnellzugriff-Kacheln und Navigations-Leiste",
+  },
+  {
+    id: "toern-ueberblick",
+    title: "Dein Törn im Überblick",
+    lead: "Eine Fortschritts-Karte führt den Skipper durch den ganzen Törn — von der Vorbereitung bis zur fertigen Abrechnung.",
+    body: (
+      <>
+        <p>
+          Auf der Trip-Übersicht zeigt die App eine Checkliste mit fünf Phasen
+          (Vorbereitung, Anzahlung, während des Törns, Abrechnung, Abschluss).
+          Die Häkchen setzen sich <strong>automatisch</strong> aus dem echten
+          Stand: Crew eingeladen, erste Ausgabe erfasst, Abrechnung verschickt …
+          Nichts muss von Hand abgehakt werden.
+        </p>
+        <p className="mt-2">
+          Die aktuelle Phase ist aufgeklappt, kommende Schritte stehen gedämpft
+          darunter; die Karte lässt sich jederzeit einklappen. Sie ist dem
+          Skipper, Co-Skippern und Admins vorbehalten — die Crew sieht sie
+          nicht.
+        </p>
+      </>
+    ),
+    screenshot: "/about/18-toern-fortschritt.webp",
+    alt: "Trip-Übersicht mit der Fortschritts-Karte „Dein Törn im Überblick“ und den fünf Phasen",
   },
   {
     id: "buchungen",
@@ -431,7 +455,7 @@ const PHASES: Phase[] = [
     Icon: Compass,
     title: "Loslegen",
     lead: "Anmelden ohne Passwort, eigene Törns im Überblick.",
-    featureIds: ["welcome", "anmelden", "toerns", "trip-overview"],
+    featureIds: ["welcome", "anmelden", "toerns", "trip-overview", "toern-ueberblick"],
   },
   {
     id: "vor-dem-toern",
@@ -469,45 +493,81 @@ function featureById(id: string): Feature {
   return found;
 }
 
+// Rollen-Zuordnung pro Feature (steuert Badge + Filter im Explorer).
+// Nicht gelistete Features sind "alle" — von Skipper UND Crew genutzt.
+const SKIPPER_ONLY = new Set<string>([
+  "toern-ueberblick",
+  "crew",
+  "kategorien",
+  "gutschrift",
+  "anzahlung-setup",
+  "anzahlung-matrix",
+]);
+const CREW_ONLY = new Set<string>(["anzahlung-crew-self"]);
+
+function roleFor(id: string): FeatureRole {
+  if (SKIPPER_ONLY.has(id)) return "skipper";
+  if (CREW_ONLY.has(id)) return "crew";
+  return "alle";
+}
+
 export default function AboutPage() {
   const phasesData: ExplorerPhase[] = PHASES.map((phase) => ({
     id: phase.id,
     title: phase.title,
     lead: phase.lead,
     icon: <phase.Icon className="h-5 w-5" aria-hidden="true" />,
-    features: phase.featureIds.map(featureById),
+    features: phase.featureIds.map((id) => ({
+      ...featureById(id),
+      role: roleFor(id),
+    })),
   }));
 
+  // Neutraler Rahmungs-Einzeiler über den Tabs — erklärt die 5-Phasen-Logik
+  // der Seite, ohne ein rollenspezifisches Feature in den Vordergrund zu
+  // stellen. Die Törn-Fortschritt-Karte selbst sitzt als ⚓-Feature in der
+  // Phase „Loslegen".
+  const explorerIntro = (
+    <p className="mb-6 text-sm text-ink-soft">
+      Die App begleitet jeden Törn in fünf Phasen — tipp dich durch die Tabs,
+      um zu sehen, was in jeder passiert.
+    </p>
+  );
+
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-10">
-      <div className="mb-6">
-        <Link href="/" className="text-sm text-ink-soft hover:text-primary">
-          ← Übersicht
-        </Link>
-      </div>
+    <main className="mx-auto w-full max-w-5xl px-6 py-10">
+      {/* Alle Inhalte teilen eine gemeinsame linke Kante; die Textspalte
+          bricht nur früher um (max-w-3xl, ~65 Zeichen), der Explorer nutzt
+          die volle Breite. Bewusst KEIN mx-auto — das erzeugte sonst einen
+          Versatz der Textspalte gegenüber der Tab-Leiste darunter. */}
+      <div className="max-w-3xl">
+        <div className="mb-6">
+          <Link href="/" className="text-sm text-ink-soft hover:text-primary">
+            ← Übersicht
+          </Link>
+        </div>
 
-      <h1 className="text-3xl font-bold text-primary">
-        Wer schuldet am Ende wem? Diese App rechnet&rsquo;s aus.
-      </h1>
-      <p className="mt-2 text-base text-ink-soft">
-        Faire Aufteilung gemeinsamer Kosten auf Segel-Törns — auch wenn die
-        Crew wechselt, manche keinen Alkohol trinken und einzelne erst
-        später dazustoßen oder früher von Bord gehen.
-      </p>
-
-      <section className="prose mt-8 max-w-none text-sm leading-relaxed">
-        <p>
+        <h1 className="text-3xl font-bold text-primary">
+          Wer schuldet am Ende wem? Diese App rechnet&rsquo;s aus.
+        </h1>
+        <p className="mt-3 text-base leading-relaxed text-ink-soft">
+          Faire Aufteilung gemeinsamer Kosten auf Segel-Törns — auch wenn die
+          Crew wechselt, manche keinen Alkohol trinken und einzelne erst
+          später dazustoßen oder früher von Bord gehen.
+        </p>
+        <p className="mt-3 text-sm leading-relaxed text-ink-soft">
           Die App ist gedacht für Skipper und ihre Crews, die nicht jede
           Ausgabe von Hand in eine Tabelle tippen wollen. Sie läuft auf dem
-          Smartphone, das Anmelden geht ohne Passwort (Login-Link per
-          E-Mail), und sie rechnet faire Salden auch dann, wenn
-          Crew-Mitglieder zu unterschiedlichen Zeiten an und von Bord
-          gehen.
+          Smartphone, das Anmelden geht ohne Passwort (Login-Link per E-Mail),
+          und sie rechnet faire Salden auch dann, wenn Crew-Mitglieder zu
+          unterschiedlichen Zeiten an und von Bord gehen.
         </p>
-      </section>
+      </div>
 
-      <AboutExplorer phases={phasesData} />
+      <AboutExplorer phases={phasesData} intro={explorerIntro} />
 
+      {/* Linksbündig auf derselben Kante wie Hero + Explorer. */}
+      <div className="max-w-3xl">
       <section className="mt-16 rounded-lg border border-rule bg-paper-soft p-6">
         <h2 className="text-lg font-semibold text-primary">
           Was die App <em>nicht</em> ist
@@ -524,7 +584,9 @@ export default function AboutPage() {
           </li>
         </ul>
       </section>
+      </div>
 
+      {/* Abschluss bewusst seitenmittig (konventioneller Closing-CTA). */}
       <section className="mt-12 text-center">
         <p className="text-sm text-ink-soft">Mit an Bord?</p>
         <Link

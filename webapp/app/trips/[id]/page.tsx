@@ -9,6 +9,9 @@ import { todayIso } from "@/lib/utils";
 import { FabAddTransaction } from "@/components/bottom-nav";
 import { OnboardingHint } from "@/components/onboarding-hint";
 import { SettlementStatus } from "@/components/settlement-status";
+import { TripProgress } from "@/components/trip-progress";
+import { getTripProgressSignals } from "@/lib/queries/trip-progress";
+import { computeTripProgress } from "@/lib/calc/trip-progress";
 
 export default async function TripDashboard({
   params,
@@ -31,7 +34,8 @@ export default async function TripDashboard({
 
   const memberCount = members.length;
   const hasMembers = memberCount > 0;
-  const isMyTripSkipper = !!members.find((m) => m.person_id === person?.id)?.is_skipper;
+  const myMember = members.find((m) => m.person_id === person?.id);
+  const isMyTripSkipper = !!myMember?.is_skipper;
   const canAnnounce = admin || isMyTripSkipper;
 
   // Anzahlungen sind bewusst aus der Übersicht verbannt — die laufende
@@ -51,6 +55,19 @@ export default async function TripDashboard({
     ? await countMyTransactions(id, person!.id)
     : 1;
   const onboardingEligible = onboardingPossible && myBookingCount === 0;
+
+  // Törn-Fortschritt-Karte nur für Skipper/Co-Skipper/Admin (wie der Banner).
+  let progress = null;
+  if (canAnnounce) {
+    const signals = await getTripProgressSignals({
+      tripId: id,
+      startDate: trip.start_date,
+      endDate: trip.end_date,
+      memberCount,
+      settlementAnnounced: !!trip.settlement_announced_at,
+    });
+    progress = computeTripProgress(signals, todayIso());
+  }
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-6">
@@ -127,6 +144,17 @@ export default async function TripDashboard({
           )}
         </div>
       </section>
+
+      {progress && (
+        <div className="mt-6">
+          <TripProgress
+            tripId={id}
+            progress={progress}
+            canCollapse={!!myMember}
+            collapsed={!!myMember?.checklist_collapsed_at}
+          />
+        </div>
+      )}
 
       {hasMembers && <FabAddTransaction tripId={id} />}
       <OnboardingHint tripId={id} eligible={onboardingEligible} />
