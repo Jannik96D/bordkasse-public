@@ -284,7 +284,7 @@ export async function purgeTripNow(tripId: string, force: boolean): Promise<Purg
     case "settlement_not_announced":
       return { ok: false, message: "Bitte zuerst die Abrechnung verschicken. Danach kann gelöscht werden." };
     case "debts_open":
-      return { ok: false, message: "Es gibt noch offene Schulden: alle Bezahlt-Häkchen müssen gesetzt sein, bevor gelöscht werden kann." };
+      return { ok: false, message: "Es gibt noch offene Schulden: Alle Bezahlt-Häkchen müssen gesetzt sein, bevor gelöscht werden kann." };
     default:
       return { ok: false, message: `Unerwartete Antwort der Datenbank: ${result}` };
   }

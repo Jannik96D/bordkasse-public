@@ -192,7 +192,7 @@ function SelfPaymentModal({
           Zahlung melden
         </h2>
         <p className="mt-1 text-sm text-ink-soft">
-          {trancheLabel}: dein Skipper bestätigt deine Meldung.
+          {trancheLabel}: Dein Skipper bestätigt deine Meldung.
         </p>
 
         <div className="mt-4 space-y-3">

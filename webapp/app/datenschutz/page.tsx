@@ -56,7 +56,7 @@ export default function DatenschutzPage() {
               Aufteilungen, geteilt nur mit den Crewmitgliedern dieses Trips.
             </li>
             <li>
-              <strong>Sichtbarkeits-Marker für Alt-Statistik</strong>: nach DSGVO-Löschung
+              <strong>Sichtbarkeits-Marker für Alt-Statistik</strong>: Nach DSGVO-Löschung
               eines abgeschlossenen Törns (siehe §5) wird ausschließlich ein Verweis
               „Person X war Mitglied von Trip Y“ aufbewahrt, damit du deine anonymisierten
               Aggregate in der Gesamt-Statistik (<em>/stats</em>) weiter sehen kannst. Keine
@@ -122,7 +122,7 @@ export default function DatenschutzPage() {
               </a>
             </li>
             <li>
-              <strong>E-Mail-Versand</strong>: Eigener Mailserver bei whost.dev (Deutschland)
+              <strong>E-Mail-Versand</strong>: eigener Mailserver bei whost.dev (Deutschland)
               für Login- und Einladungs-Mails.
             </li>
           </ul>
@@ -213,7 +213,7 @@ export default function DatenschutzPage() {
           </p>
           <ul className="ml-5 mt-2 list-disc">
             <li>
-              <strong>Seiten-Cache</strong>: bereits besuchte Crewliste, Buchungen,
+              <strong>Seiten-Cache</strong>: Bereits besuchte Crewliste, Buchungen,
               Bilanz etc. werden gespeichert, damit du sie offline ansehen kannst.
             </li>
             <li>
