@@ -70,7 +70,7 @@ export function renderPrepaymentReminderMail(p: PrepaymentReminderParams): {
             <tr>
               <td style="padding:8px 32px 0 32px;">
                 <p style="margin:0;padding:10px 14px;background-color:#FDF6DC;border-left:3px solid #C8A51E;font-size:13px;color:#1A2533;border-radius:4px;">
-                  Frag <strong>${escapeHtml(p.advancerName)}</strong> nach den Überweisungsdetails — es ist keine Wero-ID hinterlegt.
+                  Frag <strong>${escapeHtml(p.advancerName)}</strong> nach den Überweisungsdetails, es ist keine Wero-ID hinterlegt.
                 </p>
               </td>
             </tr>`;
@@ -125,8 +125,8 @@ ${renderHintBlock(
     ? `Bitte schicke ${p.advancerName} per Wero die fällige Anzahlung.
 Wero-ID (${p.advancerName}): ${p.weroId}
 Verwendungszweck: Anzahlung ${p.tripName}
-(Wero bietet keine Klick-Links — bitte Wero-ID in deiner Wero-App als Empfänger eingeben und Betrag/Verwendungszweck manuell kopieren.)`
-    : `Frag ${p.advancerName} nach den Überweisungsdetails — es ist keine Wero-ID hinterlegt.`;
+(Wero bietet keine Klick-Links: bitte Wero-ID in deiner Wero-App als Empfänger eingeben und Betrag/Verwendungszweck manuell kopieren.)`
+    : `Frag ${p.advancerName} nach den Überweisungsdetails, es ist keine Wero-ID hinterlegt.`;
 
   const text = `Erinnerung: Anzahlung
 ${p.tripName}

@@ -855,7 +855,7 @@ export async function rejectSelfPayment(
     .eq("id", parsed.data.transaction_id)
     .maybeSingle();
   if (!tx || tx.deleted_at) return { status: "error", message: "Buchung nicht gefunden." };
-  if (tx.confirmed_at) return { status: "error", message: "Schon bestätigt — kann nicht mehr abgelehnt werden." };
+  if (tx.confirmed_at) return { status: "error", message: "Schon bestätigt, kann nicht mehr abgelehnt werden." };
 
   // Vorstrecker darf ablehnen — er sieht das Geld NICHT auf seinem Konto.
   const auth = await requireSkipperAdminOrAdvancer(tx.trip_id);

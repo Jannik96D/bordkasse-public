@@ -50,9 +50,9 @@ export function renderSettlementMail(p: SettlementMailParams): { html: string; t
     ? `Du bekommst noch ${fmtEuro(p.balance)} zurück.`
     : isDebtor
       ? `Du zahlst noch ${fmtEuro(Math.abs(p.balance))}.`
-      : `Du bist quitt — nichts mehr zu tun.`;
+      : `Du bist quitt, nichts mehr zu tun.`;
   const introText = p.isUpdate
-    ? `${p.skipperName} hat Buchungen für unseren Törn aktualisiert — die Bilanz hat sich seit der letzten Mail geändert.`
+    ? `${p.skipperName} hat Buchungen für unseren Törn aktualisiert, die Bilanz hat sich seit der letzten Mail geändert.`
     : `${p.skipperName} hat die Bordkasse für unseren Törn final abgerechnet.`;
   const changeSummaryBlock = p.isUpdate && p.changeSummary
     ? `
@@ -114,7 +114,7 @@ export function renderSettlementMail(p: SettlementMailParams): { html: string; t
 ${changeSummaryBlock}${debtsBlock}
 ${renderActionButton(p.appUrl, "Zahlungen in der App abhaken")}
 ${renderHintBlock(
-  "Tipp: In der App kannst du deine Zahlung als erledigt abhaken — alle in der Crew sehen den Status live. Sollte sich nachträglich etwas an der Bordkasse ändern, bekommst du eine neue Mail.",
+  "Tipp: In der App kannst du deine Zahlung als erledigt abhaken, alle in der Crew sehen den Status live. Sollte sich nachträglich etwas an der Bordkasse ändern, bekommst du eine neue Mail.",
 )}`;
 
   const html = renderMailShell({

@@ -43,7 +43,7 @@ export default async function TransactionsListPage({
           <Users className="mx-auto mb-3 h-10 w-10 text-ink-soft" />
           <p className="font-medium">Noch keine Crew</p>
           <p className="mt-1 text-sm text-ink-soft">
-            Lege zuerst die Crew an — danach kannst du Ausgaben erfassen und auf
+            Lege zuerst die Crew an, danach kannst du Ausgaben erfassen und auf
             die Crew aufteilen.
           </p>
           <Link

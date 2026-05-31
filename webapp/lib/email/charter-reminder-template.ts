@@ -45,7 +45,7 @@ export function renderCharterReminderMail(p: CharterReminderParams): {
   const headline = p.isAutomated ? "Charteranzahlung steht an" : "Charteranzahlung – Übersicht";
   const introText = p.isAutomated
     ? `in den nächsten Tagen wird deine Anzahlung an die Charteragentur fällig. Hier eine Übersicht, was bei dir ankommt und was du noch überweisen musst.`
-    : `hier dein aktueller Stand für die Anzahlung an die Charteragentur — was bei dir ankommt und was du noch überweisen musst.`;
+    : `hier dein aktueller Stand für die Anzahlung an die Charteragentur: was bei dir ankommt und was du noch überweisen musst.`;
 
   const trancheRows = p.tranches
     .map((t) => {
@@ -121,7 +121,7 @@ export function renderCharterReminderMail(p: CharterReminderParams): {
             </tr>
 ${renderActionButton(p.appUrl, "In der Bordkasse ansehen")}
 ${renderHintBlock(
-  "Sobald du an die Agentur überwiesen hast, erfasse die Überweisung als neue Ausgabe und ordne sie der passenden Tranche zu — sie taucht dann hier korrekt an.",
+  "Sobald du an die Agentur überwiesen hast, erfasse die Überweisung als neue Ausgabe und ordne sie der passenden Tranche zu, sie taucht dann hier korrekt an.",
 )}`;
 
   const html = renderMailShell({

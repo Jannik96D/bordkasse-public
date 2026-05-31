@@ -97,7 +97,7 @@ export default async function Home({
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-danger" aria-hidden />
           <div className="flex-1">
             <p className="font-medium text-danger">
-              DSGVO-Frist abgelaufen — {overdueTrips.length} Törn
+              DSGVO-Frist abgelaufen: {overdueTrips.length} Törn
               {overdueTrips.length === 1 ? "" : "s"} mit überfälligen Daten
             </p>
             <p className="mt-1 text-xs text-ink-soft">
@@ -226,7 +226,7 @@ function TripCard({
             {flagOverdue && (
               <p className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-danger">
                 <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
-                DSGVO-Frist abgelaufen — bitte löschen
+                DSGVO-Frist abgelaufen: bitte löschen
               </p>
             )}
           </div>

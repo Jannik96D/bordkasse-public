@@ -244,7 +244,7 @@ export function CrewSection({
               E-Mail <span className="text-ink-soft font-normal">(optional)</span>
               <InfoTooltip
                 label="Was passiert ohne E-Mail?"
-                text="Ohne E-Mail wird die Person als Ghost angelegt — kein Login, aber Anzahlungs-Soll und Buchungs-Beteiligung funktionieren trotzdem. E-Mail später nachtragbar."
+                text="Ohne E-Mail wird die Person als Ghost angelegt: kein Login, aber Anzahlungs-Soll und Buchungs-Beteiligung funktionieren trotzdem. E-Mail später nachtragbar."
               />
             </label>
             <input id="email" name="email" type="email"
@@ -300,8 +300,8 @@ export function CrewSection({
               className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
             >
               <option value="">Default aus Person übernehmen</option>
-              <option value="yes">Ja — bekommt Alkohol-Anteil</option>
-              <option value="no">Nein — kein Alkohol-Anteil</option>
+              <option value="yes">Ja, bekommt Alkohol-Anteil</option>
+              <option value="no">Nein, kein Alkohol-Anteil</option>
             </select>
           </div>
 
@@ -383,7 +383,7 @@ function EditMemberForm({
           Anzeigename
           {!member.is_ghost && (
             <span className="ml-2 text-xs font-normal text-ink-soft">
-              (gesperrt — Person verwaltet ihren Namen selbst)
+              (gesperrt, Person verwaltet ihren Namen selbst)
             </span>
           )}
         </label>
@@ -403,7 +403,7 @@ function EditMemberForm({
           E-Mail
           {!member.is_ghost && (
             <span className="ml-2 text-xs font-normal text-ink-soft">
-              (gesperrt — User ist eingeloggt)
+              (gesperrt, User ist eingeloggt)
             </span>
           )}
         </label>
@@ -466,8 +466,8 @@ function EditMemberForm({
           className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
         >
           <option value="">Default aus Person übernehmen</option>
-          <option value="yes">Ja — bekommt Alkohol-Anteil</option>
-          <option value="no">Nein — kein Alkohol-Anteil</option>
+          <option value="yes">Ja, bekommt Alkohol-Anteil</option>
+          <option value="no">Nein, kein Alkohol-Anteil</option>
         </select>
       </div>
 

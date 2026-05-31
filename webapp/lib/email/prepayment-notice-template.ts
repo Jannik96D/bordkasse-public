@@ -70,8 +70,8 @@ export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
 
   const followupText =
     p.kind === "payment_rejected"
-      ? "Falls die Ablehnung ein Versehen war, sprich kurz mit der vorstreckenden Person oder dem Skipper — die Buchung kann neu erfasst werden."
-      : "Falls etwas nicht stimmt, sprich kurz mit der vorstreckenden Person oder dem Skipper — Buchungen können in der App noch geändert werden.";
+      ? "Falls die Ablehnung ein Versehen war, sprich kurz mit der vorstreckenden Person oder dem Skipper, die Buchung kann neu erfasst werden."
+      : "Falls etwas nicht stimmt, sprich kurz mit der vorstreckenden Person oder dem Skipper, Buchungen können in der App noch geändert werden.";
 
   const detailLine = `${p.subjectPersonName} · ${escapeHtml(p.trancheLabel)} · ${fmtEuro(p.amount)}`;
 

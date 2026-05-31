@@ -26,7 +26,7 @@ export default function Error({
         <div className="space-y-2">
           <h1 className="text-2xl font-bold text-primary">Etwas ist schiefgelaufen</h1>
           <p className="text-sm text-ink-soft">
-            Die Aktion konnte gerade nicht abgeschlossen werden — oft hilft es,
+            Die Aktion konnte gerade nicht abgeschlossen werden. Oft hilft es,
             es bei besserem Empfang erneut zu versuchen. Deine bereits
             gespeicherten Buchungen sind nicht betroffen.
           </p>

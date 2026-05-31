@@ -427,7 +427,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
 
           {needsTotalAmount && totalAmountNum <= 0 && (
             <p className="text-xs text-ink-soft">
-              Trage zuerst eine Gesamtsumme &gt; 0 € ein — daraus werden die
+              Trage zuerst eine Gesamtsumme &gt; 0 € ein. Daraus werden die
               Soll-Beträge der Crew berechnet.
             </p>
           )}

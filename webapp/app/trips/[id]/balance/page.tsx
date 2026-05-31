@@ -57,7 +57,7 @@ export default async function BalancePage({
         {hasPlan && (
           <InfoTooltip
             label="Bilanz-Blöcke erklärt"
-            text="Diese Bilanz hat zwei Töpfe: „Anzahlung“ ist das Geld für die Yacht-Charter, das vorab an die Agentur gezahlt wird. „Bordkasse“ sind die laufenden Kosten während des Törns (Sprit, Hafen, Essen). „Gesamt“ fasst beide zusammen — das ist unterm Strich dein Saldo."
+            text="Diese Bilanz hat zwei Töpfe: „Anzahlung“ ist das Geld für die Yacht-Charter, das vorab an die Agentur gezahlt wird. „Bordkasse“ sind die laufenden Kosten während des Törns (Sprit, Hafen, Essen). „Gesamt“ fasst beide zusammen. Das ist unterm Strich dein Saldo."
           />
         )}
       </h1>
@@ -275,7 +275,7 @@ function BordkasseTable({ rows, sum, hasPlan }: { rows: BalanceRow[]; sum: numbe
 
       {Math.abs(sum) > 0.05 && (
         <p className="mt-3 text-xs text-danger">
-          ⚠️ Saldo-Summe ist {formatEuro(sum)} statt 0 — könnte ein Rundungsfehler oder Datenproblem sein.
+          ⚠️ Saldo-Summe ist {formatEuro(sum)} statt 0: könnte ein Rundungsfehler oder Datenproblem sein.
         </p>
       )}
 

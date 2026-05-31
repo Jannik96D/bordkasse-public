@@ -209,7 +209,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
     return {
       ok: false,
       message:
-        "Es wurde noch keine Abrechnung verschickt — bitte erst die initiale Abrechnung verschicken.",
+        "Es wurde noch keine Abrechnung verschickt. Bitte erst die initiale Abrechnung verschicken.",
     };
   }
 

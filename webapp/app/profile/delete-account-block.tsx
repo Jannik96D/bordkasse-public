@@ -35,8 +35,8 @@ export function DeleteAccountBlock() {
             <p className="mt-1 text-ink-soft">
               Beim Löschen werden deine E-Mail-Adresse, dein Nachname und dein Login
               entfernt. In Törns mit Buchungen, an denen du beteiligt warst, bleibt
-              dein <em>Vorname</em> bestehen, damit die Bilanz nicht zerbricht —
-              er wird durch „Ehemaliges Crewmitglied“ ersetzt.
+              dein <em>Vorname</em> bestehen, damit die Bilanz nicht zerbricht.
+              Er wird durch „Ehemaliges Crewmitglied“ ersetzt.
             </p>
             <p className="mt-2 text-ink-soft">
               <strong>Voraussetzung:</strong> Du hast in <em>aktiven</em> Törns
