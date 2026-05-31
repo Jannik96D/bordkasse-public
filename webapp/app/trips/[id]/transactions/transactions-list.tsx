@@ -74,8 +74,8 @@ export function TransactionsList({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Suchen (Beschreibung, Person, Kategorie)"
-            aria-label="Buchungen filtern"
+            placeholder="Buchungen durchsuchen"
+            aria-label="Buchungen filtern (Beschreibung, Person, Kategorie)"
             className="h-11 w-full rounded-md border border-rule bg-paper pl-9 pr-9 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
           />
           {query && (

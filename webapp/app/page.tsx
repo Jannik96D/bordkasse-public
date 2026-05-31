@@ -195,6 +195,24 @@ export default async function Home({
   );
 }
 
+/**
+ * Törn-Status aus Start-/End-Datum ableiten (Vergleich auf ISO-Datum,
+ * Server-Komponente → `new Date()` unbedenklich). Liefert Label + Stil für
+ * ein kleines Badge, damit man bei mehreren Törns sofort sieht, welcher
+ * läuft / ansteht / vorbei ist (U-3). Farbe ist NIE alleiniger Träger —
+ * das Label trägt die Information.
+ */
+function tripStatus(startDate: string, endDate: string): { label: string; className: string } {
+  const today = new Date().toISOString().slice(0, 10);
+  if (endDate < today) {
+    return { label: "Vorbei", className: "bg-paper-soft text-ink-soft" };
+  }
+  if (startDate > today) {
+    return { label: "Anstehend", className: "bg-navy-light text-primary" };
+  }
+  return { label: "Läuft", className: "bg-success/10 text-success" };
+}
+
 function TripCard({
   trip,
   canAct,
@@ -204,6 +222,7 @@ function TripCard({
 }) {
   // Rote Markierung nur, wenn der angemeldete User auch handeln kann.
   const flagOverdue = canAct && trip.retention_overdue;
+  const status = tripStatus(trip.start_date, trip.end_date);
   return (
     <li>
       <Link
@@ -216,7 +235,14 @@ function TripCard({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <p className="font-semibold text-primary">{trip.name}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-semibold text-primary">{trip.name}</p>
+              <span
+                className={`inline-block shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${status.className}`}
+              >
+                {status.label}
+              </span>
+            </div>
             <p className="mt-1 text-sm text-ink-soft">
               {formatDate(trip.start_date)} – {formatDate(trip.end_date)}
             </p>
