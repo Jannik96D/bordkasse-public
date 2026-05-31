@@ -40,6 +40,23 @@ export function nowMs(): number {
   return Date.now();
 }
 
+/**
+ * Anzahl der (inklusiven) Tage zwischen zwei ISO-Daten YYYY-MM-DD.
+ * "ab" und "bis" zählen beide mit (1 Tag = von/bis am selben Tag).
+ * Liefert 0 bei leeren Eingaben oder wenn "bis" vor "ab" liegt.
+ *
+ * Wird sowohl in der Anzahlungs-Berechnung (lib/actions/prepayments.ts) als
+ * auch in der client-seitigen Aufteilungs-Vorschau (transaction-form.tsx)
+ * gebraucht — daher hier zentral, kein Duplikat.
+ */
+export function daysBetween(fromIso: string, toIso: string): number {
+  if (!fromIso || !toIso) return 0;
+  const from = new Date(`${fromIso}T00:00:00Z`);
+  const to = new Date(`${toIso}T00:00:00Z`);
+  const diff = Math.floor((to.getTime() - from.getTime()) / 86_400_000) + 1;
+  return Math.max(0, diff);
+}
+
 /** Heute als ISO-Date YYYY-MM-DD (in lokaler Zeitzone, ohne Zeit). */
 export function todayIso(): string {
   const d = new Date();

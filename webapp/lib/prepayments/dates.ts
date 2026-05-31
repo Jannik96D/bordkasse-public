@@ -9,16 +9,31 @@
 /** Anzahl Tage, die die Crew vor der Charter-Fälligkeit zahlen soll. */
 export const CREW_DUE_DAYS_BEFORE_CHARTER = 3;
 
+/** Heute als ISO-Date (UTC), zeitzonenneutral wie der Rest des Moduls. */
+function todayIsoUtc(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 /**
  * Aus einer Charter-Fälligkeit (ISO YYYY-MM-DD) die Crew-Fälligkeit
  * (3 Tage davor) berechnen. Zeit-Zone-neutral via UTC, damit Sommerzeit-
  * Wechsel die Berechnung nicht verschiebt.
+ *
+ * Clamp: solange die Charter-Frist noch aussteht, rutscht die Crew-Frist nicht
+ * in die Vergangenheit (sonst sähe die Crew „bis gestern", obwohl die Zahlung
+ * noch ansteht) — aber sie liegt nie nach der Charter-Frist selbst. `today`
+ * ist überschreibbar für deterministische Tests.
  */
-export function toCrewDueDate(charterDueDateIso: string): string {
+export function toCrewDueDate(charterDueDateIso: string, today: string = todayIsoUtc()): string {
   if (!charterDueDateIso) return charterDueDateIso;
   const d = new Date(`${charterDueDateIso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() - CREW_DUE_DAYS_BEFORE_CHARTER);
-  return d.toISOString().slice(0, 10);
+  let crewDue = d.toISOString().slice(0, 10);
+  // ISO YYYY-MM-DD vergleicht lexikografisch = chronologisch.
+  if (crewDue < today) {
+    crewDue = today < charterDueDateIso ? today : charterDueDateIso;
+  }
+  return crewDue;
 }
 
 /**

@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:db": "supabase test db",
     "e2e": "playwright test",
     "e2e:install": "playwright install chromium"
   },

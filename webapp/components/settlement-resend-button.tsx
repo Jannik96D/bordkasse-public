@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { RefreshCw } from "lucide-react";
 import { resendSettlement } from "@/lib/actions/settlement";
+import { useConfirm } from "@/components/confirm-dialog";
 
 /**
  * Skipper-Button "Update-Mail verschicken" — wird angezeigt, wenn nach der
@@ -12,32 +13,33 @@ import { resendSettlement } from "@/lib/actions/settlement";
  */
 export function SettlementResendButton({ tripId }: { tripId: string }) {
   const [pending, startTransition] = useTransition();
+  const { confirm, confirmDialog } = useConfirm();
   const [status, setStatus] = useState<
     | { kind: "idle" }
-    | { kind: "ok"; sent: number; skipped: number }
+    | { kind: "ok"; sent: number; skipped: number; failed: number }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
 
-  const trigger = () => {
-    if (
-      !confirm(
-        "Update-Mail an die Crew verschicken? Alle bekommen eine Mail mit der aktualisierten Bilanz.",
-      )
-    ) {
-      return;
-    }
+  const trigger = async () => {
+    const ok = await confirm({
+      title: "Update-Mail verschicken?",
+      body: "Alle Crew-Mitglieder mit E-Mail-Adresse bekommen eine Mail mit der aktualisierten Bilanz und dem neuen Zahlungsplan.",
+      confirmLabel: "Verschicken",
+    });
+    if (!ok) return;
     startTransition(async () => {
       const res = await resendSettlement(tripId);
-      if (res.ok) setStatus({ kind: "ok", sent: res.sent, skipped: res.skipped });
+      if (res.ok) setStatus({ kind: "ok", sent: res.sent, skipped: res.skipped, failed: res.failed });
       else setStatus({ kind: "error", message: res.message });
     });
   };
 
   if (status.kind === "ok") {
     return (
-      <p className="mt-2 text-xs text-success">
-        ✓ Update verschickt — {status.sent} Mail{status.sent === 1 ? "" : "s"} raus
-        {status.skipped > 0 && `, ${status.skipped} übersprungen`}.
+      <p className={`mt-2 text-xs ${status.failed > 0 ? "text-danger" : "text-success"}`}>
+        {status.failed > 0 ? "⚠" : "✓"} Update verschickt — {status.sent} Mail{status.sent === 1 ? "" : "s"} raus
+        {status.failed > 0 && `, ${status.failed} fehlgeschlagen`}
+        {status.skipped > 0 && `, ${status.skipped} ohne Email-Adresse übersprungen`}.
       </p>
     );
   }
@@ -56,6 +58,7 @@ export function SettlementResendButton({ tripId }: { tripId: string }) {
       {status.kind === "error" && (
         <p className="mt-1 text-xs text-danger">{status.message}</p>
       )}
+      {confirmDialog}
     </div>
   );
 }

@@ -18,12 +18,18 @@ const FOCUSABLE =
 export function Modal({
   onClose,
   labelledBy,
+  describedBy,
+  role = "dialog",
   children,
   className,
   backdropClassName,
 }: {
   onClose: () => void;
   labelledBy?: string;
+  /** id des beschreibenden Konsequenz-Texts (für `aria-describedby`). */
+  describedBy?: string;
+  /** "alertdialog" für Bestätigungs-/Gefahren-Dialoge, sonst "dialog". */
+  role?: "dialog" | "alertdialog";
   children: React.ReactNode;
   className?: string;
   /** Override für die Backdrop-Ausrichtung (z. B. Bottom-Sheet auf Mobile). */
@@ -80,9 +86,10 @@ export function Modal({
     >
       <div
         ref={panelRef}
-        role="dialog"
+        role={role}
         aria-modal="true"
         aria-labelledby={labelledBy}
+        aria-describedby={describedBy}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         className={

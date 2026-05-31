@@ -331,7 +331,9 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
               <tr key={m.id} className="border-t border-rule">
                 <th scope="row" className="sticky left-0 z-10 bg-paper px-2 py-2 text-left font-medium sm:px-3">
                   <div className="flex items-center gap-1">
-                    {m.display_name}
+                    <span className="max-w-[12ch] truncate" title={m.display_name}>
+                      {m.display_name}
+                    </span>
                     {isAdvancerRow && (
                       <span
                         className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"

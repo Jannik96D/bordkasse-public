@@ -18,7 +18,7 @@ import { calculateObligations } from "@/lib/calc/prepayment-shares";
 import type { PrepaymentMember, PrepaymentCabin } from "@/lib/calc/prepayment-shares";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
 import { resolveOrigin } from "@/lib/auth/origin";
-import { round2 } from "@/lib/utils";
+import { round2, daysBetween } from "@/lib/utils";
 
 const PG_UNIQUE_VIOLATION = "23505";
 
@@ -668,14 +668,6 @@ export async function sendPrepaymentReminder(
 // ────────────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────────────
-
-function daysBetween(fromIso: string, toIso: string): number {
-  if (!fromIso || !toIso) return 0;
-  const from = new Date(`${fromIso}T00:00:00Z`);
-  const to = new Date(`${toIso}T00:00:00Z`);
-  const diff = Math.floor((to.getTime() - from.getTime()) / 86_400_000) + 1;
-  return Math.max(0, diff);
-}
 
 void redirect; // import-Side-Effect, im File benutzt
 

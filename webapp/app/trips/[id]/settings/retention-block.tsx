@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Eraser } from "lucide-react";
 import { purgeTripNow } from "@/lib/actions/trips";
+import { useConfirm } from "@/components/confirm-dialog";
 
 /**
  * Manueller DSGVO-Purge-Button für Skipper/Admin. Versucht zuerst ohne
@@ -15,6 +16,7 @@ import { purgeTripNow } from "@/lib/actions/trips";
  */
 export function RetentionBlock({ tripId }: { tripId: string }) {
   const [pending, startTransition] = useTransition();
+  const { confirm, confirmDialog } = useConfirm();
   const [state, setState] = useState<
     | { kind: "idle" }
     | { kind: "soft_blocked"; message: string }
@@ -22,11 +24,23 @@ export function RetentionBlock({ tripId }: { tripId: string }) {
     | { kind: "ok"; message: string }
   >({ kind: "idle" });
 
-  const trigger = (force: boolean) => {
-    const confirmMsg = force
-      ? "Personenbezogene Daten dieses Törns SOFORT löschen? Buchungen, Crew und Schulden werden anonymisiert — nur die Aggregat-Statistik bleibt."
-      : "Personenbezogene Daten dieses Törns löschen? Voraussetzung: alle Schulden bezahlt und 30 Tage seit Törn-Ende.";
-    if (!confirm(confirmMsg)) return;
+  const trigger = async (force: boolean) => {
+    const ok = await confirm(
+      force
+        ? {
+            title: "Daten sofort löschen?",
+            body: "Buchungen, Crew und Schulden dieses Törns werden anonymisiert — nur die aggregierte Statistik bleibt. Das lässt sich nicht rückgängig machen.",
+            confirmLabel: "Trotzdem löschen",
+            danger: true,
+          }
+        : {
+            title: "Personenbezogene Daten löschen?",
+            body: "Voraussetzung: alle Schulden bezahlt und 30 Tage seit Törn-Ende. Aggregierte Statistik bleibt anonymisiert erhalten.",
+            confirmLabel: "Löschen",
+            danger: true,
+          },
+    );
+    if (!ok) return;
 
     startTransition(async () => {
       const res = await purgeTripNow(tripId, force);
@@ -87,6 +101,7 @@ export function RetentionBlock({ tripId }: { tripId: string }) {
           {state.message}
         </p>
       )}
+      {confirmDialog}
     </section>
   );
 }

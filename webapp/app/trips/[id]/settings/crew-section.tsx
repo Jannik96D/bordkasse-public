@@ -12,6 +12,7 @@ import {
 import type { TripMemberRow } from "@/lib/queries/trips";
 import { formatDate } from "@/lib/utils";
 import { InfoTooltip } from "@/components/info-tooltip";
+import { useConfirm } from "@/components/confirm-dialog";
 
 const initial: MemberState = { status: "idle" };
 
@@ -35,6 +36,25 @@ export function CrewSection({
   const [, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const { confirm, confirmDialog } = useConfirm();
+
+  const handleRemove = async (m: TripMemberRow) => {
+    if (m.person_id === ownerId) return;
+    const ok = await confirm({
+      title: `${m.display_name} aus der Crew entfernen?`,
+      body: "Die Person wird von diesem Törn entfernt. Bereits erfasste Buchungen müssen vorher umgebucht sein.",
+      confirmLabel: "Entfernen",
+      danger: true,
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      setRemoveError(null);
+      const res = await removeMember(m.id, tripId);
+      if (!res.ok) {
+        setRemoveError(`${m.display_name}: ${res.message}`);
+      }
+    });
+  };
 
   // Form nach erfolgreichem Submit automatisch zuklappen — aber nur einmal
   // pro Submit. Vorherige Implementation startete bei jedem Render einen
@@ -171,20 +191,7 @@ export function CrewSection({
                   </button>
                   <button
                     type="button"
-                    onClick={() =>
-                      startTransition(async () => {
-                        if (
-                          m.person_id !== ownerId &&
-                          confirm(`${m.display_name} aus der Crew entfernen?`)
-                        ) {
-                          setRemoveError(null);
-                          const res = await removeMember(m.id, tripId);
-                          if (!res.ok) {
-                            setRemoveError(`${m.display_name}: ${res.message}`);
-                          }
-                        }
-                      })
-                    }
+                    onClick={() => handleRemove(m)}
                     disabled={m.person_id === ownerId}
                     className="rounded-md p-1.5 text-ink-soft hover:bg-paper-soft hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label={`${m.display_name} entfernen`}
@@ -323,6 +330,7 @@ export function CrewSection({
           </button>
         </form>
       )}
+      {confirmDialog}
     </section>
   );
 }

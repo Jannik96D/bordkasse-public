@@ -12,13 +12,23 @@ import {
   type TxState,
 } from "@/lib/actions/transactions";
 import { enqueue } from "@/lib/offline/outbox";
-import { todayIso, cn, formatEuro, nowMs } from "@/lib/utils";
+import { todayIso, cn, formatEuro, nowMs, daysBetween } from "@/lib/utils";
 import { CategorySelect } from "@/components/category-select";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { PersonSelect } from "@/components/person-select";
 import { safeMathEval } from "@/lib/utils/math-eval";
+import { calculateShares } from "@/lib/calc/shares";
+import type { Member as CalcMember, Transaction as CalcTransaction } from "@/lib/calc/types";
 
-type Member = { person_id: string; display_name: string };
+type Member = {
+  person_id: string;
+  display_name: string;
+  /** Anwesenheit (für „An Bord" / „Zeitanteilig"-Vorschau). Fällt auf Törn-Daten zurück. */
+  on_board_from?: string | null;
+  on_board_to?: string | null;
+  /** Trinkt Alkohol mit (für Alkohol-Anteil-Vorschau). */
+  is_alcoholic_effective?: boolean;
+};
 type Category = { id: string; name: string; icon: string | null };
 type SplitType =
   | "equal"
@@ -379,6 +389,68 @@ function ExpenseForm({
   // das Betrag-Feld zeigt die Summe, ist nicht editierbar.
   const isPerPerson = splitType === "per_person";
   const displayAmount = isPerPerson ? formatAmount(perPersonSum) : amount;
+
+  // ── Live-Vorschau der Aufteilung ────────────────────────────────────────
+  // Spiegelt mit der exakt gleichen Logik wie der Server (lib/calc/shares.ts)
+  // pro Person den Anteil, damit der User VOR dem Speichern sieht, wer wie
+  // viel zahlt. Eingeklappt (`<details>`), reagiert live auf alle Eingaben.
+  const previewShares = useMemo(() => {
+    const baseAmount = isPerPerson ? perPersonSum : safeMathEval(amount) ?? 0;
+    const alc = !isPerPerson ? safeMathEval(alcoholAmount) ?? 0 : 0;
+    const tip = isPerPerson ? safeMathEval(tipAmount) ?? 0 : 0;
+    if (baseAmount <= 0) return null;
+
+    const calcMembers: CalcMember[] = members.map((m) => {
+      const effectiveFrom = m.on_board_from ?? tripStart ?? date;
+      const effectiveTo = m.on_board_to ?? tripEnd ?? date;
+      return {
+        personId: m.person_id,
+        displayName: m.display_name,
+        isAlcoholic: m.is_alcoholic_effective ?? false,
+        effectiveFrom,
+        effectiveTo,
+        days: daysBetween(effectiveFrom, effectiveTo),
+      };
+    });
+
+    const tx: CalcTransaction = {
+      id: "preview",
+      type: "expense",
+      date,
+      amount: baseAmount,
+      alcoholAmount: alc,
+      tipAmount: tip,
+      tipDistribution,
+      splitType,
+      participants: Array.from(participantIds),
+      participantAmounts: perPersonAmounts
+        .filter((p) => p.amount > 0)
+        .map((p) => ({ personId: p.personId, amount: p.amount })),
+    };
+
+    const shareByPerson = new Map(
+      calculateShares(tx, calcMembers).map((s) => [s.personId, s.share]),
+    );
+    const rows = members
+      .map((m) => ({ name: m.display_name, share: shareByPerson.get(m.person_id) ?? 0 }))
+      .filter((r) => r.share > 0);
+    const sum = rows.reduce((s, r) => s + r.share, 0);
+    return { rows, sum };
+  }, [
+    members,
+    isPerPerson,
+    perPersonSum,
+    amount,
+    alcoholAmount,
+    tipAmount,
+    tipDistribution,
+    splitType,
+    participantIds,
+    perPersonAmounts,
+    date,
+    tripStart,
+    tripEnd,
+  ]);
 
   // Bei Validierungs-Fehler: zum betroffenen Feld scrollen + fokussieren.
   useEffect(() => {
@@ -744,6 +816,27 @@ function ExpenseForm({
             </FieldGroup>
           )}
         </>
+      )}
+
+      {/* Live-Vorschau: wer zahlt wie viel — eingeklappt per Default. */}
+      {previewShares && previewShares.rows.length > 0 && (
+        <details className="rounded-md border border-rule bg-paper-soft p-3 text-sm">
+          <summary className="cursor-pointer font-medium text-ink">
+            Wer zahlt wie viel?
+          </summary>
+          <ul className="mt-3 space-y-1">
+            {previewShares.rows.map((r) => (
+              <li key={r.name} className="flex items-center justify-between gap-3">
+                <span className="min-w-0 truncate text-ink-soft">{r.name}</span>
+                <span className="shrink-0 tabular-nums">{formatEuro(r.share)}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 flex items-center justify-between gap-3 border-t border-rule pt-2 font-medium">
+            <span>Summe</span>
+            <span className="tabular-nums text-primary">{formatEuro(previewShares.sum)}</span>
+          </div>
+        </details>
       )}
 
       <TrancheField tranches={tranches} initialTrancheId={initial?.trancheId ?? null} canEdit={canEditTranche} />

@@ -50,6 +50,9 @@ export default async function NewTransactionPage({
         members={members.map((m) => ({
           person_id: m.person_id,
           display_name: m.display_name,
+          on_board_from: m.on_board_from,
+          on_board_to: m.on_board_to,
+          is_alcoholic_effective: m.is_alcoholic_effective,
         }))}
         categories={categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon }))}
         tranches={tranches.map((t) => ({ id: t.id, label: t.label, due_date: t.due_date }))}

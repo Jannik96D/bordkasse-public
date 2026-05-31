@@ -105,6 +105,33 @@ async function trancheBelongsToTrip(
 }
 
 /**
+ * Cross-Trip-Schutz für Personen-Referenzen: stellt sicher, dass jede
+ * angegebene person_id (paid_by / participant_ids / credit_from / credit_to)
+ * wirklich Crew dieses Törns ist. Verhindert, dass über eine untergeschobene
+ * Fremd-person_id eine Person aus Törn B in die Bilanz von Törn A gezogen
+ * wird (der Service-Role-Schreibpfad umgeht RLS, daher App-Layer-Check).
+ * Leere Liste / nur null-Werte → immer ok.
+ */
+async function personsBelongToTrip(
+  supabase: ReturnType<typeof createAdminClient>,
+  personIds: Array<string | null | undefined>,
+  tripId: string,
+): Promise<boolean> {
+  const ids = Array.from(new Set(personIds.filter((id): id is string => !!id)));
+  if (ids.length === 0) return true;
+  const { data } = await supabase
+    .from("trip_members")
+    .select("person_id")
+    .eq("trip_id", tripId)
+    .in("person_id", ids);
+  const found = new Set((data ?? []).map((r) => r.person_id));
+  return ids.every((id) => found.has(id));
+}
+
+const CROSS_TRIP_PERSON_MSG =
+  "Eine ausgewählte Person gehört nicht zu diesem Törn. Bitte Seite neu laden.";
+
+/**
  * Generisches deutsches Fallback für unbehandelte PostgREST-/Postgres-Fehler.
  * Der Original-Fehler wird in der Server-Konsole geloggt; die Crew sieht eine
  * neutrale Meldung statt englischer DB-Internals.
@@ -183,6 +210,16 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
 
   if (!(await trancheBelongsToTrip(supabase, trancheId, txData.trip_id))) {
     return { status: "error", message: "Ungültige Tranche für diesen Törn." };
+  }
+
+  if (
+    !(await personsBelongToTrip(
+      supabase,
+      [txData.paid_by, ...participant_ids, ...participant_amounts.map((p) => p.person_id)],
+      txData.trip_id,
+    ))
+  ) {
+    return { status: "error", message: CROSS_TRIP_PERSON_MSG };
   }
 
   const { data: tx, error } = await supabase
@@ -275,6 +312,16 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
 
   if (!(await trancheBelongsToTrip(supabase, parsed.data.tranche_id, parsed.data.trip_id))) {
     return { status: "error", message: "Ungültige Tranche für diesen Törn." };
+  }
+
+  if (
+    !(await personsBelongToTrip(
+      supabase,
+      [parsed.data.credit_from, parsed.data.credit_to],
+      parsed.data.trip_id,
+    ))
+  ) {
+    return { status: "error", message: CROSS_TRIP_PERSON_MSG };
   }
 
   const { data: tx, error } = await supabase
@@ -405,6 +452,16 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     return { status: "error", message: "Ungültige Tranche für diesen Törn." };
   }
 
+  if (
+    !(await personsBelongToTrip(
+      supabase,
+      [txData.paid_by, ...participant_ids, ...participant_amounts.map((p) => p.person_id)],
+      txData.trip_id,
+    ))
+  ) {
+    return { status: "error", message: CROSS_TRIP_PERSON_MSG };
+  }
+
   const { error } = await supabase
     .from("transactions")
     .update({
@@ -453,9 +510,10 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   revalidatePath(`/trips/${txData.trip_id}/balance`);
   revalidatePath(`/trips/${txData.trip_id}/debts`);
   // Bei Kaution-Buchungs-Edit: zurück zur Trip-Übersicht mit Settlement-Hinweis,
-  // damit der Skipper nicht vergisst die Abrechnung zu starten.
+  // damit der Skipper nicht vergisst die Abrechnung zu starten. Der toast-Param
+  // sorgt dafür, dass die Erfolgs-Rückmeldung trotz Redirect nicht verloren geht.
   if (touchedKaution) {
-    redirect(`/trips/${txData.trip_id}?check_settlement=1`);
+    redirect(`/trips/${txData.trip_id}?check_settlement=1&toast=expense-updated`);
   }
   redirect(`/trips/${txData.trip_id}/transactions?toast=expense-updated`);
 }
@@ -543,6 +601,16 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
 
   if (!(await trancheBelongsToTrip(supabase, parsed.data.tranche_id, parsed.data.trip_id))) {
     return { status: "error", message: "Ungültige Tranche für diesen Törn." };
+  }
+
+  if (
+    !(await personsBelongToTrip(
+      supabase,
+      [parsed.data.credit_from, parsed.data.credit_to],
+      parsed.data.trip_id,
+    ))
+  ) {
+    return { status: "error", message: CROSS_TRIP_PERSON_MSG };
   }
 
   const { error } = await supabase
