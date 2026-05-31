@@ -152,7 +152,7 @@ export async function deleteMyAccount(
     return {
       status: "error",
       message:
-        "Du hast noch Buchungen in einem aktiven Törn. Bitte warte bis nach dem Törn-Ende oder lass deine Buchungen vorher vom Skipper umbuchen.",
+        "Du hast noch Buchungen in einem aktiven Törn. Bitte warte bis nach dem Törnende oder lass deine Buchungen vorher vom Skipper umbuchen.",
     };
   }
   if (result === "not_authenticated") {

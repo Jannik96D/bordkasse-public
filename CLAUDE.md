@@ -3,7 +3,7 @@
 > Tool zur fairen Aufteilung gemeinsamer Kosten auf Segeltörns mit wechselnden Crews.
 > Zwei Implementationen parallel im Repo:
 > - **Sheets-Lösung** (Apps Script v11) — pragmatisch, kein Login, eingefroren.
-> - **Web-App** (`webapp/`) — Next.js + Supabase + Vercel, Crew-fähig, Magic-Link-Auth, Realtime, PWA-Offline, Statistik, Audit-Log, automatische DSGVO-Löschung 30 Tage nach Törn-Ende.
+> - **Web-App** (`webapp/`) — Next.js + Supabase + Vercel, Crew-fähig, Magic-Link-Auth, Realtime, PWA-Offline, Statistik, Audit-Log, automatische DSGVO-Löschung 30 Tage nach Törnende.
 
 ## Quick Context
 

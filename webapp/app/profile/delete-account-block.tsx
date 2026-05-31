@@ -40,7 +40,7 @@ export function DeleteAccountBlock() {
             </p>
             <p className="mt-2 text-ink-soft">
               <strong>Voraussetzung:</strong> Du hast in <em>aktiven</em> Törns
-              (noch nicht zu Ende) keine Buchungen erfasst. Sonst zuerst Törn-Ende
+              (noch nicht zu Ende) keine Buchungen erfasst. Sonst zuerst Törnende
               abwarten oder deinen Skipper bitten, deine Buchungen umzubuchen.
             </p>
           </div>

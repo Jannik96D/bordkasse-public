@@ -12,7 +12,7 @@
 export interface TripProgressSignals {
   /** Törn-Start (YYYY-MM-DD). */
   startDate: string;
-  /** Törn-Ende (YYYY-MM-DD). */
+  /** Törnende (YYYY-MM-DD). */
   endDate: string;
   /** Es existiert ein Anzahlungsplan → Charter-Trip, Anzahlungs-Phase zeigen. */
   isCharter: boolean;

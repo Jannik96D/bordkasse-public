@@ -57,7 +57,7 @@ CREATE TABLE trip_members (
   trip_id UUID REFERENCES trips(id) ON DELETE CASCADE,
   person_id UUID REFERENCES persons(id),
   on_board_from DATE,    -- NULL = ab Törn-Start
-  on_board_to DATE,      -- NULL = bis Törn-Ende
+  on_board_to DATE,      -- NULL = bis Törnende
   is_alcoholic BOOLEAN,  -- override für diesen Törn
   note TEXT,
   UNIQUE(trip_id, person_id)

@@ -433,7 +433,7 @@ const features: Feature[] = [
   {
     id: "dsgvo",
     title: "Automatische Datenlöschung",
-    lead: "30 Tage nach Törn-Ende werden alle personenbezogenen Daten automatisch entfernt.",
+    lead: "30 Tage nach Törnende werden alle personenbezogenen Daten automatisch entfernt.",
     body: (
       <>
         <p>
@@ -449,7 +449,7 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/14-dsgvo.webp",
-    alt: "Datenschutz-Abschnitt zur 30-Tage-Löschung nach Törn-Ende",
+    alt: "Datenschutz-Abschnitt zur 30-Tage-Löschung nach Törnende",
   },
 ];
 
@@ -496,14 +496,14 @@ const PHASES: Phase[] = [
     id: "abrechnung",
     Icon: Wallet,
     title: "Abrechnung",
-    lead: "Saldo pro Person, möglichst wenige Überweisungen, Häkchen für „bezahlt“.",
+    lead: "Wer bekommt Geld zurück, wer zahlt nach? Die App rechnet den Ausgleich auf möglichst wenige Überweisungen herunter, abgehakt wird gemeinsam.",
     featureIds: ["bilanz", "schulden"],
   },
   {
     id: "nach-dem-toern",
     Icon: History,
     title: "Nach dem Törn",
-    lead: "Rückblick auf die Ausgaben. Personenbezogene Daten verschwinden 30 Tage nach Törn-Ende automatisch.",
+    lead: "Rückblick auf die Ausgaben. Personenbezogene Daten verschwinden 30 Tage nach Törnende automatisch.",
     featureIds: ["statistik", "dsgvo"],
   },
 ];

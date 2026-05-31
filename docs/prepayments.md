@@ -455,7 +455,7 @@ Wird in `__tests__/prepayments.test.ts` umgesetzt, sobald die Implementierung be
 7. Ben zahlt jetzt 140 € (Tranche-1-Rest) + 560 € (Tranche 2) → Status ✅ überall.
 8. Alle anderen zahlen Tranche 2 voll → Anzahlungs-Pool perfekt ausgeglichen.
 
-**Bilanz nach Törn-Ende (vor Bordkasse-Settlement):**
+**Bilanz nach Törnende (vor Bordkasse-Settlement):**
 - Anzahlungs-Pool: alle 0 €
 - Bordkasse: noch nicht relevant, kommt im normalen Settlement
 
