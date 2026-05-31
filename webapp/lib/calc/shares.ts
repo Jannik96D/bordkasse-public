@@ -71,6 +71,11 @@ export function calculateShares(
 
   const alcoholShareFor = (m: Member): number => {
     if (alcoholAmount <= 0 || !isActive(m)) return 0;
+    // Bei "Pro Person" ist die Basis bereits der volle Einzelbetrag
+    // (Σ pp_amount = amount), der den Alkohol mit enthält. Ein zusätzlicher
+    // Alkohol-Anteil würde den Betrag doppelt verteilen (Σ Anteile > amount,
+    // Saldo-Summe ≠ 0). Daher hier kein separater Alkohol-Anteil.
+    if (splitType === "per_person") return 0;
 
     // Edge-Case: keine Trinker im Active-Set → Alk auf gesamtes Active-Set
     if (nDrinkers === 0) {

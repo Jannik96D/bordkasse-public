@@ -257,3 +257,22 @@ export async function getTransactionDetail(
     shares,
   };
 }
+
+/**
+ * Anzahl der von dieser Person selbst erfassten (nicht gelöschten) Buchungen
+ * in diesem Törn. Wird für den Onboarding-Hinweis genutzt: hat die Person noch
+ * keine eigene Buchung erfasst, zeigen wir den Hinweis aufs „+"-FAB.
+ */
+export async function countMyTransactions(
+  tripId: string,
+  personId: string,
+): Promise<number> {
+  const supabase = await readClient();
+  const { count } = await supabase
+    .from("transactions")
+    .select("id", { count: "exact", head: true })
+    .eq("trip_id", tripId)
+    .eq("created_by", personId)
+    .is("deleted_at", null);
+  return count ?? 0;
+}

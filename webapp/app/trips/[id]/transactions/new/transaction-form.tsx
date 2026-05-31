@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, ChevronDown, ChevronUp, Check } from "lucide-react";
@@ -12,7 +12,7 @@ import {
   type TxState,
 } from "@/lib/actions/transactions";
 import { enqueue } from "@/lib/offline/outbox";
-import { todayIso, cn, formatEuro } from "@/lib/utils";
+import { todayIso, cn, formatEuro, nowMs } from "@/lib/utils";
 import { CategorySelect } from "@/components/category-select";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { PersonSelect } from "@/components/person-select";
@@ -48,6 +48,11 @@ const SPLIT_TOOLTIP =
   "Pro Person: jede Person trägt einen eigenen Betrag ein (z. B. Restaurant).";
 
 const idleState: TxState = { status: "idle" };
+
+// Schwelle für die Fat-Finger-Rückfrage: einzelne Bordkasse-Buchungen über
+// diesem Betrag sind selten — meist eine Null zu viel. Harte Obergrenze
+// (1 Mio) prüft zusätzlich das Zod-Schema serverseitig.
+const FAT_FINGER_THRESHOLD = 1000;
 
 /** Initialwerte für den Edit-Modus. */
 export type ExpenseInitial = {
@@ -106,6 +111,9 @@ interface TransactionFormProps {
   isSkipper: boolean;
   members: Member[];
   categories: Category[];
+  /** Törn-Start/-Ende (ISO) — begrenzt das Datums-Feld (min/max) gegen Eingaben außerhalb des Törns. */
+  tripStart?: string;
+  tripEnd?: string;
   /** person_id des eingeloggten Users — wird im "Bezahlt von"-Dropdown nach oben sortiert. */
   currentPersonId?: string;
   /**
@@ -135,6 +143,8 @@ export function TransactionForm({
   currentPersonId,
   tranches,
   canEditTranche = false,
+  tripStart,
+  tripEnd,
   expenseInitial,
   creditInitial,
 }: TransactionFormProps) {
@@ -187,6 +197,8 @@ export function TransactionForm({
           currentPersonId={currentPersonId}
           tranches={tranches}
           canEditTranche={canEditTranche}
+          tripStart={tripStart}
+          tripEnd={tripEnd}
           initial={expenseInitial}
         />
       ) : (
@@ -196,6 +208,8 @@ export function TransactionForm({
           currentPersonId={currentPersonId}
           tranches={tranches}
           canEditTranche={canEditTranche}
+          tripStart={tripStart}
+          tripEnd={tripEnd}
           initial={creditInitial}
         />
       )}
@@ -272,6 +286,8 @@ function ExpenseForm({
   currentPersonId,
   tranches,
   canEditTranche,
+  tripStart,
+  tripEnd,
   initial,
 }: {
   tripId: string;
@@ -280,6 +296,8 @@ function ExpenseForm({
   currentPersonId?: string;
   tranches?: TrancheOption[];
   canEditTranche: boolean;
+  tripStart?: string;
+  tripEnd?: string;
   initial?: ExpenseInitial;
 }) {
   // Eingeloggten User im "Bezahlt von"-Dropdown nach oben sortieren.
@@ -371,7 +389,22 @@ function ExpenseForm({
     if (el instanceof HTMLElement) el.focus({ preventScroll: true });
   }, [state]);
 
+  const formRef = useRef<HTMLFormElement>(null);
+
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    // Fat-Finger-Schutz: ungewöhnlich hoher Betrag (oft eine Null zu viel) →
+    // weiche Rückfrage vor dem Speichern. Harte Max-Grenze prüft die Action.
+    const total = isPerPerson ? perPersonSum : Number(amount.replace(",", "."));
+    if (
+      Number.isFinite(total) &&
+      total > FAT_FINGER_THRESHOLD &&
+      !window.confirm(
+        `${formatEuro(total)} ist ungewöhnlich hoch für eine einzelne Buchung. Stimmt der Betrag?`,
+      )
+    ) {
+      e.preventDefault();
+      return;
+    }
     if (!isEdit && typeof navigator !== "undefined" && !navigator.onLine) {
       e.preventDefault();
       const obj = formDataToObject(new FormData(e.currentTarget));
@@ -380,34 +413,60 @@ function ExpenseForm({
         tripId,
         kind: "expense",
         formData: obj,
-        createdAt: Date.now(),
+        createdAt: nowMs(),
       })
         .then(() => router.push(`/trips/${tripId}/transactions`))
         .catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
     }
   };
 
+  // Mid-Flight-Schutz: Bricht die Verbindung NACH dem Klick aber VOR dem
+  // Redirect ab (typisch bei wackeligem Bord-WLAN), rettet dieser Listener die
+  // Buchung in die Outbox. Dedup-sicher über den identischen idempotency_key:
+  // selbst wenn die Server-Action serverseitig doch noch durchlief, verwirft
+  // der Replay-Insert das Duplikat (UNIQUE-Constraint).
+  useEffect(() => {
+    if (isEdit || !pending) return;
+    const onOffline = () => {
+      const form = formRef.current;
+      if (!form) return;
+      enqueue({
+        id: idempotencyKey,
+        tripId,
+        kind: "expense",
+        formData: formDataToObject(new FormData(form)),
+        createdAt: nowMs(),
+      }).catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
+    };
+    window.addEventListener("offline", onOffline);
+    return () => window.removeEventListener("offline", onOffline);
+  }, [isEdit, pending, idempotencyKey, tripId]);
+
   const errorField = state.status === "error" ? state.field : undefined;
-  const isInvalid = (field: string) => errorField === field;
+  const fieldErrors = state.status === "error" ? (state.fieldErrors ?? {}) : {};
+  const fieldError = (field: string) => fieldErrors[field];
+  const isInvalid = (field: string) => !!fieldErrors[field] || errorField === field;
 
   return (
-    <form action={formAction} onSubmit={handleSubmit} className="space-y-5">
+    <form ref={formRef} action={formAction} onSubmit={handleSubmit} className="space-y-5">
       <input type="hidden" name="trip_id" value={tripId} />
       <input type="hidden" name="split_type" value={splitType} />
       {!isEdit && <input type="hidden" name="idempotency_key" value={idempotencyKey} />}
       {isEdit && <input type="hidden" name="transaction_id" value={initial!.transactionId} />}
 
-      <FieldGroup label="Datum" htmlFor="date">
+      <FieldGroup label="Datum" htmlFor="date" error={fieldError("date")}>
         <input
           id="date" name="date" type="date" required
           value={date}
+          min={tripStart}
+          max={tripEnd}
           onChange={(e) => setDate(e.target.value)}
           aria-invalid={isInvalid("date") || undefined}
           className={cn(inputCls, isInvalid("date") && "border-danger ring-2 ring-danger/20")}
         />
       </FieldGroup>
 
-      <FieldGroup label="Beschreibung" htmlFor="description">
+      <FieldGroup label="Beschreibung" htmlFor="description" error={fieldError("description")}>
         <input
           id="description" name="description" type="text" required maxLength={120}
           value={description}
@@ -418,7 +477,7 @@ function ExpenseForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Kategorie">
+      <FieldGroup label="Kategorie" error={fieldError("category_id")}>
         <CategorySelect
           name="category_id"
           categories={categories}
@@ -427,17 +486,20 @@ function ExpenseForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Bezahlt von">
+      <FieldGroup label="Bezahlt von" error={fieldError("paid_by")}>
         <PersonSelect
           name="paid_by"
           options={paidByOptions}
-          defaultValue={initial?.paidBy ?? ""}
+          // Create-Modus: mit der eingeloggten Person vorbelegt — meist zahlt
+          // die erfassende Person selbst (bei Bedarf umstellbar). Edit-Modus
+          // behält die gebuchte Person.
+          defaultValue={initial?.paidBy ?? currentPersonId ?? ""}
           invalid={isInvalid("paid_by")}
           currentUserId={currentPersonId}
         />
       </FieldGroup>
 
-      <FieldGroup label="Betrag (€)" htmlFor="amount" hint={isPerPerson ? "Wird aus den Einzelbeträgen unten berechnet." : undefined}>
+      <FieldGroup label="Betrag (€)" htmlFor="amount" error={fieldError("amount")} hint={isPerPerson ? "Wird aus den Einzelbeträgen unten berechnet." : undefined}>
         <input
           id="amount" name="amount" type="text" required={!isPerPerson}
           inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?"
@@ -485,7 +547,7 @@ function ExpenseForm({
       </div>
 
       {splitType === "individual" && (
-        <FieldGroup label="Wer ist dabei?">
+        <FieldGroup label="Wer ist dabei?" error={fieldError("participant_ids")}>
           <div
             id="participant_ids"
             tabIndex={-1}
@@ -523,7 +585,7 @@ function ExpenseForm({
       )}
 
       {isPerPerson && (
-        <FieldGroup label="Wer zahlt was?" hint={"Pro Person Betrag eintragen. Rechnen geht auch (z. B. „3 + 17“) — auf dem Smartphone die „?123“-Taste der Tastatur für die Operatoren. Leer = nicht beteiligt."}>
+        <FieldGroup label="Wer zahlt was?" error={fieldError("participant_amounts")} hint={"Pro Person Betrag eintragen. Rechnen geht auch (z. B. „3 + 17“) — auf dem Smartphone die „?123“-Taste der Tastatur für die Operatoren. Leer = nicht beteiligt."}>
           <div
             id="participant_amounts"
             tabIndex={-1}
@@ -542,32 +604,43 @@ function ExpenseForm({
                   >
                     {p.displayName}
                   </label>
-                  <div className="flex w-40 items-center gap-2">
-                    {/* inputMode="text" statt "decimal", damit Mobile-Tastaturen
-                        die Symbol-Taste ("123" / "?123") für Operatoren erlauben
-                        — sonst ist man auf reines Zahlen-Pad festgenagelt und
-                        kann keine Rechenausdrücke wie "3+4" eintragen. */}
-                    <input
-                      id={`pp-${p.personId}`}
-                      type="text"
-                      inputMode="text"
-                      autoComplete="off"
-                      autoCapitalize="off"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      value={p.raw}
-                      onChange={(e) => setPerPerson(p.personId, e.target.value)}
-                      placeholder="–"
-                      className={cn(
-                        "h-10 w-full rounded-md border bg-paper px-2 text-right text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20",
-                        p.valid ? "border-rule" : "border-danger ring-2 ring-danger/20",
-                      )}
-                    />
-                    <span className="w-4 shrink-0 text-sm text-ink-soft">€</span>
+                  <div className="flex w-40 flex-col items-end gap-0.5">
+                    <div className="flex w-full items-center gap-2">
+                      {/* inputMode="text" statt "decimal", damit Mobile-Tastaturen
+                          die Symbol-Taste ("123" / "?123") für Operatoren erlauben
+                          — sonst ist man auf reines Zahlen-Pad festgenagelt und
+                          kann keine Rechenausdrücke wie "3+4" eintragen. */}
+                      <input
+                        id={`pp-${p.personId}`}
+                        type="text"
+                        inputMode="text"
+                        autoComplete="off"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        value={p.raw}
+                        onChange={(e) => setPerPerson(p.personId, e.target.value)}
+                        placeholder="–"
+                        aria-describedby={showEval ? `pp-eval-${p.personId}` : undefined}
+                        className={cn(
+                          "h-10 w-full rounded-md border bg-paper px-2 text-right text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20",
+                          p.valid ? "border-rule" : "border-danger ring-2 ring-danger/20",
+                        )}
+                      />
+                      <span className="w-4 shrink-0 text-sm text-ink-soft">€</span>
+                    </div>
+                    {/* Ergebnis des Mini-Rechners sichtbar machen (z. B. „= 20,00 €"),
+                        damit die Person den ausgewerteten Betrag vor dem Speichern sieht. */}
+                    {showEval && (
+                      <span
+                        id={`pp-eval-${p.personId}`}
+                        className="pr-6 text-xs text-ink-soft"
+                        aria-live="polite"
+                      >
+                        = {formatAmount(p.amount)} €
+                      </span>
+                    )}
                   </div>
-                  {showEval && (
-                    <span className="absolute hidden">{formatAmount(p.amount)}</span>
-                  )}
                 </div>
               );
             })}
@@ -593,7 +666,7 @@ function ExpenseForm({
           Szenario); für andere Aufteilungen wäre es eine versteckte Falle. */}
       {isPerPerson && (
         <>
-          <FieldGroup label="Trinkgeld (€)" htmlFor="tip_amount">
+          <FieldGroup label="Trinkgeld (€)" htmlFor="tip_amount" error={fieldError("tip_amount")}>
             <input
               id="tip_amount" name="tip_amount" type="text"
               inputMode="decimal" pattern="([0-9]+([,.][0-9]{1,2})?)?"
@@ -657,7 +730,7 @@ function ExpenseForm({
             Erweitert (Alkohol-Anteil)
           </button>
           {showAdvanced && (
-            <FieldGroup label="Alkohol-Anteil (€)" htmlFor="alcohol_amount" hint="Wird auf alle verteilt, die Alkohol mittrinken; Rest nach Aufteilung.">
+            <FieldGroup label="Alkohol-Anteil (€)" htmlFor="alcohol_amount" error={fieldError("alcohol_amount")} hint="Wird auf alle verteilt, die Alkohol mittrinken; Rest nach Aufteilung.">
               <input
                 id="alcohol_amount" name="alcohol_amount" type="text"
                 inputMode="decimal" pattern="([0-9]+([,.][0-9]{1,2})?)?"
@@ -675,9 +748,12 @@ function ExpenseForm({
 
       <TrancheField tranches={tranches} initialTrancheId={initial?.trancheId ?? null} canEdit={canEditTranche} />
 
-      {state.status === "error" && (
-        <p className="text-sm text-danger" role="alert">{state.message}</p>
-      )}
+      {/* Sammel-Fehler nur für allgemeine/DB-Fehler — Feld-Fehler stehen schon
+          direkt unter dem jeweiligen Feld. */}
+      {state.status === "error" &&
+        Object.keys(state.fieldErrors ?? {}).length === 0 && (
+          <p className="text-sm text-danger" role="alert">{state.message}</p>
+        )}
 
       <button
         type="submit"
@@ -696,6 +772,8 @@ function CreditForm({
   currentPersonId,
   tranches,
   canEditTranche,
+  tripStart,
+  tripEnd,
   initial,
 }: {
   tripId: string;
@@ -703,6 +781,8 @@ function CreditForm({
   currentPersonId?: string;
   tranches?: TrancheOption[];
   canEditTranche: boolean;
+  tripStart?: string;
+  tripEnd?: string;
   initial?: CreditInitial;
 }) {
   const router = useRouter();
@@ -734,9 +814,25 @@ function CreditForm({
   }, [state]);
 
   const errorField = state.status === "error" ? state.field : undefined;
-  const isInvalid = (field: string) => errorField === field;
+  const fieldErrors = state.status === "error" ? (state.fieldErrors ?? {}) : {};
+  const fieldError = (field: string) => fieldErrors[field];
+  const isInvalid = (field: string) => !!fieldErrors[field] || errorField === field;
+
+  const formRef = useRef<HTMLFormElement>(null);
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    // Fat-Finger-Schutz wie bei der Ausgabe.
+    const total = Number(amount.replace(",", "."));
+    if (
+      Number.isFinite(total) &&
+      total > FAT_FINGER_THRESHOLD &&
+      !window.confirm(
+        `${formatEuro(total)} ist ungewöhnlich hoch für eine einzelne Gutschrift. Stimmt der Betrag?`,
+      )
+    ) {
+      e.preventDefault();
+      return;
+    }
     if (!isEdit && typeof navigator !== "undefined" && !navigator.onLine) {
       e.preventDefault();
       const obj = formDataToObject(new FormData(e.currentTarget));
@@ -745,29 +841,50 @@ function CreditForm({
         tripId,
         kind: "credit",
         formData: obj,
-        createdAt: Date.now(),
+        createdAt: nowMs(),
       })
         .then(() => router.push(`/trips/${tripId}/transactions`))
         .catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
     }
   };
 
+  // Mid-Flight-Schutz (siehe ExpenseForm): geht die Verbindung während eines
+  // laufenden Submits verloren, in die Outbox retten. Dedup über idempotency_key.
+  useEffect(() => {
+    if (isEdit || !pending) return;
+    const onOffline = () => {
+      const form = formRef.current;
+      if (!form) return;
+      enqueue({
+        id: idempotencyKey,
+        tripId,
+        kind: "credit",
+        formData: formDataToObject(new FormData(form)),
+        createdAt: nowMs(),
+      }).catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
+    };
+    window.addEventListener("offline", onOffline);
+    return () => window.removeEventListener("offline", onOffline);
+  }, [isEdit, pending, idempotencyKey, tripId]);
+
   return (
-    <form action={formAction} onSubmit={handleSubmit} className="space-y-5">
+    <form ref={formRef} action={formAction} onSubmit={handleSubmit} className="space-y-5">
       <input type="hidden" name="trip_id" value={tripId} />
       {!isEdit && <input type="hidden" name="idempotency_key" value={idempotencyKey} />}
       {isEdit && <input type="hidden" name="transaction_id" value={initial!.transactionId} />}
 
-      <FieldGroup label="Datum" htmlFor="date">
+      <FieldGroup label="Datum" htmlFor="date" error={fieldError("date")}>
         <input id="date" name="date" type="date" required
           value={date}
+          min={tripStart}
+          max={tripEnd}
           onChange={(e) => setDate(e.target.value)}
           aria-invalid={isInvalid("date") || undefined}
           className={cn(inputCls, isInvalid("date") && "border-danger ring-2 ring-danger/20")}
         />
       </FieldGroup>
 
-      <FieldGroup label="Beschreibung" htmlFor="description" hint="Optional. Leer → 'Gutschrift'.">
+      <FieldGroup label="Beschreibung" htmlFor="description" error={fieldError("description")} hint="Optional. Leer → 'Gutschrift'.">
         <input
           id="description" name="description" type="text" maxLength={120}
           value={description}
@@ -778,7 +895,7 @@ function CreditForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Betrag (€)" htmlFor="amount">
+      <FieldGroup label="Betrag (€)" htmlFor="amount" error={fieldError("amount")}>
         <input
           id="amount" name="amount" type="text" required
           inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?"
@@ -791,7 +908,7 @@ function CreditForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Zahlt (Von)">
+      <FieldGroup label="Zahlt (Von)" error={fieldError("credit_from")}>
         <PersonSelect
           name="credit_from"
           options={members.map((m) => ({ id: m.person_id, name: m.display_name }))}
@@ -801,7 +918,7 @@ function CreditForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Empfängt (An)">
+      <FieldGroup label="Empfängt (An)" error={fieldError("credit_to")}>
         <PersonSelect
           name="credit_to"
           options={members.map((m) => ({ id: m.person_id, name: m.display_name }))}
@@ -814,9 +931,12 @@ function CreditForm({
 
       <TrancheField tranches={tranches} initialTrancheId={initial?.trancheId ?? null} canEdit={canEditTranche} />
 
-      {state.status === "error" && (
-        <p className="text-sm text-danger" role="alert">{state.message}</p>
-      )}
+      {/* Sammel-Fehler nur für allgemeine/DB-Fehler — Feld-Fehler stehen schon
+          direkt unter dem jeweiligen Feld. */}
+      {state.status === "error" &&
+        Object.keys(state.fieldErrors ?? {}).length === 0 && (
+          <p className="text-sm text-danger" role="alert">{state.message}</p>
+        )}
 
       <button
         type="submit"
@@ -836,18 +956,25 @@ function FieldGroup({
   label,
   htmlFor,
   hint,
+  error,
   children,
 }: {
   label: string;
   htmlFor?: string;
   hint?: string;
+  /** Feld-spezifische Fehlermeldung — wird direkt unter dem Feld gezeigt. */
+  error?: string;
   children: React.ReactNode;
 }) {
   return (
     <div>
       <label htmlFor={htmlFor} className="block text-sm font-medium">{label}</label>
       {children}
-      {hint && <p className="mt-1 text-xs text-ink-soft">{hint}</p>}
+      {error ? (
+        <p className="mt-1 text-xs text-danger" role="alert">{error}</p>
+      ) : (
+        hint && <p className="mt-1 text-xs text-ink-soft">{hint}</p>
+      )}
     </div>
   );
 }

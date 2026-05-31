@@ -175,7 +175,9 @@ const features: Feature[] = [
           „Erweitert“): Den Alkohol-Teil eines Belegs zahlen nur diejenigen,
           die als mittrinkend eingetragen sind. Der Rest läuft nach der
           gewählten Aufteilung. Das Komma im Betrag versteht die App
-          selbstverständlich auf Deutsch.
+          selbstverständlich auf Deutsch — und „Bezahlt von“ ist gleich mit
+          dir vorbelegt, weil meist die erfassende Person zahlt (mit einem
+          Tipp umstellbar).
         </p>
       </>
     ),
@@ -313,8 +315,10 @@ const features: Feature[] = [
         </p>
         <p className="mt-2">
           Im zweiten Schritt werden die <strong>Tranchen</strong> definiert
-          — typischerweise 30 % Reservierungs-Anzahlung Monate vorab und
-          70 % Endzahlung kurz vor dem Törn. Die Summe muss 100 % ergeben.
+          — typischerweise eine erste Anzahlung von 30 % Monate vorab und
+          70 % Endzahlung kurz vor dem Törn. Die App benennt sie automatisch
+          durch (1. Anzahlung, 2. Anzahlung … Endzahlung); die Summe muss
+          100 % ergeben.
           Eine WhatsApp-Vorlage und eine optionale Wero-ID lassen sich
           ebenfalls hier hinterlegen.
         </p>
@@ -598,6 +602,10 @@ export default function AboutPage() {
       <p className="mt-12 text-center text-xs text-ink-soft">
         <Link href="/datenschutz" className="hover:text-primary">
           Datenschutz
+        </Link>
+        <span className="mx-2">·</span>
+        <Link href="/kontakt" className="hover:text-primary">
+          Kontakt
         </Link>
       </p>
     </main>

@@ -76,11 +76,19 @@ export async function listMyTrips(): Promise<TripListRow[]> {
 
 export async function getTrip(tripId: string) {
   const supabase = await readClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("trips")
     .select("*")
     .eq("id", tripId)
     .maybeSingle();
+  // Echten DB-/Netzfehler von "Törn existiert nicht / kein Zugriff" trennen:
+  // Bei einem Fehler werfen → die Error-Boundary (app/error.tsx) greift.
+  // Nur data=null OHNE Fehler bedeutet wirklich "nicht gefunden" und führt im
+  // Layout zu notFound() — sonst würde ein transienter DB-Fehler fälschlich
+  // als "Törn nicht gefunden" angezeigt.
+  if (error) {
+    throw new Error(`[bordkasse:getTrip] ${error.message}`);
+  }
   return data;
 }
 

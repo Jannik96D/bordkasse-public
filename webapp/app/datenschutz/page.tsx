@@ -76,6 +76,14 @@ export default function DatenschutzPage() {
             DSGVO) durch deine Anmeldung sowie zur Vertragserfüllung der bereitgestellten
             Funktionen (Art. 6 Abs. 1 lit. b DSGVO).
           </p>
+          <p>
+            Legt ein Skipper für ein noch nicht registriertes Crew-Mitglied vorab einen
+            Eintrag an (Name und ggf. E-Mail, um die Einladung zu verschicken), stützt
+            sich diese Verarbeitung auf das berechtigte Interesse an einer praktikablen
+            Törn-Organisation (Art. 6 Abs. 1 lit. f DSGVO). Sobald sich die Person
+            anmeldet, gilt deren Einwilligung; ihr steht jederzeit das Widerspruchsrecht
+            nach Art. 21 DSGVO sowie die Selbst-Löschung (siehe §&nbsp;6) zu.
+          </p>
         </div>
 
         <div>
@@ -100,7 +108,10 @@ export default function DatenschutzPage() {
               91789, USA. Server-Funktionen und Cron-Jobs laufen in der EU-Region{" "}
               <code>fra1</code> (Frankfurt), konfiguriert in <code>vercel.json</code>. Statische
               Assets (HTML/CSS/JS) liefert das globale Vercel-CDN aus — diese enthalten keine
-              personenbezogenen Daten. Datenschutzerklärung:{" "}
+              personenbezogenen Daten. Soweit dabei eine Übermittlung in die USA stattfindet,
+              erfolgt sie auf Grundlage der EU-Standardvertragsklauseln (Art. 46 DSGVO);
+              Vercel ist zudem unter dem EU-US Data Privacy Framework zertifiziert.
+              Datenschutzerklärung:{" "}
               <a
                 href="https://vercel.com/legal/privacy-policy"
                 target="_blank"

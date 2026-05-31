@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, MessageCircle, RefreshCw, Check, X } from "lucide-react";
 import { InfoTooltip } from "@/components/info-tooltip";
+import { Modal } from "@/components/modal";
 import { formatEuro, todayIso, round2 } from "@/lib/utils";
 import {
   recordPayment,
@@ -382,6 +383,41 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
         </table>
       </div>
 
+      {/* Status-Legende (#E1): unter Tabelle/Kacheln — erklärt Symbole + Aktions-Icons. */}
+      <details className="mt-3 rounded-md border border-rule bg-paper-soft px-3 py-2 text-sm">
+        <summary className="cursor-pointer text-ink-soft">Was bedeuten die Symbole?</summary>
+        <ul className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-2">
+          <li className="flex items-center gap-2">
+            <span className="inline-block h-4 w-4 shrink-0 rounded border border-rule bg-paper" aria-hidden="true" />
+            offen — noch nichts gezahlt
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-primary text-primary" aria-hidden="true">◐</span>
+            teilweise bezahlt
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-success bg-success/10 text-success" aria-hidden="true">✓</span>
+            vollständig bezahlt
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="inline-block h-4 w-4 shrink-0 rounded border-2 border-danger bg-paper" aria-hidden="true" />
+            überfällig — Frist überschritten
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-amber-500 text-amber-600" aria-hidden="true">⏳</span>
+            gemeldet — wartet auf Bestätigung
+          </li>
+          <li className="flex items-center gap-2">
+            <Bell className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+            Glocke — Erinnerungs-Mail an diese Person senden
+          </li>
+          <li className="flex items-center gap-2">
+            <MessageCircle className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+            Sprechblase — WhatsApp-Text zum Kopieren erzeugen
+          </li>
+        </ul>
+      </details>
+
       {paymentModal && (
         <PaymentModal
           tripId={tripId}
@@ -566,12 +602,8 @@ function PaymentModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-md rounded-lg border border-rule bg-paper p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-base font-semibold text-primary">Zahlung von {personName}</h2>
+    <Modal onClose={onClose} labelledBy="payment-modal-title">
+        <h2 id="payment-modal-title" className="text-base font-semibold text-primary">Zahlung von {personName}</h2>
         <p className="mt-1 text-sm text-ink-soft">{tranche.label} · fällig {formatDeDate(tranche.due_date)}</p>
 
         <dl className="mt-4 grid grid-cols-3 gap-2 rounded-md bg-paper-soft p-3 text-sm">
@@ -646,8 +678,7 @@ function PaymentModal({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -700,18 +731,28 @@ function ReminderButton({ tripId, personId, disabled, title }: { tripId: string;
 
 function WhatsAppModal({ title, text, onClose }: { title: string; text: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   function copy() {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    // navigator.clipboard ist in unsicheren Kontexten / bei verweigerter
+    // Berechtigung nicht verfügbar — dann Hinweis auf manuelles Markieren.
+    if (!navigator.clipboard) {
+      setCopyFailed(true);
+      return;
+    }
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopyFailed(false);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => setCopyFailed(true));
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-xl rounded-lg border border-rule bg-paper p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-base font-semibold text-primary">{title}</h2>
+    <Modal onClose={onClose} labelledBy="whatsapp-modal-title" className="flex max-h-[90dvh] w-full max-w-xl flex-col overflow-y-auto rounded-lg border border-rule bg-paper p-5 shadow-xl outline-none">
+        <h2 id="whatsapp-modal-title" className="text-base font-semibold text-primary">{title}</h2>
         <p className="mt-1 text-xs text-ink-soft">In WhatsApp einfügen.</p>
         <textarea
           readOnly
@@ -719,6 +760,11 @@ function WhatsAppModal({ title, text, onClose }: { title: string; text: string; 
           rows={Math.min(20, Math.max(8, text.split("\n").length + 1))}
           className="mt-3 w-full rounded-md border border-rule p-3 font-mono text-sm"
         />
+        {copyFailed && (
+          <p role="alert" className="mt-2 text-xs text-danger">
+            Kopieren nicht möglich — bitte den Text oben manuell markieren und kopieren.
+          </p>
+        )}
         <div className="mt-3 flex justify-end gap-2">
           <button onClick={onClose} className="rounded-md border border-rule px-4 py-2 text-sm hover:bg-navy-light/30">
             Schließen
@@ -727,8 +773,7 @@ function WhatsAppModal({ title, text, onClose }: { title: string; text: string; 
             {copied ? "✓ Kopiert" : "In Zwischenablage kopieren"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

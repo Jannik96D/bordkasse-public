@@ -14,7 +14,34 @@ const TransactionId = z.string().uuid();
 export type TxState =
   | { status: "idle" }
   | { status: "ok" }
-  | { status: "error"; message: string; field?: string };
+  | {
+      status: "error";
+      message: string;
+      field?: string;
+      /** Pro-Feld-Fehlermeldungen (Feldname → Text), damit das Formular sie
+       *  direkt unter dem betroffenen Feld zeigen kann statt nur gesammelt. */
+      fieldErrors?: Record<string, string>;
+    };
+
+/**
+ * Baut aus einem ZodError eine Fehler-TxState mit allen Feld-Fehlern (erster
+ * Fehler pro Feld). `message`/`field` bleiben für die generische Anzeige +
+ * Fokus-Scroll erhalten.
+ */
+function zodErrorState(error: z.ZodError): TxState {
+  const fieldErrors: Record<string, string> = {};
+  for (const issue of error.issues) {
+    const key = issue.path[0]?.toString();
+    if (key && !fieldErrors[key]) fieldErrors[key] = issue.message;
+  }
+  const first = error.issues[0];
+  return {
+    status: "error",
+    message: first?.message ?? "Ungültige Eingabe.",
+    field: first?.path?.[0]?.toString(),
+    fieldErrors,
+  };
+}
 
 // Postgres-Fehlercode für UNIQUE-Verletzung — siehe
 // https://www.postgresql.org/docs/current/errcodes-appendix.html
@@ -54,6 +81,27 @@ async function checkMinShare(
     };
   }
   return { ok: true };
+}
+
+/**
+ * Cross-Trip-Schutz: stellt sicher, dass eine optional zugeordnete Tranche
+ * wirklich zu diesem Törn gehört. Verhindert, dass eine Buchung in Törn A
+ * über eine untergeschobene Fremd-tranche_id mit dem Anzahlungs-Pool eines
+ * anderen Törns verknüpft wird. Ohne Tranche (null) immer ok.
+ */
+async function trancheBelongsToTrip(
+  supabase: ReturnType<typeof createAdminClient>,
+  trancheId: string | null | undefined,
+  tripId: string,
+): Promise<boolean> {
+  if (!trancheId) return true;
+  const { data } = await supabase
+    .from("prepayment_tranches")
+    .select("id")
+    .eq("id", trancheId)
+    .eq("trip_id", tripId)
+    .maybeSingle();
+  return !!data;
 }
 
 /**
@@ -105,8 +153,7 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     idempotency_key: formData.get("idempotency_key") || undefined,
   });
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    return { status: "error", message: issue?.message ?? "Ungültige Eingabe.", field: issue?.path?.[0]?.toString() };
+    return zodErrorState(parsed.error);
   }
 
   const { participant_ids, participant_amounts, idempotency_key, tranche_id: trancheId, ...txData } = parsed.data;
@@ -133,6 +180,10 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     participant_ids,
   });
   if (!minCheck.ok) return { status: "error", message: minCheck.message, field: minCheck.field };
+
+  if (!(await trancheBelongsToTrip(supabase, trancheId, txData.trip_id))) {
+    return { status: "error", message: "Ungültige Tranche für diesen Törn." };
+  }
 
   const { data: tx, error } = await supabase
     .from("transactions")
@@ -197,8 +248,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     idempotency_key: formData.get("idempotency_key") || undefined,
   });
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    return { status: "error", message: issue?.message ?? "Ungültige Eingabe.", field: issue?.path?.[0]?.toString() };
+    return zodErrorState(parsed.error);
   }
 
   const skipperCheck = await requireSkipperOrAdmin(parsed.data.trip_id);
@@ -221,6 +271,10 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
         field: "credit_to",
       };
     }
+  }
+
+  if (!(await trancheBelongsToTrip(supabase, parsed.data.tranche_id, parsed.data.trip_id))) {
+    return { status: "error", message: "Ungültige Tranche für diesen Törn." };
   }
 
   const { data: tx, error } = await supabase
@@ -301,8 +355,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     tranche_id: formData.get("tranche_id") || null,
   });
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    return { status: "error", message: issue?.message ?? "Ungültige Eingabe.", field: issue?.path?.[0]?.toString() };
+    return zodErrorState(parsed.error);
   }
   const { participant_ids, participant_amounts, idempotency_key: _ignored, tranche_id: trancheId, ...txData } = parsed.data;
   void _ignored;
@@ -348,6 +401,10 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   });
   if (!minCheck.ok) return { status: "error", message: minCheck.message, field: minCheck.field };
 
+  if (!(await trancheBelongsToTrip(supabase, trancheId, txData.trip_id))) {
+    return { status: "error", message: "Ungültige Tranche für diesen Törn." };
+  }
+
   const { error } = await supabase
     .from("transactions")
     .update({
@@ -362,7 +419,8 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
       split_type: txData.split_type,
       tranche_id: trancheId ?? null,
     })
-    .eq("id", transactionId);
+    .eq("id", transactionId)
+    .eq("trip_id", txData.trip_id);
   if (error) return { status: "error", message: dbErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
 
   // Participants neu setzen — bei Wechsel der Aufteilung müssen alte raus.
@@ -445,8 +503,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     tranche_id: formData.get("tranche_id") || null,
   });
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    return { status: "error", message: issue?.message ?? "Ungültige Eingabe.", field: issue?.path?.[0]?.toString() };
+    return zodErrorState(parsed.error);
   }
 
   const supabase = createAdminClient();
@@ -484,6 +541,10 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     }
   }
 
+  if (!(await trancheBelongsToTrip(supabase, parsed.data.tranche_id, parsed.data.trip_id))) {
+    return { status: "error", message: "Ungültige Tranche für diesen Törn." };
+  }
+
   const { error } = await supabase
     .from("transactions")
     .update({
@@ -494,7 +555,8 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
       credit_to: parsed.data.credit_to,
       tranche_id: parsed.data.tranche_id ?? null,
     })
-    .eq("id", transactionId);
+    .eq("id", transactionId)
+    .eq("trip_id", parsed.data.trip_id);
   if (error) return { status: "error", message: dbErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
 
   await logAudit(supabase, {
@@ -531,14 +593,21 @@ export async function deleteTransaction(
   const supabase = createAdminClient();
   const { data: existing } = await supabase
     .from("transactions")
-    .select("category_id")
+    .select("category_id, trip_id")
     .eq("id", transactionId)
     .maybeSingle();
-  const wasKaution = await isKautionCategory(supabase, tripId, existing?.category_id);
+  // IDOR-Schutz: requireMember(tripId) prüft nur die Mitgliedschaft im
+  // übergebenen Törn. Ohne diese Zugehörigkeits-Prüfung könnte ein Mitglied
+  // von Törn A eine beliebige fremde transactionId (Törn B) löschen.
+  if (!existing || existing.trip_id !== tripId) {
+    return { ok: false, wasKaution: false };
+  }
+  const wasKaution = await isKautionCategory(supabase, tripId, existing.category_id);
   await supabase
     .from("transactions")
     .update({ deleted_at: new Date().toISOString() })
-    .eq("id", transactionId);
+    .eq("id", transactionId)
+    .eq("trip_id", tripId);
   await logAudit(supabase, {
     table_name: "transactions",
     operation: "DELETE",

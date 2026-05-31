@@ -12,14 +12,23 @@ import type { BalanceRow, DebtTransfer } from "./types";
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export function simplifyDebts(balances: BalanceRow[]): DebtTransfer[] {
-  const debtors = balances
+  // Salden EINMAL auf 2 NK runden — exakt wie die SQL-Quelle
+  // v_balances_bordkasse_only (0026). So basieren Filter UND Transferbetrag
+  // auf demselben gerundeten Wert; TS-Mirror und DB laufen nicht um einzelne
+  // Cents auseinander.
+  const rounded = balances.map((b) => ({
+    personId: b.personId,
+    balance: round2(b.balance),
+  }));
+
+  const debtors = rounded
     .filter((b) => b.balance < -0.005)
-    .map((b) => ({ personId: b.personId, open: round2(-b.balance) }))
+    .map((b) => ({ personId: b.personId, open: -b.balance }))
     .sort((a, b) => b.open - a.open); // größte Schuld zuerst
 
-  const creditors = balances
+  const creditors = rounded
     .filter((b) => b.balance > 0.005)
-    .map((b) => ({ personId: b.personId, open: round2(b.balance) }))
+    .map((b) => ({ personId: b.personId, open: b.balance }))
     .sort((a, b) => b.open - a.open); // größte Forderung zuerst
 
   const transfers: DebtTransfer[] = [];

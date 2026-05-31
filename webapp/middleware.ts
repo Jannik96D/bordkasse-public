@@ -16,6 +16,7 @@ const PUBLIC_ROUTES = new Set([
   "/auth/confirm",
   "/auth/verify",
   "/datenschutz",
+  "/kontakt",
   "/about",
 ]);
 

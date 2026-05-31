@@ -2,10 +2,12 @@ import Link from "next/link";
 import { Euro, ScaleIcon, Users, Plus, Coins } from "lucide-react";
 import { getTrip, getTripMembers } from "@/lib/queries/trips";
 import { getPlan } from "@/lib/queries/prepayments";
+import { countMyTransactions } from "@/lib/queries/transactions";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { todayIso } from "@/lib/utils";
 import { FabAddTransaction } from "@/components/bottom-nav";
+import { OnboardingHint } from "@/components/onboarding-hint";
 import { SettlementStatus } from "@/components/settlement-status";
 import { TripProgress } from "@/components/trip-progress";
 import { getTripProgressSignals } from "@/lib/queries/trip-progress";
@@ -42,6 +44,17 @@ export default async function TripDashboard({
   // Törn-Start noch keinen Plan angelegt hat, sieht einen Einstiegs-CTA.
   const tripNotStarted = trip.start_date > todayIso();
   const showCreatePrepaymentCta = canAnnounce && !plan && tripNotStarted;
+
+  // Onboarding-Hinweis aufs „+"-FAB: nur während des aktiven Törns, mit Crew,
+  // und nur solange die eingeloggte Person noch keine EIGENE Buchung erfasst
+  // hat. Die letzte Bedingung (weggeklickt?) prüft die Client-Komponente.
+  const today = todayIso();
+  const tripActive = trip.start_date <= today && trip.end_date >= today;
+  const onboardingPossible = tripActive && hasMembers && !!person;
+  const myBookingCount = onboardingPossible
+    ? await countMyTransactions(id, person!.id)
+    : 1;
+  const onboardingEligible = onboardingPossible && myBookingCount === 0;
 
   // Törn-Fortschritt-Karte nur für Skipper/Co-Skipper/Admin (wie der Banner).
   let progress = null;
@@ -144,6 +157,7 @@ export default async function TripDashboard({
       )}
 
       {hasMembers && <FabAddTransaction tripId={id} />}
+      <OnboardingHint tripId={id} eligible={onboardingEligible} />
     </main>
   );
 }

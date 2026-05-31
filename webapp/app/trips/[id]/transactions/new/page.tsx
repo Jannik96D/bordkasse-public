@@ -45,6 +45,8 @@ export default async function NewTransactionPage({
         tripId={id}
         isSkipper={isSkipper}
         currentPersonId={person?.id}
+        tripStart={trip.start_date}
+        tripEnd={trip.end_date}
         members={members.map((m) => ({
           person_id: m.person_id,
           display_name: m.display_name,

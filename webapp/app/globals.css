@@ -36,6 +36,11 @@
 /* Light-Modus only — kein Dark-Mode in v0.1 */
 :root {
   color-scheme: light;
+  /* WCAG 2.2 SC 2.4.11 (Focus Not Obscured): Beim Tab-Durchlauf scrollt der
+     Browser das fokussierte Element nicht hinter den sticky TripHeader (~57px)
+     + den sticky Offline-Banner (~33px, auf der Yacht fast immer sichtbar).
+     7rem deckt beide + Puffer ab. */
+  scroll-padding-top: 7rem;
 }
 
 body {

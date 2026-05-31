@@ -115,11 +115,11 @@ Skipper tippt pro Person einen Betrag.
 
 ## Tranchen (Schritt 2 im Wizard)
 
-Skipper definiert eine Liste von Tranchen mit `due_date`, `label`, `percent`. Validierung: `Σ percent = 100` (Toleranz ±0,01). Beispiel:
+Skipper definiert eine Liste von Tranchen mit `due_date` + `percent`. Validierung: `Σ percent = 100` (Toleranz ±0,01). Das **Label wird automatisch durchnummeriert** (`trancheLabel(index, total)`): alle bis auf die letzte heißen „N. Anzahlung", die letzte „Endzahlung" (bei nur einer Tranche → „Endzahlung"). Kein freies Label-Feld — schlankeres Design, weniger Tipp-Aufwand. Beispiel:
 
 ```
-Tranche 1: "Reservierungs-Anzahlung" — fällig 15.07.2026 — 30 %
-Tranche 2: "Endzahlung"               — fällig 01.01.2027 — 70 %
+Tranche 1: "1. Anzahlung" — fällig 15.07.2026 — 30 %
+Tranche 2: "Endzahlung"   — fällig 01.01.2027 — 70 %
 ```
 
 Tranchen-Aufteilung gilt **einheitlich für alle Crew** — keine pro-Person-Overrides. Wenn eine Person eine Tranche überzahlt, kann das Modal (siehe „Spezialfälle") den Überschuss auf eine andere Tranche umbuchen.
@@ -143,7 +143,7 @@ Klick auf eine offene/teilweise Zelle öffnet ein Modal:
 
 ```
 ┌─ Zahlung von Anna erfassen ──────────┐
-│ Tranche 1 — Reservierungs-Anzahlung  │
+│ Tranche 1 — 1. Anzahlung             │
 │ Soll:    240 €                       │
 │ Bezahlt:   0 €                       │
 │ Offen:   240 €                       │

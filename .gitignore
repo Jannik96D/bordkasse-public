@@ -24,3 +24,7 @@ venv/
 ~$*.xlsx
 ~$*.xlsm
 ~$*.docx
+
+# Vertrauliche Rechtsdokumente (z. B. unterschriebene AVVs/DPAs) — niemals
+# nach GitHub. Liegen lokal im Repo-Root unter legal/.
+legal/

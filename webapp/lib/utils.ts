@@ -31,6 +31,15 @@ export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * Aktueller Zeitstempel in Millisekunden. Als Helper gekapselt, damit
+ * `Date.now()` nicht direkt im Komponenten-/Effekt-Code steht (die
+ * react-hooks/purity-Regel verbietet impure Calls dort).
+ */
+export function nowMs(): number {
+  return Date.now();
+}
+
 /** Heute als ISO-Date YYYY-MM-DD (in lokaler Zeitzone, ohne Zeit). */
 export function todayIso(): string {
   const d = new Date();

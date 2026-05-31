@@ -10,6 +10,7 @@ on:
     branches: [main]
     paths:
       - "webapp/**"
+      - ".github/workflows/webapp-ci.yml"
 
 jobs:
   lint-test:
@@ -41,3 +42,10 @@ jobs:
 
       - name: Tests (S1–S7)
         run: pnpm test
+
+# Hinweis: `supabase db lint` (search_path-Pins auf SECURITY-DEFINER-Funktionen
+# etc.) wird bewusst NICHT in CI ausgeführt — `supabase start` läuft im
+# GitHub-Runner nicht zuverlässig (Docker/Image-Setup) und produzierte nur ein
+# rotes, nicht-aussagekräftiges Kreuz. Stattdessen lokal vor größeren
+# Schema-Änderungen ausführen:
+#   supabase start && supabase db lint --level warning && supabase stop
