@@ -209,6 +209,17 @@ async function main() {
   await loginAs(page, SKIPPER_EMAIL);
 
   console.log("→ Trips-Übersicht (eingeloggt)");
+  // Den PWA-Installations-Hinweis hier ausblenden: er steht schon prominent
+  // auf dem Welcome-Screenshot (01) und würde in der Törn-Übersicht nur von
+  // den eigentlichen Inhalten ablenken.
+  await page.evaluate(() => {
+    document.querySelectorAll('aside[role="note"]').forEach((el) => {
+      if (/installier/i.test(el.textContent ?? "")) {
+        (el as HTMLElement).style.display = "none";
+      }
+    });
+  });
+  await page.waitForTimeout(150);
   await shot(page, "03-trips");
 
   // Aus der Trip-Liste die beiden Demo-Trips per Namen heraussuchen:
