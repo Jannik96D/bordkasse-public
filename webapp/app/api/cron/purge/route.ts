@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { verifyCronAuth } from "@/lib/auth/cron-auth";
 
 /**
  * Cron-Endpoint für die DSGVO-Datenlöschung.
@@ -18,17 +19,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) {
-    return NextResponse.json(
-      { ok: false, error: "CRON_SECRET nicht konfiguriert." },
-      { status: 503 },
-    );
-  }
-
-  const auth = request.headers.get("authorization");
-  if (auth !== `Bearer ${expected}`) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const cronAuth = verifyCronAuth(request.headers.get("authorization"));
+  if (!cronAuth.ok) {
+    return NextResponse.json({ ok: false, error: cronAuth.error }, { status: cronAuth.status });
   }
 
   const supabase = createAdminClient();

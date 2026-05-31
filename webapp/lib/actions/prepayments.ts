@@ -7,6 +7,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireSkipperOrAdmin, requireMember, requireSkipperAdminOrAdvancer } from "@/lib/auth/authz";
+import { personsBelongToTrip, CROSS_TRIP_PERSON_MSG } from "@/lib/auth/cross-trip";
 import { logAudit } from "@/lib/db/audit";
 import {
   PlanSchema,
@@ -314,6 +315,14 @@ export async function recordPayment(
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const supabase = createAdminClient();
+
+  // Cross-Trip-Schutz: person_id kommt aus dem Formular (nur als UUID
+  // validiert). Der Service-Role-Client umgeht RLS, also hier prüfen, dass
+  // die Person wirklich Crew dieses Törns ist — sonst könnte ein Skipper/
+  // Vorstrecker eine fremde Person in den Anzahlungspool von trip_id ziehen.
+  if (!(await personsBelongToTrip(supabase, [person_id], trip_id))) {
+    return { status: "error", message: CROSS_TRIP_PERSON_MSG };
+  }
 
   // Vorstrecker ermitteln: aus prepayment_plan.advancer_person_id, sonst
   // Trip-Skipper als Fallback. Crewanzahlungen werden gegen diese Person

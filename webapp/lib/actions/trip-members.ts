@@ -326,16 +326,40 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
 
       // Gehört die E-Mail bereits einer anderen Person? Dann versuchen wir
       // automatisch zu mergen: der aktuelle Ghost-Eintrag wird in den
-      // bestehenden Account integriert. Nur sicher, wenn der Ghost noch
-      // keine Buchungen hat — sonst Risiko von FK-Konflikten.
+      // bestehenden Account integriert.
       const { data: emailInUse } = await supabase
         .from("persons_private")
-        .select("person_id, persons!inner(display_name)")
+        .select("person_id, persons!inner(display_name, auth_user_id)")
         .ilike("email", email)
         .neq("person_id", member.person_id)
         .maybeSingle();
 
       if (emailInUse) {
+        // Consent-Schutz: Gehört die E-Mail einem bereits REGISTRIERTEN
+        // Account (auth_user_id gesetzt), dürfen wir diese fremde Identität
+        // NICHT still in den Törn ziehen — das wäre Einladung-per-Raten
+        // statt Einladung-per-Einwilligung. Auto-Merge bleibt nur für echte
+        // Ghosts ohne Login (zwei vom Skipper angelegte Platzhalter).
+        // Der Skipper soll die Person stattdessen über „Crew einladen" mit
+        // dieser E-Mail hinzufügen — dann behält sie ihr bestehendes Konto
+        // und bekommt einen Login-Link, den sie selbst annehmen kann.
+        const inUsePerson = (emailInUse as unknown as {
+          persons: { display_name: string; auth_user_id: string | null }
+            | { display_name: string; auth_user_id: string | null }[];
+        }).persons;
+        const inUse = Array.isArray(inUsePerson) ? inUsePerson[0] : inUsePerson;
+        if (inUse?.auth_user_id) {
+          const inUseName = inUse.display_name || "diese Person";
+          return {
+            status: "error",
+            message:
+              `Diese E-Mail-Adresse gehört bereits zum Konto von „${inUseName}". ` +
+              `Entferne den aktuellen Creweintrag (ohne E-Mail) und füge „${inUseName}" ` +
+              `über „Crew einladen" mit dieser E-Mail hinzu — die Person behält dann ihr ` +
+              `bestehendes Konto und bekommt einen Login-Link.`,
+          };
+        }
+
         const mergeResult = await mergeGhostIntoExistingPerson(
           supabase,
           member.person_id,

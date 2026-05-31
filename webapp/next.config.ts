@@ -8,16 +8,33 @@ import type { NextConfig } from "next";
  * - X-Content-Type-Options: Browser darf Content-Type nicht "raten" → blockiert XSS via falsche MIME.
  * - Referrer-Policy:       Beim Klick auf externe Links keine sensiblen Pfade in Referrer schicken.
  * - Permissions-Policy:    Hardware-APIs (Kamera, Mikro, Geo, …) sind komplett aus.
- * - CSP:                   Erlaubt nur eigene Origin + Supabase. inline/eval bleibt erlaubt,
- *                          weil Next.js + React beides für den Runtime-Bootstrap brauchen.
+ * - CSP:                   Erlaubt nur eigene Origin + Supabase.
  *
  * `connect-src` enthält wss://*.supabase.co für Realtime-Subscriptions.
+ *
+ * script-src-Härtung (S-4): In PRODUKTION fällt `'unsafe-eval'` weg — der
+ * produktive Next.js-Bundle braucht kein eval() (nur Turbopack/HMR im Dev-
+ * Modus tut das). Das schließt eval/Function-basierte XSS-Gadgets aus.
+ *
+ * `'unsafe-inline'` bleibt: Der Next.js App Router gibt auf JEDER Seite
+ * Inline-Skripte aus (RSC-Payload `self.__next_f.push(...)`). Diese ohne
+ * 'unsafe-inline' zu erlauben ginge nur per Per-Request-Nonce — die kann
+ * aber NICHT in statisch vorgerenderte Seiten (/login, /about, /datenschutz,
+ * /kontakt) gebacken werden; deren Skripte hätten keine Nonce und würden
+ * von `strict-dynamic` blockiert. Ein nonce-Ansatz würde also erzwingen,
+ * jede (auch künftige) öffentliche Seite dynamisch zu rendern — ein stiller
+ * Breakage-Footgun. Daher bewusst beim 'unsafe-inline'-Fallback bleiben.
  */
+const isProd = process.env.NODE_ENV === "production";
 const SUPABASE_HOST = "*.supabase.co";
+
+const scriptSrc = isProd
+  ? `script-src 'self' 'unsafe-inline'`
+  : `script-src 'self' 'unsafe-inline' 'unsafe-eval'`;
 
 const csp = [
   `default-src 'self'`,
-  `script-src 'self' 'unsafe-inline' 'unsafe-eval'`,
+  scriptSrc,
   `style-src 'self' 'unsafe-inline'`,
   `img-src 'self' data: blob:`,
   `font-src 'self' data:`,
