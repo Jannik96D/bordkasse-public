@@ -270,6 +270,18 @@ async function main() {
   await page.locator('input[name="description"]').fill("Lebensmittel Albert Heijn").catch(() => {});
   await page.locator('input[name="amount"]').fill("64,30").catch(() => {});
   await page.waitForTimeout(300);
+  // Live-Vorschau „Wer zahlt wie viel?" aufklappen + in den Viewport scrollen,
+  // damit der Screenshot die Pro-Person-Aufschlüsselung tatsächlich zeigt
+  // (im UI default eingeklappt, sitzt am Ende des langen Formulars).
+  await page
+    .locator("details > summary", { hasText: "Wer zahlt wie viel" })
+    .click()
+    .catch(() => {});
+  await page
+    .locator('details:has(summary:has-text("Wer zahlt wie viel"))')
+    .scrollIntoViewIfNeeded()
+    .catch(() => {});
+  await page.waitForTimeout(300);
   await shot(page, "06-buchung-neu");
 
   console.log("→ Bilanz");

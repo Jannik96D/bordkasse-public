@@ -402,9 +402,7 @@ const features: Feature[] = [
           Buchungen, die du ohne Internet eingibst, werden auf dem Gerät
           zwischengespeichert und automatisch übertragen, sobald wieder
           Empfang da ist. Ein dezenter Hinweis oben am Bildschirm zeigt,
-          dass du gerade offline arbeitest. Die App lässt sich auf dem
-          Smartphone wie eine echte App installieren — du brauchst nicht
-          jedes Mal den Browser aufmachen.
+          dass du gerade offline arbeitest.
         </p>
       </>
     ),
