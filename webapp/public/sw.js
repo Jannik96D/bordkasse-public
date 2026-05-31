@@ -10,7 +10,7 @@
 // Bei jeder Version den CACHE_VERSION-String hochzählen, damit alte
 // Caches beim Activate-Event aufgeräumt werden.
 
-const CACHE_VERSION = "bordkasse-v2";
+const CACHE_VERSION = "bordkasse-v3";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE = `${CACHE_VERSION}-pages`;
 
@@ -97,6 +97,11 @@ async function networkFirst(request, cacheName) {
   } catch (err) {
     const cached = await cache.match(request);
     if (cached) return cached;
+    // Fallback ohne Query-String: eine Navigation zu `…/transactions/new?draft=X`
+    // soll offline auf das vorgewärmte `…/transactions/new`-Dokument fallen.
+    // Die Client-Seite liest `?draft=` und lädt den Entwurf aus IndexedDB.
+    const ignoreSearch = await cache.match(request, { ignoreSearch: true });
+    if (ignoreSearch) return ignoreSearch;
     throw err;
   }
 }

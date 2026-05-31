@@ -4,13 +4,17 @@ import { isAdmin } from "@/lib/auth/authz";
 import { getTrip, getTripMembers, getCategories } from "@/lib/queries/trips";
 import { getTranches, getPlan } from "@/lib/queries/prepayments";
 import { TransactionForm } from "./transaction-form";
+import { DraftEditor } from "../draft-editor";
 
 export default async function NewTransactionPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ draft?: string }>;
 }) {
   const { id } = await params;
+  const { draft } = await searchParams;
   const [trip, members, categories, person, tranches, plan, admin] = await Promise.all([
     getTrip(id),
     getTripMembers(id),
@@ -39,25 +43,46 @@ export default async function NewTransactionPage({
     );
   }
 
+  const mappedMembers = members.map((m) => ({
+    person_id: m.person_id,
+    display_name: m.display_name,
+    on_board_from: m.on_board_from,
+    on_board_to: m.on_board_to,
+    is_alcoholic_effective: m.is_alcoholic_effective,
+  }));
+  const mappedCategories = categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon }));
+  const mappedTranches = tranches.map((t) => ({ id: t.id, label: t.label, due_date: t.due_date }));
+
   return (
     <main className="mx-auto max-w-md px-4 py-6">
-      <TransactionForm
-        tripId={id}
-        isSkipper={isSkipper}
-        currentPersonId={person?.id}
-        tripStart={trip.start_date}
-        tripEnd={trip.end_date}
-        members={members.map((m) => ({
-          person_id: m.person_id,
-          display_name: m.display_name,
-          on_board_from: m.on_board_from,
-          on_board_to: m.on_board_to,
-          is_alcoholic_effective: m.is_alcoholic_effective,
-        }))}
-        categories={categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon }))}
-        tranches={tranches.map((t) => ({ id: t.id, label: t.label, due_date: t.due_date }))}
-        canEditTranche={canEditTranche}
-      />
+      {draft ? (
+        // Outbox-Entwurf bearbeiten — DraftEditor lädt das Item client-seitig
+        // aus IndexedDB und befüllt das Form vor.
+        <DraftEditor
+          draftId={draft}
+          tripId={id}
+          isSkipper={isSkipper}
+          currentPersonId={person?.id}
+          tripStart={trip.start_date}
+          tripEnd={trip.end_date}
+          members={mappedMembers}
+          categories={mappedCategories}
+          tranches={mappedTranches}
+          canEditTranche={canEditTranche}
+        />
+      ) : (
+        <TransactionForm
+          tripId={id}
+          isSkipper={isSkipper}
+          currentPersonId={person?.id}
+          tripStart={trip.start_date}
+          tripEnd={trip.end_date}
+          members={mappedMembers}
+          categories={mappedCategories}
+          tranches={mappedTranches}
+          canEditTranche={canEditTranche}
+        />
+      )}
     </main>
   );
 }

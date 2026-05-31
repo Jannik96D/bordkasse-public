@@ -6,6 +6,7 @@ import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { FabAddTransaction } from "@/components/bottom-nav";
 import { TransactionsList } from "./transactions-list";
+import { PendingTransactions } from "./pending-transactions";
 
 export default async function TransactionsListPage({
   params,
@@ -30,9 +31,13 @@ export default async function TransactionsListPage({
   // keine Aufteilung). FAB + CTA daher nur mit Crew zeigen — sonst landet man
   // in einem Formular ohne wählbare Personen (Sackgasse).
   const hasMembers = members.length > 0;
+  const memberNames = Object.fromEntries(members.map((m) => [m.person_id, m.display_name]));
 
   return (
     <main className="mx-auto max-w-2xl px-4 pb-24 pt-4">
+      {/* Noch nicht gesyncte Offline-Entwürfe (client-seitig aus IndexedDB). */}
+      <PendingTransactions tripId={id} memberNames={memberNames} />
+
       {!hasMembers ? (
         <div className="rounded-lg border border-dashed border-rule p-10 text-center">
           <Users className="mx-auto mb-3 h-10 w-10 text-ink-soft" />

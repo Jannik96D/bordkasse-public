@@ -53,6 +53,16 @@ export async function enqueue(item: OutboxItem): Promise<void> {
   notifyChange();
 }
 
+export async function get(id: string): Promise<OutboxItem | undefined> {
+  const db = await openDb();
+  const tx = db.transaction(STORE, "readonly");
+  const item = await txPromise(
+    tx.objectStore(STORE).get(id) as IDBRequest<OutboxItem | undefined>,
+  );
+  db.close();
+  return item;
+}
+
 export async function listAll(): Promise<OutboxItem[]> {
   const db = await openDb();
   const tx = db.transaction(STORE, "readonly");
