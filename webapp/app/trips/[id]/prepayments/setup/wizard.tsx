@@ -87,7 +87,9 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
           percent: t.percent.toString().replace(".", ","),
         }))
       : [
-          { due_date: todayIso(), label: "Reservierungs-Anzahlung", percent: "30" },
+          // Labels werden beim Speichern automatisch aus der Position abgeleitet
+          // (siehe trancheLabel) — hier nur Platzhalter.
+          { due_date: todayIso(), label: "1. Anzahlung", percent: "30" },
           { due_date: todayIso(), label: "Endzahlung", percent: "70" },
         ],
   );
@@ -103,6 +105,12 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
   const needsTotalAmount = splitMethod === "gleichmaessig" || splitMethod === "zeitanteilig";
   const totalAmountNum = Number(totalAmount.replace(",", ".")) || 0;
   const percentValid = Math.abs(percentSum - 100) <= 0.01;
+
+  // Tranchen werden automatisch durchnummeriert (schlankes Design, kein freies
+  // Label-Tippen): alle bis auf die letzte heißen „N. Anzahlung", die letzte
+  // „Endzahlung". Bei nur einer Tranche → „Endzahlung".
+  const trancheLabel = (index: number, total: number) =>
+    index === total - 1 ? "Endzahlung" : `${index + 1}. Anzahlung`;
 
   function savePlan(onSuccess?: () => void) {
     setError(null);
@@ -159,7 +167,8 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
       tranches: trancheDrafts.map((t, i) => ({
         id: t.id,
         due_date: t.due_date,
-        label: t.label,
+        // Label automatisch aus der Position ableiten (durchnummeriert).
+        label: trancheLabel(i, trancheDrafts.length),
         percent: Number(t.percent.replace(",", ".")),
         wero_request_link: "",
         sort_order: i,
@@ -421,7 +430,13 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
           </p>
           {trancheDrafts.map((t, idx) => (
             <div key={idx} className="grid grid-cols-1 gap-2 sm:grid-cols-12 sm:items-end">
-              <label className="col-span-3 text-sm">
+              <div className="text-sm sm:col-span-4">
+                <span className="text-xs text-ink-soft">Bezeichnung</span>
+                <p className="mt-1 truncate py-1.5 font-medium text-primary">
+                  {trancheLabel(idx, trancheDrafts.length)}
+                </p>
+              </div>
+              <label className="text-sm sm:col-span-4">
                 <span className="text-xs text-ink-soft">Fällig am</span>
                 <input
                   type="date"
@@ -430,15 +445,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
                   className="mt-1 w-full rounded-md border border-rule px-2 py-1.5"
                 />
               </label>
-              <label className="col-span-5 text-sm">
-                <span className="text-xs text-ink-soft">Label</span>
-                <input
-                  value={t.label}
-                  onChange={(e) => setTrancheDrafts(trancheDrafts.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x)))}
-                  className="mt-1 w-full rounded-md border border-rule px-2 py-1.5"
-                />
-              </label>
-              <label className="col-span-3 text-sm">
+              <label className="text-sm sm:col-span-3">
                 <span className="text-xs text-ink-soft">Anteil %</span>
                 <input
                   inputMode="decimal"

@@ -244,8 +244,8 @@ BEGIN
   -- due_date 2026-06-05 fällt 10 Tage nach „heute" (2026-05-26) → Banner
   -- zeigt „in 10 Tagen fällig"-Warnung (soon-Indikator), kein overdue.
   INSERT INTO prepayment_tranches (id, trip_id, due_date, label, percent, sort_order) VALUES
-    (tranche_1, trip_charter, '2026-06-05', 'Reservierungs-Anzahlung', 30, 1),
-    (tranche_2, trip_charter, '2027-04-15', 'Endzahlung',              70, 2);
+    (tranche_1, trip_charter, '2026-06-05', '1. Anzahlung', 30, 1),
+    (tranche_2, trip_charter, '2027-04-15', 'Endzahlung',   70, 2);
 
   -- ── Crew-Zahlungen an Anna (Vorstrecker) ─────────────────────────────
   -- Anna: Selbst-Credit (bilanzneutral, Migration 0024 erlaubt das bei

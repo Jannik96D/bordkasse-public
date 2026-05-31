@@ -47,7 +47,8 @@ const tabs: Tab[] = [
 
 // Kontextueller Anzahlungs-Tab — wird nur eingeblendet, solange Anzahlungen
 // für den Betrachter relevant sind (siehe getPrepaymentNavState). Position:
-// zwischen Bilanz und Schulden (Geld-Fluss-Block). Eigenes Icon, weil
+// direkt nach "Übersicht" (zweiter Tab von links), weil die Anzahlung
+// chronologisch VOR dem Törn der erste Schritt ist. Eigenes Icon, weil
 // "Schulden" bereits das Wallet-Icon belegt.
 const prepaymentTab: Tab = {
   href: (id) => `/trips/${id}/prepayments`,
@@ -66,7 +67,7 @@ export function BottomNav({
   const path = usePathname();
 
   const visibleTabs = showPrepayments
-    ? [...tabs.slice(0, 4), prepaymentTab, tabs[4]]
+    ? [tabs[0], prepaymentTab, ...tabs.slice(1)]
     : tabs;
 
   return (
