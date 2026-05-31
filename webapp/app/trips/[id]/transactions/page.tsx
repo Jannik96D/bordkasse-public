@@ -33,8 +33,11 @@ export default async function TransactionsListPage({
   const hasMembers = members.length > 0;
   const memberNames = Object.fromEntries(members.map((m) => [m.person_id, m.display_name]));
 
+  // pb-36: der FAB reicht bis ~136px über den unteren Rand (bottom-20 + h-14).
+  // Die Liste braucht so viel Polster, damit der FAB die Edit-/Lösch-Icons der
+  // untersten Buchung nicht überdeckt (U-1).
   return (
-    <main className="mx-auto max-w-2xl px-4 pb-24 pt-4">
+    <main className="mx-auto max-w-2xl px-4 pb-36 pt-4">
       {/* Noch nicht gesyncte Offline-Entwürfe (client-seitig aus IndexedDB). */}
       <PendingTransactions tripId={id} memberNames={memberNames} />
 

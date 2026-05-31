@@ -56,6 +56,17 @@ export default function DatenschutzPage() {
               Aufteilungen, geteilt nur mit den Crewmitgliedern dieses Törns.
             </li>
             <li>
+              <strong>E-Mail-Benachrichtigungen</strong>: Zur Erfüllung der Kernfunktion
+              (faire Abrechnung) verschickt die App E-Mails an die betroffenen
+              Crewmitglieder, etwa die Abrechnung am Törnende, Zahlungs- und
+              Anzahlungserinnerungen sowie Bestätigungen, wenn jemand eine Zahlung
+              als erledigt markiert. Diese Mails enthalten dabei auch Daten anderer
+              Crewmitglieder dieses Törns: Anzeigenamen, Salden und die Beträge der
+              jeweiligen Zahlungspartner (z.&nbsp;B. „Du zahlst Anna 20&nbsp;€“). Es
+              werden ausschließlich Anzeigenamen verwendet, keine Nachnamen und keine
+              E-Mail-Adressen Dritter (Datenminimierung).
+            </li>
+            <li>
               <strong>Sichtbarkeitsmarker für Alt-Statistik</strong>: Nach DSGVO-Löschung
               eines abgeschlossenen Törns (siehe §5) wird ausschließlich ein Verweis
               „Person X war Mitglied von Trip Y“ aufbewahrt, damit du deine anonymisierten
@@ -123,7 +134,8 @@ export default function DatenschutzPage() {
             </li>
             <li>
               <strong>E-Mail-Versand</strong>: eigener Mailserver bei whost.dev (Deutschland)
-              für Login- und Einladungs-Mails.
+              für Login-, Einladungs-, Abrechnungs- und Erinnerungs-Mails (zum Inhalt
+              dieser Mails siehe §&nbsp;2, „E-Mail-Benachrichtigungen“).
             </li>
           </ul>
         </div>
