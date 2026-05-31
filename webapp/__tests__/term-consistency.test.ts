@@ -67,6 +67,15 @@ const FORBIDDEN: { term: string; allowed?: string[] }[] = [
   { term: "Selbst-Verrechnung" },
   { term: "Gesamt-Statistik" },
   { term: "Crew-Daten" },
+  // Grenzfälle, die zusammengezogen wurden:
+  { term: "Werbe-Cookies" },
+  { term: "Seiten-Cache" },
+  { term: "Sichtbarkeits-Marker" },
+  { term: "Server-Log" },
+  { term: "Offline-Nutzung" },
+  { term: "Selbst-Service" },
+  { term: "Live-Vorschau" },
+  { term: "Live-Auswertung" },
   {
     // „Törnfortschritt" ist der sichtbare Begriff; die internen Karten-/
     // Checklisten-Bezeichner in Kommentaren bleiben aber erlaubt.

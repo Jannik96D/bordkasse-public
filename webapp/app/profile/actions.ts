@@ -117,7 +117,7 @@ export type DeleteAccountState =
   | { status: "error"; message: string };
 
 /**
- * Selbst-Service-Kontolöschung (DSGVO Art. 17).
+ * Selbstservice-Kontolöschung (DSGVO Art. 17).
  *
  * Ruft die SQL-Function `delete_my_account()` (siehe Migration 0021) auf,
  * die alles Personen-bezogene anonymisiert/löscht. Anschließend wird die

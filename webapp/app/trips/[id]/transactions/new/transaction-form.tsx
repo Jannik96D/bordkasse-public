@@ -406,7 +406,7 @@ function ExpenseForm({
   const isPerPerson = splitType === "per_person";
   const displayAmount = isPerPerson ? formatAmount(perPersonSum) : amount;
 
-  // ── Live-Vorschau der Aufteilung ────────────────────────────────────────
+  // ── Livevorschau der Aufteilung ────────────────────────────────────────
   // Spiegelt mit der exakt gleichen Logik wie der Server (lib/calc/shares.ts)
   // pro Person den Anteil, damit der User VOR dem Speichern sieht, wer wie
   // viel zahlt. Eingeklappt (`<details>`), reagiert live auf alle Eingaben.
@@ -860,7 +860,7 @@ function ExpenseForm({
         </>
       )}
 
-      {/* Live-Vorschau: wer zahlt wie viel — eingeklappt per Default. */}
+      {/* Livevorschau: wer zahlt wie viel — eingeklappt per Default. */}
       {previewShares && previewShares.rows.length > 0 && (
         <details className="rounded-md border border-rule bg-paper-soft p-3 text-sm">
           <summary className="cursor-pointer font-medium text-ink">

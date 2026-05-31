@@ -381,7 +381,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
               Wer streckt vor?
               <InfoTooltip
                 label="Wer streckt vor?"
-                text="Wer die Yachtanzahlung an die Charteragentur vorstreckt. Alle Crewanzahlungen werden an diese Person verbucht; ihren eigenen Anteil kann sie bilanzneutral als Selbstverrechnung abhaken. Default ist der Trip-Skipper."
+                text="Wer die Yachtanzahlung an die Charteragentur vorstreckt. Alle Crewanzahlungen werden an diese Person verbucht; ihren eigenen Anteil kann sie bilanzneutral als Selbstverrechnung abhaken. Default ist der Törn-Skipper."
               />
             </span>
             <select
@@ -389,7 +389,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
               onChange={(e) => setAdvancerId(e.target.value)}
               className="mt-1 w-full rounded-md border border-rule px-3 py-2"
             >
-              <option value="">— Trip-Skipper (Default) —</option>
+              <option value="">— Törn-Skipper (Default) —</option>
               {members.map((m) => (
                 <option key={m.id} value={m.id}>{m.display_name}</option>
               ))}
