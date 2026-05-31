@@ -16,6 +16,7 @@ import {
   isCategoryIconName,
   type CategoryIconName,
 } from "@/lib/categories/icons";
+import { useConfirm } from "@/components/confirm-dialog";
 
 const initial: CatState = { status: "idle" };
 
@@ -31,10 +32,24 @@ export function CategorySection({
   const [state, formAction, pending] = useActionState(addCategory, initial);
   const [, startTransition] = useTransition();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const { confirm, confirmDialog } = useConfirm();
 
   const handlePick = (categoryId: string, icon: CategoryIconName) => {
     startTransition(() => {
       setCategoryIcon(categoryId, icon, tripId);
+    });
+  };
+
+  const handleRemove = async (c: CategoryRow) => {
+    const ok = await confirm({
+      title: `Kategorie „${c.name}" löschen?`,
+      body: "Die Kategorie wird aus der Auswahl entfernt. Bestehende Buchungen behalten ihren Eintrag.",
+      confirmLabel: "Löschen",
+      danger: true,
+    });
+    if (!ok) return;
+    startTransition(() => {
+      removeCategory(c.id, tripId);
     });
   };
 
@@ -77,13 +92,7 @@ export function CategorySection({
                 )}
                 {canEdit && (
                   <button
-                    onClick={() =>
-                      startTransition(() => {
-                        if (confirm(`Kategorie "${c.name}" löschen?`)) {
-                          removeCategory(c.id, tripId);
-                        }
-                      })
-                    }
+                    onClick={() => handleRemove(c)}
                     className="text-ink-soft hover:text-danger"
                     aria-label={`Kategorie ${c.name} löschen`}
                   >
@@ -139,6 +148,7 @@ export function CategorySection({
           )}
         </form>
       )}
+      {confirmDialog}
     </section>
   );
 }

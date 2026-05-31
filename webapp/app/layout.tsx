@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
 import { OfflineBanner } from "@/components/offline-banner";
+import { ToastProvider } from "@/components/toast-provider";
 
 export const metadata: Metadata = {
   title: "Bordkasse",
@@ -55,9 +56,11 @@ export default function RootLayout({
         </a>
         <ServiceWorkerRegister />
         <OfflineBanner />
-        <div id="main-content" tabIndex={-1} className="flex min-h-full flex-1 flex-col outline-none">
-          {children}
-        </div>
+        <ToastProvider>
+          <div id="main-content" tabIndex={-1} className="flex min-h-full flex-1 flex-col outline-none">
+            {children}
+          </div>
+        </ToastProvider>
       </body>
     </html>
   );

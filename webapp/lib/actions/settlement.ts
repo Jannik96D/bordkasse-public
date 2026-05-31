@@ -11,7 +11,10 @@ import { renderSettlementMail, type DebtItem } from "@/lib/email/settlement-temp
 import { formatDate } from "@/lib/utils";
 
 type Result =
-  | { ok: true; sent: number; skipped: number }
+  // skipped = kein E-Mail-Adresse hinterlegt (z. B. Ghost-Crew); failed =
+  // Adresse vorhanden, aber Zustellung schlug fehl. Getrennt, damit die UI
+  // einen echten Teilfehler von „kein Postfach" unterscheiden kann.
+  | { ok: true; sent: number; skipped: number; failed: number }
   | { ok: false; message: string };
 
 /**
@@ -90,6 +93,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
 
   let sent = 0;
   let skipped = 0;
+  let failed = 0;
 
   for (const m of members) {
     const email = emailById.get(m.person_id);
@@ -131,7 +135,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
     const res = await sendMail({ to: email, subject, html, text });
     if (res.ok) sent += 1;
     else {
-      skipped += 1;
+      failed += 1;
       // PII (Mail-Adresse) bewusst NICHT loggen — Person-ID reicht für Diagnose.
       console.error("[bordkasse:settlement] mail failed", { person_id: m.person_id, error: res.error });
     }
@@ -157,13 +161,13 @@ export async function announceSettlement(tripId: string): Promise<Result> {
     record_id: tripId,
     trip_id: tripId,
     actor_person_id: person.id,
-    payload: { settlement_announced: true, mails_sent: sent, mails_skipped: skipped },
+    payload: { settlement_announced: true, mails_sent: sent, mails_skipped: skipped, mails_failed: failed },
   });
 
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/balance`);
   revalidatePath(`/trips/${tripId}/debts`);
-  return { ok: true, sent, skipped };
+  return { ok: true, sent, skipped, failed };
 }
 
 /**
@@ -277,6 +281,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
 
   let sent = 0;
   let skipped = 0;
+  let failed = 0;
 
   for (const m of members) {
     const email = emailById.get(m.person_id);
@@ -319,7 +324,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
     const res = await sendMail({ to: email, subject, html, text });
     if (res.ok) sent += 1;
     else {
-      skipped += 1;
+      failed += 1;
       console.error("[bordkasse:settlement-resend] mail failed", { person_id: m.person_id, error: res.error });
     }
   }
@@ -350,6 +355,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
       settlement_resend: true,
       mails_sent: sent,
       mails_skipped: skipped,
+      mails_failed: failed,
       change_summary: changeSummary ?? null,
     },
   });
@@ -357,5 +363,5 @@ export async function resendSettlement(tripId: string): Promise<Result> {
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/balance`);
   revalidatePath(`/trips/${tripId}/debts`);
-  return { ok: true, sent, skipped };
+  return { ok: true, sent, skipped, failed };
 }

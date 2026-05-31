@@ -30,7 +30,7 @@ export async function toggleDebtSettled(input: {
   toPersonId: string;
   amount: number;
   settled: boolean;
-}): Promise<{ ok: boolean; message?: string }> {
+}): Promise<{ ok: boolean; message?: string; mailsSent?: number; mailsFailed?: number }> {
   const parsed = ToggleSchema.safeParse({
     trip_id: input.tripId,
     from_person_id: input.fromPersonId,
@@ -102,18 +102,26 @@ export async function toggleDebtSettled(input: {
     // Beide Seiten per Mail benachrichtigen: Schuldner bekommt eine
     // Bestätigung, Gläubiger den Hinweis „X hat seine Zahlung abgehakt —
     // bitte prüfen". Fehler beim Mailversand brechen den Toggle nicht ab,
-    // werden nur geloggt.
+    // werden nur geloggt — die Zähler reicht der Toggle an die UI durch,
+    // damit ein Teilfehler sichtbar wird (Toast „1 Mail nicht zugestellt").
+    let mailsSent = 0;
+    let mailsFailed = 0;
     try {
-      await sendDebtSettledMails(supabase, {
+      const res = await sendDebtSettledMails(supabase, {
         tripId: trip_id,
         fromPersonId: from_person_id,
         toPersonId: to_person_id,
         amount,
         actorPersonId: auth.personId,
       });
+      mailsSent = res.sent;
+      mailsFailed = res.failed;
     } catch (e) {
       console.error("[bordkasse:debt-settled-mail]", e);
     }
+
+    revalidatePath(`/trips/${trip_id}/debts`);
+    return { ok: true, mailsSent, mailsFailed };
   } else {
     const { data: existing } = await supabase
       .from("settled_debts")
@@ -172,7 +180,7 @@ async function sendDebtSettledMails(
     amount: number;
     actorPersonId: string;
   },
-): Promise<void> {
+): Promise<{ sent: number; failed: number }> {
   const [{ data: trip }, { data: plan }] = await Promise.all([
     supabase
       .from("trips")
@@ -185,7 +193,7 @@ async function sendDebtSettledMails(
       .eq("trip_id", args.tripId)
       .maybeSingle(),
   ]);
-  if (!trip) return;
+  if (!trip) return { sent: 0, failed: 0 };
 
   const advancerPersonId = plan?.advancer_person_id ?? trip.skipper_id;
 
@@ -249,11 +257,15 @@ async function sendDebtSettledMails(
   // Dedup: pro Person-ID nur EINE Mail (falls jemand sowohl Skipper als
   // auch Vorstrecker und gleichzeitig Schuldner ist → erste Rolle gewinnt).
   const seen = new Set<string>();
+  let sent = 0;
+  let failed = 0;
 
   for (const r of recipients) {
     if (seen.has(r.personId)) continue;
     seen.add(r.personId);
     const email = emailById.get(r.personId);
+    // Kein Empfänger ohne Mail-Adresse zählt als Fehler — er wird einfach
+    // übersprungen (z. B. Ghost-Crew). Nur echte Zustell-Fehler zählen.
     if (!email) continue;
 
     const recipientName = nameById.get(r.personId) ?? "Crew-Mitglied";
@@ -280,7 +292,10 @@ async function sendDebtSettledMails(
         appUrl,
       });
       const res = await sendMail({ to: email, subject, html, text });
-      if (!res.ok) {
+      if (res.ok) {
+        sent += 1;
+      } else {
+        failed += 1;
         console.error("[bordkasse:debt-settled-mail] observer failed", {
           person_id: r.personId,
           error: res.error,
@@ -302,10 +317,15 @@ async function sendDebtSettledMails(
       appUrl,
     });
     const res = await sendMail({ to: email, subject, html, text });
-    if (!res.ok) {
+    if (res.ok) {
+      sent += 1;
+    } else {
+      failed += 1;
       // PII (Mail-Adresse) bewusst NICHT loggen.
       console.error("[bordkasse:debt-settled-mail] failed", { person_id: r.personId, error: res.error });
     }
   }
+
+  return { sent, failed };
 }
 

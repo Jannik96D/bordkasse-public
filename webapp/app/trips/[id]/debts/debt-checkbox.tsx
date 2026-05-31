@@ -2,6 +2,7 @@
 
 import { useOptimistic, useTransition } from "react";
 import { toggleDebtSettled } from "@/lib/actions/settled-debts";
+import { useToast } from "@/components/toast-provider";
 
 /**
  * "Erledigt"-Häkchen pro Schuldenzeile. Persistiert trip-übergreifend in
@@ -30,6 +31,7 @@ export function DebtCheckbox({
 }) {
   const [optimisticSettled, setOptimisticSettled] = useOptimistic(initialSettled);
   const [pending, startTransition] = useTransition();
+  const { show } = useToast();
 
   return (
     <input
@@ -41,13 +43,29 @@ export function DebtCheckbox({
         const next = e.target.checked;
         startTransition(async () => {
           setOptimisticSettled(next);
-          await toggleDebtSettled({
+          const res = await toggleDebtSettled({
             tripId,
             fromPersonId,
             toPersonId,
             amount,
             settled: next,
           });
+          if (!res.ok) {
+            // useOptimistic fällt nach dem Transition-Ende automatisch auf
+            // initialSettled zurück (kein revalidate bei Fehler) — wir müssen
+            // den Haken also nicht manuell zurücksetzen, nur melden.
+            show(res.message ?? "Speichern fehlgeschlagen.", { variant: "error" });
+            return;
+          }
+          if (next) {
+            const failed = res.mailsFailed ?? 0;
+            show(
+              failed > 0
+                ? `Als bezahlt markiert — ${failed} Benachrichtigung${failed === 1 ? "" : "en"} konnte${failed === 1 ? "" : "n"} nicht zugestellt werden.`
+                : "Als bezahlt markiert — Crew wurde benachrichtigt.",
+              { variant: failed > 0 ? "error" : "success" },
+            );
+          }
         });
       }}
       className="h-5 w-5 cursor-pointer rounded border-rule disabled:cursor-not-allowed disabled:opacity-50"

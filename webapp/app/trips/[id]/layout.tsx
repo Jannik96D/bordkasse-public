@@ -54,7 +54,7 @@ export default async function TripLayout({
       <div className="flex-1 pb-20">{children}</div>
 
       <BottomNav tripId={id} showPrepayments={showPrepayments} />
-      <RealtimeTrip tripId={id} />
+      <RealtimeTrip tripId={id} currentPersonId={person?.id} />
     </div>
   );
 }

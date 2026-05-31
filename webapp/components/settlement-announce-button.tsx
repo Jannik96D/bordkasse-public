@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Send } from "lucide-react";
 import { announceSettlement } from "@/lib/actions/settlement";
+import { useConfirm } from "@/components/confirm-dialog";
 
 /**
  * Skipper-Button "Abrechnung verschicken" — löst Mailversand an die Crew aus
@@ -12,27 +13,32 @@ import { announceSettlement } from "@/lib/actions/settlement";
  */
 export function SettlementAnnounceButton({ tripId }: { tripId: string }) {
   const [pending, startTransition] = useTransition();
+  const { confirm, confirmDialog } = useConfirm();
   const [status, setStatus] = useState<
     | { kind: "idle" }
-    | { kind: "ok"; sent: number; skipped: number }
+    | { kind: "ok"; sent: number; skipped: number; failed: number }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
 
-  const trigger = () => {
-    if (!confirm("Abrechnung verschicken? Es geht eine Mail an jedes Crew-Mitglied mit Email-Adresse.")) {
-      return;
-    }
+  const trigger = async () => {
+    const ok = await confirm({
+      title: "Abrechnung verschicken?",
+      body: "Es geht eine Mail an jedes Crew-Mitglied mit E-Mail-Adresse — mit Saldo und Zahlungsplan. Danach sind die Bezahlt-Häkchen freigeschaltet.",
+      confirmLabel: "Verschicken",
+    });
+    if (!ok) return;
     startTransition(async () => {
       const res = await announceSettlement(tripId);
-      if (res.ok) setStatus({ kind: "ok", sent: res.sent, skipped: res.skipped });
+      if (res.ok) setStatus({ kind: "ok", sent: res.sent, skipped: res.skipped, failed: res.failed });
       else setStatus({ kind: "error", message: res.message });
     });
   };
 
   if (status.kind === "ok") {
     return (
-      <p className="mt-2 text-xs text-success">
-        ✓ Abrechnung verschickt — {status.sent} Mail{status.sent === 1 ? "" : "s"} raus
+      <p className={`mt-2 text-xs ${status.failed > 0 ? "text-danger" : "text-success"}`}>
+        {status.failed > 0 ? "⚠" : "✓"} Abrechnung verschickt — {status.sent} Mail{status.sent === 1 ? "" : "s"} raus
+        {status.failed > 0 && `, ${status.failed} fehlgeschlagen`}
         {status.skipped > 0 && `, ${status.skipped} ohne Email-Adresse übersprungen`}.
       </p>
     );
@@ -52,6 +58,7 @@ export function SettlementAnnounceButton({ tripId }: { tripId: string }) {
       {status.kind === "error" && (
         <p className="mt-1 text-xs text-danger">{status.message}</p>
       )}
+      {confirmDialog}
     </div>
   );
 }
