@@ -14,7 +14,7 @@ Vollständige Spezifikation aller Aufteilungs- und Berechnungsregeln. Als Refere
 Wenn "An Bord ab" leer ist, gilt der Törn-Start (Sheets: `Besatzung!B5`; Web-App: `trips.start_date` via `COALESCE` in `v_trip_members_with_days`).
 Wenn "An Bord bis" leer ist, gilt das Törn-Ende (Sheets: `Besatzung!B6`; Web-App: `trips.end_date` analog).
 
-## Die vier Aufteilungsarten
+## Die fünf Aufteilungsarten
 
 ### 1. Gleichmäßig
 
@@ -170,13 +170,15 @@ Pro Person:
 
 ```
 Bezahlt              = Σ alle Ausgaben wo Person = "Bezahlt von"
-Anteil               = Σ alle Anteile dieser Person aus allen Ausgaben (alle 4 Aufteilungsarten)
+Anteil               = Σ alle Anteile dieser Person aus allen Ausgaben (alle 5 Aufteilungsarten)
 Gutschrift_gegeben   = Σ alle Gutschriften wo Person = "Von"
 Gutschrift_erhalten  = Σ direkte Gutschriften wo Person = "An"
                       + Σ "An Alle" Gutschriften wo Person ≠ "Von" / (N-1)
 
 Bilanz = Bezahlt + Gutschrift_gegeben - Anteil - Gutschrift_erhalten
 ```
+
+**Soft-gelöschte Buchungen zählen NICHT.** Buchungen tragen beim Löschen nur ein `deleted_at` (append-only Audit-Trail). Alle Bilanz-relevanten Views filtern `deleted_at IS NULL` — sowohl die Anteils-Quelle `v_transaction_shares` als auch `v_balances` (Bezahlt/Gutschriften) und `v_balances_bordkasse_only`. Eine gelöschte Buchung verschwindet damit vollständig aus Anteil, Bezahlt und Gutschriften. (Migration `0032_balances_filter_deleted` hat das für `v_balances`/`v_transaction_shares` nachgezogen — sie filterten den Soft-Delete zuvor nicht, nur `v_balances_bordkasse_only` tat es bereits.)
 
 ## Schulden-Vereinfachung (Greedy-Algorithmus)
 
