@@ -5,9 +5,21 @@ import {
   Sailboat,
   Wallet,
   History,
+  ShoppingCart,
+  Fuel,
+  Bell,
+  MessageCircle,
+  Check,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { AboutExplorer, type ExplorerPhase, type FeatureRole } from "./about-explorer";
+
+// Inline-Icon im Fließtext — dieselben lucide-Strich-Icons wie in der App,
+// damit Symbole in der Erklärung 1:1 dem entsprechen, was die Crew im UI sieht.
+function TextIcon({ icon: Icon }: { icon: LucideIcon }) {
+  return <Icon className="inline h-4 w-4 align-text-bottom text-primary" aria-hidden="true" />;
+}
 
 export const metadata = {
   title: "Über die Bordkassen-App · Bordkasse",
@@ -18,7 +30,7 @@ export const metadata = {
 type Feature = {
   id: string;
   title: string;
-  lead: string;
+  lead: React.ReactNode;
   body: React.ReactNode;
   screenshot: string;
   alt: string;
@@ -267,7 +279,14 @@ const features: Feature[] = [
   {
     id: "kategorien",
     title: "Ausgaben übersichtlich einordnen",
-    lead: "Lebensmittel 🛒, Sprit ⛽, Yacht ⛵, Hafen ⚓: pro Törn frei wählbar aus einem Satz vorgefertigter Symbole.",
+    lead: (
+      <>
+        Lebensmittel <TextIcon icon={ShoppingCart} />, Sprit{" "}
+        <TextIcon icon={Fuel} />, Yacht <TextIcon icon={Sailboat} />, Hafen{" "}
+        <TextIcon icon={Anchor} />: pro Törn frei wählbar aus einem Satz
+        vorgefertigter Symbole.
+      </>
+    ),
     body: (
       <>
         <p>
@@ -336,10 +355,11 @@ const features: Feature[] = [
         <p>
           Ein Klick auf eine Zelle öffnet ein Modal zum Erfassen einer
           Zahlung. Überschuss kann automatisch auf die nächste Tranche
-          übertragen werden. Mit dem <strong>🔔-Symbol</strong> in der
-          Zeile schickt der Skipper eine persönliche Erinnerungs-Mail
-          mit Wero-ID und Verwendungszweck; mit dem{" "}
-          <strong>💬-Symbol</strong> bekommt er einen
+          übertragen werden. Über die <strong>Glocke</strong>{" "}
+          <TextIcon icon={Bell} /> in der Zeile schickt der Skipper eine
+          persönliche Erinnerungs-Mail mit Wero-ID und Verwendungszweck;
+          über die <strong>Sprechblase</strong>{" "}
+          <TextIcon icon={MessageCircle} /> bekommt er einen
           WhatsApp-Vorschlagstext zum Kopieren.
         </p>
         <p className="mt-2">
@@ -371,8 +391,9 @@ const features: Feature[] = [
           Statt dass der Skipper jeden Eingang manuell abhaken muss, kann
           die Crew selbst „Ich habe gezahlt“ drücken. Die vorstreckende
           Person bekommt eine Mail und sieht in der Matrix ein gelbes
-          ⏳-Symbol. Sie bestätigt mit ✓, sobald das Geld auf ihrem Konto
-          ist, oder lehnt mit ✗ ab. Erst nach Bestätigung zählt die
+          ⏳-Symbol. Sie bestätigt mit <TextIcon icon={Check} />, sobald das
+          Geld auf ihrem Konto ist, oder lehnt mit <TextIcon icon={X} /> ab.
+          Erst nach Bestätigung zählt die
           Zahlung in der Bilanz.
         </p>
         <p className="mt-2">
