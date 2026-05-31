@@ -230,7 +230,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
 
           <label className="block text-sm">
             <span className="text-ink-soft">
-              Aufteilungs-Methode
+              Aufteilungsmethode
               <InfoTooltip
                 label="Wie werden die Soll-Beträge berechnet?"
                 text="Bei „Gleichmäßig“ und „Zeitanteilig“ werden die Soll-Beträge automatisch aus der Gesamtsumme und der Crew-Anwesenheit berechnet. Bei „Individuell“ und „Nach Kojen“ gibst du sie pro Person bzw. pro Koje vor."

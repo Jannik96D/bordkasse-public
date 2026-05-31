@@ -40,9 +40,9 @@ export function renderCharterReminderMail(p: CharterReminderParams): {
 } {
   const totalRemaining = p.tranches.reduce((s, t) => s + Math.max(0, t.remaining_to_agency), 0);
   const subject = p.isAutomated
-    ? `Charter-Anzahlung fällig: ${p.tripName}`
-    : `Charter-Anzahlung – Übersicht: ${p.tripName}`;
-  const headline = p.isAutomated ? "Charter-Anzahlung steht an" : "Charter-Anzahlung – Übersicht";
+    ? `Charteranzahlung fällig: ${p.tripName}`
+    : `Charteranzahlung – Übersicht: ${p.tripName}`;
+  const headline = p.isAutomated ? "Charteranzahlung steht an" : "Charteranzahlung – Übersicht";
   const introText = p.isAutomated
     ? `in den nächsten Tagen wird deine Anzahlung an die Charteragentur fällig. Hier eine Übersicht, was bei dir ankommt und was du noch überweisen musst.`
     : `hier dein aktueller Stand für die Anzahlung an die Charteragentur — was bei dir ankommt und was du noch überweisen musst.`;
@@ -104,7 +104,7 @@ export function renderCharterReminderMail(p: CharterReminderParams): {
                 <p style="margin:0;font-size:16px;line-height:1.5;color:${totalRemaining > 0.005 ? "#A93226" : "#1E8449"};font-weight:600;">
                   ${totalRemaining > 0.005
                     ? `Insgesamt noch zu überweisen: ${fmtEuro(totalRemaining)}`
-                    : "Alle Charter-Anzahlungen sind vollständig überwiesen."}
+                    : "Alle Charteranzahlungen sind vollständig überwiesen."}
                 </p>
               </td>
             </tr>
@@ -128,7 +128,7 @@ ${renderHintBlock(
     title: subject,
     preheader: totalRemaining > 0.005
       ? `Noch ${fmtEuro(totalRemaining)} an die Charteragentur überweisen — ${p.tripName}`
-      : `Alle Charter-Anzahlungen für ${p.tripName} sind vollständig überwiesen.`,
+      : `Alle Charteranzahlungen für ${p.tripName} sind vollständig überwiesen.`,
     subtitle: p.tripName,
     body,
   });
@@ -153,7 +153,7 @@ ${introText}
 
 ${totalRemaining > 0.005
     ? `Insgesamt noch zu überweisen: ${fmtEuro(totalRemaining)}`
-    : "Alle Charter-Anzahlungen sind vollständig überwiesen."}
+    : "Alle Charteranzahlungen sind vollständig überwiesen."}
 
 Tranchen:
 ${trancheText}

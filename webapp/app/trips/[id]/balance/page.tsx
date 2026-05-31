@@ -168,7 +168,7 @@ function PrepaymentsSummary({
         <div className="mt-4 border-t border-rule pt-3">
           <p className="mb-2 text-xs uppercase tracking-wide text-ink-soft">An Vercharterer überwiesen</p>
           <div className="flex items-center justify-between gap-3 rounded-md bg-paper-soft px-3 py-2 text-sm">
-            <span className="font-medium">Charter-Anzahlung</span>
+            <span className="font-medium">Charteranzahlung</span>
             <span className="inline-flex items-center gap-2">
               <StatusBadge status={charterFulfilled ? "paid" : charterPaid > 0.005 ? "partial" : "open"} />
               <span className="tabular-nums text-ink-soft">
