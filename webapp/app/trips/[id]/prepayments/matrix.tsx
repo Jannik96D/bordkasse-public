@@ -945,9 +945,9 @@ function PendingBanner({
                 <strong>{name}</strong> hat{" "}
                 <strong className="text-primary">{formatEuro(p.amount)}</strong> für{" "}
                 <strong>{tranche?.label ?? "Tranche"}</strong> gemeldet
-                {p.description && (
-                  <span className="block text-xs text-ink-soft">„{p.description}&ldquo;</span>
-                )}
+                {/* Buchungs-Beschreibung bewusst NICHT anzeigen — sie ist
+                    redundant zur Zeile darüber („X hat Y € für N. Anzahlung
+                    gemeldet") und enthält teils irreführende Seed-/Default-Texte. */}
                 <span className="block text-xs text-ink-soft">{formatDeDate(p.date)}</span>
               </div>
               <PendingActions transactionId={p.transaction_id} />

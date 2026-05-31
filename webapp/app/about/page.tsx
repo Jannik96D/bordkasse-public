@@ -110,7 +110,7 @@ const features: Feature[] = [
   },
   {
     id: "toern-ueberblick",
-    title: "Dein Törn im Überblick",
+    title: "Törn-Fortschritt in fünf Phasen",
     lead: "Eine Fortschritts-Karte führt den Skipper durch den ganzen Törn — von der Vorbereitung bis zur fertigen Abrechnung.",
     body: (
       <>
@@ -329,7 +329,7 @@ const features: Feature[] = [
   },
   {
     id: "anzahlung-matrix",
-    title: "Anzahlungs-Matrix — wer hat wann was gezahlt",
+    title: "Wer hat welche Anzahlung gezahlt?",
     lead: "Eine Person-mal-Tranche-Tabelle mit Status-Symbolen: offen, teilweise, bezahlt, überfällig, gemeldet aber unbestätigt.",
     body: (
       <>
