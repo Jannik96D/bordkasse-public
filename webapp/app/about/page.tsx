@@ -534,7 +534,10 @@ export default function AboutPage() {
   );
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-10">
+    <main className="mx-auto w-full max-w-5xl px-6 py-10">
+      {/* Fließtext bewusst schmal (Lesbarkeit ~65 Zeichen/Zeile); der
+          Explorer darunter nutzt die volle Breite. */}
+      <div className="mx-auto max-w-3xl">
       <div className="mb-6">
         <Link href="/" className="text-sm text-ink-soft hover:text-primary">
           ← Übersicht
@@ -560,9 +563,11 @@ export default function AboutPage() {
           gehen.
         </p>
       </section>
+      </div>
 
       <AboutExplorer phases={phasesData} intro={explorerIntro} />
 
+      <div className="mx-auto max-w-3xl">
       <section className="mt-16 rounded-lg border border-rule bg-paper-soft p-6">
         <h2 className="text-lg font-semibold text-primary">
           Was die App <em>nicht</em> ist
@@ -595,6 +600,7 @@ export default function AboutPage() {
           Datenschutz
         </Link>
       </p>
+      </div>
     </main>
   );
 }
