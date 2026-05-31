@@ -1,14 +1,14 @@
 /**
  * Berechnet Soll-Beträge pro Person für den Anzahlungs-Plan eines Trips.
  *
- * Vier Aufteilungs-Methoden:
+ * Vier Aufteilungsmethoden:
  *   - gleichmaessig:  total_amount gleichmäßig auf alle Crew
  *   - zeitanteilig:   nach Bord-Tagen
  *   - individuell:    explizit pro Person (kommt aus dem Skipper-Input, hier nur pass-through)
  *   - kojen:          jede Person bekommt ihre cabin_type.price_per_person
  *
  * Wird im Render-Pfad UND in Vitest verwendet.
- * Spec: docs/prepayments.md §Aufteilungs-Methoden
+ * Spec: docs/prepayments.md §Aufteilungsmethoden
  */
 
 import type { PrepaymentSplitMethod } from "@/lib/validation/prepayment-schema";

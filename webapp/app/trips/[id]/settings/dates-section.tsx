@@ -34,7 +34,7 @@ export function DatesSection({
         {/* Titel + Info gruppiert, damit das flex-`gap-2` nicht zum
             ml-1 des Tooltips addiert (sonst doppelter Abstand vor dem i). */}
         <span>
-          Törn-Datum
+          Törndatum
           <InfoTooltip
             text="Existierende Buchungen werden bei Datumsänderung nicht automatisch verschoben — einzelne Einträge ggf. manuell anpassen."
             label="Hinweis zu Datumsänderung"

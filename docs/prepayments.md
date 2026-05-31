@@ -20,9 +20,9 @@ Das aktuelle Modell (Buchung + Gutschrift + Bilanz) bildet das Geldfluss-Modell 
 
 | Begriff | Definition |
 |---|---|
-| **Anzahlungs-Plan** | Pro Trip eine Konfiguration: Aufteilungs-Methode + Kojen-Definition + Tranchen-Liste |
+| **Anzahlungs-Plan** | Pro Trip eine Konfiguration: Aufteilungsmethode + Kojen-Definition + Tranchen-Liste |
 | **Tranche** | Ein Zahlungstermin mit Fälligkeitsdatum, Label und Prozent-Anteil am Gesamt-Soll |
-| **Soll-Betrag (Obligation)** | Was eine Person für eine Tranche zahlen muss — abgeleitet aus Aufteilungs-Methode |
+| **Soll-Betrag (Obligation)** | Was eine Person für eine Tranche zahlen muss — abgeleitet aus Aufteilungsmethode |
 | **Eingang** | Eine Gutschrift „Von Crew → An Skipper" mit Tranche-Zuordnung |
 | **Anzahlungs-Pool** | Buchungen + Gutschriften mit `tranche_id ≠ NULL` — getrennt von der laufenden Bordkasse |
 | **Bordkasse-Pool** | Alle Buchungen ohne Tranche-Zuordnung (= während des Törns angefallene Kosten) |
@@ -90,7 +90,7 @@ prepayment_reminder_log
 - `transactions.tranche_id` markiert sowohl Skipper→Charter-Ausgaben („Yacht 1. Anzahlung") als auch Crew→Skipper-Gutschriften als zum Anzahlungs-Pool gehörig.
 - Beim Löschen einer Tranche werden zugehörige Transaktionen **nicht** gelöscht — `tranche_id` wird auf `NULL` gesetzt, die Buchung wandert in den Bordkasse-Pool. UI muss vor Tranche-Löschung warnen.
 
-## Aufteilungs-Methoden (Schritt 1 im Wizard)
+## Aufteilungsmethoden (Schritt 1 im Wizard)
 
 ### 1. Gleichmäßig
 `total_amount` wird gleich auf alle Crew-Mitglieder verteilt.
@@ -235,7 +235,7 @@ Sobald die Tranche zugeordnet ist:
 - Buchung landet im **Anzahlungs-Pool** (taucht nicht im Bordkasse-Saldo auf)
 - Aufteilung „Nach Kojen" zieht die Kojen-Preise automatisch aus dem `prepayment_plan` → keine doppelte Eingabe
 
-**Reihenfolge ist egal:** der Skipper kann die Charter-Anzahlung erst überweisen und dann die Crew-Eingänge erfassen, oder umgekehrt. Der Anzahlungs-Pool-Saldo zeigt zu jedem Zeitpunkt den korrekten Stand.
+**Reihenfolge ist egal:** der Skipper kann die Charteranzahlung erst überweisen und dann die Crew-Eingänge erfassen, oder umgekehrt. Der Anzahlungs-Pool-Saldo zeigt zu jedem Zeitpunkt den korrekten Stand.
 
 ## Restausgleich Tranchen-Soll ≠ finale Yacht-Buchung
 
@@ -358,7 +358,7 @@ Platzhalter werden zur Render-Zeit ersetzt. Modal hat „In Zwischenablage kopie
 
 ### WhatsApp-Text — Sammel
 
-Über der Matrix ein Button **„Sammel-Text für alle Offenen erzeugen"**. Öffnet Modal mit einem Block pro Person mit offenem/teilweisem Status — als ein zusammenhängender Text, den der Skipper in eine WhatsApp-Gruppe einfügen kann. Personen ohne offene Posten werden ausgelassen.
+Über der Matrix ein Button **„Sammelnachricht für alle Offenen erzeugen"**. Öffnet Modal mit einem Block pro Person mit offenem/teilweisem Status — als ein zusammenhängender Text, den der Skipper in eine WhatsApp-Gruppe einfügen kann. Personen ohne offene Posten werden ausgelassen.
 
 ## Wero-Integration
 
@@ -382,7 +382,7 @@ RLS-Policy auf `prepayment_obligations`: Self-Read für eigene `person_id`, Skip
 
 Diese Punkte sind über die ursprüngliche Phase-1/Phase-2-Aufteilung hinaus dazugekommen:
 
-- **Vorstrecker-Konzept** (Migration 0024): `prepayment_plan.advancer_person_id` — wer streckt die Charter-Anzahlung tatsächlich vor (Default = Skipper, im Wizard editierbar). Alle Crew-Anzahlungen werden gegen diese Person verbucht. `tx_credit_self` relaxiert für tranche-getaggte Buchungen, damit der Vorstrecker seinen eigenen Anteil als Selbst-Verrechnung abhaken kann.
+- **Vorstrecker-Konzept** (Migration 0024): `prepayment_plan.advancer_person_id` — wer streckt die Charteranzahlung tatsächlich vor (Default = Skipper, im Wizard editierbar). Alle Crew-Anzahlungen werden gegen diese Person verbucht. `tx_credit_self` relaxiert für tranche-getaggte Buchungen, damit der Vorstrecker seinen eigenen Anteil als Selbst-Verrechnung abhaken kann.
 - **Crew-Fälligkeit 3 Tage vor Charter** (`lib/prepayments/dates.ts:toCrewDueDate`): die Charter-Frist ist verbindlich gegenüber der Agentur — die Crew soll 3 Tage vorher gezahlt haben, damit der Vorstrecker rechtzeitig überweisen kann. Wird konsistent in Matrix-Header, Crew-Self-View, WhatsApp-Vorlage und Mails angewandt; der Charter-Reminder-Banner zeigt weiter das Originaldatum. **Clamp:** `toCrewDueDate` lässt die Crew-Frist nicht in die Vergangenheit rutschen, solange die Charter-Frist noch aussteht, und nie hinter die Charter-Frist selbst (sonst stünde z. B. „Crew bis gestern", obwohl die Zahlung noch ansteht). `today` ist als Parameter überschreibbar → deterministisch testbar (`__tests__/prepayment-dates.test.ts`).
 - **Bordkasse vs. Anzahlungs-Pool getrennt** (Migrationen 0026 + 0027): `v_balances_bordkasse_only` und `simplify_debts_bordkasse_only` filtern auf `tranche_id IS NULL`. Die untere Bilanz-Tabelle zeigt bei aktivem Plan nur den Bordkasse-Saldo; der Anzahlungs-Pool steht oben als Drei-Block-Übersicht.
 - **Charter-Reminder-Mail an den Vorstrecker** ([`lib/email/charter-reminder-template.ts`](../webapp/lib/email/charter-reminder-template.ts)): pro Tranche Soll Agentur, Σ Crew-Eingänge bei mir, schon-überwiesen, noch offen. Wird ausgelöst entweder vom 🔔-Button in der Vorstrecker-Zeile oder automatisch vom Cron 3 Tage vor Charter-Frist. `lib/email/send-prepayment-reminder.ts` routet zwischen Crew-Pfad und Vorstrecker-Pfad anhand von `personId === advancer_person_id`.

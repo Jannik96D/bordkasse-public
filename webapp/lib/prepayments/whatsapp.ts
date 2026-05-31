@@ -47,7 +47,7 @@ export function renderWhatsAppText(input: WhatsAppRenderInput): string {
     .replaceAll("{{wero_link_or_id}}", wero);
 }
 
-/** Sammel-Text: ein Block pro Person mit offenem Saldo. */
+/** Sammelnachricht: ein Block pro Person mit offenem Saldo. */
 export interface BulkPersonInput {
   name: string;
   /** Aggregierter offener Betrag aller Tranchen */

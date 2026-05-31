@@ -300,7 +300,7 @@ const features: Feature[] = [
   {
     id: "anzahlung-setup",
     title: "Yacht-Anzahlung: Plan einrichten",
-    lead: "Wenn der Skipper Monate vor dem Törn die Charter-Anzahlung an die Agentur leistet, hilft die App, das Geld bei der Crew einzusammeln.",
+    lead: "Wenn der Skipper Monate vor dem Törn die Charteranzahlung an die Agentur leistet, hilft die App, das Geld bei der Crew einzusammeln.",
     body: (
       <>
         <p>

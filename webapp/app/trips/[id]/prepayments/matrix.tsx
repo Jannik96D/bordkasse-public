@@ -121,7 +121,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
       weroId: plan.wero_id,
       persons,
     });
-    setWhatsAppModal({ text, title: `Sammel-Text für ${persons.length} Personen` });
+    setWhatsAppModal({ text, title: `Sammelnachricht für ${persons.length} Personen` });
   }
 
   function personWhatsApp(member: Member) {
@@ -233,14 +233,14 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
         charterPaidByTranche={charterPaidByTranche}
       />
 
-      {/* Sammel-Text */}
+      {/* Sammelnachricht */}
       <div className="mb-3">
         <button
           onClick={bulkWhatsApp}
           className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper px-3 py-1.5 text-sm hover:border-primary/40"
         >
           <MessageCircle className="h-4 w-4" />
-          Sammel-Text für alle Offenen
+          Sammelnachricht für alle Offenen
         </button>
       </div>
 
@@ -826,7 +826,7 @@ function CharterReminderBanner({
   if (!anythingOutstanding) {
     return (
       <p className="mb-3 rounded-md border border-success/30 bg-success/5 px-3 py-2 text-xs text-success">
-        <span aria-hidden="true">✓</span> Alle Charter-Anzahlungen sind vollständig überwiesen.
+        <span aria-hidden="true">✓</span> Alle Charteranzahlungen sind vollständig überwiesen.
       </p>
     );
   }
@@ -845,7 +845,7 @@ function CharterReminderBanner({
         aria-label="Eigene Überweisungen an die Charteragentur — aufklappen"
       >
         <span className="text-xs font-semibold uppercase tracking-wide text-primary">
-          Charter-Anzahlungen — deine Überweisungen
+          Charteranzahlungen — deine Überweisungen
         </span>
         {nextOpen && (
           <span className={`tabular-nums ${summaryTone}`}>

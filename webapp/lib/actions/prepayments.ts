@@ -38,7 +38,7 @@ function dbErr(err: { message: string } | null, fallback: string): string {
 
 /**
  * Erwartet ein JSON-Payload im `payload`-Feld (Form-Submit über Hidden-Input).
- * Berechnet ggf. Obligations automatisch aus Aufteilungs-Methode + Trip-Crew.
+ * Berechnet ggf. Obligations automatisch aus Aufteilungsmethode + Trip-Crew.
  */
 export async function savePrepaymentPlan(
   _prev: PrepaymentState,
