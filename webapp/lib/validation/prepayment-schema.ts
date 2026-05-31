@@ -57,7 +57,7 @@ export const PlanSchema = z
   })
   .refine(
     (d) => d.split_method !== "kojen" || d.cabin_types.length > 0,
-    { message: "Bei 'Nach Kojen' mindestens einen Kojen-Typ definieren.", path: ["cabin_types"] },
+    { message: "Bei 'Nach Kojen' mindestens einen Kojentyp definieren.", path: ["cabin_types"] },
   );
 
 export const TrancheInput = z.object({
