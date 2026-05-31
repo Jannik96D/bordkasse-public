@@ -16,20 +16,20 @@
 
 DO $$
 DECLARE
-  skipper_auth UUID := '11111111-aaaa-bbbb-cccc-000000000001';
-  p_jannik   UUID := 'dddddddd-0000-0000-0000-000000000001';
-  p_lucas    UUID := 'dddddddd-0000-0000-0000-000000000002';
-  p_dario    UUID := 'dddddddd-0000-0000-0000-000000000003';
-  p_tim      UUID := 'dddddddd-0000-0000-0000-000000000004';
-  p_emma     UUID := 'dddddddd-0000-0000-0000-000000000005';
-  p_stephan  UUID := 'dddddddd-0000-0000-0000-000000000006';
-  trip_test  UUID := 'eeeeeeee-0000-0000-0000-000000000001';
-  c_yacht        UUID := 'ffffffff-0000-0000-0000-000000000001';
-  c_lebensmittel UUID := 'ffffffff-0000-0000-0000-000000000002';
-  c_sprit        UUID := 'ffffffff-0000-0000-0000-000000000003';
-  c_hafen        UUID := 'ffffffff-0000-0000-0000-000000000004';
-  c_restaurant   UUID := 'ffffffff-0000-0000-0000-000000000005';
-  c_sonstiges    UUID := 'ffffffff-0000-0000-0000-000000000006';
+  skipper_auth UUID := '11111111-aaaa-4bbb-8ccc-000000000001';
+  p_jannik   UUID := 'dddddddd-0000-4000-8000-000000000001';
+  p_lucas    UUID := 'dddddddd-0000-4000-8000-000000000002';
+  p_dario    UUID := 'dddddddd-0000-4000-8000-000000000003';
+  p_tim      UUID := 'dddddddd-0000-4000-8000-000000000004';
+  p_emma     UUID := 'dddddddd-0000-4000-8000-000000000005';
+  p_stephan  UUID := 'dddddddd-0000-4000-8000-000000000006';
+  trip_test  UUID := 'eeeeeeee-0000-4000-8000-000000000001';
+  c_yacht        UUID := 'ffffffff-0000-4000-8000-000000000001';
+  c_lebensmittel UUID := 'ffffffff-0000-4000-8000-000000000002';
+  c_sprit        UUID := 'ffffffff-0000-4000-8000-000000000003';
+  c_hafen        UUID := 'ffffffff-0000-4000-8000-000000000004';
+  c_restaurant   UUID := 'ffffffff-0000-4000-8000-000000000005';
+  c_sonstiges    UUID := 'ffffffff-0000-4000-8000-000000000006';
 BEGIN
   -- ── Aufräumen falls schon vorhanden ──────────────────────────────────
   DELETE FROM trips WHERE id = trip_test;
@@ -42,7 +42,7 @@ BEGIN
     raw_app_meta_data, raw_user_meta_data, created_at, updated_at
   ) VALUES (
     skipper_auth,
-    '00000000-0000-0000-0000-000000000000',
+    '00000000-0000-4000-8000-000000000000',
     'authenticated',
     'authenticated',
     'skipper@example.com',

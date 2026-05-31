@@ -19,41 +19,41 @@
 DO $$
 DECLARE
   -- Personen
-  p_anna   UUID := 'aaaaaaaa-0000-0000-0000-000000000001';
-  p_ben    UUID := 'aaaaaaaa-0000-0000-0000-000000000002';
-  p_clara  UUID := 'aaaaaaaa-0000-0000-0000-000000000003';
-  p_david  UUID := 'aaaaaaaa-0000-0000-0000-000000000004';
-  p_eva    UUID := 'aaaaaaaa-0000-0000-0000-000000000005';
+  p_anna   UUID := 'aaaaaaaa-0000-4000-8000-000000000001';
+  p_ben    UUID := 'aaaaaaaa-0000-4000-8000-000000000002';
+  p_clara  UUID := 'aaaaaaaa-0000-4000-8000-000000000003';
+  p_david  UUID := 'aaaaaaaa-0000-4000-8000-000000000004';
+  p_eva    UUID := 'aaaaaaaa-0000-4000-8000-000000000005';
 
   -- Trip
-  trip_demo UUID := 'bbbbbbbb-0000-0000-0000-000000000001';
+  trip_demo UUID := 'bbbbbbbb-0000-4000-8000-000000000001';
 
   -- Kategorien
-  c_lebensmittel UUID := 'cccccccc-0000-0000-0000-000000000001';
-  c_restaurant   UUID := 'cccccccc-0000-0000-0000-000000000002';
-  c_sprit        UUID := 'cccccccc-0000-0000-0000-000000000003';
-  c_yacht        UUID := 'cccccccc-0000-0000-0000-000000000004';
-  c_hafen        UUID := 'cccccccc-0000-0000-0000-000000000005';
-  c_ausruestung  UUID := 'cccccccc-0000-0000-0000-000000000006';
-  c_versicherung UUID := 'cccccccc-0000-0000-0000-000000000007';
-  c_sonstiges    UUID := 'cccccccc-0000-0000-0000-000000000008';
+  c_lebensmittel UUID := 'cccccccc-0000-4000-8000-000000000001';
+  c_restaurant   UUID := 'cccccccc-0000-4000-8000-000000000002';
+  c_sprit        UUID := 'cccccccc-0000-4000-8000-000000000003';
+  c_yacht        UUID := 'cccccccc-0000-4000-8000-000000000004';
+  c_hafen        UUID := 'cccccccc-0000-4000-8000-000000000005';
+  c_ausruestung  UUID := 'cccccccc-0000-4000-8000-000000000006';
+  c_versicherung UUID := 'cccccccc-0000-4000-8000-000000000007';
+  c_sonstiges    UUID := 'cccccccc-0000-4000-8000-000000000008';
 
   -- Transaktionen
   tx UUID;
 BEGIN
   -- Erst: alten Test-Seed entfernen (Trip "Test-Törn April 2026")
-  DELETE FROM trips WHERE id = '22222222-2222-2222-2222-000000000001';
+  DELETE FROM trips WHERE id = '22222222-2222-4222-8222-000000000001';
   DELETE FROM persons WHERE id IN (
-    '11111111-1111-1111-1111-000000000001',
-    '11111111-1111-1111-1111-000000000002',
-    '11111111-1111-1111-1111-000000000003',
-    '11111111-1111-1111-1111-000000000004',
-    '11111111-1111-1111-1111-000000000005',
-    '11111111-1111-1111-1111-000000000006',
-    '11111111-1111-1111-1111-000000000007',
-    '11111111-1111-1111-1111-000000000008',
-    '11111111-1111-1111-1111-000000000009',
-    '11111111-1111-1111-1111-00000000000a'
+    '11111111-1111-4111-8111-000000000001',
+    '11111111-1111-4111-8111-000000000002',
+    '11111111-1111-4111-8111-000000000003',
+    '11111111-1111-4111-8111-000000000004',
+    '11111111-1111-4111-8111-000000000005',
+    '11111111-1111-4111-8111-000000000006',
+    '11111111-1111-4111-8111-000000000007',
+    '11111111-1111-4111-8111-000000000008',
+    '11111111-1111-4111-8111-000000000009',
+    '11111111-1111-4111-8111-00000000000a'
   );
 
   -- ── Personen ─────────────────────────────────────────────────────────
@@ -168,30 +168,30 @@ DO $$
 DECLARE
   -- Personen (gleicher Skipper Anna, plus Ben/Clara/David/Eva aus dem
   -- ersten Trip — wir referenzieren sie über ihre festen UUIDs).
-  p_anna   UUID := 'aaaaaaaa-0000-0000-0000-000000000001';
-  p_ben    UUID := 'aaaaaaaa-0000-0000-0000-000000000002';
-  p_clara  UUID := 'aaaaaaaa-0000-0000-0000-000000000003';
-  p_david  UUID := 'aaaaaaaa-0000-0000-0000-000000000004';
-  p_eva    UUID := 'aaaaaaaa-0000-0000-0000-000000000005';
+  p_anna   UUID := 'aaaaaaaa-0000-4000-8000-000000000001';
+  p_ben    UUID := 'aaaaaaaa-0000-4000-8000-000000000002';
+  p_clara  UUID := 'aaaaaaaa-0000-4000-8000-000000000003';
+  p_david  UUID := 'aaaaaaaa-0000-4000-8000-000000000004';
+  p_eva    UUID := 'aaaaaaaa-0000-4000-8000-000000000005';
 
   -- Auth-User für Clara wird via Admin-API in seed-demo.sh angelegt.
   -- persons.auth_user_id wird dort nachgetragen, damit Clara sich
   -- einloggen kann und Crew-Self-View sieht (Skipper-Trip = Anna).
 
-  trip_charter UUID := 'bbbbbbbb-0000-0000-0000-000000000002';
+  trip_charter UUID := 'bbbbbbbb-0000-4000-8000-000000000002';
 
   -- Kategorien (eigene Liste pro Trip)
-  c_yacht        UUID := 'cccccccc-0000-0000-0000-000000000101';
-  c_lebensmittel UUID := 'cccccccc-0000-0000-0000-000000000102';
-  c_sprit        UUID := 'cccccccc-0000-0000-0000-000000000103';
-  c_hafen        UUID := 'cccccccc-0000-0000-0000-000000000104';
-  c_versicherung UUID := 'cccccccc-0000-0000-0000-000000000105';
+  c_yacht        UUID := 'cccccccc-0000-4000-8000-000000000101';
+  c_lebensmittel UUID := 'cccccccc-0000-4000-8000-000000000102';
+  c_sprit        UUID := 'cccccccc-0000-4000-8000-000000000103';
+  c_hafen        UUID := 'cccccccc-0000-4000-8000-000000000104';
+  c_versicherung UUID := 'cccccccc-0000-4000-8000-000000000105';
 
   -- Anzahlungs-Module
-  cabin_doppel UUID := 'dddddddd-0000-0000-0000-000000000201';
-  cabin_einzel UUID := 'dddddddd-0000-0000-0000-000000000202';
-  tranche_1    UUID := 'eeeeeeee-0000-0000-0000-000000000201';
-  tranche_2    UUID := 'eeeeeeee-0000-0000-0000-000000000202';
+  cabin_doppel UUID := 'dddddddd-0000-4000-8000-000000000201';
+  cabin_einzel UUID := 'dddddddd-0000-4000-8000-000000000202';
+  tranche_1    UUID := 'eeeeeeee-0000-4000-8000-000000000201';
+  tranche_2    UUID := 'eeeeeeee-0000-4000-8000-000000000202';
 
   tx UUID;
 BEGIN

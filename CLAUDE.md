@@ -313,6 +313,8 @@ Schriften: Campton Bold (Display) → Arial Bold (H2) → Arial Regular (Body).
 
 **Tests:** Vitest (`__tests__/calc.test.ts` + `schema.test.ts` + `prepayments.test.ts`) gegen S1–S7 sowie das Spec-Szenario „Yacht-Anzahlung mit Kojen", Playwright (`e2e/smoke.spec.ts`) für öffentliche Routes + Auth-Schutz + Security-Header.
 
+⚠️ **Falle — Seed-/Test-UUIDs müssen RFC-4122-valide sein:** Zod v4 `.uuid()` ist **strikt** (prüft Versions-Nibble + Variant-Bits). Platzhalter-IDs wie `aaaaaaaa-0000-0000-0000-…` (Version 0, Variant 0) werden abgelehnt → Schreib-Actions (`savePrepaymentPlan`, `recordPayment`, `createExpense` mit `paid_by`, …) scheitern mit **„Ungültige Auswahl."**, sobald eine geseedete ID validiert wird. Produktion ist nicht betroffen (`gen_random_uuid()` liefert echtes v4). **Konvention für Seeds:** Versions-Nibble `4`, Variant `8`, z. B. `aaaaaaaa-0000-4000-8000-000000000001`. Alle Seed-/Smoke-Dateien (`seed_demo.sql`, `seed_prepayments_test.sql`, `seed.sql`, `_smoke_tests.sql`) folgen diesem Format.
+
 ## Projekt-Dateien
 
 ```
