@@ -96,6 +96,8 @@ export interface TripMemberRow {
   is_skipper: boolean;
   is_ghost: boolean; // person hat noch keinen auth_user_id — Skipper darf Email/Namen ändern
   note: string | null;
+  /** Wann dieses Mitglied die Törn-Fortschritt-Karte minimiert hat (NULL = offen). */
+  checklist_collapsed_at: string | null;
 }
 
 export async function getTripMembers(tripId: string): Promise<TripMemberRow[]> {
@@ -104,7 +106,7 @@ export async function getTripMembers(tripId: string): Promise<TripMemberRow[]> {
   const { data, error } = await supabase
     .from("trip_members")
     .select(`
-      id, person_id, on_board_from, on_board_to, is_alcoholic, is_skipper, note,
+      id, person_id, on_board_from, on_board_to, is_alcoholic, is_skipper, note, checklist_collapsed_at,
       persons!inner(display_name, is_alcoholic, auth_user_id)
     `)
     .eq("trip_id", tripId)
@@ -120,6 +122,7 @@ export async function getTripMembers(tripId: string): Promise<TripMemberRow[]> {
     is_alcoholic: boolean | null;
     is_skipper: boolean;
     note: string | null;
+    checklist_collapsed_at: string | null;
     persons:
       | { display_name: string; is_alcoholic: boolean; auth_user_id: string | null }[]
       | { display_name: string; is_alcoholic: boolean; auth_user_id: string | null };
@@ -138,6 +141,7 @@ export async function getTripMembers(tripId: string): Promise<TripMemberRow[]> {
       is_skipper: m.is_skipper,
       is_ghost: p.auth_user_id == null,
       note: m.note,
+      checklist_collapsed_at: m.checklist_collapsed_at,
     };
   });
 

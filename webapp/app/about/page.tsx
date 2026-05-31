@@ -7,7 +7,8 @@ import {
   ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
-import { AboutExplorer, type ExplorerPhase } from "./about-explorer";
+import { AboutExplorer, type ExplorerPhase, type FeatureRole } from "./about-explorer";
+import { FeatureShot } from "./feature-shot";
 
 export const metadata = {
   title: "Über die Bordkassen-App · Bordkasse",
@@ -467,17 +468,76 @@ function featureById(id: string): Feature {
   return found;
 }
 
+// Rollen-Zuordnung pro Feature (steuert Badge + Filter im Explorer).
+// Nicht gelistete Features sind "alle" — von Skipper UND Crew genutzt.
+const SKIPPER_ONLY = new Set<string>([
+  "crew",
+  "kategorien",
+  "gutschrift",
+  "anzahlung-setup",
+  "anzahlung-matrix",
+]);
+const CREW_ONLY = new Set<string>(["anzahlung-crew-self"]);
+
+function roleFor(id: string): FeatureRole {
+  if (SKIPPER_ONLY.has(id)) return "skipper";
+  if (CREW_ONLY.has(id)) return "crew";
+  return "alle";
+}
+
 export default function AboutPage() {
   const phasesData: ExplorerPhase[] = PHASES.map((phase) => ({
     id: phase.id,
     title: phase.title,
     lead: phase.lead,
     icon: <phase.Icon className="h-5 w-5" aria-hidden="true" />,
-    features: phase.featureIds.map(featureById),
+    features: phase.featureIds.map((id) => ({
+      ...featureById(id),
+      role: roleFor(id),
+    })),
   }));
 
+  // Explorer-Intro: die Törn-Fortschritt-Karte als „roter Faden". Sie spiegelt
+  // genau die Phasen-Struktur dieser Seite — deshalb steht sie oben, nicht als
+  // eine Karte unter vielen. Reines Skipper-Feature.
+  const explorerIntro = (
+    <section className="mb-10 rounded-lg border border-rule bg-paper-soft p-5 md:grid md:grid-cols-2 md:items-center md:gap-8 md:p-6">
+      <div className="mx-auto max-w-[14rem] md:max-w-[16rem]">
+        <FeatureShot
+          src="/about/18-toern-fortschritt.webp"
+          alt="Törn-Übersicht mit der Fortschritts-Karte „Dein Törn im Überblick“ und den fünf Phasen"
+          priority
+        />
+      </div>
+      <div className="mt-5 md:mt-0">
+        <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-navy-light/50 px-2 py-0.5 text-xs font-medium text-primary">
+          <span aria-hidden="true">⚓</span>
+          <span className="sr-only">Für </span>Skipper
+        </span>
+        <h2 className="mt-2 text-xl font-bold text-primary">
+          Ein roter Faden durch den ganzen Törn
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+          Skipper sehen auf der Törn-Übersicht eine Fortschritts-Karte, die
+          genau durch die folgenden fünf Phasen führt — von der Vorbereitung
+          bis zur fertigen Abrechnung. Die Häkchen setzen sich{" "}
+          <strong>automatisch</strong> aus dem echten Stand: Crew eingeladen,
+          erste Ausgabe erfasst, Abrechnung verschickt … Nichts muss von Hand
+          abgehakt werden, und die Karte lässt sich jederzeit einklappen.
+        </p>
+        <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+          Die Tabs unten zeigen dieselben Phasen — tipp dich durch, um zu
+          sehen, was in jeder Phase passiert.
+        </p>
+      </div>
+    </section>
+  );
+
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-10">
+    <main className="mx-auto w-full max-w-5xl px-6 py-10">
+      {/* Fließtext bewusst schmal (Lesbarkeit ~65 Zeichen/Zeile); der
+          Explorer darunter nutzt die volle Breite. */}
+      <div className="mx-auto max-w-3xl">
       <div className="mb-6">
         <Link href="/" className="text-sm text-ink-soft hover:text-primary">
           ← Übersicht
@@ -503,9 +563,11 @@ export default function AboutPage() {
           gehen.
         </p>
       </section>
+      </div>
 
-      <AboutExplorer phases={phasesData} />
+      <AboutExplorer phases={phasesData} intro={explorerIntro} />
 
+      <div className="mx-auto max-w-3xl">
       <section className="mt-16 rounded-lg border border-rule bg-paper-soft p-6">
         <h2 className="text-lg font-semibold text-primary">
           Was die App <em>nicht</em> ist
@@ -538,6 +600,7 @@ export default function AboutPage() {
           Datenschutz
         </Link>
       </p>
+      </div>
     </main>
   );
 }
