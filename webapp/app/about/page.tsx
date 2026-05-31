@@ -135,7 +135,7 @@ const features: Feature[] = [
   {
     id: "buchungen",
     title: "Buchungsliste",
-    lead: "Alle Ausgaben und Gutschriften, nach Datum sortiert: wer hat was bezahlt, mit welcher Aufteilung. So bleibt für alle nachvollziehbar, wohin das Geld geht.",
+    lead: "Alle Ausgaben und Gutschriften, nach Datum sortiert: Wer hat was bezahlt, mit welcher Aufteilung. So bleibt für alle nachvollziehbar, wohin das Geld geht.",
     body: (
       <>
         <p>
@@ -417,7 +417,7 @@ const features: Feature[] = [
       <>
         <p>
           Crewliste, Buchungen mit Personenbezug, Gutschriften, die
-          Änderungshistorie: alles wird automatisch gelöscht. Was bleibt,
+          Änderungshistorie: Alles wird automatisch gelöscht. Was bleibt,
           ist eine anonymisierte Statistik ohne Personenbezug. Die Details
           stehen in der{" "}
           <Link href="/datenschutz" className="underline">

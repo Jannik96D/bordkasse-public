@@ -244,7 +244,7 @@ export function CrewSection({
               E-Mail <span className="text-ink-soft font-normal">(optional)</span>
               <InfoTooltip
                 label="Was passiert ohne E-Mail?"
-                text="Ohne E-Mail wird die Person als Ghost angelegt: kein Login, aber Anzahlungs-Soll und Buchungs-Beteiligung funktionieren trotzdem. E-Mail später nachtragbar."
+                text="Ohne E-Mail wird die Person als Ghost angelegt: Kein Login, aber Anzahlungs-Soll und Buchungs-Beteiligung funktionieren trotzdem. E-Mail später nachtragbar."
               />
             </label>
             <input id="email" name="email" type="email"

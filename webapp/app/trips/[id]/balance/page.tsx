@@ -275,7 +275,7 @@ function BordkasseTable({ rows, sum, hasPlan }: { rows: BalanceRow[]; sum: numbe
 
       {Math.abs(sum) > 0.05 && (
         <p className="mt-3 text-xs text-danger">
-          ⚠️ Saldo-Summe ist {formatEuro(sum)} statt 0: könnte ein Rundungsfehler oder Datenproblem sein.
+          ⚠️ Saldo-Summe ist {formatEuro(sum)} statt 0. Das könnte ein Rundungsfehler oder Datenproblem sein.
         </p>
       )}
 

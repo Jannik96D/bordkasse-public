@@ -101,7 +101,7 @@ function LoginPageInner() {
           </Link>
           <h1 className="text-3xl font-bold text-primary">Bordkasse</h1>
           <p className="mt-2 text-sm text-ink-soft">
-            Anmeldung per Magic-Link: du bekommst eine E-Mail mit einem
+            Anmeldung per Magic-Link: Du bekommst eine E-Mail mit einem
             Login-Link.
           </p>
         </div>

@@ -125,7 +125,7 @@ ${renderHintBlock(
     ? `Bitte schicke ${p.advancerName} per Wero die fällige Anzahlung.
 Wero-ID (${p.advancerName}): ${p.weroId}
 Verwendungszweck: Anzahlung ${p.tripName}
-(Wero bietet keine Klick-Links: bitte Wero-ID in deiner Wero-App als Empfänger eingeben und Betrag/Verwendungszweck manuell kopieren.)`
+(Wero bietet keine Klick-Links: Bitte Wero-ID in deiner Wero-App als Empfänger eingeben und Betrag/Verwendungszweck manuell kopieren.)`
     : `Frag ${p.advancerName} nach den Überweisungsdetails, es ist keine Wero-ID hinterlegt.`;
 
   const text = `Erinnerung: Anzahlung

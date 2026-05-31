@@ -226,7 +226,7 @@ function TripCard({
             {flagOverdue && (
               <p className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-danger">
                 <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
-                DSGVO-Frist abgelaufen: bitte löschen
+                DSGVO-Frist abgelaufen: Bitte löschen
               </p>
             )}
           </div>
