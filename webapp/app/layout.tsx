@@ -6,7 +6,7 @@ import { ToastProvider } from "@/components/toast-provider";
 
 export const metadata: Metadata = {
   title: "Bordkasse",
-  description: "Faire Kostenaufteilung auf Segel-Törns",
+  description: "Faire Kostenaufteilung auf Segeltörns",
   manifest: "/manifest.json",
   applicationName: "Bordkasse",
   appleWebApp: {

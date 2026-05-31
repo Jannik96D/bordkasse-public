@@ -71,7 +71,7 @@ const features: Feature[] = [
     body: (
       <>
         <p>
-          Jede Kachel zeigt Reisedaten, Schiffsname und wie viele Personen
+          Jede Kachel zeigt Reisedaten, Schiffsnamen und wie viele Personen
           mitsegeln. Wer einen <strong>Skipper</strong>- oder
           <strong> Admin</strong>-Zugang hat, sieht oben einen Button, um
           einen neuen Törn anzulegen. Crew-Mitglieder sehen nur die Törns,
@@ -89,15 +89,15 @@ const features: Feature[] = [
     body: (
       <>
         <p>
-          Die Navigations-Leiste am unteren Bildschirmrand bleibt immer
+          Die Navigationsleiste am unteren Bildschirmrand bleibt immer
           sichtbar, damit auch im Hafen-Trubel alle Bereiche schnell
           erreichbar sind. Der große Plus-Button unten rechts öffnet die
           Eingabemaske für eine neue Buchung in einem Schritt.
         </p>
         <p className="mt-2">
-          Sobald der Törn vorbei ist, erscheint oben ein Hinweis-Banner:
+          Sobald der Törn vorbei ist, erscheint oben ein Hinweisbanner:
           „Kaution prüfen + Abrechnung verschicken“. Skipper und Admins
-          können auf einen Klick allen Beteiligten eine E-Mail mit der
+          können mit einem Klick allen Beteiligten eine E-Mail mit der
           fertigen Abrechnung schicken. Bei nachträglichen Änderungen
           erinnert die App, eine Update-Mail rauszuschicken — und für
           Yacht-Anzahlungen verschickt sie 3 Tage vor jeder Frist
@@ -106,12 +106,12 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/04-trip-overview.webp",
-    alt: "Übersicht eines anstehenden Törns mit Crew-Zähler, Schnellzugriff-Kacheln und Navigations-Leiste",
+    alt: "Übersicht eines anstehenden Törns mit Crew-Zähler, Schnellzugriff-Kacheln und Navigationsleiste",
   },
   {
     id: "toern-ueberblick",
     title: "Törn-Fortschritt in fünf Phasen",
-    lead: "Eine Fortschritts-Karte führt den Skipper durch den ganzen Törn — von der Vorbereitung bis zur fertigen Abrechnung.",
+    lead: "Eine Fortschrittskarte führt den Skipper durch den ganzen Törn — von der Vorbereitung bis zur fertigen Abrechnung.",
     body: (
       <>
         <p>
@@ -124,13 +124,13 @@ const features: Feature[] = [
         <p className="mt-2">
           Die aktuelle Phase ist aufgeklappt, kommende Schritte stehen gedämpft
           darunter; die Karte lässt sich jederzeit einklappen. Sie ist dem
-          Skipper, Co-Skippern und Admins vorbehalten — die Crew sieht sie
+          Skipper, den Co-Skippern und Admins vorbehalten — die Crew sieht sie
           nicht.
         </p>
       </>
     ),
     screenshot: "/about/18-toern-fortschritt.webp",
-    alt: "Trip-Übersicht mit der Fortschritts-Karte „Dein Törn im Überblick“ und den fünf Phasen",
+    alt: "Trip-Übersicht mit der Fortschrittskarte „Dein Törn im Überblick“ und den fünf Phasen",
   },
   {
     id: "buchungen",
@@ -548,10 +548,10 @@ export default function AboutPage() {
         </div>
 
         <h1 className="text-3xl font-bold text-primary">
-          Wer schuldet am Ende wem? Diese App rechnet&rsquo;s aus.
+          Wer schuldet am Ende wem wie viel? Diese App rechnet&rsquo;s aus.
         </h1>
         <p className="mt-3 text-base leading-relaxed text-ink-soft">
-          Faire Aufteilung gemeinsamer Kosten auf Segel-Törns — auch wenn die
+          Faire Aufteilung gemeinsamer Kosten auf Segeltörns — auch wenn die
           Crew wechselt, manche keinen Alkohol trinken und einzelne erst
           später dazustoßen oder früher von Bord gehen.
         </p>

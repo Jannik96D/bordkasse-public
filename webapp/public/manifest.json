@@ -1,7 +1,7 @@
 {
   "name": "Bordkasse",
   "short_name": "Bordkasse",
-  "description": "Faire Kostenaufteilung auf Segel-Törns",
+  "description": "Faire Kostenaufteilung auf Segeltörns",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

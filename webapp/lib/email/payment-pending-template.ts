@@ -91,7 +91,7 @@ ${p.note ? `  Notiz:   ${p.note}\n` : ""}
 Bitte in der App bestätigen oder ablehnen: ${p.appUrl}
 
 —
-Bordkasse · Faire Kostenaufteilung auf Segel-Törns
+Bordkasse · Faire Kostenaufteilung auf Segeltörns
 `;
 
   return { html, text, subject };

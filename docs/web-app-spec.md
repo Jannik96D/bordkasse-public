@@ -245,7 +245,7 @@ CREATE POLICY "transactions_insert" ON transactions
 {
   "name": "Bordkasse",
   "short_name": "Bordkasse",
-  "description": "Bordkasse für Segel-Törns",
+  "description": "Bordkasse für Segeltörns",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#FFFFFF",

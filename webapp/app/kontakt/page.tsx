@@ -45,7 +45,7 @@ export default function KontaktPage() {
           <h2 className="text-base font-semibold">Art des Angebots</h2>
           <p>
             Die Bordkasse ist eine private, nicht-kommerzielle Anwendung zur
-            fairen Aufteilung gemeinsamer Kosten auf Segel-Törns. Es werden keine
+            fairen Aufteilung gemeinsamer Kosten auf Segeltörns. Es werden keine
             Waren oder Dienstleistungen angeboten, es wird keine
             Gewinnerzielungsabsicht verfolgt und es wird keine Werbung geschaltet.
           </p>

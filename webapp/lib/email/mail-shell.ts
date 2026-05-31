@@ -86,7 +86,7 @@ ${p.body}
             <tr>
               <td align="center" style="padding:16px 24px;">
                 <p style="margin:0;font-size:11px;line-height:1.6;color:#7A8DA1;">
-                  Bordkasse · Faire Kostenaufteilung auf Segel-Törns<br>
+                  Bordkasse · Faire Kostenaufteilung auf Segeltörns<br>
                   <a href="${SITE_URL}/datenschutz" style="color:#587EA8;text-decoration:underline;">Datenschutz</a>
                 </p>
               </td>
