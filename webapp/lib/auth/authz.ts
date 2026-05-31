@@ -115,13 +115,13 @@ export async function requireSkipperOrAdmin(tripId: string): Promise<AuthzResult
 }
 
 /**
- * Eingeloggt UND (Skipper ODER Admin ODER Vorstrecker des Anzahlungs-Plans
+ * Eingeloggt UND (Skipper ODER Admin ODER Vorstrecker des Anzahlungsplans
  * dieses Trips).
  *
  * Use-Case: der Skipper-Original ist nicht zwingend derselbe wie der, der
  * die Yachtanzahlung vorstreckt. Wenn z.B. Lucas das Geld vorstreckt
  * und Jannik der Trip-Skipper ist, darf Lucas seine eigenen eingehenden
- * Crew-Anzahlungen ankreuzen und Selbstmeldungen bestätigen/ablehnen.
+ * Crewanzahlungen ankreuzen und Selbstmeldungen bestätigen/ablehnen.
  */
 export async function requireSkipperAdminOrAdvancer(tripId: string): Promise<AuthzResult> {
   const auth = await requireAuth();

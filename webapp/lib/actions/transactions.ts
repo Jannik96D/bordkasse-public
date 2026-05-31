@@ -86,7 +86,7 @@ async function checkMinShare(
 /**
  * Cross-Trip-Schutz: stellt sicher, dass eine optional zugeordnete Tranche
  * wirklich zu diesem Törn gehört. Verhindert, dass eine Buchung in Törn A
- * über eine untergeschobene Fremd-tranche_id mit dem Anzahlungs-Pool eines
+ * über eine untergeschobene Fremd-tranche_id mit dem Anzahlungspool eines
  * anderen Törns verknüpft wird. Ohne Tranche (null) immer ok.
  */
 async function trancheBelongsToTrip(

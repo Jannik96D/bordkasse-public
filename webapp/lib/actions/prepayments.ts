@@ -188,7 +188,7 @@ export async function savePrepaymentPlan(
       total_amount: o.total_amount,
     }));
     const { error: obErr } = await supabase.from("prepayment_obligations").insert(rows);
-    if (obErr) return { status: "error", message: dbErr(obErr, "Soll-Beträge konnten nicht gespeichert werden.") };
+    if (obErr) return { status: "error", message: dbErr(obErr, "Sollbeträge konnten nicht gespeichert werden.") };
   }
 
   await logAudit(supabase, {
@@ -316,7 +316,7 @@ export async function recordPayment(
   const supabase = createAdminClient();
 
   // Vorstrecker ermitteln: aus prepayment_plan.advancer_person_id, sonst
-  // Trip-Skipper als Fallback. Crew-Anzahlungen werden gegen diese Person
+  // Trip-Skipper als Fallback. Crewanzahlungen werden gegen diese Person
   // verbucht. Self-Credit (Vorstrecker zahlt seinen eigenen Anteil) ist seit
   // Migration 0024 für tranche-getaggte Gutschriften erlaubt — bilanz-neutral.
   const [{ data: tripRow }, { data: planRow }] = await Promise.all([
@@ -419,7 +419,7 @@ export async function recordPayment(
     payload: { kind: "prepayment", tranche_id, person_id, amount, overflow_tranche_id, note },
   });
 
-  // Info-Mails (Crew-Person + Vorstrecker, falls Actor ≠ beide). Selbst-
+  // Info-Mails (Crewperson + Vorstrecker, falls Actor ≠ beide). Selbst-
   // verrechnung des Vorstreckers (person_id == advancerId == actorPersonId)
   // schickt keine Mail — das ist bilanzneutral. Bei Overflow eine Mail
   // PRO gebuchter Tranche mit dem korrekten Teilbetrag, sonst stimmten
@@ -448,7 +448,7 @@ export async function recordPayment(
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// 4. Crew-Wechsel: A → B
+// 4. Crewwechsel: A → B
 // ────────────────────────────────────────────────────────────────────────
 
 export async function replaceMember(
@@ -523,7 +523,7 @@ export async function replaceMember(
     .eq("trip_id", trip_id)
     .eq("person_id", old_person_id)
     .maybeSingle();
-  if (!oldMember) return { status: "error", message: "Alte Crew-Person nicht gefunden." };
+  if (!oldMember) return { status: "error", message: "Alte Crewperson nicht gefunden." };
 
   const { data: newMember, error: tmErr } = await supabase
     .from("trip_members")
@@ -540,7 +540,7 @@ export async function replaceMember(
     )
     .select("id")
     .single();
-  if (tmErr || !newMember) return { status: "error", message: dbErr(tmErr, "Crew-Eintrag konnte nicht angelegt werden.") };
+  if (tmErr || !newMember) return { status: "error", message: dbErr(tmErr, "Creweintrag konnte nicht angelegt werden.") };
 
   // 4. Obligation von A auf B übertragen (Cabin bleibt)
   const { data: oldObl } = await supabase
@@ -581,7 +581,7 @@ export async function replaceMember(
       trip_id,
       type: "credit",
       date: p.date,
-      description: `Crew-Wechsel: ${new_display_name} übernimmt Anzahlung`,
+      description: `Crewwechsel: ${new_display_name} übernimmt Anzahlung`,
       amount: p.amount,
       credit_from: newPersonId,
       credit_to: old_person_id,
@@ -791,7 +791,7 @@ export async function confirmSelfPayment(
     .eq("id", parsed.data.transaction_id)
     .maybeSingle();
   if (!tx || tx.deleted_at) return { status: "error", message: "Buchung nicht gefunden." };
-  if (!tx.tranche_id) return { status: "error", message: "Keine Anzahlungs-Buchung." };
+  if (!tx.tranche_id) return { status: "error", message: "Keine Anzahlungsbuchung." };
   if (tx.confirmed_at) return { status: "error", message: "Schon bestätigt." };
 
   // Vorstrecker darf bestätigen — er sieht den Geldeingang auf seinem Konto.
@@ -888,7 +888,7 @@ export async function rejectSelfPayment(
       .eq("reminder_type", "crew_3d");
   }
 
-  // Info-Mails (Vorstrecker + Crew-Person) — best-effort.
+  // Info-Mails (Vorstrecker + Crewperson) — best-effort.
   try {
     await sendPrepaymentNoticeMails(supabase, {
       tripId: tx.trip_id,
@@ -911,11 +911,11 @@ export async function rejectSelfPayment(
 // von einer DRITTEN Person ausgelöst werden (Admin/Skipper/Vorstrecker).
 //
 // Empfänger:
-//   - payment_recorded   → Crew-Person (Subject) + Vorstrecker (sofern ≠ Actor)
+//   - payment_recorded   → Crewperson (Subject) + Vorstrecker (sofern ≠ Actor)
 //   - payment_confirmed  → Vorstrecker (sofern ≠ Actor)
-//   - payment_rejected   → Crew-Person + Vorstrecker (sofern ≠ Actor)
+//   - payment_rejected   → Crewperson + Vorstrecker (sofern ≠ Actor)
 //
-// Self-Aktionen (Actor == Crew-Person ODER Actor == Vorstrecker bei
+// Self-Aktionen (Actor == Crewperson ODER Actor == Vorstrecker bei
 // Confirm/Reject) erzeugen KEINE Notice-Mail an die handelnde Person.
 //
 // Fehler beim Versand blockieren die Action nicht.

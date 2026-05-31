@@ -5,13 +5,13 @@
  *
  * Drei Varianten (`kind`):
  *   - "payment_recorded"  → Eine Anzahlung wurde im Namen von X erfasst.
- *                           Empfänger: die Crew-Person UND der Vorstrecker
+ *                           Empfänger: die Crewperson UND der Vorstrecker
  *                           (sofern Actor ≠ Vorstrecker).
  *   - "payment_confirmed" → Eine Selbstmeldung von X wurde bestätigt.
  *                           Empfänger: Vorstrecker, falls Actor ≠ Vorstrecker.
  *   - "payment_rejected"  → Eine Selbstmeldung von X wurde abgelehnt.
  *                           Empfänger: Vorstrecker und (sofern unterscheidbar)
- *                           die Crew-Person, damit sie reagieren kann.
+ *                           die Crewperson, damit sie reagieren kann.
  *
  * Layout via mail-shell.
  */
@@ -24,7 +24,7 @@ export type PrepaymentNoticeParams = {
   kind: PrepaymentNoticeKind;
   recipientName: string;
   actorName: string;
-  /** Name der Crew-Person, um die es bei der Buchung geht. */
+  /** Name der Crewperson, um die es bei der Buchung geht. */
   subjectPersonName: string;
   /** Optional: Name des Vorstreckers, wenn der Empfänger nicht selbst der Vorstrecker ist. */
   advancerName?: string;

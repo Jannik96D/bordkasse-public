@@ -12,7 +12,7 @@ export function ArchiveBlock({ tripId, archived }: { tripId: string; archived: b
   const handleDelete = async () => {
     const ok = await confirm({
       title: "Törn unwiderruflich löschen?",
-      body: "Alle Buchungen, Crew-Daten und Kategorien dieses Törns gehen verloren. Das lässt sich nicht rückgängig machen.",
+      body: "Alle Buchungen, Crewdaten und Kategorien dieses Törns gehen verloren. Das lässt sich nicht rückgängig machen.",
       confirmLabel: "Endgültig löschen",
       danger: true,
     });

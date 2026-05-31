@@ -186,13 +186,13 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
           Vorgestreckt von <strong className="text-ink">{advancerName}</strong>
           <InfoTooltip
             label="Wer streckt vor?"
-            text="Alle Anzahlungen werden an diese Person verbucht. Eigener Anteil per Klick auf die Zelle als Selbst-Verrechnung abhaken (bilanzneutral, kein Mail-/WhatsApp-Versand)."
+            text="Alle Anzahlungen werden an diese Person verbucht. Eigener Anteil per Klick auf die Zelle als Selbstverrechnung abhaken (bilanzneutral, kein Mail-/WhatsApp-Versand)."
           />
         </p>
       )}
 
-      {/* Fortschritts-Header (#1): Pool-Überblick auf einen Blick */}
-      <section className="mb-3 rounded-md border border-rule bg-paper p-3" aria-label="Anzahlungs-Fortschritt">
+      {/* Fortschritts-Header (#1): Poolüberblick auf einen Blick */}
+      <section className="mb-3 rounded-md border border-rule bg-paper p-3" aria-label="Anzahlungsfortschritt">
         <div className="flex items-baseline justify-between gap-2">
           <p className="text-sm">
             <strong className="tabular-nums text-primary">{formatEuro(collected)}</strong>
@@ -221,8 +221,8 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
         </p>
       </section>
 
-      {/* Status-Bereich (#5): Selbstmeldungen zuerst (sofort aktionierbar),
-          Charter-Übersicht eingeklappt darunter (#2). */}
+      {/* Statusbereich (#5): Selbstmeldungen zuerst (sofort aktionierbar),
+          Charterübersicht eingeklappt darunter (#2). */}
       {pending.length > 0 && (
         <PendingBanner pending={pending} members={members} tranches={tranches} />
       )}
@@ -385,7 +385,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
         </table>
       </div>
 
-      {/* Status-Legende (#E1): unter Tabelle/Kacheln — erklärt Symbole + Aktions-Icons. */}
+      {/* Statuslegende (#E1): unter Tabelle/Kacheln — erklärt Symbole + Aktions-Icons. */}
       <details className="mt-3 rounded-md border border-rule bg-paper-soft px-3 py-2 text-sm">
         <summary className="cursor-pointer text-ink-soft">Was bedeuten die Symbole?</summary>
         <ul className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-2">
@@ -446,7 +446,7 @@ function statusLabel(c: MatrixCell): string {
 
 /**
  * Checkbox-artige Statusbox für eine Matrix-Zelle. Visuell deutlich als
- * „abhakbar" erkennbar (analog zur Schulden-Seite), statt einer reinen
+ * „abhakbar" erkennbar (analog zur Schuldenseite), statt einer reinen
  * Symbol-Anzeige. Klick öffnet weiterhin das Zahlungs-Modal — bei
  * Teilzahlungen / Überzahlung / Storno reicht eine binäre Checkbox nicht.
  */
@@ -529,7 +529,7 @@ function RowActions({
       ? "Für die vorstreckende Person ist keine E-Mail hinterlegt"
       : advancerNothingOpen
         ? "Alles an die Agentur überwiesen, keine Erinnerung nötig"
-        : "Charter-Übersicht an dich selbst schicken (Σ Crew-Eingänge / Soll Agentur / noch zu überweisen)"
+        : "Charterübersicht an dich selbst schicken (Σ Creweingänge / Soll Agentur / noch zu überweisen)"
     : !member.email
       ? "E-Mail fehlt"
       : rowOpen <= 0.005
@@ -543,7 +543,7 @@ function RowActions({
         onClick={() => onWhatsApp(member)}
         disabled={rowOpen <= 0.005 || isAdvancerRow}
         className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-rule p-1.5 text-primary hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-40"
-        title={isAdvancerRow ? "Selbst-Verrechnung statt WhatsApp" : "WhatsApp-Text"}
+        title={isAdvancerRow ? "Selbstverrechnung statt WhatsApp" : "WhatsApp-Text"}
         aria-label={`WhatsApp-Text für ${member.display_name}`}
       >
         <MessageCircle className="h-4 w-4" aria-hidden="true" />
@@ -945,7 +945,7 @@ function PendingBanner({
                 <strong>{name}</strong> hat{" "}
                 <strong className="text-primary">{formatEuro(p.amount)}</strong> für{" "}
                 <strong>{tranche?.label ?? "Tranche"}</strong> gemeldet
-                {/* Buchungs-Beschreibung bewusst NICHT anzeigen — sie ist
+                {/* Buchungsbeschreibung bewusst NICHT anzeigen — sie ist
                     redundant zur Zeile darüber („X hat Y € für N. Anzahlung
                     gemeldet") und enthält teils irreführende Seed-/Default-Texte. */}
                 <span className="block text-xs text-ink-soft">{formatDeDate(p.date)}</span>

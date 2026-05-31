@@ -2,7 +2,7 @@
  * Berechnet pro Transaktion den Anteil jedes Crewmitglieds.
  *
  * Spiegel der SQL-View v_transaction_shares aus 0002_views.sql / 0014_per_person.
- * Implementiert alle 5 Aufteilungs-Logiken + Alkohol-Modifikator + Trinkgeld-
+ * Implementiert alle 5 Aufteilungs-Logiken + Alkoholmodifikator + Trinkgeld-
  * Multiplikator.
  *
  * Spec: docs/calculation-rules.md
@@ -73,8 +73,8 @@ export function calculateShares(
     if (alcoholAmount <= 0 || !isActive(m)) return 0;
     // Bei "Pro Person" ist die Basis bereits der volle Einzelbetrag
     // (Σ pp_amount = amount), der den Alkohol mit enthält. Ein zusätzlicher
-    // Alkohol-Anteil würde den Betrag doppelt verteilen (Σ Anteile > amount,
-    // Saldo-Summe ≠ 0). Daher hier kein separater Alkohol-Anteil.
+    // Alkoholanteil würde den Betrag doppelt verteilen (Σ Anteile > amount,
+    // Saldosumme ≠ 0). Daher hier kein separater Alkoholanteil.
     if (splitType === "per_person") return 0;
 
     // Edge-Case: keine Trinker im Active-Set → Alk auf gesamtes Active-Set

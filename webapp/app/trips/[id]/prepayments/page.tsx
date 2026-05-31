@@ -73,10 +73,10 @@ export default async function PrepaymentsPage({
       <main className="mx-auto max-w-2xl px-4 py-6">
         <h1 className="mb-4 text-lg font-bold text-primary">Anzahlungen</h1>
         <section className="rounded-lg border border-dashed border-primary/30 bg-navy-light/30 p-6 text-center">
-          <p className="font-medium text-primary">Noch kein Anzahlungs-Plan</p>
+          <p className="font-medium text-primary">Noch kein Anzahlungsplan</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-ink-soft">
             Lege Aufteilung, Kojen (optional) und Tranchen fest. Crewmitglieder sehen danach
-            ihre Soll-Beträge und können in der Matrix abgehakt werden.
+            ihre Sollbeträge und können in der Matrix abgehakt werden.
           </p>
           <Link
             href={`/trips/${id}/prepayments/setup`}

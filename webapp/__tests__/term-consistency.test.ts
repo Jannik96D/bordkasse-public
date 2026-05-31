@@ -59,6 +59,14 @@ const FORBIDDEN: { term: string; allowed?: string[] }[] = [
   { term: "Yacht-Anzahlung" },
   { term: "Charter-Agentur" },
   { term: "Törn-Ende" },
+  // Durchkopplungs-Sweep (rein deutsche Komposita als ein Wort):
+  { term: "Alkohol-Anteil" },
+  { term: "Anzahlungs-Plan" },
+  { term: "Anzahlungs-Tranche" },
+  { term: "Personen-Bezug" },
+  { term: "Selbst-Verrechnung" },
+  { term: "Gesamt-Statistik" },
+  { term: "Crew-Daten" },
   {
     // „Törnfortschritt" ist der sichtbare Begriff; die internen Karten-/
     // Checklisten-Bezeichner in Kommentaren bleiben aber erlaubt.

@@ -132,14 +132,14 @@ export interface PaymentEntry {
 }
 
 /**
- * Anzahlungs-Pool-Saldo pro Person — „was muss diese Person noch zur
+ * Anzahlungspool-Saldo pro Person — „was muss diese Person noch zur
  * Anzahlung beitragen?"-Sicht.
  *
- * NUR Crew-Beiträge zählen in `paid`:
+ * NUR Crewbeiträge zählen in `paid`:
  *   - für normale Crew:  Σ credit_given mit tranche_id (Zahlung an Vorstrecker)
- *   - für Vorstrecker:   Σ self_credit (Selbst-Verrechnung des eigenen Anteils)
+ *   - für Vorstrecker:   Σ self_credit (Selbstverrechnung des eigenen Anteils)
  *
- * Charter-Auslagen (`paid_by` mit tranche_id, typisch Vorstrecker → Agentur)
+ * Charterauslagen (`paid_by` mit tranche_id, typisch Vorstrecker → Agentur)
  * zählen NICHT in `paid` — sie sind kein „Beitrag zum Crew-Pool", sondern
  * eine separate Bewegung „Geld aus Pool an Vercharterer". Wird in einem
  * eigenen Block angezeigt (siehe getCharterPaidTotal).
@@ -152,7 +152,7 @@ export interface PaymentEntry {
 export interface PrepaymentPoolBalance {
   person_id: string;
   soll: number;
-  /** Crew-Beitrag (Zahlung an Vorstrecker bzw. Self-Credit). Charter-Auslagen sind NICHT enthalten. */
+  /** Crew-Beitrag (Zahlung an Vorstrecker bzw. Self-Credit). Charterauslagen sind NICHT enthalten. */
   paid: number;
   /** paid − soll: + = überzahlt, − = schuldet noch, 0 = ausgeglichen. */
   balance: number;
@@ -193,7 +193,7 @@ export async function getPrepaymentPoolBalances(tripId: string): Promise<Prepaym
     if (!t.confirmed_at) continue;
     if (t.type !== "credit" || !t.credit_from) continue;
     // Charter-Expenses (paid_by) zählen NICHT — sie sind separat als
-    // Charter-Auslage zu betrachten, nicht als Crew-Pool-Beitrag.
+    // Charterauslage zu betrachten, nicht als Crew-Pool-Beitrag.
     const isSelfCredit = t.credit_from === t.credit_to;
     const isToAdvancer = t.credit_to === advancerId;
     if (isSelfCredit || isToAdvancer) {
@@ -295,7 +295,7 @@ export async function getPendingPayments(tripId: string): Promise<PendingPayment
  *              Selbstmeldung wartet ODER der Vorstrecker der Charteragentur
  *              noch etwas schuldet.
  *
- * Ohne Plan/Tranchen sofort `false` — auf Trips ohne Anzahlungs-Plan kostet
+ * Ohne Plan/Tranchen sofort `false` — auf Trips ohne Anzahlungsplan kostet
  * das nur eine günstige `getPlan`-Query und der Eintrag bleibt aus.
  * `isManager` (Skipper / Admin / Vorstrecker) wird intern aus dem Plan
  * abgeleitet, damit der Plan nicht doppelt geladen werden muss.

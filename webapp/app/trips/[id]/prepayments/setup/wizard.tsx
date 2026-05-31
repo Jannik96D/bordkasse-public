@@ -159,7 +159,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
   function saveTranchesAndFinish() {
     setError(null);
     if (Math.abs(percentSum - 100) > 0.01) {
-      setError(`Summe aller Tranchen-Prozente muss 100 % ergeben (aktuell: ${percentSum.toFixed(1)} %).`);
+      setError(`Summe aller Tranchenprozente muss 100 % ergeben (aktuell: ${percentSum.toFixed(1)} %).`);
       return;
     }
     const payload = {
@@ -232,8 +232,8 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
             <span className="text-ink-soft">
               Aufteilungsmethode
               <InfoTooltip
-                label="Wie werden die Soll-Beträge berechnet?"
-                text="Bei „Gleichmäßig“ und „Zeitanteilig“ werden die Soll-Beträge automatisch aus der Gesamtsumme und der Crew-Anwesenheit berechnet. Bei „Individuell“ und „Nach Kojen“ gibst du sie pro Person bzw. pro Koje vor."
+                label="Wie werden die Sollbeträge berechnet?"
+                text="Bei „Gleichmäßig“ und „Zeitanteilig“ werden die Sollbeträge automatisch aus der Gesamtsumme und der Crewanwesenheit berechnet. Bei „Individuell“ und „Nach Kojen“ gibst du sie pro Person bzw. pro Koje vor."
               />
             </span>
             <select
@@ -242,7 +242,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
               className="mt-1 w-full rounded-md border border-rule px-3 py-2"
             >
               <option value="gleichmaessig">Gleichmäßig auf alle</option>
-              <option value="zeitanteilig">Zeitanteilig (nach Bord-Tagen)</option>
+              <option value="zeitanteilig">Zeitanteilig (nach Bordtagen)</option>
               <option value="individuell">Individuell (pro Person)</option>
               <option value="kojen">Nach Kojen</option>
             </select>
@@ -381,7 +381,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
               Wer streckt vor?
               <InfoTooltip
                 label="Wer streckt vor?"
-                text="Wer die Yachtanzahlung an die Charteragentur vorstreckt. Alle Crew-Anzahlungen werden an diese Person verbucht; ihren eigenen Anteil kann sie bilanzneutral als Selbst-Verrechnung abhaken. Default ist der Trip-Skipper."
+                text="Wer die Yachtanzahlung an die Charteragentur vorstreckt. Alle Crewanzahlungen werden an diese Person verbucht; ihren eigenen Anteil kann sie bilanzneutral als Selbstverrechnung abhaken. Default ist der Trip-Skipper."
               />
             </span>
             <select
@@ -428,7 +428,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
           {needsTotalAmount && totalAmountNum <= 0 && (
             <p className="text-xs text-ink-soft">
               Trage zuerst eine Gesamtsumme &gt; 0 € ein. Daraus werden die
-              Soll-Beträge der Crew berechnet.
+              Sollbeträge der Crew berechnet.
             </p>
           )}
 
@@ -525,7 +525,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
 
 // ────────────────────────────────────────────────────────────────────────
 // CrewQuickAdd — Inline-Anlage neuer Crew direkt im Wizard.
-// Spart den Detour über Settings, wenn der Skipper den Anzahlungs-Plan
+// Spart den Detour über Settings, wenn der Skipper den Anzahlungsplan
 // noch vor dem eigentlichen Crew-Onboarding erstellt.
 // ────────────────────────────────────────────────────────────────────────
 function CrewQuickAdd({ tripId, memberCount }: { tripId: string; memberCount: number }) {
@@ -605,7 +605,7 @@ function CrewQuickAdd({ tripId, memberCount }: { tripId: string; memberCount: nu
           {pending ? "Lege an …" : "Crew hinzufügen"}
         </button>
         <p className="text-xs text-ink-soft">
-          Ohne E-Mail wird die Person als Ghost angelegt (kein Login, aber Anzahlungs-Soll und WhatsApp-Texte gehen trotzdem).
+          Ohne E-Mail wird die Person als Ghost angelegt (kein Login, aber Anzahlungssoll und WhatsApp-Texte gehen trotzdem).
         </p>
       </div>
     </details>

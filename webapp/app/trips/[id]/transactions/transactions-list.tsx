@@ -65,7 +65,7 @@ export function TransactionsList({
 
   return (
     <>
-      {/* Such-Feld einblenden, wenn es genug zu filtern gibt — oder wenn
+      {/* Suchfeld einblenden, wenn es genug zu filtern gibt — oder wenn
           schon ein Filter aus der URL gesetzt ist (Drill-Down aus Statistik). */}
       {(rows.length > 4 || query.length > 0) && (
         <div className="relative mb-4">
@@ -111,9 +111,9 @@ export function TransactionsList({
                     key={t.id}
                     className="flex items-stretch overflow-hidden rounded-md border border-rule bg-paper"
                   >
-                    {/* Haupt-Bereich → Detail-Seite. Edit/Delete als Sibling
+                    {/* Haupt-Bereich → Detailseite. Edit/Delete als Sibling
                         außerhalb des Link, damit Tap die Aktion ausführt statt
-                        zur Detail-Seite zu navigieren (keine nested links). */}
+                        zur Detailseite zu navigieren (keine nested links). */}
                     <Link
                       href={`/trips/${tripId}/transactions/${t.id}`}
                       className="flex min-w-0 flex-1 items-start justify-between gap-3 p-3 transition-colors hover:bg-paper-soft"
@@ -131,7 +131,7 @@ export function TransactionsList({
                           <p className="mt-1">
                             <span
                               className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
-                              aria-label={`Anzahlungs-Pool, Tranche ${t.tranche_label} — nicht in der laufenden Bordkasse`}
+                              aria-label={`Anzahlungspool, Tranche ${t.tranche_label} — nicht in der laufenden Bordkasse`}
                             >
                               <Anchor className="h-3 w-3" aria-hidden="true" />
                               Anzahlung · {t.tranche_label}
@@ -200,7 +200,7 @@ export function TransactionsList({
                         <Link
                           href={`/trips/${tripId}/transactions/${t.id}`}
                           className="rounded-md p-1.5 text-ink-soft hover:bg-paper-soft hover:text-primary"
-                          aria-label="Buchungs-Details ansehen"
+                          aria-label="Buchungsdetails ansehen"
                           title="Details ansehen"
                         >
                           <Info className="h-4 w-4" />

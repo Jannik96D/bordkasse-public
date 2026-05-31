@@ -26,7 +26,7 @@ type Member = {
   /** Anwesenheit (für „An Bord" / „Zeitanteilig"-Vorschau). Fällt auf Törn-Daten zurück. */
   on_board_from?: string | null;
   on_board_to?: string | null;
-  /** Trinkt Alkohol mit (für Alkohol-Anteil-Vorschau). */
+  /** Trinkt Alkohol mit (für Alkoholanteil-Vorschau). */
   is_alcoholic_effective?: boolean;
 };
 type Category = { id: string; name: string; icon: string | null };
@@ -52,8 +52,8 @@ const SPLIT_LABEL: Record<SplitType, string> = {
  */
 const SPLIT_TOOLTIP =
   "Gleichmäßig: alle teilen sich gleich. " +
-  "An Bord: nur am Buchungs-Datum anwesende Personen. " +
-  "Zeitanteilig: proportional zu den Bord-Tagen. " +
+  "An Bord: nur am Buchungsdatum anwesende Personen. " +
+  "Zeitanteilig: proportional zu den Bordtagen. " +
   "Individuell: nur explizit markierte Personen. " +
   "Pro Person: jede Person trägt einen eigenen Betrag ein (z. B. Restaurant).";
 
@@ -78,7 +78,7 @@ export type ExpenseInitial = {
   splitType: SplitType;
   participantIds: string[];
   participantAmounts: Array<{ personId: string; amount: number }>;
-  /** Optional, Migration 0023 — Anzahlungs-Tranche, falls die Buchung zugeordnet ist. */
+  /** Optional, Migration 0023 — Anzahlungstranche, falls die Buchung zugeordnet ist. */
   trancheId?: string | null;
 };
 
@@ -90,7 +90,7 @@ export type CreditInitial = {
   creditFrom: string;
   /** null = "Alle" */
   creditTo: string | null;
-  /** Optional, Migration 0023 — Anzahlungs-Tranche, falls zugeordnet. */
+  /** Optional, Migration 0023 — Anzahlungstranche, falls zugeordnet. */
   trancheId?: string | null;
 };
 
@@ -113,7 +113,7 @@ function formatAmount(n: number): string {
   return n.toFixed(2).replace(".", ",");
 }
 
-/** Anzahlungs-Tranche (Migration 0023) — nur Auswahl-Werte für die Form. */
+/** Anzahlungstranche (Migration 0023) — nur Auswahl-Werte für die Form. */
 export type TrancheOption = { id: string; label: string; due_date: string };
 
 interface TransactionFormProps {
@@ -121,19 +121,19 @@ interface TransactionFormProps {
   isSkipper: boolean;
   members: Member[];
   categories: Category[];
-  /** Törn-Start/-Ende (ISO) — begrenzt das Datums-Feld (min/max) gegen Eingaben außerhalb des Törns. */
+  /** Törnstart/-Ende (ISO) — begrenzt das Datums-Feld (min/max) gegen Eingaben außerhalb des Törns. */
   tripStart?: string;
   tripEnd?: string;
   /** person_id des eingeloggten Users — wird im "Bezahlt von"-Dropdown nach oben sortiert. */
   currentPersonId?: string;
   /**
-   * Verfügbare Anzahlungs-Tranchen des Trips. Wenn ≥ 1, blendet die Form
-   * ein „Anzahlungs-Tranche zuordnen"-Feld ein. Sonst (kein Plan) bleibt das
+   * Verfügbare Anzahlungstranchen des Trips. Wenn ≥ 1, blendet die Form
+   * ein „Anzahlungstranche zuordnen"-Feld ein. Sonst (kein Plan) bleibt das
    * Feld verborgen und die Buchung landet wie bisher im Bordkasse-Pool.
    */
   tranches?: TrancheOption[];
   /**
-   * Darf der eingeloggte User die Anzahlungs-Tranche-Zuordnung ändern?
+   * Darf der eingeloggte User die Anzahlungstranche-Zuordnung ändern?
    * True für Skipper/Admin/Vorstrecker. False für normale Crew — sie sieht
    * das Feld dann gar nicht (vermeidet Verwirrung), bestehende Zuordnung
    * bleibt aber via Hidden-Input erhalten.
@@ -252,7 +252,7 @@ function TrancheField({
   tranches?: TrancheOption[];
   initialTrancheId?: string | null;
   /**
-   * Nur Skipper/Admin/Vorstrecker dürfen die Anzahlungs-Tranche setzen
+   * Nur Skipper/Admin/Vorstrecker dürfen die Anzahlungstranche setzen
    * oder ändern. Crew sieht das Feld gar nicht. Die canEditTransaction-
    * Policy in lib/actions/transactions.ts erlaubt Crew sowieso nur
    * eigene Buchungen zu editieren — eine vom Skipper mit tranche_id
@@ -268,7 +268,7 @@ function TrancheField({
   return (
     <details open={!!initialTrancheId} className="rounded-md border border-rule bg-paper p-3 text-sm">
       <summary className="cursor-pointer text-ink-soft">
-        Anzahlungs-Tranche zuordnen
+        Anzahlungstranche zuordnen
         {value && <span className="ml-2 text-primary">✓ aktiv</span>}
       </summary>
       <label className="mt-2 block">
@@ -288,7 +288,7 @@ function TrancheField({
         </select>
       </label>
       <p className="mt-2 text-xs text-ink-soft">
-        Wenn gesetzt, landet die Buchung im Anzahlungs-Pool statt in der laufenden Bordkasse.
+        Wenn gesetzt, landet die Buchung im Anzahlungspool statt in der laufenden Bordkasse.
       </p>
     </details>
   );
@@ -721,7 +721,7 @@ function ExpenseForm({
                   <div className="flex w-40 flex-col items-end gap-0.5">
                     <div className="flex w-full items-center gap-2">
                       {/* inputMode="text" statt "decimal", damit Mobile-Tastaturen
-                          die Symbol-Taste ("123" / "?123") für Operatoren erlauben
+                          die Symboltaste ("123" / "?123") für Operatoren erlauben
                           — sonst ist man auf reines Zahlen-Pad festgenagelt und
                           kann keine Rechenausdrücke wie "3+4" eintragen. */}
                       <input
@@ -841,10 +841,10 @@ function ExpenseForm({
             className="flex items-center gap-1 text-sm text-ink-soft hover:text-primary"
           >
             {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            Erweitert (Alkohol-Anteil)
+            Erweitert (Alkoholanteil)
           </button>
           {showAdvanced && (
-            <FieldGroup label="Alkohol-Anteil (€)" htmlFor="alcohol_amount" error={fieldError("alcohol_amount")} hint="Wird auf alle verteilt, die Alkohol mittrinken; Rest nach Aufteilung.">
+            <FieldGroup label="Alkoholanteil (€)" htmlFor="alcohol_amount" error={fieldError("alcohol_amount")} hint="Wird auf alle verteilt, die Alkohol mittrinken; Rest nach Aufteilung.">
               <input
                 id="alcohol_amount" name="alcohol_amount" type="text"
                 inputMode="decimal" pattern="([0-9]+([,.][0-9]{1,2})?)?"
@@ -1055,7 +1055,7 @@ function CreditForm({
           id="description" name="description" type="text" maxLength={120}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="z. B. Yacht-Anteil-Rückzahlung"
+          placeholder="z. B. Yachtanteil-Rückzahlung"
           aria-invalid={isInvalid("description") || undefined}
           className={cn(inputCls, isInvalid("description") && "border-danger ring-2 ring-danger/20")}
         />

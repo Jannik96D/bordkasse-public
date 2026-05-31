@@ -1,9 +1,9 @@
 /**
- * Berechnet Soll-Beträge pro Person für den Anzahlungs-Plan eines Trips.
+ * Berechnet Sollbeträge pro Person für den Anzahlungsplan eines Trips.
  *
  * Vier Aufteilungsmethoden:
  *   - gleichmaessig:  total_amount gleichmäßig auf alle Crew
- *   - zeitanteilig:   nach Bord-Tagen
+ *   - zeitanteilig:   nach Bordtagen
  *   - individuell:    explizit pro Person (kommt aus dem Skipper-Input, hier nur pass-through)
  *   - kojen:          jede Person bekommt ihre cabin_type.price_per_person
  *

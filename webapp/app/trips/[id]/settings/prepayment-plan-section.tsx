@@ -22,9 +22,9 @@ export function PrepaymentPlanSection({
     <section>
       <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold text-primary">
         <Coins className="h-4 w-4" />
-        Anzahlungs-Plan
+        Anzahlungsplan
         <InfoTooltip
-          label="Was ist ein Anzahlungs-Plan?"
+          label="Was ist ein Anzahlungsplan?"
           text="Für Yachtanzahlungen, die die vorstreckende Person Monate vor dem Törn an die Charteragentur leistet und sich von der Crew in Tranchen zurückerstatten lässt."
         />
       </h2>
@@ -39,7 +39,7 @@ export function PrepaymentPlanSection({
           href={`/trips/${tripId}/prepayments/setup`}
           className="mt-3 inline-flex min-h-[44px] items-center gap-1 rounded-md bg-primary px-4 py-2 text-sm font-medium text-paper hover:bg-navy-dark"
         >
-          {planExists ? "Anzahlungs-Plan bearbeiten" : "Anzahlungs-Plan einrichten"}
+          {planExists ? "Anzahlungsplan bearbeiten" : "Anzahlungsplan einrichten"}
         </Link>
       </div>
     </section>

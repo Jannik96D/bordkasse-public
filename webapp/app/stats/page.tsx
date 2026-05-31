@@ -5,7 +5,7 @@ import { getGlobalStats } from "@/lib/queries/global-stats";
 import { GlobalStatsView } from "./global-stats-view";
 
 /**
- * Gesamt-Statistik: aggregiert alle Trips, die der User sehen darf.
+ * Gesamtstatistik: aggregiert alle Trips, die der User sehen darf.
  *
  * - Regulärer User: seine aktiven Trips (per RLS) + seine gepurgten Trips
  *   (per audience-Policy aus Migration 0020).
@@ -19,7 +19,7 @@ export default async function GlobalStatsPage() {
   if (!person) {
     return (
       <main className="mx-auto w-full max-w-2xl px-4 py-8">
-        <h1 className="text-2xl font-bold text-primary">Gesamt-Statistik</h1>
+        <h1 className="text-2xl font-bold text-primary">Gesamtstatistik</h1>
         <p className="mt-4 text-sm text-ink-soft">
           Bitte zuerst{" "}
           <a href="/login" className="text-primary underline">
@@ -35,7 +35,7 @@ export default async function GlobalStatsPage() {
 
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-8">
-      <h1 className="text-2xl font-bold text-primary">Gesamt-Statistik</h1>
+      <h1 className="text-2xl font-bold text-primary">Gesamtstatistik</h1>
       <p className="mt-1 text-sm text-ink-soft">
         Alle Törns, in denen du Mitglied warst oder bist.
       </p>

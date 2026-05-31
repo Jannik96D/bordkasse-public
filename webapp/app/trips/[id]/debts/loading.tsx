@@ -1,4 +1,4 @@
-/** Lade-Skeleton für die Schulden-Seite (Überweisungs-Liste). */
+/** Lade-Skeleton für die Schuldenseite (Überweisungs-Liste). */
 export default function Loading() {
   return (
     <main className="mx-auto max-w-2xl px-4 pb-24 pt-4" aria-hidden="true">

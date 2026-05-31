@@ -1,5 +1,5 @@
 /**
- * Zod-Schemas für Anzahlungs-Tranchen — gespiegelt zur Migration 0023.
+ * Zod-Schemas für Anzahlungstranchen — gespiegelt zur Migration 0023.
  * Spec: docs/prepayments.md
  */
 
@@ -79,7 +79,7 @@ export const TranchesSchema = z
       const sum = d.tranches.reduce((s, t) => s + t.percent, 0);
       return Math.abs(sum - 100) <= 0.01;
     },
-    { message: "Summe aller Tranchen-Prozente muss 100 % ergeben.", path: ["tranches"] },
+    { message: "Summe aller Tranchenprozente muss 100 % ergeben.", path: ["tranches"] },
   );
 
 export const RecordPaymentSchema = z.object({
