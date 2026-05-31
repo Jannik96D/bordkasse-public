@@ -602,8 +602,8 @@ export default function AboutPage() {
           Datenschutz
         </Link>
         <span className="mx-2">·</span>
-        <Link href="/impressum" className="hover:text-primary">
-          Impressum
+        <Link href="/kontakt" className="hover:text-primary">
+          Kontakt
         </Link>
       </p>
     </main>
