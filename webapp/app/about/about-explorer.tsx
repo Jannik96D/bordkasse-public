@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Anchor, Users, type LucideIcon } from "lucide-react";
 import { FeatureShot } from "./feature-shot";
 
 /** Für wen ist ein Feature primär relevant? Steuert Badge + Filter. */
@@ -26,16 +27,18 @@ export type ExplorerPhase = {
 
 type RoleFilter = "alle" | "skipper" | "crew";
 
-const ROLE_BADGE: Record<FeatureRole, { label: string; emoji: string; cls: string }> = {
-  skipper: { label: "Skipper", emoji: "⚓", cls: "border-primary/30 bg-navy-light/50 text-primary" },
-  crew: { label: "Crew", emoji: "👥", cls: "border-rule bg-paper-soft text-ink" },
-  alle: { label: "Alle", emoji: "👥", cls: "border-rule bg-paper-soft text-ink-soft" },
+// Lucide-Strich-Icons wie im Rest der App (Bottom-Nav-Stil), nicht Emoji:
+//   Skipper → Anchor, Crew/Alle → Users (wie die Crew-Icons der App).
+const ROLE_BADGE: Record<FeatureRole, { label: string; Icon: LucideIcon; cls: string }> = {
+  skipper: { label: "Skipper", Icon: Anchor, cls: "border-primary/30 bg-navy-light/50 text-primary" },
+  crew: { label: "Crew", Icon: Users, cls: "border-rule bg-paper-soft text-ink" },
+  alle: { label: "Alle", Icon: Users, cls: "border-rule bg-paper-soft text-ink-soft" },
 };
 
-const FILTERS: { id: RoleFilter; label: string; emoji?: string }[] = [
+const FILTERS: { id: RoleFilter; label: string; Icon?: LucideIcon }[] = [
   { id: "alle", label: "Alle" },
-  { id: "skipper", label: "Nur Skipper", emoji: "⚓" },
-  { id: "crew", label: "Nur Crew", emoji: "👥" },
+  { id: "skipper", label: "Nur Skipper", Icon: Anchor },
+  { id: "crew", label: "Nur Crew", Icon: Users },
 ];
 
 /**
@@ -54,7 +57,7 @@ function RoleBadge({ role }: { role: FeatureRole }) {
     <span
       className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${b.cls}`}
     >
-      <span aria-hidden="true">{b.emoji}</span>
+      <b.Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       <span className="sr-only">Für </span>
       {b.label}
     </span>
@@ -243,7 +246,7 @@ export function AboutExplorer({
                     : "border border-rule bg-paper-soft text-ink-soft hover:text-ink"
                 }`}
               >
-                {f.emoji && <span aria-hidden="true">{f.emoji}</span>}
+                {f.Icon && <f.Icon className="h-4 w-4" aria-hidden="true" />}
                 {f.label}
               </button>
             );
