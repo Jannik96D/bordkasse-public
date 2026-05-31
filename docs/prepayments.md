@@ -176,7 +176,7 @@ Bestehende „Neue Gutschrift"-Maske bekommt ein zusätzliches Dropdown **„Anz
 
 Crew-Mitglied sieht in seiner Trip-Sicht (CrewSelfView) den eigenen Tranchen-Status + Button **„Ich habe gezahlt"**:
 - Klick → erzeugt eine reguläre Gutschrift mit `confirmed_at = NULL` (= pending). Der Empfänger ist der **Vorstrecker** des Trips, nicht zwingend der Skipper.
-- Vorstrecker bekommt Mail (`payment-pending-template.ts`) + Hinweis in der Matrix (Symbol ⏳, Pending-Banner mit ✓/✗-Buttons)
+- Vorstrecker bekommt Mail (`payment-pending-template.ts`) + Hinweis in der Matrix (Symbol ⏳, Pending-Banner mit ✓/✗-Buttons). Der Banner-Eintrag zeigt nur „X hat Y € für N. Anzahlung gemeldet" + Datum — die Buchungs-Beschreibung wird bewusst nicht gerendert (redundant zur Zeile darüber).
 - Vorstrecker bestätigt mit ✓ → `confirmed_at = now()`, Eintrag zählt ab sofort in `v_prepayment_payments`
 - Bei Ablehnung mit ✗ → Soft-Delete via `deleted_at`. Crew-Mitglied bekommt eine Notice-Mail mit Hinweis „sprich mit dem Vorstrecker, falls das ein Versehen war" (kein freier Antwort-Text, um Streit zu vermeiden — Klärung per WhatsApp)
 
