@@ -8,7 +8,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AboutExplorer, type ExplorerPhase, type FeatureRole } from "./about-explorer";
-import { FeatureShot } from "./feature-shot";
 
 export const metadata = {
   title: "Über die Bordkassen-App · Bordkasse",
@@ -108,6 +107,30 @@ const features: Feature[] = [
     ),
     screenshot: "/about/04-trip-overview.webp",
     alt: "Übersicht eines anstehenden Törns mit Crew-Zähler, Schnellzugriff-Kacheln und Navigations-Leiste",
+  },
+  {
+    id: "toern-ueberblick",
+    title: "Dein Törn im Überblick",
+    lead: "Eine Fortschritts-Karte führt den Skipper durch den ganzen Törn — von der Vorbereitung bis zur fertigen Abrechnung.",
+    body: (
+      <>
+        <p>
+          Auf der Trip-Übersicht zeigt die App eine Checkliste mit fünf Phasen
+          (Vorbereitung, Anzahlung, während des Törns, Abrechnung, Abschluss).
+          Die Häkchen setzen sich <strong>automatisch</strong> aus dem echten
+          Stand: Crew eingeladen, erste Ausgabe erfasst, Abrechnung verschickt …
+          Nichts muss von Hand abgehakt werden.
+        </p>
+        <p className="mt-2">
+          Die aktuelle Phase ist aufgeklappt, kommende Schritte stehen gedämpft
+          darunter; die Karte lässt sich jederzeit einklappen. Sie ist dem
+          Skipper, Co-Skippern und Admins vorbehalten — die Crew sieht sie
+          nicht.
+        </p>
+      </>
+    ),
+    screenshot: "/about/18-toern-fortschritt.webp",
+    alt: "Trip-Übersicht mit der Fortschritts-Karte „Dein Törn im Überblick“ und den fünf Phasen",
   },
   {
     id: "buchungen",
@@ -430,7 +453,7 @@ const PHASES: Phase[] = [
     Icon: Compass,
     title: "Loslegen",
     lead: "Anmelden ohne Passwort, eigene Törns im Überblick.",
-    featureIds: ["welcome", "anmelden", "toerns", "trip-overview"],
+    featureIds: ["welcome", "anmelden", "toerns", "trip-overview", "toern-ueberblick"],
   },
   {
     id: "vor-dem-toern",
@@ -471,6 +494,7 @@ function featureById(id: string): Feature {
 // Rollen-Zuordnung pro Feature (steuert Badge + Filter im Explorer).
 // Nicht gelistete Features sind "alle" — von Skipper UND Crew genutzt.
 const SKIPPER_ONLY = new Set<string>([
+  "toern-ueberblick",
   "crew",
   "kategorien",
   "gutschrift",
@@ -497,40 +521,15 @@ export default function AboutPage() {
     })),
   }));
 
-  // Explorer-Intro: die Törn-Fortschritt-Karte als „roter Faden". Sie spiegelt
-  // genau die Phasen-Struktur dieser Seite — deshalb steht sie oben, nicht als
-  // eine Karte unter vielen. Reines Skipper-Feature.
+  // Neutraler Rahmungs-Einzeiler über den Tabs — erklärt die 5-Phasen-Logik
+  // der Seite, ohne ein rollenspezifisches Feature in den Vordergrund zu
+  // stellen. Die Törn-Fortschritt-Karte selbst sitzt als ⚓-Feature in der
+  // Phase „Loslegen".
   const explorerIntro = (
-    <section className="mb-10 rounded-lg border border-rule bg-paper-soft p-5 md:grid md:grid-cols-2 md:items-center md:gap-8 md:p-6">
-      <div className="mx-auto max-w-[14rem] md:max-w-[16rem]">
-        <FeatureShot
-          src="/about/18-toern-fortschritt.webp"
-          alt="Törn-Übersicht mit der Fortschritts-Karte „Dein Törn im Überblick“ und den fünf Phasen"
-          priority
-        />
-      </div>
-      <div className="mt-5 md:mt-0">
-        <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-navy-light/50 px-2 py-0.5 text-xs font-medium text-primary">
-          <span aria-hidden="true">⚓</span>
-          <span className="sr-only">Für </span>Skipper
-        </span>
-        <h2 className="mt-2 text-xl font-bold text-primary">
-          Ein roter Faden durch den ganzen Törn
-        </h2>
-        <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-          Skipper sehen auf der Törn-Übersicht eine Fortschritts-Karte, die
-          genau durch die folgenden fünf Phasen führt — von der Vorbereitung
-          bis zur fertigen Abrechnung. Die Häkchen setzen sich{" "}
-          <strong>automatisch</strong> aus dem echten Stand: Crew eingeladen,
-          erste Ausgabe erfasst, Abrechnung verschickt … Nichts muss von Hand
-          abgehakt werden, und die Karte lässt sich jederzeit einklappen.
-        </p>
-        <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-          Die Tabs unten zeigen dieselben Phasen — tipp dich durch, um zu
-          sehen, was in jeder Phase passiert.
-        </p>
-      </div>
-    </section>
+    <p className="mb-6 text-sm text-ink-soft">
+      Die App begleitet jeden Törn in fünf Phasen — tipp dich durch die Tabs,
+      um zu sehen, was in jeder passiert.
+    </p>
   );
 
   return (
