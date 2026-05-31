@@ -315,8 +315,10 @@ const features: Feature[] = [
         </p>
         <p className="mt-2">
           Im zweiten Schritt werden die <strong>Tranchen</strong> definiert
-          — typischerweise 30 % Reservierungs-Anzahlung Monate vorab und
-          70 % Endzahlung kurz vor dem Törn. Die Summe muss 100 % ergeben.
+          — typischerweise eine erste Anzahlung von 30 % Monate vorab und
+          70 % Endzahlung kurz vor dem Törn. Die App benennt sie automatisch
+          durch (1. Anzahlung, 2. Anzahlung … Endzahlung); die Summe muss
+          100 % ergeben.
           Eine WhatsApp-Vorlage und eine optionale Wero-ID lassen sich
           ebenfalls hier hinterlegen.
         </p>
