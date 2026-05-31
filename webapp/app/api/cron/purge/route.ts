@@ -32,6 +32,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
+  // Alte Login-Rate-Limit-Zähler aufräumen (Migration 0036). Nicht fatal —
+  // ein Fehler hier darf den Purge-Erfolg nicht überschreiben.
+  const { error: rlError } = await supabase.rpc("cleanup_login_rate_limit");
+  if (rlError) console.error("cleanup_login_rate_limit failed:", rlError.message);
+
   return NextResponse.json({
     ok: true,
     purged_trips: data ?? 0,
