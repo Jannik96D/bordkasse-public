@@ -534,39 +534,38 @@ export default function AboutPage() {
 
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-10">
-      {/* Fließtext bewusst schmal (Lesbarkeit ~65 Zeichen/Zeile); der
-          Explorer darunter nutzt die volle Breite. */}
-      <div className="mx-auto max-w-3xl">
-      <div className="mb-6">
-        <Link href="/" className="text-sm text-ink-soft hover:text-primary">
-          ← Übersicht
-        </Link>
-      </div>
+      {/* Alle Inhalte teilen eine gemeinsame linke Kante; die Textspalte
+          bricht nur früher um (max-w-3xl, ~65 Zeichen), der Explorer nutzt
+          die volle Breite. Bewusst KEIN mx-auto — das erzeugte sonst einen
+          Versatz der Textspalte gegenüber der Tab-Leiste darunter. */}
+      <div className="max-w-3xl">
+        <div className="mb-6">
+          <Link href="/" className="text-sm text-ink-soft hover:text-primary">
+            ← Übersicht
+          </Link>
+        </div>
 
-      <h1 className="text-3xl font-bold text-primary">
-        Wer schuldet am Ende wem? Diese App rechnet&rsquo;s aus.
-      </h1>
-      <p className="mt-2 text-base text-ink-soft">
-        Faire Aufteilung gemeinsamer Kosten auf Segel-Törns — auch wenn die
-        Crew wechselt, manche keinen Alkohol trinken und einzelne erst
-        später dazustoßen oder früher von Bord gehen.
-      </p>
-
-      <section className="prose mt-8 max-w-none text-sm leading-relaxed">
-        <p>
+        <h1 className="text-3xl font-bold text-primary">
+          Wer schuldet am Ende wem? Diese App rechnet&rsquo;s aus.
+        </h1>
+        <p className="mt-3 text-base leading-relaxed text-ink-soft">
+          Faire Aufteilung gemeinsamer Kosten auf Segel-Törns — auch wenn die
+          Crew wechselt, manche keinen Alkohol trinken und einzelne erst
+          später dazustoßen oder früher von Bord gehen.
+        </p>
+        <p className="mt-3 text-sm leading-relaxed text-ink-soft">
           Die App ist gedacht für Skipper und ihre Crews, die nicht jede
           Ausgabe von Hand in eine Tabelle tippen wollen. Sie läuft auf dem
-          Smartphone, das Anmelden geht ohne Passwort (Login-Link per
-          E-Mail), und sie rechnet faire Salden auch dann, wenn
-          Crew-Mitglieder zu unterschiedlichen Zeiten an und von Bord
-          gehen.
+          Smartphone, das Anmelden geht ohne Passwort (Login-Link per E-Mail),
+          und sie rechnet faire Salden auch dann, wenn Crew-Mitglieder zu
+          unterschiedlichen Zeiten an und von Bord gehen.
         </p>
-      </section>
       </div>
 
       <AboutExplorer phases={phasesData} intro={explorerIntro} />
 
-      <div className="mx-auto max-w-3xl">
+      {/* Linksbündig auf derselben Kante wie Hero + Explorer. */}
+      <div className="max-w-3xl">
       <section className="mt-16 rounded-lg border border-rule bg-paper-soft p-6">
         <h2 className="text-lg font-semibold text-primary">
           Was die App <em>nicht</em> ist
@@ -583,7 +582,9 @@ export default function AboutPage() {
           </li>
         </ul>
       </section>
+      </div>
 
+      {/* Abschluss bewusst seitenmittig (konventioneller Closing-CTA). */}
       <section className="mt-12 text-center">
         <p className="text-sm text-ink-soft">Mit an Bord?</p>
         <Link
@@ -599,7 +600,6 @@ export default function AboutPage() {
           Datenschutz
         </Link>
       </p>
-      </div>
     </main>
   );
 }
