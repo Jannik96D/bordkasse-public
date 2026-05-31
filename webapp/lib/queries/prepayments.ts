@@ -10,7 +10,7 @@ export interface PrepaymentPlan {
   trip_id: string;
   split_method: PrepaymentSplitMethod;
   total_amount: number;
-  /** Vorstrecker der Yacht-Anzahlung. NULL = Trip-Skipper. */
+  /** Vorstrecker der Yachtanzahlung. NULL = Trip-Skipper. */
   advancer_person_id: string | null;
   wero_id: string | null;
   whatsapp_template: string | null;

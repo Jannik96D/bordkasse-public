@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMember } from "@/lib/auth/authz";
 
 /**
- * Minimiert/öffnet die Törn-Fortschritt-Karte für das aktuelle Crew-Mitglied.
+ * Minimiert/öffnet die Törn-Fortschritt-Karte für das aktuelle Crewmitglied.
  * Pro Member persistiert (trip_members.checklist_collapsed_at), damit der
  * Zustand über Geräte hinweg konsistent ist. Pure Admins (kein Member) rufen
  * das nicht auf — die UI deaktiviert das Minimieren dann.

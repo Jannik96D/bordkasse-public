@@ -30,7 +30,7 @@ Solange das nicht der Fall ist: Sheets-Lösung beibehalten und iterativ verbesse
 ## Datenmodell (Postgres)
 
 ```sql
--- Crew-Mitglieder über Törns hinweg
+-- Crewmitglieder über Törns hinweg
 CREATE TABLE persons (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   display_name TEXT NOT NULL,
@@ -154,7 +154,7 @@ $$;
 /trips/[id]/transactions   → Liste aller Transaktionen, filterbar
 /trips/[id]/balance        → Bilanz-Tabelle
 /trips/[id]/debts          → Vereinfachte Schulden, mit "Erledigt"-Häkchen
-/trips/[id]:settings       → Crew-Mitglieder verwalten, Kategorien
+/trips/[id]:settings       → Crewmitglieder verwalten, Kategorien
 
 /profile                   → eigener Account (Name, Alkohol-Default)
 ```

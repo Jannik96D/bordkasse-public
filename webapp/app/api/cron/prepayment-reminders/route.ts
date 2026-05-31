@@ -7,8 +7,8 @@ import { CREW_DUE_DAYS_BEFORE_CHARTER, addDays } from "@/lib/prepayments/dates";
  * Täglicher Cron — verschickt Anzahlungs-Erinnerungen 3 Tage vor der
  * jeweiligen Fälligkeit:
  *
- *   - "crew_3d"      → 3 Tage vor Crew-Fälligkeit (= 6 Tage vor Charter-Frist)
- *                       an alle Crew-Mitglieder mit offenem Betrag in dieser
+ *   - "crew_3d"      → 3 Tage vor Crew-Fälligkeit (= 6 Tage vor Charterfrist)
+ *                       an alle Crewmitglieder mit offenem Betrag in dieser
  *                       Tranche. Vorstrecker wird übersprungen (eigene Mail).
  *
  *   - "advancer_3d"  → 3 Tage vor Charter-Fälligkeit (= echtes due_date in 3 Tagen)
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
 
-  // Fenster: jede Tranche, deren Charter-Frist in [heute, heute + max] liegt.
+  // Fenster: jede Tranche, deren Charterfrist in [heute, heute + max] liegt.
   // Innerhalb des Fensters entscheiden wir pro Tranche, ob crew_3d (≥ 6 Tage
   // vorher) und/oder advancer_3d (≥ 3 Tage vorher) angesagt sind. Vergangene
   // Fristen werden NICHT mehr beworben.
@@ -189,10 +189,10 @@ export async function GET(request: NextRequest) {
     if (!plan) continue;
     const advancerId = plan.advancer_person_id ?? trip.skipper_id;
 
-    // Wie viele Tage sind es noch bis zur Charter-Frist?
+    // Wie viele Tage sind es noch bis zur Charterfrist?
     const daysToCharter = daysBetween(todayIso, t.due_date);
 
-    // advancer_3d: ab 3 Tage vor Charter-Frist UND nur wenn er der Agentur noch was schuldet
+    // advancer_3d: ab 3 Tage vor Charterfrist UND nur wenn er der Agentur noch was schuldet
     if (daysToCharter <= REMINDER_DAYS_BEFORE) {
       const sollAgency = (Number(plan.total_amount) * Number(t.percent)) / 100;
       const paidAgency = paidToAgencyByTranche.get(t.id) ?? 0;
@@ -203,7 +203,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // crew_3d: ab 6 Tage vor Charter-Frist (= 3 Tage vor Crew-Frist).
+    // crew_3d: ab 6 Tage vor Charterfrist (= 3 Tage vor Crewfrist).
     // Crew, deren Soll > 0 ist und die weder voll bezahlt noch pending sind.
     if (daysToCharter <= CREW_WINDOW_MAX_DAYS) {
       const tripPersons = Array.from(

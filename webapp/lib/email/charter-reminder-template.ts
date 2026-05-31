@@ -61,7 +61,7 @@ export function renderCharterReminderMail(p: CharterReminderParams): {
                     <div style="margin-bottom:4px;">
                       <strong>${escapeHtml(t.label)}</strong>
                       ${overdueBadge}
-                      <span style="color:#587EA8;"> · Charter-Frist ${escapeHtml(t.charter_due_date)}</span>
+                      <span style="color:#587EA8;"> · Charterfrist ${escapeHtml(t.charter_due_date)}</span>
                     </div>
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:6px;font-size:13px;">
                       <tr>
@@ -136,7 +136,7 @@ ${renderHintBlock(
   const trancheText = p.tranches
     .map(
       (t) =>
-        `  - ${t.label} (Charter-Frist ${t.charter_due_date}):
+        `  - ${t.label} (Charterfrist ${t.charter_due_date}):
       Soll Agentur:      ${fmtEuro(t.soll_to_agency)}
       Crew bei dir:      ${fmtEuro(t.crew_paid_to_advancer)} von ${fmtEuro(t.crew_total_due)}
       An Agentur:        ${fmtEuro(t.paid_to_agency)}

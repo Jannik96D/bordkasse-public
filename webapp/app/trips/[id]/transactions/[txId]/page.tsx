@@ -18,7 +18,7 @@ const SPLIT_LABEL = {
 } as const;
 
 const SPLIT_HINT = {
-  equal: "Alle Crew-Mitglieder zahlen gleich viel, unabhängig von Anwesenheit.",
+  equal: "Alle Crewmitglieder zahlen gleich viel, unabhängig von Anwesenheit.",
   on_board: "Nur Personen, die am Tag der Ausgabe an Bord waren, zahlen mit.",
   time_proportional: "Anteil proportional zu den Bord-Tagen pro Person.",
   individual: "Nur die markierten Personen zahlen — alle gleich viel.",
@@ -129,11 +129,11 @@ export default async function TransactionDetailPage({
           {!isExpense && (
             <Field label="Geht an">
               <p className="font-medium">
-                {detail.credit_to_name ?? "Alle Crew-Mitglieder anteilig"}
+                {detail.credit_to_name ?? "Alle Crewmitglieder anteilig"}
                 {detail.credit_to_id == null && (
                   <InfoTooltip
                     label="Was bedeutet „An Alle“?"
-                    text="Der Betrag wird gleichmäßig auf alle Crew-Mitglieder außer die zahlende Person verteilt."
+                    text="Der Betrag wird gleichmäßig auf alle Crewmitglieder außer die zahlende Person verteilt."
                   />
                 )}
               </p>

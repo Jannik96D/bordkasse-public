@@ -7,7 +7,7 @@ import { isAdmin } from "@/lib/auth/authz";
  *
  * - Für globale Admins (in `ADMIN_EMAILS`-Env): Service-Role-Client →
  *   bypasst RLS, kann alle Trips lesen. Notwendig, damit Admins fremde
- *   Törns aufrufen können (Trip-Dashboard, Crew-Liste, Buchungen, etc.).
+ *   Törns aufrufen können (Trip-Dashboard, Crewliste, Buchungen, etc.).
  * - Für alle anderen: Cookie-basierter Client → RLS greift wie gewohnt.
  *
  * Schreib-Pfade nutzen weiterhin `createAdminClient()` direkt und prüfen

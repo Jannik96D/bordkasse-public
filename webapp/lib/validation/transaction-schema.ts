@@ -86,7 +86,7 @@ export const ExpenseSchema = z
     /**
      * Optional: ordnet die Buchung einer Anzahlungs-Tranche zu (Migration 0023).
      * Wenn gesetzt, landet die Buchung im Anzahlungs-Pool statt in der Bordkasse.
-     * Typischer Use-Case: Skipper bucht die Yacht-Anzahlung und ordnet sie der
+     * Typischer Use-Case: Skipper bucht die Yachtanzahlung und ordnet sie der
      * passenden Tranche zu.
      */
     tranche_id: z.string().uuid().optional().nullable(),

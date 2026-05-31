@@ -18,7 +18,7 @@ type Result =
   | { ok: false; message: string };
 
 /**
- * Markiert den Trip als "Abrechnung erfolgt" und schickt jedem Crew-Mitglied
+ * Markiert den Trip als "Abrechnung erfolgt" und schickt jedem Crewmitglied
  * eine personalisierte Mail mit:
  *   - eigenem Saldo (positiv = bekommt zurück, negativ = zahlt noch)
  *   - konkretem Zahlungs-/Empfangs-Plan aus simplify_debts()
@@ -86,7 +86,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
   const skipperName = skipperRow ? displayName(skipperRow) : "Skipper";
 
   const tripDates = `${formatDate(trip.start_date)} – ${formatDate(trip.end_date)}`;
-  // Link führt direkt zu den Schulden — dort sieht das Crew-Mitglied den
+  // Link führt direkt zu den Schulden — dort sieht das Crewmitglied den
   // Zahlungsplan und kann erledigte Zahlungen abhaken. Für den Gesamt-Saldo
   // ist der Bilanz-Tab nur einen Tap entfernt.
   const appUrl = `${process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.example"}/trips/${tripId}/debts`;

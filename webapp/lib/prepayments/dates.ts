@@ -19,9 +19,9 @@ function todayIsoUtc(): string {
  * (3 Tage davor) berechnen. Zeit-Zone-neutral via UTC, damit Sommerzeit-
  * Wechsel die Berechnung nicht verschiebt.
  *
- * Clamp: solange die Charter-Frist noch aussteht, rutscht die Crew-Frist nicht
+ * Clamp: solange die Charterfrist noch aussteht, rutscht die Crewfrist nicht
  * in die Vergangenheit (sonst sähe die Crew „bis gestern", obwohl die Zahlung
- * noch ansteht) — aber sie liegt nie nach der Charter-Frist selbst. `today`
+ * noch ansteht) — aber sie liegt nie nach der Charterfrist selbst. `today`
  * ist überschreibbar für deterministische Tests.
  */
 export function toCrewDueDate(charterDueDateIso: string, today: string = todayIsoUtc()): string {

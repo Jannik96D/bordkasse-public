@@ -125,7 +125,7 @@ export function computeTripProgress(
     const anzahlungItems: ProgressItem[] = [
       {
         id: "charter-advance",
-        label: "Yacht-Anzahlung an Agentur erfasst",
+        label: "Yachtanzahlung an Agentur erfasst",
         status: statusFor(s.charterAdvancePaid, idx("anzahlung"), unlockedUpTo),
         href: "prepayments",
       },

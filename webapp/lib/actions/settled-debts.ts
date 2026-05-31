@@ -47,7 +47,7 @@ export async function toggleDebtSettled(input: {
   if (!auth.ok) return { ok: false, message: auth.message };
 
   // Nur die direkt Beteiligten (Schuldner oder Gläubiger) oder Admin
-  // dürfen das Häkchen setzen — unbeteiligte Crew-Mitglieder nicht.
+  // dürfen das Häkchen setzen — unbeteiligte Crewmitglieder nicht.
   const admin = await isAdmin();
   if (!admin && auth.personId !== from_person_id && auth.personId !== to_person_id) {
     return { ok: false, message: "Nur wer zahlt oder das Geld bekommt darf das Häkchen setzen." };
@@ -56,7 +56,7 @@ export async function toggleDebtSettled(input: {
   const supabase = createAdminClient();
 
   // Bezahlt-Toggle erst freigegeben, wenn der Skipper die Abrechnung
-  // offiziell verschickt hat — vorher würden Crew-Mitglieder voreilig
+  // offiziell verschickt hat — vorher würden Crewmitglieder voreilig
   // Häkchen setzen bevor alle Buchungen drin sind.
   const { data: tripState } = await supabase
     .from("trips")
@@ -158,7 +158,7 @@ export async function toggleDebtSettled(input: {
  *   - an den Gläubiger (Hinweis „X hat seine Zahlung abgehakt")
  *   - bei Admin-/Dritt-Aktion zusätzlich an Skipper und Vorstrecker, sofern
  *     sie nicht ohnehin Schuldner oder Gläubiger sind — sie müssen wissen,
- *     dass jemand anders in ihrem Trip-Kontext geklickt hat.
+ *     dass jemand anders in ihrem Tripkontext geklickt hat.
  *
  * Greift via Admin-Client direkt auf `persons` + `persons_private`, weil
  * der Server-Action-Pfad ohnehin Service-Role nutzt (siehe lib/auth/authz.ts).
@@ -268,7 +268,7 @@ async function sendDebtSettledMails(
     // übersprungen (z. B. Ghost-Crew). Nur echte Zustell-Fehler zählen.
     if (!email) continue;
 
-    const recipientName = nameById.get(r.personId) ?? "Crew-Mitglied";
+    const recipientName = nameById.get(r.personId) ?? "Crewmitglied";
 
     // Observer-Pfad (neutraler Info-Mailtext): Skipper/Vorstrecker, die
     // weder Schuldner noch Gläubiger sind, bekommen eine separate Mail mit

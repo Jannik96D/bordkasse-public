@@ -845,7 +845,7 @@ function CharterReminderBanner({
         aria-label="Eigene Überweisungen an die Charteragentur — aufklappen"
       >
         <span className="text-xs font-semibold uppercase tracking-wide text-primary">
-          Charteranzahlungen — deine Überweisungen
+          Offene Charteranzahlungen
         </span>
         {nextOpen && (
           <span className={`tabular-nums ${summaryTone}`}>
@@ -934,7 +934,7 @@ function PendingBanner({
       </p>
       <ul className="space-y-1.5">
         {pending.map((p) => {
-          const name = memberById.get(p.person_id)?.display_name ?? "Crew-Mitglied";
+          const name = memberById.get(p.person_id)?.display_name ?? "Crewmitglied";
           const tranche = trancheById.get(p.tranche_id);
           return (
             <li

@@ -1,5 +1,5 @@
 /**
- * Mail an Skipper/Vorstrecker, wenn ein Crew-Mitglied eine Anzahlung selbst
+ * Mail an Skipper/Vorstrecker, wenn ein Crewmitglied eine Anzahlung selbst
  * meldet.
  *
  * Spec: docs/prepayments.md §Phase 2.

@@ -1,6 +1,6 @@
 /**
  * Neutraler Info-Mail-Wortlaut für Skipper / Vorstrecker, wenn eine DRITTE
- * Person (z. B. Admin) eine Schuld zwischen zwei anderen Crew-Mitgliedern
+ * Person (z. B. Admin) eine Schuld zwischen zwei anderen Crewmitgliedern
  * abgehakt hat. Skipper/Vorstrecker bekommen damit Bescheid, ohne dass die
  * normale debt-settled-Mail sie irreführend als „Schuldner" / „Gläubiger"
  * adressiert.

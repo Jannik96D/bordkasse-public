@@ -119,7 +119,7 @@ export async function requireSkipperOrAdmin(tripId: string): Promise<AuthzResult
  * dieses Trips).
  *
  * Use-Case: der Skipper-Original ist nicht zwingend derselbe wie der, der
- * die Yacht-Anzahlung vorstreckt. Wenn z.B. Lucas das Geld vorstreckt
+ * die Yachtanzahlung vorstreckt. Wenn z.B. Lucas das Geld vorstreckt
  * und Jannik der Trip-Skipper ist, darf Lucas seine eigenen eingehenden
  * Crew-Anzahlungen ankreuzen und Selbstmeldungen bestätigen/ablehnen.
  */
@@ -143,7 +143,7 @@ export async function requireSkipperAdminOrAdvancer(tripId: string): Promise<Aut
   };
 }
 
-/** Eingeloggt UND Crew-Mitglied dieses Trips (Skipper-Flag egal). */
+/** Eingeloggt UND Crewmitglied dieses Trips (Skipper-Flag egal). */
 export async function requireMember(tripId: string): Promise<AuthzResult> {
   const auth = await requireAuth();
   if (!auth.ok) return auth;

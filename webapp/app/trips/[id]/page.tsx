@@ -139,7 +139,7 @@ export default async function TripDashboard({
             >
               <Coins className="h-5 w-5 text-primary" />
               <span className="font-medium text-primary">Jetzt Anzahlung anlegen</span>
-              <span className="text-xs text-ink-soft">Yacht-Anzahlung auf die Crew aufteilen</span>
+              <span className="text-xs text-ink-soft">Yachtanzahlung auf die Crew aufteilen</span>
             </Link>
           )}
         </div>

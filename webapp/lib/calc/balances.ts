@@ -15,7 +15,7 @@ export function computeBalances(
 ): BalanceRow[] {
   const N = members.length;
 
-  // Initialisieren mit 0 für alle Crew-Mitglieder
+  // Initialisieren mit 0 für alle Crewmitglieder
   const rows = new Map<string, BalanceRow>(
     members.map((m) => [
       m.personId,
