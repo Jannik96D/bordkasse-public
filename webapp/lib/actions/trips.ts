@@ -125,7 +125,7 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
     payload: { ...trip, created_for_skipper_email: parsed.data.skipper_email || null },
   });
 
-  // Skipper als erstes Crew-Mitglied dazuschreiben (mit is_skipper=TRUE).
+  // Skipper als erstes Crewmitglied dazuschreiben (mit is_skipper=TRUE).
   // Wenn der Admin sich selbst zum Skipper macht, ist skipperId === auth.personId.
   // Wenn der Trip für einen Freund angelegt wird, taucht der Admin nicht in
   // trip_members auf — er hat trotzdem Voll-Zugriff via ADMIN_EMAILS.

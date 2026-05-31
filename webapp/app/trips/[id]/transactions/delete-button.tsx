@@ -14,7 +14,7 @@ export function DeleteButton({ transactionId, tripId }: { transactionId: string;
   const handleClick = async () => {
     const ok = await confirm({
       title: "Buchung löschen?",
-      body: "Die Buchung verschwindet aus der Bilanz aller Crew-Mitglieder. Das lässt sich nicht rückgängig machen.",
+      body: "Die Buchung verschwindet aus der Bilanz aller Crewmitglieder. Das lässt sich nicht rückgängig machen.",
       confirmLabel: "Löschen",
       danger: true,
     });

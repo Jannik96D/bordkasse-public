@@ -688,7 +688,7 @@ const SubmitSelfPaymentSchema = z.object({
 });
 
 /**
- * Crew-Mitglied meldet eine geleistete Anzahlung. Erzeugt eine reguläre
+ * Crewmitglied meldet eine geleistete Anzahlung. Erzeugt eine reguläre
  * Gutschrift mit `confirmed_at = NULL` (= pending). Der Skipper bekommt
  * eine Mail und kann in der Matrix bestätigen oder ablehnen.
  */
@@ -725,7 +725,7 @@ export async function submitSelfPayment(
   if (!tripRow || !trancheRow) return { status: "error", message: "Törn/Tranche nicht gefunden." };
   const advancerId = planRow?.advancer_person_id || tripRow.skipper_id;
 
-  // Crew-Mitglied kann nur für SICH selbst melden (nicht für andere).
+  // Crewmitglied kann nur für SICH selbst melden (nicht für andere).
   // Per definitionem ist auth.personId = die meldende Person.
   const { data: tx, error } = await supabase
     .from("transactions")
@@ -835,7 +835,7 @@ export async function confirmSelfPayment(
 
 /**
  * Skipper lehnt eine selbst gemeldete Anzahlung ab — Soft-Delete via
- * deleted_at. Crew-Mitglied bekommt (laut Spec) keine freitext-Antwort,
+ * deleted_at. Crewmitglied bekommt (laut Spec) keine freitext-Antwort,
  * Klärung läuft per WhatsApp. TODO Phase 2 + 1: optional Mail-Notif.
  */
 export async function rejectSelfPayment(
@@ -982,7 +982,7 @@ async function sendPrepaymentNoticeMails(
   for (const p of privsRaw ?? []) if (p.email) emailById.set(p.person_id, p.email);
 
   const actorName = nameById.get(args.actorPersonId) ?? "Skipper";
-  const subjectPersonName = nameById.get(args.subjectPersonId) ?? "Crew-Mitglied";
+  const subjectPersonName = nameById.get(args.subjectPersonId) ?? "Crewmitglied";
   const advancerName = nameById.get(advancerPersonId) ?? "die vorstreckende Person";
 
   const { renderPrepaymentNoticeMail } = await import(
@@ -993,7 +993,7 @@ async function sendPrepaymentNoticeMails(
   for (const personId of recipientIds) {
     const email = emailById.get(personId);
     if (!email) continue;
-    const recipientName = nameById.get(personId) ?? "Crew-Mitglied";
+    const recipientName = nameById.get(personId) ?? "Crewmitglied";
     const isAdvancer = personId === advancerPersonId;
 
     const mail = renderPrepaymentNoticeMail({

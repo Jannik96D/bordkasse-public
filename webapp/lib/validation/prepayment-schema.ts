@@ -48,7 +48,7 @@ export const PlanSchema = z
     trip_id: Uuid,
     split_method: SplitMethod,
     total_amount: Amount,
-    /** Wer hat die Yacht-Anzahlung vorgestreckt? NULL/undefined = Trip-Skipper. */
+    /** Wer hat die Yachtanzahlung vorgestreckt? NULL/undefined = Trip-Skipper. */
     advancer_person_id: Uuid.optional().nullable(),
     wero_id: z.string().trim().max(120).optional().or(z.literal("")),
     whatsapp_template: z.string().trim().max(2000).optional().or(z.literal("")),

@@ -381,7 +381,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
               Wer streckt vor?
               <InfoTooltip
                 label="Wer streckt vor?"
-                text="Wer die Yacht-Anzahlung an die Charteragentur vorstreckt. Alle Crew-Anzahlungen werden an diese Person verbucht; ihren eigenen Anteil kann sie bilanzneutral als Selbst-Verrechnung abhaken. Default ist der Trip-Skipper."
+                text="Wer die Yachtanzahlung an die Charteragentur vorstreckt. Alle Crew-Anzahlungen werden an diese Person verbucht; ihren eigenen Anteil kann sie bilanzneutral als Selbst-Verrechnung abhaken. Default ist der Trip-Skipper."
               />
             </span>
             <select
@@ -571,7 +571,7 @@ function CrewQuickAdd({ tripId, memberCount }: { tripId: string; memberCount: nu
     >
       <summary className="cursor-pointer text-primary">
         <UserPlus className="mr-1 inline h-4 w-4" />
-        Crew-Mitglied hinzufügen
+        Crewmitglied hinzufügen
         <span className="ml-2 text-xs font-normal text-ink-soft">(aktuell {memberCount})</span>
       </summary>
       <div className="mt-3 space-y-2">

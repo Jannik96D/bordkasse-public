@@ -40,11 +40,11 @@ export default function DatenschutzPage() {
             </li>
             <li>
               <strong>Anzeigename</strong> (in der Regel Vorname) — wie du auf
-              Buchungen, in der Bilanz und in der Crew-Liste erscheinst.
+              Buchungen, in der Bilanz und in der Crewliste erscheinst.
             </li>
             <li>
               <strong>Nachname (optional)</strong> — wird nur intern (Self + Skipper)
-              angezeigt, nicht in fremden Trips. Hilfreich, wenn mehrere Crew-Mitglieder
+              angezeigt, nicht in fremden Trips. Hilfreich, wenn mehrere Crewmitglieder
               den gleichen Vornamen haben.
             </li>
             <li>
@@ -53,7 +53,7 @@ export default function DatenschutzPage() {
             </li>
             <li>
               <strong>Trip-Daten</strong> — Crew, Anwesenheits-Tage, Buchungen, Beträge,
-              Aufteilungen — geteilt nur mit den Crew-Mitgliedern dieses Trips.
+              Aufteilungen — geteilt nur mit den Crewmitgliedern dieses Trips.
             </li>
             <li>
               <strong>Sichtbarkeits-Marker für Alt-Statistik</strong> — nach DSGVO-Löschung
@@ -77,7 +77,7 @@ export default function DatenschutzPage() {
             Funktionen (Art. 6 Abs. 1 lit. b DSGVO).
           </p>
           <p>
-            Legt ein Skipper für ein noch nicht registriertes Crew-Mitglied vorab einen
+            Legt ein Skipper für ein noch nicht registriertes Crewmitglied vorab einen
             Eintrag an (Name und ggf. E-Mail, um die Einladung zu verschicken), stützt
             sich diese Verarbeitung auf das berechtigte Interesse an einer praktikablen
             Törn-Organisation (Art. 6 Abs. 1 lit. f DSGVO). Sobald sich die Person
@@ -141,7 +141,7 @@ export default function DatenschutzPage() {
             App als erledigt markiert sind. Konkret betrifft das:
           </p>
           <ul className="ml-5 mt-2 list-disc">
-            <li>Crew-Liste (wer war wann an Bord, Alkohol-Flag, Notizen)</li>
+            <li>Crewliste (wer war wann an Bord, Alkohol-Flag, Notizen)</li>
             <li>Buchungen mit Personen-Bezug (wer hat bezahlt, wer ist beteiligt)</li>
             <li>Gutschriften und „Bezahlt“-Markierungen</li>
             <li>Audit-Log-Einträge dieses Törns</li>
@@ -171,12 +171,12 @@ export default function DatenschutzPage() {
             </li>
             <li>
               <strong>Sichtbarkeits-Marker</strong> (nur Person-ID + Trip-ID,
-              kein Inhalt) — wird nur für angemeldete Crew-Mitglieder mit Login
+              kein Inhalt) — wird nur für angemeldete Crewmitglieder mit Login
               angelegt (nicht für eingeladene Ghost-Personen). Zweck: damit dir
               in deiner persönlichen Gesamt-Statistik unter <em>/stats</em> auch
               deine alten, anonymisierten Törn-Aggregate weiterhin angezeigt werden
               können. Ohne diesen Marker wärst du nach 30 Tagen für die App nicht
-              mehr als ehemaliges Crew-Mitglied erkennbar und sähest deine eigenen
+              mehr als ehemaliges Crewmitglied erkennbar und sähest deine eigenen
               früheren Törns in der Übersicht nicht mehr.
             </li>
           </ul>
@@ -185,7 +185,7 @@ export default function DatenschutzPage() {
             <a href="/profile" className="underline">Profil</a>, siehe „Deine Rechte“),
             werden auch deine Sichtbarkeits-Marker mit gelöscht. Die anonymen
             Aggregate bleiben dann ohne deinen Personenbezug erhalten — andere
-            ehemalige Crew-Mitglieder können sie weiterhin sehen, du selbst nicht mehr.
+            ehemalige Crewmitglieder können sie weiterhin sehen, du selbst nicht mehr.
           </p>
           <p className="mt-2">
             Auf Wunsch löschen wir deine Daten auch vor Ablauf der 30 Tage unverzüglich
@@ -213,7 +213,7 @@ export default function DatenschutzPage() {
           </p>
           <ul className="ml-5 mt-2 list-disc">
             <li>
-              <strong>Seiten-Cache</strong> — bereits besuchte Crew-Liste, Buchungen,
+              <strong>Seiten-Cache</strong> — bereits besuchte Crewliste, Buchungen,
               Bilanz etc. werden gespeichert, damit du sie offline ansehen kannst.
             </li>
             <li>
@@ -248,7 +248,7 @@ export default function DatenschutzPage() {
           </ul>
           <p className="mt-2 text-xs text-ink-soft">
             Hinweis: lokal gespeicherte Daten sind nur für dich auf deinem Endgerät
-            sichtbar — andere Crew-Mitglieder sehen ausschließlich, was der Server liefert.
+            sichtbar — andere Crewmitglieder sehen ausschließlich, was der Server liefert.
           </p>
         </div>
 
@@ -273,7 +273,7 @@ export default function DatenschutzPage() {
             <a href="/profile" className="underline">Profil</a> findest du den
             Block „Konto löschen“. Die Löschung greift sofort: E-Mail, Nachname
             und Login werden entfernt; in Törns, in denen du Buchungen erfasst hast,
-            bleibt dein Vorname als „Ehemaliges Crew-Mitglied“ stehen, damit die
+            bleibt dein Vorname als „Ehemaliges Crewmitglied“ stehen, damit die
             Bilanz nicht zerbricht. Während eines aktiven Törns (Törn-Ende in der
             Zukunft) ist die Löschung blockiert, wenn du dort Buchungen hast —
             sonst gingen offene Schulden verloren.
@@ -293,7 +293,7 @@ export default function DatenschutzPage() {
           <h2 className="text-base font-semibold">9. Datensicherheit</h2>
           <p>
             Die Übertragung erfolgt verschlüsselt via HTTPS/TLS. Datenbank-Zugriffe sind
-            durch Row-Level-Security so eingeschränkt, dass jedes Crew-Mitglied nur Daten
+            durch Row-Level-Security so eingeschränkt, dass jedes Crewmitglied nur Daten
             seiner eigenen Trips sehen kann. Login-Mails werden nur an bereits eingeladene
             E-Mail-Adressen oder Admins ausgeliefert (Whitelist-Schutz).
           </p>

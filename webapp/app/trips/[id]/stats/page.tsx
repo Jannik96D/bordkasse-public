@@ -14,7 +14,7 @@ export default async function StatsPage({
     getTripMembers(id),
   ]);
   // Ghost-Member (per Skipper eingeladene, aber noch nicht angemeldete
-  // Personen) zählen voll mit — sie sind reguläre Crew-Mitglieder, nur
+  // Personen) zählen voll mit — sie sind reguläre Crewmitglieder, nur
   // ohne eigenen App-Login.
   const memberCount = members.length;
 

@@ -1,5 +1,5 @@
 /**
- * Berechnet pro Transaktion den Anteil jedes Crew-Mitglieds.
+ * Berechnet pro Transaktion den Anteil jedes Crewmitglieds.
  *
  * Spiegel der SQL-View v_transaction_shares aus 0002_views.sql / 0014_per_person.
  * Implementiert alle 5 Aufteilungs-Logiken + Alkohol-Modifikator + Trinkgeld-

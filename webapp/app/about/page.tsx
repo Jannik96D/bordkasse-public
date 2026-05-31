@@ -74,7 +74,7 @@ const features: Feature[] = [
           Jede Kachel zeigt Reisedaten, Schiffsnamen und wie viele Personen
           mitsegeln. Wer einen <strong>Skipper</strong>- oder
           <strong> Admin</strong>-Zugang hat, sieht oben einen Button, um
-          einen neuen Törn anzulegen. Crew-Mitglieder sehen nur die Törns,
+          einen neuen Törn anzulegen. Crewmitglieder sehen nur die Törns,
           zu denen sie eingeladen wurden.
         </p>
       </>
@@ -100,7 +100,7 @@ const features: Feature[] = [
           können mit einem Klick allen Beteiligten eine E-Mail mit der
           fertigen Abrechnung schicken. Bei nachträglichen Änderungen
           erinnert die App, eine Update-Mail rauszuschicken. Und für
-          Yacht-Anzahlungen verschickt sie 3 Tage vor jeder Frist
+          Yachtanzahlungen verschickt sie 3 Tage vor jeder Frist
           selbstständig Erinnerungen.
         </p>
       </>
@@ -110,7 +110,7 @@ const features: Feature[] = [
   },
   {
     id: "toern-ueberblick",
-    title: "Törn-Fortschritt in fünf Phasen",
+    title: "Törnfortschritt in fünf Phasen",
     lead: "Eine Fortschrittskarte führt den Skipper durch den ganzen Törn, von der Vorbereitung bis zur fertigen Abrechnung.",
     body: (
       <>
@@ -192,7 +192,7 @@ const features: Feature[] = [
       <>
         <p>
           Grün heißt: bekommt Geld zurück. Rot heißt: zahlt nach. Die Summe
-          aller Salden ergibt immer null. Alle Crew-Mitglieder können die
+          aller Salden ergibt immer null. Alle Crewmitglieder können die
           Bilanz einsehen: Transparenz für die ganze Crew.
         </p>
       </>
@@ -219,7 +219,7 @@ const features: Feature[] = [
           Bestätigungs-Mails an die zahlende und die empfangende Person. Wenn ein Admin
           stellvertretend abhakt, bekommen Skipper und die vorstreckende Person
           zusätzlich eine Info-Mail, damit niemand übersieht, dass
-          jemand anderes in diesem Trip-Kontext geklickt hat.
+          jemand anderes in diesem Tripkontext geklickt hat.
         </p>
       </>
     ),
@@ -233,7 +233,7 @@ const features: Feature[] = [
     body: (
       <>
         <p>
-          Alle Crew-Mitglieder können die Statistik einsehen. Sie bleibt
+          Alle Crewmitglieder können die Statistik einsehen. Sie bleibt
           auch nach der automatischen Datenlöschung in anonymisierter Form
           erhalten: also Beträge, Kategorien und Tage, aber ohne
           Personenbezug. So kannst du auch Jahre später noch nachsehen,
@@ -256,7 +256,7 @@ const features: Feature[] = [
           an. Pro Person werden der Anwesenheitszeitraum (An Bord ab/bis),
           ein Häkchen für „trinkt Alkohol“ und optional eine Notiz
           hinterlegt. Co-Skipper können beim Verwalten helfen. Alle
-          Crew-Mitglieder sehen die Liste, bearbeiten dürfen aber nur die
+          Crewmitglieder sehen die Liste, bearbeiten dürfen aber nur die
           eigenen Daten. Der Rest bleibt dem Skipper vorbehalten.
         </p>
       </>
@@ -299,7 +299,7 @@ const features: Feature[] = [
   },
   {
     id: "anzahlung-setup",
-    title: "Yacht-Anzahlung: Plan einrichten",
+    title: "Yachtanzahlung: Plan einrichten",
     lead: "Wenn der Skipper Monate vor dem Törn die Charteranzahlung an die Agentur leistet, hilft die App, das Geld bei der Crew einzusammeln.",
     body: (
       <>
@@ -308,7 +308,7 @@ const features: Feature[] = [
           Gesamtsumme auf die Crew verteilt: <strong>gleichmäßig</strong>,{" "}
           <strong>zeitanteilig</strong>, <strong>individuell</strong>{" "}
           oder nach <strong>Kojen</strong> (jede Kabine bekommt einen
-          eigenen Preis, Crew-Mitglieder werden den Kabinen zugewiesen).
+          eigenen Preis, Crewmitglieder werden den Kabinen zugewiesen).
           Wer das Geld vorstreckt, ist meistens der Skipper, kann aber
           auch jemand anderes sein. An diese vorstreckende Person zahlt
           die Crew dann.
@@ -330,7 +330,7 @@ const features: Feature[] = [
   {
     id: "anzahlung-matrix",
     title: "Wer hat welche Anzahlung gezahlt?",
-    lead: "Eine Person-mal-Tranche-Tabelle mit Status-Symbolen: offen, teilweise, bezahlt, überfällig, gemeldet aber unbestätigt.",
+    lead: "Eine Person-mal-Tranche-Tabelle mit Statussymbolen: offen, teilweise, bezahlt, überfällig, gemeldet aber unbestätigt.",
     body: (
       <>
         <p>
@@ -349,12 +349,12 @@ const features: Feature[] = [
           Bildschirm bleibt die Tabelle für den Quervergleich.
         </p>
         <p className="mt-2">
-          Daneben sieht die vorstreckende Person eine Übersicht, was sie noch an die
-          Charter-Agentur überweisen muss, basierend auf dem, was die
+          Daneben sieht die vorstreckende Person eine Übersicht, was sie noch an den
+          Charteranbieter überweisen muss, basierend auf dem, was die
           Crew schon bei ihr eingezahlt hat. 3 Tage vor jeder
-          Charter-Frist verschickt die App diese Übersicht zusätzlich
-          per Mail; 3 Tage vor der Crew-Frist gehen automatisch
-          Erinnerungen an alle Crew-Mitglieder mit offenem Betrag.
+          Charterfrist verschickt die App diese Übersicht zusätzlich
+          per Mail; 3 Tage vor der Crewfrist gehen automatisch
+          Erinnerungen an alle Crewmitglieder mit offenem Betrag.
         </p>
       </>
     ),
@@ -364,7 +364,7 @@ const features: Feature[] = [
   {
     id: "anzahlung-crew-self",
     title: "Crew meldet selbst",
-    lead: "Crew-Mitglieder sehen ihre eigenen Anzahlungen und können mit einem Klick melden, dass sie überwiesen haben.",
+    lead: "Crewmitglieder sehen ihre eigenen Anzahlungen und können mit einem Klick melden, dass sie überwiesen haben.",
     body: (
       <>
         <p>
@@ -377,12 +377,12 @@ const features: Feature[] = [
         </p>
         <p className="mt-2">
           Sobald die vorstreckende Person bestätigt oder ablehnt, bekommt das
-          Crew-Mitglied eine kurze Info-Mail. Bei einer Ablehnung
+          Crewmitglied eine kurze Info-Mail. Bei einer Ablehnung
           enthält die Mail einen Hinweis, mit dem Skipper Rücksprache zu
           halten.
         </p>
         <p className="mt-2">
-          Anzahlungen tauchen für Crew-Mitglieder nur in der Navigation
+          Anzahlungen tauchen für Crewmitglieder nur in der Navigation
           auf, solange sie selbst noch etwas offen haben. Ist alles
           bezahlt, verschwindet der Punkt wieder. So bleibt die App für
           alle anderen aufgeräumt.
@@ -416,7 +416,7 @@ const features: Feature[] = [
     body: (
       <>
         <p>
-          Crew-Liste, Buchungen mit Personenbezug, Gutschriften, die
+          Crewliste, Buchungen mit Personenbezug, Gutschriften, die
           Änderungshistorie: alles wird automatisch gelöscht. Was bleibt,
           ist eine anonymisierte Statistik ohne Personenbezug. Die Details
           stehen in der{" "}
@@ -461,7 +461,7 @@ const PHASES: Phase[] = [
     id: "vor-dem-toern",
     Icon: Anchor,
     title: "Vor dem Törn",
-    lead: "Crew einladen, Kategorien festlegen, optional Yacht-Anzahlung mit Tranchen.",
+    lead: "Crew einladen, Kategorien festlegen, optional Yachtanzahlung mit Tranchen.",
     featureIds: ["crew", "kategorien", "anzahlung-setup", "anzahlung-matrix", "anzahlung-crew-self"],
   },
   {
@@ -559,7 +559,7 @@ export default function AboutPage() {
           Die App ist gedacht für Skipper und ihre Crews, die nicht jede
           Ausgabe von Hand in eine Tabelle tippen wollen. Sie läuft auf dem
           Smartphone, das Anmelden geht ohne Passwort (Login-Link per E-Mail),
-          und sie rechnet faire Salden auch dann, wenn Crew-Mitglieder zu
+          und sie rechnet faire Salden auch dann, wenn Crewmitglieder zu
           unterschiedlichen Zeiten an und von Bord gehen.
         </p>
       </div>

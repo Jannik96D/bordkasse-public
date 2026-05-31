@@ -75,7 +75,7 @@ export default async function PrepaymentsPage({
         <section className="rounded-lg border border-dashed border-primary/30 bg-navy-light/30 p-6 text-center">
           <p className="font-medium text-primary">Noch kein Anzahlungs-Plan</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-ink-soft">
-            Lege Aufteilung, Kojen (optional) und Tranchen fest. Crew-Mitglieder sehen danach
+            Lege Aufteilung, Kojen (optional) und Tranchen fest. Crewmitglieder sehen danach
             ihre Soll-Beträge und können in der Matrix abgehakt werden.
           </p>
           <Link

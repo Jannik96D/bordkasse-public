@@ -50,7 +50,7 @@ export async function sendPaymentPendingMail(params: {
 
   const mail = renderPaymentPendingMail({
     skipperName: advancer?.display_name ?? "Skipper",
-    reporterName: reporterFlat?.display_name ?? "Crew-Mitglied",
+    reporterName: reporterFlat?.display_name ?? "Crewmitglied",
     tripName: trip.name,
     trancheLabel: trancheFlat?.label ?? "Anzahlung",
     trancheDueDate: trancheFlat?.due_date ? formatDeDate(trancheFlat.due_date) : "",

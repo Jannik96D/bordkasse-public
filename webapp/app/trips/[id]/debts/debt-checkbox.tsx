@@ -6,7 +6,7 @@ import { useToast } from "@/components/toast-provider";
 
 /**
  * "Erledigt"-Häkchen pro Schuldenzeile. Persistiert trip-übergreifend in
- * der DB (Tabelle settled_debts) — andere Crew-Mitglieder sehen den Status
+ * der DB (Tabelle settled_debts) — andere Crewmitglieder sehen den Status
  * live via Realtime-Sync (RealtimeTrip).
  *
  * useOptimistic gibt sofort UI-Feedback und resettet sich beim nächsten

@@ -226,7 +226,7 @@ export function CrewSection({
           className="mt-4 space-y-3 rounded-md border border-rule bg-paper-soft p-4"
         >
           <div className="flex items-center justify-between">
-            <h3 className="font-medium">Crew-Mitglied hinzufügen</h3>
+            <h3 className="font-medium">Crewmitglied hinzufügen</h3>
             <button
               type="button"
               onClick={() => setShowForm(false)}

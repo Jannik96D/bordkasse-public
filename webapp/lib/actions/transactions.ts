@@ -293,7 +293,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
 
   const supabase = createAdminClient();
 
-  // „An Alle" (credit_to IS NULL) braucht ≥ 2 Crew-Mitglieder, sonst kann
+  // „An Alle" (credit_to IS NULL) braucht ≥ 2 Crewmitglieder, sonst kann
   // die Bilanz nicht ausgeglichen werden (creditFrom bekommt +amount, aber
   // niemand bekommt es gegengebucht).
   if (parsed.data.credit_to == null) {
@@ -304,7 +304,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     if ((count ?? 0) <= 1) {
       return {
         status: "error",
-        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crew-Mitglieder. Wähle, wer das Geld bekommt.',
+        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crewmitglieder. Wähle, wer das Geld bekommt.',
         field: "credit_to",
       };
     }
@@ -593,7 +593,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     if ((count ?? 0) <= 1) {
       return {
         status: "error",
-        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crew-Mitglieder. Wähle, wer das Geld bekommt.',
+        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crewmitglieder. Wähle, wer das Geld bekommt.',
         field: "credit_to",
       };
     }
@@ -806,7 +806,7 @@ export async function replayPendingTransaction(
     if ((count ?? 0) <= 1) {
       return {
         ok: false,
-        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crew-Mitglieder.',
+        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crewmitglieder.',
       };
     }
   }

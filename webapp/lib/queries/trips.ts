@@ -154,7 +154,7 @@ export async function getTripMembers(tripId: string): Promise<TripMemberRow[]> {
   });
 
   // E-Mails separat aus persons_private holen — RLS liefert nur die,
-  // die der Caller sehen darf (Self oder Trip-Skipper). Bei Crew-Mitgliedern
+  // die der Caller sehen darf (Self oder Trip-Skipper). Bei Crewmitgliedern
   // ohne Sichtbarkeit bleibt email = null, was die UI als „nicht zeigen"
   // interpretieren kann.
   const personIds = rows.map((r) => r.person_id);

@@ -1,6 +1,6 @@
 /**
  * HTML- und Text-Template für die "Abrechnung-verschickt"-Mail an jedes
- * Crew-Mitglied. Inhalt ist personalisiert auf den eigenen Saldo + die
+ * Crewmitglied. Inhalt ist personalisiert auf den eigenen Saldo + die
  * konkreten Zahlungsanweisungen (du-zahlst-an / an-dich-zahlt).
  *
  * Layout über `mail-shell.ts` — identisch zu allen anderen Bordkasse-Mails.

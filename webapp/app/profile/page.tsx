@@ -37,7 +37,7 @@ export default async function ProfilePage() {
       <p className="mt-1 text-sm text-ink-soft">
         {admin
           ? "Du darfst Törns anlegen und verwalten."
-          : "Wird in Bilanz, Schulden und Crew-Listen verwendet."}
+          : "Wird in Bilanz, Schulden und Crewlisten verwendet."}
       </p>
 
       <div className="mt-8">

@@ -171,7 +171,7 @@ export async function removeMember(
     supabase.from("trips").select("skipper_id").eq("id", tripId).maybeSingle(),
     supabase.from("trip_members").select("person_id").eq("id", memberId).maybeSingle(),
   ]);
-  if (!memberRow) return { ok: false, message: "Crew-Mitglied nicht gefunden." };
+  if (!memberRow) return { ok: false, message: "Crewmitglied nicht gefunden." };
 
   // Original-Owner darf niemand entfernen — sonst hätte der Trip keinen
   // "letzten Skipper" mehr, falls auch alle Co-Skipper weg sind.
@@ -265,7 +265,7 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
     .eq("id", member_id)
     .eq("trip_id", trip_id)
     .maybeSingle();
-  if (!member) return { status: "error", message: "Crew-Mitglied nicht gefunden." };
+  if (!member) return { status: "error", message: "Crewmitglied nicht gefunden." };
 
   const personRel = (member as unknown as { persons: { auth_user_id: string | null } | { auth_user_id: string | null }[] }).persons;
   const personFlat = Array.isArray(personRel) ? personRel[0] : personRel;
@@ -443,7 +443,7 @@ async function mergeGhostIntoExistingPerson(
   tripId: string,
   actorPersonId: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  // Pre-Check: ist die echte Person bereits Crew-Mitglied DIESES Trips?
+  // Pre-Check: ist die echte Person bereits Crewmitglied DIESES Trips?
   // Dann wäre die Verschmelzung zwar technisch lösbar (Ghost-Membership
   // verwerfen, real-Membership behalten), aber der Skipper hat unbewusst
   // dieselbe Person zweimal eingeladen — er soll bewusst entscheiden,
@@ -463,7 +463,7 @@ async function mergeGhostIntoExistingPerson(
     return {
       ok: false,
       message:
-        `„${realName}" ist mit dieser E-Mail-Adresse bereits Crew-Mitglied dieses Törns. ` +
+        `„${realName}" ist mit dieser E-Mail-Adresse bereits Crewmitglied dieses Törns. ` +
         `Lösche entweder den aktuellen Crew-Eintrag (ohne E-Mail) oder den bestehenden „${realName}"-Eintrag, ` +
         `damit die Person nur einmal vorkommt.`,
     };
