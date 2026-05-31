@@ -63,7 +63,7 @@ export default async function DebtsPage({
           Schulden
           <InfoTooltip
             label="Wie funktionieren die Bezahlt-Häkchen?"
-            text="Das Bezahlt-Häkchen wird crew-weit geteilt, alle sehen denselben Stand live. Sobald sich der Betrag durch eine neue Buchung ändert, ist die Schuld eine neue und das Häkchen verschwindet automatisch."
+            text="Das Bezahlt-Häkchen wird crew-weit geteilt, alle sehen denselben Stand live. Kommt eine neue Buchung dazu, ändert sich der Betrag — das alte Häkchen wird dann automatisch zurückgesetzt, weil die Schuld neu berechnet wird."
           />
         </h1>
         <p className="mt-1 text-xs text-ink-soft">

@@ -288,7 +288,7 @@ function TrancheField({
         </select>
       </label>
       <p className="mt-2 text-xs text-ink-soft">
-        Wenn gesetzt, landet die Buchung im Anzahlungspool statt in der laufenden Bordkasse.
+        Wenn gesetzt, zählt die Buchung zur Yachtanzahlung statt zur laufenden Bordkasse.
       </p>
     </details>
   );
@@ -1084,7 +1084,18 @@ function CreditForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Empfängt (An)" error={fieldError("credit_to")}>
+      <FieldGroup
+        label={
+          <>
+            Empfängt (An)
+            <InfoTooltip
+              label="Was bedeutet „An Alle“?"
+              text="„Alle“ verteilt den Betrag gleichmäßig auf die gesamte Crew außer die zahlende Person. Sonst geht die Gutschrift nur an die eine gewählte Person."
+            />
+          </>
+        }
+        error={fieldError("credit_to")}
+      >
         <PersonSelect
           name="credit_to"
           options={members.map((m) => ({ id: m.person_id, name: m.display_name }))}
@@ -1131,7 +1142,7 @@ function FieldGroup({
   error,
   children,
 }: {
-  label: string;
+  label: React.ReactNode;
   htmlFor?: string;
   hint?: string;
   /** Feld-spezifische Fehlermeldung — wird direkt unter dem Feld gezeigt. */

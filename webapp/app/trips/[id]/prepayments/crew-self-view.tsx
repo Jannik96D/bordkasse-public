@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, RefreshCw } from "lucide-react";
 import { Modal } from "@/components/modal";
+import { InfoTooltip } from "@/components/info-tooltip";
 import { formatEuro, todayIso } from "@/lib/utils";
 import { submitSelfPayment } from "@/lib/actions/prepayments";
 import { toCrewDueDate, formatDeDate } from "@/lib/prepayments/dates";
@@ -92,7 +93,12 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{t.label}</p>
                   <p className="text-xs text-ink-soft">
-                    Fällig {formatDeDate(crewDue)} &middot; {t.percent.toFixed(0)} %
+                    Fällig {formatDeDate(crewDue)}
+                    <InfoTooltip
+                      label="Warum dieses Datum?"
+                      text="3 Tage vor der echten Charterfrist — so kommt deine Zahlung rechtzeitig bei der vorstreckenden Person an, die das Geld an die Charteragentur weiterleitet."
+                    />{" "}
+                    &middot; {t.percent.toFixed(0)} %
                   </p>
                 </div>
                 <span className="inline-flex items-center gap-2 text-sm font-medium" role="status" aria-label={ariaLabel}>

@@ -186,7 +186,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
           Vorgestreckt von <strong className="text-ink">{advancerName}</strong>
           <InfoTooltip
             label="Wer streckt vor?"
-            text="Alle Anzahlungen werden an diese Person verbucht. Eigener Anteil per Klick auf die Zelle als Selbstverrechnung abhaken (bilanzneutral, kein Mail-/WhatsApp-Versand)."
+            text="Alle Anzahlungen werden an diese Person verbucht. Den eigenen Anteil per Klick auf die Zelle als eigene Zahlung abhaken (ändert die Bilanz nicht, kein Mail-/WhatsApp-Versand)."
           />
         </p>
       )}

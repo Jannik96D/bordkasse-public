@@ -294,6 +294,10 @@ export function CrewSection({
           <div>
             <label htmlFor="is_alcoholic" className="block text-sm font-medium">
               Trinkt Alkohol mit?
+              <InfoTooltip
+                label="Was bewirkt das?"
+                text="Legt fest, ob diese Person den Alkoholanteil einer Ausgabe mitträgt. „Default aus Person“ übernimmt die Voreinstellung aus dem Profil der Person."
+              />
             </label>
             <select id="is_alcoholic" name="is_alcoholic"
               defaultValue=""

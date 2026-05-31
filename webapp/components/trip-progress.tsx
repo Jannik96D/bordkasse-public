@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CheckCircle2, ChevronDown, Circle, Clock, Compass } from "lucide-react";
 import type { ItemStatus, ProgressItem, TripProgress as TripProgressData } from "@/lib/calc/trip-progress";
 import { setChecklistCollapsed } from "@/lib/actions/trip-checklist";
+import { InfoTooltip } from "@/components/info-tooltip";
 import { cn } from "@/lib/utils";
 
 const STATUS_LABEL: Record<ItemStatus, string> = {
@@ -68,7 +69,13 @@ export function TripProgress({
       <div className="flex items-center gap-3">
         <Compass className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <h2 className="font-semibold text-ink">Dein Törn im Überblick</h2>
+          <h2 className="font-semibold text-ink">
+            Dein Törn im Überblick
+            <InfoTooltip
+              label="Wie funktioniert diese Übersicht?"
+              text="Die Haken setzen sich automatisch, sobald ein Schritt in der App erledigt ist — nichts wird manuell abgehakt. Offene Schritte führen dich per Klick zur passenden Seite."
+            />
+          </h2>
           <p className="text-xs text-ink-soft">
             {progress.doneCount} von {progress.totalCount} erledigt
           </p>
