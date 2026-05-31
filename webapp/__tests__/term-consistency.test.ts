@@ -67,7 +67,7 @@ const FORBIDDEN: { term: string; allowed?: string[] }[] = [
 ];
 
 describe("Begriffs-Konsistenz (Dehyphenierung aus den letzten Sessions)", () => {
-  it.each(FORBIDDEN)('„$term" kommt nicht mehr in app/ + lib/ vor', ({ term, allowed }) => {
+  it.each(FORBIDDEN)("$term kommt nicht mehr in app/ + lib/ vor", ({ term, allowed }) => {
     const hits: string[] = [];
     for (const file of FILES) {
       let txt = readFileSync(file, "utf8");
@@ -80,7 +80,7 @@ describe("Begriffs-Konsistenz (Dehyphenierung aus den letzten Sessions)", () => 
     ).toEqual([]);
   });
 
-  it("Anzahlungs-Banner heißt „Offene Charteranzahlungen" (nicht „… deine Überweisungen")", () => {
+  it("Anzahlungs-Banner heisst 'Offene Charteranzahlungen'", () => {
     const matrix = readFileSync(
       resolve(here, "../app/trips/[id]/prepayments/matrix.tsx"),
       "utf8",
