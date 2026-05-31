@@ -1,4 +1,4 @@
--- 0032_pin_search_path — search_path auf SECURITY-DEFINER-Funktionen festnageln
+-- 0033_pin_search_path — search_path auf SECURITY-DEFINER-Funktionen festnageln
 --
 -- Sicherheits-Härtung (Supabase-Linter „Function Search Path Mutable"):
 -- SECURITY-DEFINER-Funktionen laufen mit den Rechten des Owners. Ohne fest

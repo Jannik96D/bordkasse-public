@@ -1,4 +1,4 @@
--- 0033_audit_log_rls — audit_log-SELECT-Policy enger fassen
+-- 0034_audit_log_rls — audit_log-SELECT-Policy enger fassen
 --
 -- Bisher: USING (trip_id IS NULL OR is_trip_skipper(trip_id)) — der
 -- `trip_id IS NULL`-Zweig gab JEDEM authentifizierten User Lesezugriff auf
