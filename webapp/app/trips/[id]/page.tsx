@@ -52,7 +52,6 @@ export default async function TripDashboard({
       endDate: trip.end_date,
       memberCount,
       settlementAnnounced: !!trip.settlement_announced_at,
-      hasCharterPrepayment: !!trip.has_charter_prepayment,
     });
     progress = computeTripProgress(signals, todayIso());
   }

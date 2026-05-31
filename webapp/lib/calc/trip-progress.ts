@@ -14,12 +14,11 @@ export interface TripProgressSignals {
   startDate: string;
   /** Törn-Ende (YYYY-MM-DD). */
   endDate: string;
-  /** Charter-Schalter ODER bereits existierender Anzahlungsplan → Anzahlungs-Items zeigen. */
+  /** Es existiert ein Anzahlungsplan → Charter-Trip, Anzahlungs-Phase zeigen. */
   isCharter: boolean;
 
   // Phase 1 — Vorbereitung
   crewInvited: boolean;
-  prepaymentPlanExists: boolean;
 
   // Phase 2 — Anzahlung (nur Charter)
   charterAdvancePaid: boolean;
@@ -107,6 +106,10 @@ export function computeTripProgress(
   const phases: ProgressPhase[] = [];
 
   // ── Phase 1 — Vorbereitung ──────────────────────────────────────────
+  // "Anzahlungsplan anlegen" ist bewusst KEIN Checklisten-Item: ein Plan wird
+  // über den kontextuellen CTA auf der Übersicht (showCreatePrepaymentCta)
+  // angestoßen, und die Anzahlungs-Phase erscheint erst, wenn der Plan
+  // existiert (isCharter). Ein Item dafür wäre strukturell immer "erledigt".
   const vorbereitungItems: ProgressItem[] = [
     {
       id: "crew-invited",
@@ -115,14 +118,6 @@ export function computeTripProgress(
       href: "settings",
     },
   ];
-  if (s.isCharter) {
-    vorbereitungItems.push({
-      id: "prepayment-plan",
-      label: "Anzahlungsplan anlegen",
-      status: statusFor(s.prepaymentPlanExists, idx("vorbereitung"), unlockedUpTo),
-      href: "prepayments/setup",
-    });
-  }
   phases.push(makePhase("vorbereitung", "Vorbereitung", vorbereitungItems));
 
   // ── Phase 2 — Anzahlung (nur Charter) ───────────────────────────────

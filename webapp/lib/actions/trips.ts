@@ -39,9 +39,6 @@ const TripSchema = z
     // damit der Admin Törns für andere anlegen kann ohne hinterher
     // wieder rausgeworfen werden zu müssen.
     skipper_email: z.string().trim().email("Ungültige Skipper-E-Mail.").optional().or(z.literal("")),
-    // Schalter "Mit Charter-Anzahlung" — steuert die Anzahlungs-Items der
-    // Törn-Fortschritt-Karte. Checkbox liefert true/false.
-    has_charter_prepayment: z.boolean().optional(),
   })
   .refine((d) => d.end_date >= d.start_date, {
     message: "Törn-Ende darf nicht vor dem Start liegen.",
@@ -62,7 +59,6 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
     end_date: formData.get("end_date"),
     ship_name: formData.get("ship_name") || "",
     skipper_email: formData.get("skipper_email") || "",
-    has_charter_prepayment: formData.get("has_charter_prepayment") === "on",
   });
   if (!parsed.success) {
     return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
@@ -111,7 +107,6 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
       end_date: parsed.data.end_date,
       ship_name: parsed.data.ship_name || null,
       skipper_id: skipperId,
-      has_charter_prepayment: parsed.data.has_charter_prepayment ?? false,
     })
     .select()
     .single();
@@ -219,27 +214,6 @@ export async function updateTripDates(
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/settings`);
   return { status: "ok" };
-}
-
-export async function setCharterPrepayment(tripId: string, enabled: boolean) {
-  const auth = await requireSkipperOrAdmin(tripId);
-  if (!auth.ok) return;
-  const supabase = createAdminClient();
-  await supabase
-    .from("trips")
-    .update({ has_charter_prepayment: enabled })
-    .eq("id", tripId);
-  await logAudit(supabase, {
-    table_name: "trips",
-    operation: "UPDATE",
-    record_id: tripId,
-    trip_id: tripId,
-    actor_person_id: auth.personId,
-    payload: { has_charter_prepayment: enabled },
-  });
-  revalidatePath("/");
-  revalidatePath(`/trips/${tripId}`);
-  revalidatePath(`/trips/${tripId}/settings`);
 }
 
 export async function toggleArchive(tripId: string, archived: boolean) {

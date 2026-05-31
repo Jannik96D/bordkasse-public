@@ -5,8 +5,9 @@
  * aus dem echten Datenstand ab. Reused dabei die vorhandenen Anzahlungs- und
  * Schulden-Queries statt neu zu rechnen.
  *
- * settlement_announced_at, Start/Ende, member_count und has_charter_prepayment
- * kommen vom Aufrufer (schon geladenes trip/members) — werden nicht neu geladen.
+ * settlement_announced_at, Start/Ende und member_count kommen vom Aufrufer
+ * (schon geladenes trip/members) — werden nicht neu geladen. "Charter" wird
+ * allein daraus abgeleitet, ob ein Anzahlungsplan existiert.
  */
 
 import { readClient } from "@/lib/supabase/read-client";
@@ -27,20 +28,12 @@ export interface TripProgressInput {
   endDate: string;
   memberCount: number;
   settlementAnnounced: boolean;
-  hasCharterPrepayment: boolean;
 }
 
 export async function getTripProgressSignals(
   input: TripProgressInput,
 ): Promise<TripProgressSignals> {
-  const {
-    tripId,
-    startDate,
-    endDate,
-    memberCount,
-    settlementAnnounced,
-    hasCharterPrepayment,
-  } = input;
+  const { tripId, startDate, endDate, memberCount, settlementAnnounced } = input;
 
   const supabase = await readClient();
 
@@ -62,10 +55,9 @@ export async function getTripProgressSignals(
     getSettledDebtKeys(tripId),
   ]);
 
-  const prepaymentPlanExists = plan !== null;
-  // Anzahlungs-Items auch zeigen, wenn der Schalter aus ist, aber doch ein
-  // Plan existiert (z. B. Charter kam nachträglich dazu).
-  const isCharter = hasCharterPrepayment || prepaymentPlanExists;
+  // "Charter" = es existiert ein Anzahlungsplan. Einzige Wahrheit — kein
+  // separates Flag mehr.
+  const isCharter = plan !== null;
 
   // Alle Crew-Anzahlungen eingegangen: jeder Pool-Saldo ≥ 0 (paid ≥ soll).
   // Leeres Array (kein Soll erfasst) zählt als noch nicht vollständig.
@@ -83,7 +75,6 @@ export async function getTripProgressSignals(
     endDate,
     isCharter,
     crewInvited: memberCount > 1,
-    prepaymentPlanExists,
     charterAdvancePaid: charterPaid > 0,
     crewPrepaymentsComplete,
     firstExpenseRecorded: expenseCount > 0,
