@@ -49,17 +49,17 @@ export default function DatenschutzPage() {
             </li>
             <li>
               <strong>Optionales Profil-Flag</strong> „Trinkt während des Törns Alkohol mit“:
-              beeinflusst, wer den Alkohol-Anteil bei Ausgaben mitträgt.
+              beeinflusst, wer den Alkoholanteil bei Ausgaben mitträgt.
             </li>
             <li>
-              <strong>Trip-Daten</strong>: Crew, Anwesenheits-Tage, Buchungen, Beträge,
+              <strong>Trip-Daten</strong>: Crew, Anwesenheitstage, Buchungen, Beträge,
               Aufteilungen, geteilt nur mit den Crewmitgliedern dieses Trips.
             </li>
             <li>
               <strong>Sichtbarkeits-Marker für Alt-Statistik</strong>: Nach DSGVO-Löschung
               eines abgeschlossenen Törns (siehe §5) wird ausschließlich ein Verweis
               „Person X war Mitglied von Trip Y“ aufbewahrt, damit du deine anonymisierten
-              Aggregate in der Gesamt-Statistik (<em>/stats</em>) weiter sehen kannst. Keine
+              Aggregate in der Gesamtstatistik (<em>/stats</em>) weiter sehen kannst. Keine
               weiteren personenbezogenen Inhalte.
             </li>
             <li>
@@ -80,9 +80,9 @@ export default function DatenschutzPage() {
             Legt ein Skipper für ein noch nicht registriertes Crewmitglied vorab einen
             Eintrag an (Name und ggf. E-Mail, um die Einladung zu verschicken), stützt
             sich diese Verarbeitung auf das berechtigte Interesse an einer praktikablen
-            Törn-Organisation (Art. 6 Abs. 1 lit. f DSGVO). Sobald sich die Person
+            Törnorganisation (Art. 6 Abs. 1 lit. f DSGVO). Sobald sich die Person
             anmeldet, gilt deren Einwilligung; ihr steht jederzeit das Widerspruchsrecht
-            nach Art. 21 DSGVO sowie die Selbst-Löschung (siehe §&nbsp;6) zu.
+            nach Art. 21 DSGVO sowie die Selbstlöschung (siehe §&nbsp;6) zu.
           </p>
         </div>
 
@@ -92,7 +92,7 @@ export default function DatenschutzPage() {
           <ul className="ml-5 list-disc">
             <li>
               <strong>Supabase</strong> (Datenbank, Auth):
-              Supabase Inc., 970 Toa Payoh North #07-04, Singapur 318992. Server-Standort:
+              Supabase Inc., 970 Toa Payoh North #07-04, Singapur 318992. Serverstandort:
               Frankfurt (EU). Datenschutzerklärung:{" "}
               <a
                 href="https://supabase.com/privacy"
@@ -105,7 +105,7 @@ export default function DatenschutzPage() {
             </li>
             <li>
               <strong>Vercel</strong> (Hosting): Vercel Inc., 340 S Lemon Ave #4133, Walnut, CA
-              91789, USA. Server-Funktionen und Cron-Jobs laufen in der EU-Region{" "}
+              91789, USA. Serverfunktionen und Cron-Jobs laufen in der EU-Region{" "}
               <code>fra1</code> (Frankfurt), konfiguriert in <code>vercel.json</code>. Statische
               Assets (HTML/CSS/JS) liefert das globale Vercel-CDN aus. Diese enthalten keine
               personenbezogenen Daten. Soweit dabei eine Übermittlung in die USA stattfindet,
@@ -142,7 +142,7 @@ export default function DatenschutzPage() {
           </p>
           <ul className="ml-5 mt-2 list-disc">
             <li>Crewliste (wer war wann an Bord, Alkohol-Flag, Notizen)</li>
-            <li>Buchungen mit Personen-Bezug (wer hat bezahlt, wer ist beteiligt)</li>
+            <li>Buchungen mit Personenbezug (wer hat bezahlt, wer ist beteiligt)</li>
             <li>Gutschriften und „Bezahlt“-Markierungen</li>
             <li>Audit-Log-Einträge dieses Törns</li>
             <li>Ghost-Personen, die nirgends mehr Mitglied sind</li>
@@ -164,7 +164,7 @@ export default function DatenschutzPage() {
           <ul className="ml-5 mt-2 list-disc">
             <li>
               <strong>Anonymes Aggregat</strong> (Datum, Kategoriename, Tagessumme,
-              Alkohol-Anteil), wie bisher, ohne jeden Personenbezug. Erlaubt dir
+              Alkoholanteil), wie bisher, ohne jeden Personenbezug. Erlaubt dir
               im Statistik-Tab auch Jahre später noch zu sehen, wie viel insgesamt
               z. B. für „Sprit“ oder „Restaurant“ ausgegeben wurde, ohne dass
               erkennbar ist, wer beteiligt war oder wer gezahlt hat.
@@ -173,8 +173,8 @@ export default function DatenschutzPage() {
               <strong>Sichtbarkeits-Marker</strong> (nur Person-ID + Trip-ID,
               kein Inhalt), wird nur für angemeldete Crewmitglieder mit Login
               angelegt (nicht für eingeladene Ghost-Personen). Zweck: damit dir
-              in deiner persönlichen Gesamt-Statistik unter <em>/stats</em> auch
-              deine alten, anonymisierten Törn-Aggregate weiterhin angezeigt werden
+              in deiner persönlichen Gesamtstatistik unter <em>/stats</em> auch
+              deine alten, anonymisierten Törnaggregate weiterhin angezeigt werden
               können. Ohne diesen Marker wärst du nach 30 Tagen für die App nicht
               mehr als ehemaliges Crewmitglied erkennbar und sähest deine eigenen
               früheren Törns in der Übersicht nicht mehr.
@@ -208,7 +208,7 @@ export default function DatenschutzPage() {
           </h2>
           <p>
             Die Bordkasse funktioniert als Progressive Web App (PWA) auch ohne
-            Internet-Verbindung. Dein Browser speichert dafür zwei Arten von Daten
+            Internetverbindung. Dein Browser speichert dafür zwei Arten von Daten
             lokal auf deinem Endgerät:
           </p>
           <ul className="ml-5 mt-2 list-disc">
@@ -292,14 +292,14 @@ export default function DatenschutzPage() {
         <div>
           <h2 className="text-base font-semibold">9. Datensicherheit</h2>
           <p>
-            Die Übertragung erfolgt verschlüsselt via HTTPS/TLS. Datenbank-Zugriffe sind
+            Die Übertragung erfolgt verschlüsselt via HTTPS/TLS. Datenbankzugriffe sind
             durch Row-Level-Security so eingeschränkt, dass jedes Crewmitglied nur Daten
             seiner eigenen Trips sehen kann. Login-Mails werden nur an bereits eingeladene
             E-Mail-Adressen oder Admins ausgeliefert (Whitelist-Schutz).
           </p>
           <p className="mt-2">
             <strong>App-Admin-Zugriff:</strong> Der Betreiber dieser App (siehe §1) hat
-            für Wartungs- und Support-Zwecke technisch Zugriff auf alle gespeicherten
+            für Wartungs- und Supportzwecke technisch Zugriff auf alle gespeicherten
             Daten. Dieser Zugriff wird ausschließlich zur Fehlerbehebung, zur Erfüllung
             deiner Rechte nach §8 oder im Fall eines Sicherheitsvorfalls genutzt, niemals
             zur kommerziellen Auswertung.

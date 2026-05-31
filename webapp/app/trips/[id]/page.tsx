@@ -41,7 +41,7 @@ export default async function TripDashboard({
   // Anzahlungen sind bewusst aus der Übersicht verbannt — die laufende
   // Verwaltung läuft über den kontextuellen Nav-Eintrag und die
   // Trip-Einstellungen. Einzige Ausnahme: ein Skipper/Admin, der vor
-  // Törn-Start noch keinen Plan angelegt hat, sieht einen Einstiegs-CTA.
+  // Törnstart noch keinen Plan angelegt hat, sieht einen Einstiegs-CTA.
   const tripNotStarted = trip.start_date > todayIso();
   const showCreatePrepaymentCta = canAnnounce && !plan && tripNotStarted;
 

@@ -30,7 +30,7 @@ export default async function PrepaymentSetupPage({
 
   return (
     <main className="mx-auto max-w-3xl px-4 pb-24 pt-4">
-      <h1 className="mb-2 text-lg font-bold text-primary">Anzahlungs-Plan einrichten</h1>
+      <h1 className="mb-2 text-lg font-bold text-primary">Anzahlungsplan einrichten</h1>
       <p className="mb-4 text-sm text-ink-soft">
         Lege fest, wie die Gesamtsumme aufgeteilt wird und wann welche Tranche fällig ist.
       </p>

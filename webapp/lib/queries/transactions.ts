@@ -54,7 +54,7 @@ export interface TransactionListRow {
   credit_to_name: string | null;  // null = "Alle" wenn type=credit
   /** Ersteller — gebraucht für Edit-Permission-Check in der Liste. */
   created_by_id: string | null;
-  /** Anzahlungs-Tranche, falls die Buchung dem Anzahlungs-Pool zugeordnet ist. */
+  /** Anzahlungstranche, falls die Buchung dem Anzahlungspool zugeordnet ist. */
   tranche_label: string | null;
 }
 
@@ -124,7 +124,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
 
 /**
  * Holt eine einzelne Transaktion samt Pro-Person-Aufschlüsselung. Wird auf
- * der Detail-Seite genutzt, die jede Crew-Person aufrufen darf.
+ * der Detailseite genutzt, die jede Crewperson aufrufen darf.
  *
  * Quellen:
  *   - `transactions` für Kopf-Daten

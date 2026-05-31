@@ -5,7 +5,7 @@
  *
  * Per Tranche zeigen wir:
  *   - Soll (Charteragentur)         = totalAmount × percent / 100
- *   - Crew-Beiträge bei mir         = was die Crew bisher gezahlt hat
+ *   - Crewbeiträge bei mir         = was die Crew bisher gezahlt hat
  *   - Bereits an Agentur überwiesen = expense-Buchung mit dieser Tranche
  *   - Noch offen                    = soll − bereits überwiesen
  *
@@ -18,8 +18,8 @@ export type CharterReminderTranche = {
   label: string;
   charter_due_date: string;        // formatiert "15.07.2026"
   soll_to_agency: number;          // Soll der Agentur (für diese Tranche)
-  crew_paid_to_advancer: number;   // Σ Crew-Beiträge bei dir
-  crew_total_due: number;          // Σ Crew-Soll (zum Vergleich)
+  crew_paid_to_advancer: number;   // Σ Crewbeiträge bei dir
+  crew_total_due: number;          // Σ Crewsoll (zum Vergleich)
   paid_to_agency: number;          // schon an Agentur überwiesen
   remaining_to_agency: number;     // noch offen
 };

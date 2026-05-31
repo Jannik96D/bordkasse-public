@@ -257,7 +257,7 @@ export function AboutExplorer({
       {/* Sticky Phasen-Tabs */}
       <div
         role="tablist"
-        aria-label="Funktionen nach Törn-Phase"
+        aria-label="Funktionen nach Törnphase"
         className="sticky top-0 z-30 -mx-6 flex gap-2 overflow-x-auto border-b border-rule bg-paper/90 px-6 py-3 backdrop-blur [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {phases.map((p, i) => {

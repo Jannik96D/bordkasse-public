@@ -84,8 +84,8 @@ export const ExpenseSchema = z
       z.array(ParticipantAmount).default([]),
     ),
     /**
-     * Optional: ordnet die Buchung einer Anzahlungs-Tranche zu (Migration 0023).
-     * Wenn gesetzt, landet die Buchung im Anzahlungs-Pool statt in der Bordkasse.
+     * Optional: ordnet die Buchung einer Anzahlungstranche zu (Migration 0023).
+     * Wenn gesetzt, landet die Buchung im Anzahlungspool statt in der Bordkasse.
      * Typischer Use-Case: Skipper bucht die Yachtanzahlung und ordnet sie der
      * passenden Tranche zu.
      */
@@ -97,7 +97,7 @@ export const ExpenseSchema = z
     { message: "Betrag muss > 0 sein.", path: ["amount"] },
   )
   .refine((d) => d.alcohol_amount <= d.amount, {
-    message: "Alkohol-Anteil darf nicht größer als Gesamtbetrag sein.",
+    message: "Alkoholanteil darf nicht größer als Gesamtbetrag sein.",
     path: ["alcohol_amount"],
   })
   .refine(

@@ -4,7 +4,7 @@
  * Zwei Pfade:
  *   1. Crew-Pfad      → persönliche Tranchen-Liste mit Wero-Hinweis
  *                       (Empfänger ≠ Vorstrecker).
- *   2. Vorstrecker-Pfad → Charter-Übersicht (Soll Agentur / Crew-Eingänge /
+ *   2. Vorstrecker-Pfad → Charterübersicht (Soll Agentur / Creweingänge /
  *                         schon überwiesen / noch offen) pro Tranche.
  *                         Wird auch vom Cron benutzt.
  *
@@ -57,7 +57,7 @@ export async function sendPrepaymentReminderMail(params: {
       .maybeSingle(),
   ]);
   if (!trip) return { ok: false, message: "Törn nicht gefunden." };
-  if (!plan) return { ok: false, message: "Kein Anzahlungs-Plan vorhanden." };
+  if (!plan) return { ok: false, message: "Kein Anzahlungsplan vorhanden." };
 
   const advancerPersonId = plan.advancer_person_id ?? trip.skipper_id;
   const isAdvancerRecipient = params.personId === advancerPersonId;
@@ -209,10 +209,10 @@ async function sendCharterReminder(
     return { ok: false, message: "Keine Tranchen vorhanden." };
   }
 
-  // Σ Crew-Beiträge pro Tranche — nur bestätigte Zahlungen (v_prepayment_payments
+  // Σ Crewbeiträge pro Tranche — nur bestätigte Zahlungen (v_prepayment_payments
   // filtert confirmed_at IS NOT NULL). Pending Selbstmeldungen tauchen erst nach
   // Bestätigung durch den Vorstrecker auf — der Vorstrecker sieht in der Matrix
-  // den ⏳-Banner separat. Eigene Selbst-Verrechnung des Vorstreckers fließt
+  // den ⏳-Banner separat. Eigene Selbstverrechnung des Vorstreckers fließt
   // NICHT in „Crew bei dir" ein.
   const { data: paymentRows } = await supabase
     .from("v_prepayment_payments")
@@ -228,7 +228,7 @@ async function sendCharterReminder(
     }
   }
 
-  // Σ Crew-Soll pro Tranche aus prepayment_obligations × percent — OHNE den
+  // Σ Crewsoll pro Tranche aus prepayment_obligations × percent — OHNE den
   // Vorstrecker selbst (sein Anteil ist treuhänderisch, zählt nicht als
   // „Crew schuldet mir").
   const { data: obls } = await supabase

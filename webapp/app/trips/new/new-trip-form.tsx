@@ -27,7 +27,7 @@ export function NewTripForm() {
       <form action={formAction} className="mt-8 space-y-5">
         <div>
           <label htmlFor="name" className="block text-sm font-medium">
-            Törn-Name
+            Törnname
           </label>
           <input
             id="name"

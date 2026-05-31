@@ -35,7 +35,7 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
     return (
       <section className="rounded-lg border border-rule bg-paper p-5 text-center">
         <p className="text-sm text-ink-soft">
-          Noch kein Anzahlungs-Plan vorhanden. Der Skipper richtet das ein.
+          Noch kein Anzahlungsplan vorhanden. Der Skipper richtet das ein.
         </p>
       </section>
     );

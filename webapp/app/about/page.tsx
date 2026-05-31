@@ -24,7 +24,7 @@ function TextIcon({ icon: Icon }: { icon: LucideIcon }) {
 export const metadata = {
   title: "Über die Bordkassen-App · Bordkasse",
   description:
-    "Was die Bordkassen-App kann: von der Crew-Verwaltung über die fünf Aufteilungsarten bis zur automatischen Datenlöschung.",
+    "Was die Bordkassen-App kann: von der Crewverwaltung über die fünf Aufteilungsarten bis zur automatischen Datenlöschung.",
 };
 
 type Feature = {
@@ -102,7 +102,7 @@ const features: Feature[] = [
       <>
         <p>
           Die Navigationsleiste am unteren Bildschirmrand bleibt immer
-          sichtbar, damit auch im Hafen-Trubel alle Bereiche schnell
+          sichtbar, damit auch im Hafentrubel alle Bereiche schnell
           erreichbar sind. Der große Plus-Button unten rechts öffnet die
           Eingabemaske für eine neue Buchung in einem Schritt.
         </p>
@@ -118,7 +118,7 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/04-trip-overview.webp",
-    alt: "Übersicht eines anstehenden Törns mit Crew-Zähler, Schnellzugriff-Kacheln und Navigationsleiste",
+    alt: "Übersicht eines anstehenden Törns mit Crewzähler, Schnellzugriff-Kacheln und Navigationsleiste",
   },
   {
     id: "toern-ueberblick",
@@ -183,8 +183,8 @@ const features: Feature[] = [
           oder gleichmäßig pro Kopf).
         </p>
         <p className="mt-2">
-          Zusätzlich gibt es einen <strong>Alkohol-Anteil</strong> (unter
-          „Erweitert“): Den Alkohol-Teil eines Belegs zahlen nur diejenigen,
+          Zusätzlich gibt es einen <strong>Alkoholanteil</strong> (unter
+          „Erweitert“): Den Alkoholteil eines Belegs zahlen nur diejenigen,
           die als mittrinkend eingetragen sind. Der Rest läuft nach der
           gewählten Aufteilung. Das Komma im Betrag versteht die App
           selbstverständlich auf Deutsch. Und „Bezahlt von“ ist gleich mit
@@ -210,7 +210,7 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/07-bilanz.webp",
-    alt: "Bilanz-Übersicht mit Saldo pro Person",
+    alt: "Bilanzübersicht mit Saldo pro Person",
   },
   {
     id: "schulden",
@@ -236,7 +236,7 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/08-schulden.webp",
-    alt: "Schulden-Übersicht mit Bezahlt-Häkchen",
+    alt: "Schuldenübersicht mit Bezahlt-Häkchen",
   },
   {
     id: "statistik",
@@ -254,7 +254,7 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/09-statistik.webp",
-    alt: "Statistik-Bereich mit Auswertung nach Kategorie",
+    alt: "Statistikbereich mit Auswertung nach Kategorie",
   },
   {
     id: "crew",
@@ -274,7 +274,7 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/10-crew.webp",
-    alt: "Crew-Verwaltung mit Anwesenheitszeiten und Alkohol-Häkchen",
+    alt: "Crewverwaltung mit Anwesenheitszeiten und Alkoholhäkchen",
   },
   {
     id: "kategorien",
@@ -297,12 +297,12 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/11-kategorien.webp",
-    alt: "Kategorien-Verwaltung mit Symbol-Auswahl",
+    alt: "Kategorienverwaltung mit Symbolauswahl",
   },
   {
     id: "gutschrift",
     title: "Gutschriften",
-    lead: "Wenn jemand außerhalb der Bordkasse gezahlt hat, etwa die Yacht-Vorauszahlung, wird das als Gutschrift verrechnet.",
+    lead: "Wenn jemand außerhalb der Bordkasse gezahlt hat, etwa die Yachtvorauszahlung, wird das als Gutschrift verrechnet.",
     body: (
       <>
         <p>
@@ -314,7 +314,7 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/12-gutschrift.webp",
-    alt: "Gutschrift-Formular mit „Zahlt“ und „Empfängt“ Auswahl",
+    alt: "Gutschriftformular mit „Zahlt“ und „Empfängt“ Auswahl",
   },
   {
     id: "anzahlung-setup",
@@ -379,7 +379,7 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/16-anzahlung-matrix.webp",
-    alt: "Anzahlungs-Matrix als Karten-Ansicht mit Fortschrittsbalken, Charter-Hinweis und Pending-Bestätigung",
+    alt: "Anzahlungsmatrix als Karten-Ansicht mit Fortschrittsbalken, Charterhinweis und Pending-Bestätigung",
   },
   {
     id: "anzahlung-crew-self",
@@ -449,7 +449,7 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/14-dsgvo.webp",
-    alt: "Datenschutz-Abschnitt zur 30-Tage-Löschung nach Törnende",
+    alt: "Datenschutzabschnitt zur 30-Tage-Löschung nach Törnende",
   },
 ];
 

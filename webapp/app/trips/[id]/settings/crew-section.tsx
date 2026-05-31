@@ -131,7 +131,7 @@ export function CrewSection({
                   )}
                 </p>
                 {m.email && <p className="text-xs text-ink-soft">{m.email}</p>}
-                {/* An-Bord-Zeile NUR rendern, wenn die Anwesenheit vom
+                {/* An-Bordzeile NUR rendern, wenn die Anwesenheit vom
                     Default („ganzer Törn") abweicht. Bei 5 Personen, die
                     alle den ganzen Trip dabei sind, spart das 5 redundante
                     Zeilen — der Default ist die Annahme, Abweichungen sind
@@ -139,7 +139,7 @@ export function CrewSection({
                 {(m.on_board_from || m.on_board_to) && (
                   <p className="mt-1 text-xs text-ink-soft">
                     An Bord:{" "}
-                    {m.on_board_from ? formatDate(m.on_board_from) : "ab Törn-Start"}
+                    {m.on_board_from ? formatDate(m.on_board_from) : "ab Törnstart"}
                     {" – "}
                     {m.on_board_to ? formatDate(m.on_board_to) : "bis Ende"}
                   </p>
@@ -165,14 +165,14 @@ export function CrewSection({
                     }
                     aria-label={
                       m.is_skipper
-                        ? `Skipper-Rechte für ${m.display_name} entziehen`
+                        ? `Skipperrechte für ${m.display_name} entziehen`
                         : `${m.display_name} zum Skipper machen`
                     }
                     title={
                       m.person_id === ownerId
                         ? "Der Original-Skipper kann nicht degradiert werden."
                         : m.is_skipper
-                          ? "Skipper-Rechte entziehen"
+                          ? "Skipperrechte entziehen"
                           : "Zum Co-Skipper machen"
                     }
                   >
@@ -244,7 +244,7 @@ export function CrewSection({
               E-Mail <span className="text-ink-soft font-normal">(optional)</span>
               <InfoTooltip
                 label="Was passiert ohne E-Mail?"
-                text="Ohne E-Mail wird die Person als Ghost angelegt: Kein Login, aber Anzahlungs-Soll und Buchungs-Beteiligung funktionieren trotzdem. E-Mail später nachtragbar."
+                text="Ohne E-Mail wird die Person als Ghost angelegt: Kein Login, aber Anzahlungssoll und Buchungsbeteiligung funktionieren trotzdem. E-Mail später nachtragbar."
               />
             </label>
             <input id="email" name="email" type="email"
@@ -287,7 +287,7 @@ export function CrewSection({
               </div>
             </div>
             <p className="mt-1 text-xs text-ink-soft">
-              Leer lassen für volle Törn-Dauer ({formatDate(startDate)} – {formatDate(endDate)}).
+              Leer lassen für volle Törndauer ({formatDate(startDate)} – {formatDate(endDate)}).
             </p>
           </div>
 
@@ -300,8 +300,8 @@ export function CrewSection({
               className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
             >
               <option value="">Default aus Person übernehmen</option>
-              <option value="yes">Ja, bekommt Alkohol-Anteil</option>
-              <option value="no">Nein, kein Alkohol-Anteil</option>
+              <option value="yes">Ja, bekommt Alkoholanteil</option>
+              <option value="no">Nein, kein Alkoholanteil</option>
             </select>
           </div>
 
@@ -336,7 +336,7 @@ export function CrewSection({
 }
 
 /**
- * Inline-Edit-Form, die unter einem ausgewählten Crew-Eintrag erscheint.
+ * Inline-Edit-Form, die unter einem ausgewählten Creweintrag erscheint.
  * Email + Name sind nur editierbar, wenn die Person noch keinen Auth-User hat
  * (Ghost) — sonst würden wir das globale Profil eines aktiven Users überschreiben.
  */
@@ -466,8 +466,8 @@ function EditMemberForm({
           className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
         >
           <option value="">Default aus Person übernehmen</option>
-          <option value="yes">Ja, bekommt Alkohol-Anteil</option>
-          <option value="no">Nein, kein Alkohol-Anteil</option>
+          <option value="yes">Ja, bekommt Alkoholanteil</option>
+          <option value="no">Nein, kein Alkoholanteil</option>
         </select>
       </div>
 

@@ -37,7 +37,7 @@ export type DebtSettledMailParams = {
   amount: number;
   tripName: string;
   tripDates: string;
-  /** Link zur Schulden-Seite des Trips. */
+  /** Link zur Schuldenseite des Trips. */
   appUrl: string;
 };
 

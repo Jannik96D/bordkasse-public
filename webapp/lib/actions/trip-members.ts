@@ -13,7 +13,7 @@ const InviteSchema = z.object({
   trip_id: z.string().uuid(),
   // E-Mail ist optional, damit der Skipper Crew anlegen kann, ohne sie zu kennen.
   // Ohne E-Mail kann sich die Person nicht einloggen, taucht aber in der App
-  // als „Ghost"-Person auf — Soll-Zuordnung, Buchungs-Beteiligung und
+  // als „Ghost"-Person auf — Soll-Zuordnung, Buchungsbeteiligung und
   // WhatsApp-Texte funktionieren trotzdem.
   email: z.string().trim().email("Bitte gültige E-Mail-Adresse eingeben.").optional().or(z.literal("")),
   display_name: z.string().trim().min(2).max(60).optional().or(z.literal("")),
@@ -229,7 +229,7 @@ const UpdateMemberSchema = z.object({
 });
 
 /**
- * Update einer Crew-Person:
+ * Update einer Crewperson:
  *   - on_board_from/to, is_alcoholic, note  → trip_members
  *   - display_name + email                  → persons (nur für Ghost-Personen,
  *                                             damit nicht versehentlich die
@@ -418,7 +418,7 @@ export async function setSkipperRole(memberId: string, tripId: string, isSkipper
  * Use-Case: Skipper hat eine Person ohne E-Mail angelegt (Ghost) und trägt
  * jetzt eine E-Mail nach, die schon zu einem bestehenden Account gehört.
  * Statt einer harten Fehlermeldung verschmelzen wir die beiden Identitäten
- * automatisch: ALLE Verweise (Buchungen, Anzahlungs-Soll, Trip-Membership,
+ * automatisch: ALLE Verweise (Buchungen, Anzahlungssoll, Trip-Membership,
  * Trip-Skipper-FK) wandern vom Ghost auf den echten Account, dann wird
  * die Ghost-Row gelöscht.
  *
@@ -464,7 +464,7 @@ async function mergeGhostIntoExistingPerson(
       ok: false,
       message:
         `„${realName}" ist mit dieser E-Mail-Adresse bereits Crewmitglied dieses Törns. ` +
-        `Lösche entweder den aktuellen Crew-Eintrag (ohne E-Mail) oder den bestehenden „${realName}"-Eintrag, ` +
+        `Lösche entweder den aktuellen Creweintrag (ohne E-Mail) oder den bestehenden „${realName}"-Eintrag, ` +
         `damit die Person nur einmal vorkommt.`,
     };
   }

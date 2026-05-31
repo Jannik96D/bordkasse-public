@@ -20,7 +20,7 @@ const SPLIT_LABEL = {
 const SPLIT_HINT = {
   equal: "Alle Crewmitglieder zahlen gleich viel, unabhängig von Anwesenheit.",
   on_board: "Nur Personen, die am Tag der Ausgabe an Bord waren, zahlen mit.",
-  time_proportional: "Anteil proportional zu den Bord-Tagen pro Person.",
+  time_proportional: "Anteil proportional zu den Bordtagen pro Person.",
   individual: "Nur die markierten Personen zahlen, alle gleich viel.",
   per_person: "Jede Person zahlt einen eigenen Betrag (z. B. Restaurant).",
 } as const;
@@ -154,7 +154,7 @@ export default async function TransactionDetailPage({
           <p className="mb-3 text-xs text-ink-soft">
             So verteilt sich der Betrag laut Aufteilung „{SPLIT_LABEL[detail.split_type!]}“
             {detail.tip_amount > 0 ? " inkl. Trinkgeld" : ""}
-            {detail.alcohol_amount > 0 ? " inkl. Alkohol-Modifikator" : ""}
+            {detail.alcohol_amount > 0 ? " inkl. Alkoholmodifikator" : ""}
             .
           </p>
           <ul className="space-y-1.5 rounded-md border border-rule bg-paper p-3">
@@ -179,7 +179,7 @@ export default async function TransactionDetailPage({
                       {s.is_alcoholic && detail.alcohol_amount > 0 && (
                         <span
                           className="ml-1 text-xs"
-                          title="Trinkt mit — bekommt Alkohol-Anteil"
+                          title="Trinkt mit — bekommt Alkoholanteil"
                           aria-label="trinkt Alkohol mit"
                         >
                           🍷

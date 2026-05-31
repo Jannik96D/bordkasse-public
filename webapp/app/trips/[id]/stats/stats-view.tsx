@@ -75,7 +75,7 @@ export function StatsView({
                 ? "rounded-[5px] bg-primary px-4 py-1.5 text-xs font-medium text-paper"
                 : "rounded-[5px] px-4 py-1.5 text-xs font-medium text-ink-soft hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
             }
-            title={canSplit ? undefined : "Keine Crew-Daten verfügbar (Törn gepurged?)"}
+            title={canSplit ? undefined : "Keine Crewdaten verfügbar (Törn gepurged?)"}
           >
             Pro Person
           </button>

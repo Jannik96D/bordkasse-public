@@ -59,7 +59,7 @@ export async function getTripProgressSignals(
   // separates Flag mehr.
   const isCharter = plan !== null;
 
-  // Alle Crew-Anzahlungen eingegangen: jeder Pool-Saldo ≥ 0 (paid ≥ soll).
+  // Alle Crewanzahlungen eingegangen: jeder Pool-Saldo ≥ 0 (paid ≥ soll).
   // Leeres Array (kein Soll erfasst) zählt als noch nicht vollständig.
   const crewPrepaymentsComplete =
     poolBalances.length > 0 && poolBalances.every((b) => b.balance >= -0.005);
@@ -84,7 +84,7 @@ export async function getTripProgressSignals(
   };
 }
 
-/** Aktive Bordkasse-Ausgaben (ohne Anzahlungs-Pool). */
+/** Aktive Bordkasse-Ausgaben (ohne Anzahlungspool). */
 async function countBordkasseExpenses(
   supabase: Client,
   tripId: string,

@@ -179,7 +179,7 @@ export default async function Home({
             className="flex items-center justify-center gap-2 rounded-md border border-rule bg-paper px-4 py-3 text-sm font-medium text-ink transition-colors hover:border-primary/40 hover:bg-navy-light/20"
           >
             <BarChart3 className="h-4 w-4 text-primary" />
-            Gesamt-Statistik
+            Gesamtstatistik
           </Link>
         </div>
       )}

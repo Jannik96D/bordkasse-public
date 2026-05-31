@@ -30,7 +30,7 @@ export type SettlementMailParams = {
   tripDates: string; // formatted "5.4.2026 – 15.4.2026"
   balance: number;   // Saldo der Person (+ = bekommt, − = zahlt)
   debts: DebtItem[];
-  appUrl: string;    // Link zur Schulden-Seite des Trips (zum direkten Abhaken)
+  appUrl: string;    // Link zur Schuldenseite des Trips (zum direkten Abhaken)
   skipperName: string;
   /** Wenn true: Update-Mail-Variante (Wortlaut "Bilanz hat sich aktualisiert"). */
   isUpdate?: boolean;

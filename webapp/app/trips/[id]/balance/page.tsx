@@ -35,7 +35,7 @@ export default async function BalancePage({
   }
 
   // Bordkasse-Tabelle nutzt v_balances_bordkasse_only wenn ein Plan existiert
-  // (sonst v_balances), damit Anzahlungs-Buchungen die Bordkasse-Bilanz nicht
+  // (sonst v_balances), damit Anzahlungsbuchungen die Bordkasse-Bilanz nicht
   // verfälschen.
   const tableRows: BalanceRow[] = plan ? bordkasseRows.map((b) => ({
     ...b,
@@ -56,8 +56,8 @@ export default async function BalancePage({
         Bilanz
         {hasPlan && (
           <InfoTooltip
-            label="Bilanz-Blöcke erklärt"
-            text="Diese Bilanz hat zwei Töpfe: „Anzahlung“ ist das Geld für die Yacht-Charter, das vorab an die Agentur gezahlt wird. „Bordkasse“ sind die laufenden Kosten während des Törns (Sprit, Hafen, Essen). „Gesamt“ fasst beide zusammen. Das ist unterm Strich dein Saldo."
+            label="Bilanzblöcke erklärt"
+            text="Diese Bilanz hat zwei Töpfe: „Anzahlung“ ist das Geld für die Yachtcharter, das vorab an die Agentur gezahlt wird. „Bordkasse“ sind die laufenden Kosten während des Törns (Sprit, Hafen, Essen). „Gesamt“ fasst beide zusammen. Das ist unterm Strich dein Saldo."
           />
         )}
       </h1>
@@ -106,12 +106,12 @@ function PrepaymentsSummary({
   /** Σ aller Charter-Überweisungen (Vorstrecker → Vercharterer). */
   charterPaid: number;
 }) {
-  // Σ Crew-Beiträge (für Header-Zeile)
+  // Σ Crewbeiträge (für Header-Zeile)
   const sumSoll = poolBalances.reduce((s, p) => s + p.soll, 0);
   const sumPaid = poolBalances.reduce((s, p) => s + Math.min(p.paid, p.soll), 0);
   const sumOpen = Math.max(0, sumSoll - sumPaid);
 
-  // Charter-Auslage: was wurde an die Agentur überwiesen vs. Soll
+  // Charterauslage: was wurde an die Agentur überwiesen vs. Soll
   const charterSoll = planTotal;
   const charterOpen = Math.max(0, charterSoll - charterPaid);
   const charterFulfilled = charterSoll > 0 && charterOpen <= 0.005;
@@ -119,14 +119,14 @@ function PrepaymentsSummary({
   return (
     <section className="mb-4 rounded-lg border border-rule bg-paper p-4">
       <div className="mb-3 flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold text-primary">Anzahlung Yacht-Charter</h2>
+        <h2 className="text-sm font-semibold text-primary">Anzahlung Yachtcharter</h2>
         <Link className="text-xs text-primary hover:underline" href={`/trips/${tripId}/prepayments`}>
           Details →
         </Link>
       </div>
 
-      {/* Block 1: Crew-Beiträge */}
-      <p className="mb-2 text-xs uppercase tracking-wide text-ink-soft">Crew-Beiträge</p>
+      {/* Block 1: Crewbeiträge */}
+      <p className="mb-2 text-xs uppercase tracking-wide text-ink-soft">Crewbeiträge</p>
       <p className="mb-3 text-xs text-ink-soft">
         Insgesamt <strong className="text-ink">{formatEuro(sumPaid)}</strong> von{" "}
         <strong className="text-ink">{formatEuro(sumSoll)}</strong> bezahlt
@@ -163,7 +163,7 @@ function PrepaymentsSummary({
           })}
       </ul>
 
-      {/* Block 2: Charter-Auslage (Vorstrecker → Vercharterer) */}
+      {/* Block 2: Charterauslage (Vorstrecker → Vercharterer) */}
       {charterSoll > 0 && (
         <div className="mt-4 border-t border-rule pt-3">
           <p className="mb-2 text-xs uppercase tracking-wide text-ink-soft">An Vercharterer überwiesen</p>
@@ -275,12 +275,12 @@ function BordkasseTable({ rows, sum, hasPlan }: { rows: BalanceRow[]; sum: numbe
 
       {Math.abs(sum) > 0.05 && (
         <p className="mt-3 text-xs text-danger">
-          ⚠️ Saldo-Summe ist {formatEuro(sum)} statt 0. Das könnte ein Rundungsfehler oder Datenproblem sein.
+          ⚠️ Saldosumme ist {formatEuro(sum)} statt 0. Das könnte ein Rundungsfehler oder Datenproblem sein.
         </p>
       )}
 
       <p className="mb-4 mt-4 text-xs text-ink-soft">
-        Grün = bekommt Geld zurück. Rot = muss noch zahlen. Saldo-Summe sollte 0 € sein.
+        Grün = bekommt Geld zurück. Rot = muss noch zahlen. Saldosumme sollte 0 € sein.
       </p>
     </>
   );

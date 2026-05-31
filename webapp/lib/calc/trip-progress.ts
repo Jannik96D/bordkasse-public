@@ -10,7 +10,7 @@
  */
 
 export interface TripProgressSignals {
-  /** Törn-Start (YYYY-MM-DD). */
+  /** Törnstart (YYYY-MM-DD). */
   startDate: string;
   /** Törnende (YYYY-MM-DD). */
   endDate: string;
@@ -73,7 +73,7 @@ const PHASE_ORDER: Exclude<PhaseId, "abschluss">[] = [
 
 /**
  * Bis zu welchem Phasen-Index sind Items aktuell "dran" (anhand des Datums)?
- *   - vor Törn-Start          → Vorbereitung + Anzahlung (Index 1)
+ *   - vor Törnstart          → Vorbereitung + Anzahlung (Index 1)
  *   - während des Törns        → + Während des Törns (Index 2)
  *   - ab letztem Törn-Tag      → alles (Index 3)
  *
@@ -131,7 +131,7 @@ export function computeTripProgress(
       },
       {
         id: "crew-prepayments",
-        label: "Alle Crew-Anzahlungen eingegangen",
+        label: "Alle Crewanzahlungen eingegangen",
         status: statusFor(s.crewPrepaymentsComplete, idx("anzahlung"), unlockedUpTo),
         href: "prepayments",
       },

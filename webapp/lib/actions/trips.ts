@@ -87,7 +87,7 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
         .select("id")
         .single();
       if (pErr || !created) {
-        return { status: "error", message: pErr?.message ?? "Skipper-Person konnte nicht angelegt werden." };
+        return { status: "error", message: pErr?.message ?? "Skipperperson konnte nicht angelegt werden." };
       }
       skipperId = created.id;
       const { error: privErr } = await supabase

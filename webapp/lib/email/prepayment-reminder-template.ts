@@ -12,7 +12,7 @@ export type ReminderTrancheItem = {
   label: string;
   due_date: string;       // formatiert "15.07.2026"
   amount_due: number;     // verbleibender Restbetrag
-  amount_total: number;   // Gesamt-Soll der Person für diese Tranche
+  amount_total: number;   // Gesamtsoll der Person für diese Tranche
 };
 
 export type PrepaymentReminderParams = {
@@ -85,7 +85,7 @@ export function renderPrepaymentReminderMail(p: PrepaymentReminderParams): {
                   Hi ${escapeHtml(p.recipientName)},
                 </p>
                 <p style="margin:0;font-size:15px;line-height:1.55;color:#1A2533;">
-                  hier deine offenen Anzahlungs-Tranchen für den Törn
+                  hier deine offenen Anzahlungstranchen für den Törn
                   <strong>${escapeHtml(p.tripName)}</strong>.
                   Insgesamt offen: <strong>${fmtEuro(totalOpen)}</strong>.
                 </p>
@@ -133,7 +133,7 @@ ${p.tripName}
 
 Hi ${p.recipientName},
 
-hier deine offenen Anzahlungs-Tranchen für den Törn ${p.tripName}.
+hier deine offenen Anzahlungstranchen für den Törn ${p.tripName}.
 
 Offene Tranchen:
 ${trancheText}
