@@ -4,7 +4,7 @@ import {
   Anchor,
   Sailboat,
   Wallet,
-  ShieldCheck,
+  History,
   type LucideIcon,
 } from "lucide-react";
 import { AboutExplorer, type ExplorerPhase, type FeatureRole } from "./about-explorer";
@@ -437,7 +437,7 @@ type PhaseId =
   | "vor-dem-toern"
   | "waehrend-des-toerns"
   | "abrechnung"
-  | "datenschutz";
+  | "nach-dem-toern";
 
 interface Phase {
   id: PhaseId;
@@ -466,8 +466,8 @@ const PHASES: Phase[] = [
     id: "waehrend-des-toerns",
     Icon: Sailboat,
     title: "Während des Törns",
-    lead: "Ausgaben erfassen — auch ohne Internet — und sehen, was ihr ausgebt.",
-    featureIds: ["buchungen", "buchung-neu", "gutschrift", "offline", "statistik"],
+    lead: "Ausgaben und Gutschriften erfassen — auch ohne Internet.",
+    featureIds: ["buchungen", "buchung-neu", "gutschrift", "offline"],
   },
   {
     id: "abrechnung",
@@ -477,11 +477,11 @@ const PHASES: Phase[] = [
     featureIds: ["bilanz", "schulden"],
   },
   {
-    id: "datenschutz",
-    Icon: ShieldCheck,
-    title: "Datenschutz",
-    lead: "Personenbezogene Daten verschwinden 30 Tage nach Törn-Ende automatisch.",
-    featureIds: ["dsgvo"],
+    id: "nach-dem-toern",
+    Icon: History,
+    title: "Nach dem Törn",
+    lead: "Rückblick auf die Ausgaben — und personenbezogene Daten verschwinden 30 Tage nach Törn-Ende automatisch.",
+    featureIds: ["statistik", "dsgvo"],
   },
 ];
 
