@@ -537,4 +537,46 @@ describe("Edge-Cases", () => {
     const total = balances.reduce((a, b) => a + b.balance, 0);
     expect(Math.abs(total)).toBeLessThan(0.01);
   });
+
+  it("An Bord mit 0 Anwesenden am Datum → keine Anteile, Zahler hält die Auslage", () => {
+    // Datum VOR Törn-Start: niemand ist „an Bord" → die Ausgabe wird nicht
+    // verteilt. Dokumentiert die reale View-Semantik: keine Shares, der
+    // Zahler trägt den vollen Betrag (Saldo ≠ 0, weil unallokiert).
+    const tx: Transaction = {
+      id: "edge-onboard-empty",
+      type: "expense",
+      date: "2026-04-01", // vor effectiveFrom (5.4.) → niemand aktiv
+      amount: 80,
+      alcoholAmount: 0,
+      paidBy: "p1",
+      splitType: "on_board",
+    };
+    expect(calculateShares(tx, crew)).toHaveLength(0);
+
+    const balances = computeBalances([tx], crew);
+    const byId = Object.fromEntries(balances.map((b) => [b.personId, round2(b.balance)]));
+    expect(byId["p1"]).toBe(80); // Zahler hält die volle Auslage
+    for (const m of crew.filter((m) => m.personId !== "p1")) {
+      expect(byId[m.personId]).toBe(0);
+    }
+  });
+
+  it("Gutschrift „An Alle“ bei N=2 → ein Empfänger, Saldo-Summe 0", () => {
+    const twoCrew: Member[] = [crew[0], crew[1]]; // Anna, Ben
+    const tx: Transaction = {
+      id: "edge-all-n2",
+      type: "credit",
+      date: "2026-04-05",
+      amount: 240,
+      alcoholAmount: 0,
+      creditFrom: "p1", // Anna zahlt an „Alle"
+      creditTo: null,
+    };
+    const balances = computeBalances([tx], twoCrew);
+    const byId = Object.fromEntries(balances.map((b) => [b.personId, round2(b.balance)]));
+    expect(byId["p1"]).toBe(240); // Anna hat gegeben
+    expect(byId["p2"]).toBe(-240); // Ben bekommt den vollen Betrag zugerechnet
+    const total = balances.reduce((a, b) => a + b.balance, 0);
+    expect(Math.abs(total)).toBeLessThan(0.01);
+  });
 });

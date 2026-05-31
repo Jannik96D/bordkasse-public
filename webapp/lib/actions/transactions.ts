@@ -510,9 +510,10 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   revalidatePath(`/trips/${txData.trip_id}/balance`);
   revalidatePath(`/trips/${txData.trip_id}/debts`);
   // Bei Kaution-Buchungs-Edit: zurück zur Trip-Übersicht mit Settlement-Hinweis,
-  // damit der Skipper nicht vergisst die Abrechnung zu starten.
+  // damit der Skipper nicht vergisst die Abrechnung zu starten. Der toast-Param
+  // sorgt dafür, dass die Erfolgs-Rückmeldung trotz Redirect nicht verloren geht.
   if (touchedKaution) {
-    redirect(`/trips/${txData.trip_id}?check_settlement=1`);
+    redirect(`/trips/${txData.trip_id}?check_settlement=1&toast=expense-updated`);
   }
   redirect(`/trips/${txData.trip_id}/transactions?toast=expense-updated`);
 }

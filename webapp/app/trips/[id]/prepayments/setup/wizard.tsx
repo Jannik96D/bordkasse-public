@@ -197,6 +197,16 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
     return c;
   }, [memberCabin, members]);
 
+  // Σ der zugeordneten Kojenpreise — wird gegen die Gesamtsumme geprüft, damit
+  // der Skipper merkt, wenn die Kojen nicht die ganze Anzahlung abdecken (Rest
+  // landet sonst stillschweigend in der Bordkasse).
+  const cabinSum = useMemo(() => {
+    const priceById = new Map(
+      cabinDrafts.map((c) => [c.id, Number((c.price_per_person || "0").replace(",", ".")) || 0]),
+    );
+    return members.reduce((s, m) => s + (priceById.get(memberCabin[m.id] ?? "") ?? 0), 0);
+  }, [cabinDrafts, memberCabin, members]);
+
   return (
     <div className="space-y-4">
       <ol className="flex items-center gap-3 text-sm">
@@ -322,6 +332,18 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
                     );
                   })}
                 </ul>
+              )}
+
+              {/* Nicht-blockierender Hinweis: weichen Σ Kojen und Gesamtsumme
+                  ab, landet die Differenz in der Bordkasse statt im Anzahlungs-
+                  Pool. Nur zeigen, wenn eine Gesamtsumme gesetzt ist. */}
+              {totalAmountNum > 0 && Math.abs(cabinSum - totalAmountNum) > 0.005 && (
+                <p className="rounded-md border border-gold/30 bg-gold-soft px-3 py-2 text-xs text-ink" role="status">
+                  Σ Kojen {formatEuro(cabinSum)} weicht von der Gesamtsumme {formatEuro(totalAmountNum)} ab
+                  {cabinSum < totalAmountNum
+                    ? " — die Differenz läuft über die Bordkasse."
+                    : " — die Kojen übersteigen die Gesamtsumme, bitte Preise prüfen."}
+                </p>
               )}
             </div>
           )}
