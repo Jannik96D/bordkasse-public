@@ -1,4 +1,5 @@
 import { getTrip, getTripMembers, getCategories } from "@/lib/queries/trips";
+import { getPlan } from "@/lib/queries/prepayments";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { CrewSection } from "./crew-section";
@@ -6,6 +7,7 @@ import { CategorySection } from "./category-section";
 import { ArchiveBlock } from "./archive-block";
 import { DatesSection } from "./dates-section";
 import { CharterSection } from "./charter-section";
+import { PrepaymentPlanSection } from "./prepayment-plan-section";
 import { RetentionBlock } from "./retention-block";
 
 export default async function SettingsPage({
@@ -14,12 +16,13 @@ export default async function SettingsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [trip, members, categories, person, admin] = await Promise.all([
+  const [trip, members, categories, person, admin, plan] = await Promise.all([
     getTrip(id),
     getTripMembers(id),
     getCategories(id),
     getCurrentPerson(),
     isAdmin(),
+    getPlan(id),
   ]);
   if (!trip) return null;
 
@@ -57,6 +60,7 @@ export default async function SettingsPage({
         startDate={trip.start_date}
         endDate={trip.end_date}
       />
+      {canEdit && <PrepaymentPlanSection tripId={id} planExists={!!plan} />}
       <CategorySection tripId={id} categories={categories} canEdit={canEdit} />
       {canEdit && <ArchiveBlock tripId={id} archived={trip.archived} />}
       {canEdit && !trip.retention_purged_at && <RetentionBlock tripId={id} />}

@@ -119,7 +119,7 @@ const features: Feature[] = [
           Pro Eintrag siehst du Beschreibung, Betrag, wer bezahlt hat,
           welche Aufteilung gewählt wurde und welche Kategorie. Gutschriften
           sind farblich abgesetzt. Ein Tipper öffnet die Bearbeitung —
-          ändern darf der Ersteller, Skipper und Admin.
+          ändern darf, wer die Buchung angelegt hat, sowie Skipper und Admin.
         </p>
       </>
     ),
@@ -150,7 +150,7 @@ const features: Feature[] = [
         <p className="mt-2">
           Zusätzlich gibt es einen <strong>Alkohol-Anteil</strong> (unter
           „Erweitert“): Den Alkohol-Teil eines Belegs zahlen nur diejenigen,
-          die als Trinker eingetragen sind. Der Rest läuft nach der
+          die als mittrinkend eingetragen sind. Der Rest läuft nach der
           gewählten Aufteilung. Das Komma im Betrag versteht die App
           selbstverständlich auf Deutsch.
         </p>
@@ -187,14 +187,14 @@ const features: Feature[] = [
           fertig ist. Jede Zahlung kann mit einem Häkchen als „bezahlt“
           markiert werden — alle in der Crew sehen den Stand sofort. Das
           Häkchen setzen dürfen nur die beiden direkt Beteiligten
-          (Schuldner und Empfänger) sowie der Skipper oder Admin.
+          (wer zahlt und wer das Geld bekommt) sowie der Skipper oder Admin.
         </p>
         <p className="mt-2">
           Sobald ein Häkchen gesetzt wird, gehen automatisch
-          Bestätigungs-Mails an Schuldner und Empfänger. Wenn ein Admin
-          stellvertretend abhakt, bekommen Skipper und Vorstrecker
+          Bestätigungs-Mails an die zahlende und die empfangende Person. Wenn ein Admin
+          stellvertretend abhakt, bekommen Skipper und die vorstreckende Person
           zusätzlich eine Info-Mail — damit niemand übersieht, dass
-          jemand anderes in seinem Trip-Kontext geklickt hat.
+          jemand anderes in diesem Trip-Kontext geklickt hat.
         </p>
       </>
     ),
@@ -285,7 +285,7 @@ const features: Feature[] = [
           oder nach <strong>Kojen</strong> (jede Kabine bekommt einen
           eigenen Preis, Crew-Mitglieder werden den Kabinen zugewiesen).
           Wer das Geld vorstreckt, ist meistens der Skipper, kann aber
-          auch jemand anderes sein („Vorstrecker“). An diese Person zahlt
+          auch jemand anderes sein. An diese vorstreckende Person zahlt
           die Crew dann.
         </p>
         <p className="mt-2">
@@ -316,7 +316,13 @@ const features: Feature[] = [
           WhatsApp-Vorschlagstext zum Kopieren.
         </p>
         <p className="mt-2">
-          Oben sieht der Vorstrecker eine Übersicht, was er noch an die
+          Ein Fortschritts-Balken oben zeigt auf einen Blick, wie viel
+          schon eingegangen ist. Auf dem Smartphone erscheint jede Person
+          als eigene Karte — kein horizontales Wischen nötig; am größeren
+          Bildschirm bleibt die Tabelle für den Quervergleich.
+        </p>
+        <p className="mt-2">
+          Daneben sieht die vorstreckende Person eine Übersicht, was sie noch an die
           Charter-Agentur überweisen muss — basierend auf dem, was die
           Crew schon bei ihm eingezahlt hat. 3 Tage vor jeder
           Charter-Frist verschickt die App diese Übersicht zusätzlich
@@ -326,7 +332,7 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/16-anzahlung-matrix.webp",
-    alt: "Anzahlungs-Matrix mit Charter-Reminder-Banner, Pending-Hinweis und Vorstrecker-Markierung",
+    alt: "Anzahlungs-Matrix als Karten-Ansicht mit Fortschritts-Header, Charter-Hinweis und Pending-Bestätigung",
   },
   {
     id: "anzahlung-crew-self",
@@ -336,17 +342,23 @@ const features: Feature[] = [
       <>
         <p>
           Statt dass der Skipper jeden Eingang manuell abhaken muss, kann
-          die Crew selbst „Ich habe gezahlt“ drücken. Der Vorstrecker
-          bekommt eine Mail und sieht in der Matrix ein gelbes
-          ⏳-Symbol — er bestätigt mit ✓, sobald das Geld auf seinem Konto
+          die Crew selbst „Ich habe gezahlt“ drücken. Die vorstreckende
+          Person bekommt eine Mail und sieht in der Matrix ein gelbes
+          ⏳-Symbol — sie bestätigt mit ✓, sobald das Geld auf ihrem Konto
           ist, oder lehnt mit ✗ ab. Erst nach Bestätigung zählt die
           Zahlung in der Bilanz.
         </p>
         <p className="mt-2">
-          Sobald der Vorstrecker bestätigt oder ablehnt, bekommt das
+          Sobald die vorstreckende Person bestätigt oder ablehnt, bekommt das
           Crew-Mitglied eine kurze Info-Mail. Bei einer Ablehnung
           enthält die Mail einen Hinweis, mit dem Skipper Rücksprache zu
           halten.
+        </p>
+        <p className="mt-2">
+          Anzahlungen tauchen für Crew-Mitglieder nur in der Navigation
+          auf, solange sie selbst noch etwas offen haben — ist alles
+          bezahlt, verschwindet der Punkt wieder. So bleibt die App für
+          alle anderen aufgeräumt.
         </p>
       </>
     ),

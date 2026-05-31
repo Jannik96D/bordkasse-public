@@ -40,7 +40,7 @@ export async function sendPaymentPendingMail(params: {
     supabase.from("persons_private").select("email").eq("person_id", advancerId).maybeSingle(),
   ]);
   if (!advancerPriv?.email) {
-    return { ok: false, message: "Vorstrecker hat keine E-Mail-Adresse hinterlegt." };
+    return { ok: false, message: "Für die vorstreckende Person ist keine E-Mail-Adresse hinterlegt." };
   }
 
   const reporterRel = (tx as unknown as { reporter: { display_name: string } | { display_name: string }[] }).reporter;

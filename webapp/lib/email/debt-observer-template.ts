@@ -12,6 +12,11 @@ import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEu
 
 export type DebtObserverMailParams = {
   recipientName: string;
+  /**
+   * Warum bekommt diese Person die Info-Mail? Bestimmt den Hinweis-Text, damit
+   * immer nur die zutreffende Rolle genannt wird (bei Personalunion „skipper").
+   */
+  recipientReason: "skipper" | "advancer";
   actorName: string;
   debtorName: string;
   creditorName: string;
@@ -30,6 +35,10 @@ export function renderDebtObserverMail(p: DebtObserverMailParams): {
   const subject = `Schuld abgehakt: ${p.debtorName} → ${p.creditorName} (${p.tripName})`;
   const detailLine = `${p.debtorName} → ${p.creditorName} · ${amount}`;
   const introText = `${p.actorName} hat soeben in der Bordkasse markiert, dass die Zahlung von ${p.debtorName} in Höhe von ${amount} an ${p.creditorName} erledigt ist.`;
+  const reasonText =
+    p.recipientReason === "advancer"
+      ? "Du bekommst diese Info-Mail, weil du die Anzahlung für diesen Törn vorstreckst."
+      : "Du bekommst diese Info-Mail, weil du Skipper dieses Törns bist.";
 
   const body = `
             <tr>
@@ -63,7 +72,7 @@ export function renderDebtObserverMail(p: DebtObserverMailParams): {
             </tr>
 ${renderActionButton(p.appUrl, "Schulden in der App ansehen")}
 ${renderHintBlock(
-  "Du bekommst diese Info-Mail, weil du Skipper oder Vorstrecker dieses Törns bist. Falls etwas nicht stimmt, kann das Häkchen in der App wieder entfernt werden.",
+  `${reasonText} Falls etwas nicht stimmt, kann das Häkchen in der App wieder entfernt werden.`,
 )}`;
 
   const html = renderMailShell({
@@ -82,7 +91,7 @@ ${introText}
 
   ${detailLine}
 
-Du bekommst diese Info-Mail, weil du Skipper oder Vorstrecker dieses Törns bist — falls etwas nicht stimmt, kann das Häkchen in der App wieder entfernt werden.
+${reasonText} Falls etwas nicht stimmt, kann das Häkchen in der App wieder entfernt werden.
 
 Schulden in der App: ${p.appUrl}
 

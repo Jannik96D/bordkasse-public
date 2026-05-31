@@ -286,7 +286,7 @@ export function CrewSection({
 
           <div>
             <label htmlFor="is_alcoholic" className="block text-sm font-medium">
-              Alkohol-Trinker?
+              Trinkt Alkohol mit?
             </label>
             <select id="is_alcoholic" name="is_alcoholic"
               defaultValue=""
@@ -443,7 +443,7 @@ function EditMemberForm({
 
       <div>
         <label htmlFor={`alc-${member.id}`} className="block text-sm font-medium">
-          Alkohol-Trinker?
+          Trinkt Alkohol mit?
         </label>
         <select
           id={`alc-${member.id}`}

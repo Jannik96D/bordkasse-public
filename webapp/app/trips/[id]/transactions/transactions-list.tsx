@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Info, Pencil, Search, X } from "lucide-react";
+import { Anchor, Info, Pencil, Search, X } from "lucide-react";
 import type { TransactionListRow } from "@/lib/queries/transactions";
 import { CategoryIcon } from "@/components/category-icon";
 import { formatDate, formatEuro } from "@/lib/utils";
@@ -127,6 +127,17 @@ export function TransactionsList({
                           )}
                           {t.description ?? (t.type === "credit" ? "Gutschrift" : "(ohne Beschreibung)")}
                         </p>
+                        {t.tranche_label && (
+                          <p className="mt-1">
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
+                              aria-label={`Anzahlungs-Pool, Tranche ${t.tranche_label} — nicht in der laufenden Bordkasse`}
+                            >
+                              <Anchor className="h-3 w-3" aria-hidden="true" />
+                              Anzahlung · {t.tranche_label}
+                            </span>
+                          </p>
+                        )}
                         <p className="mt-1 text-xs text-ink-soft">
                           {t.type === "expense" ? (
                             <>

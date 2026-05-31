@@ -1,14 +1,15 @@
 import Link from "next/link";
-import { Euro, ScaleIcon, Users, Plus, Wallet } from "lucide-react";
+import { Euro, ScaleIcon, Users, Plus, Coins } from "lucide-react";
 import { getTrip, getTripMembers } from "@/lib/queries/trips";
+import { getPlan } from "@/lib/queries/prepayments";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
+import { todayIso } from "@/lib/utils";
 import { FabAddTransaction } from "@/components/bottom-nav";
 import { SettlementStatus } from "@/components/settlement-status";
 import { TripProgress } from "@/components/trip-progress";
 import { getTripProgressSignals } from "@/lib/queries/trip-progress";
 import { computeTripProgress } from "@/lib/calc/trip-progress";
-import { todayIso } from "@/lib/utils";
 
 export default async function TripDashboard({
   params,
@@ -20,11 +21,12 @@ export default async function TripDashboard({
   const { id } = await params;
   const sp = await searchParams;
   const justEditedKaution = sp.check_settlement === "1";
-  const [trip, members, person, admin] = await Promise.all([
+  const [trip, members, person, admin, plan] = await Promise.all([
     getTrip(id),
     getTripMembers(id),
     getCurrentPerson(),
     isAdmin(),
+    getPlan(id),
   ]);
   if (!trip) return null;
 
@@ -33,6 +35,13 @@ export default async function TripDashboard({
   const myMember = members.find((m) => m.person_id === person?.id);
   const isMyTripSkipper = !!myMember?.is_skipper;
   const canAnnounce = admin || isMyTripSkipper;
+
+  // Anzahlungen sind bewusst aus der Übersicht verbannt — die laufende
+  // Verwaltung läuft über den kontextuellen Nav-Eintrag und die
+  // Trip-Einstellungen. Einzige Ausnahme: ein Skipper/Admin, der vor
+  // Törn-Start noch keinen Plan angelegt hat, sieht einen Einstiegs-CTA.
+  const tripNotStarted = trip.start_date > todayIso();
+  const showCreatePrepaymentCta = canAnnounce && !plan && tripNotStarted;
 
   // Törn-Fortschritt-Karte nur für Skipper/Co-Skipper/Admin (wie der Banner).
   let progress = null;
@@ -111,14 +120,16 @@ export default async function TripDashboard({
             <span className="font-medium">Bilanz</span>
             <span className="text-xs text-ink-soft">Wer hat wie viel offen</span>
           </Link>
-          <Link
-            href={`/trips/${id}/prepayments`}
-            className="flex flex-col items-start gap-2 rounded-lg border border-rule bg-paper p-4 hover:border-primary/40 hover:bg-navy-light/20"
-          >
-            <Wallet className="h-5 w-5 text-primary" />
-            <span className="font-medium">Anzahlungen</span>
-            <span className="text-xs text-ink-soft">Tranchen + Eingangs-Erfassung</span>
-          </Link>
+          {showCreatePrepaymentCta && (
+            <Link
+              href={`/trips/${id}/prepayments/setup`}
+              className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-primary/40 bg-navy-light/20 p-4 hover:border-primary/60 hover:bg-navy-light/30"
+            >
+              <Coins className="h-5 w-5 text-primary" />
+              <span className="font-medium text-primary">Jetzt Anzahlung anlegen</span>
+              <span className="text-xs text-ink-soft">Yacht-Anzahlung auf die Crew aufteilen</span>
+            </Link>
+          )}
         </div>
       </section>
 

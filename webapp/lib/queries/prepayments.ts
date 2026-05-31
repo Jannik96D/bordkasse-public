@@ -284,6 +284,81 @@ export async function getPendingPayments(tripId: string): Promise<PendingPayment
   }));
 }
 
+/**
+ * Soll der „Anzahlung"-Eintrag in der Navigation für diesen Betrachter
+ * erscheinen? Anzahlungen verschwinden bewusst aus dem Hauptsichtfeld und
+ * tauchen nur auf, solange sie für die Person gerade relevant sind:
+ *   - Crew:    solange eine eigene Tranche offen ist ODER eine eigene
+ *              Selbstmeldung noch auf Bestätigung wartet (Pending bleibt
+ *              sichtbar, bis der Vorstrecker bestätigt).
+ *   - Manager: solange irgendeine Crew-Tranche offen ist ODER eine
+ *              Selbstmeldung wartet ODER der Vorstrecker der Charteragentur
+ *              noch etwas schuldet.
+ *
+ * Ohne Plan/Tranchen sofort `false` — auf Trips ohne Anzahlungs-Plan kostet
+ * das nur eine günstige `getPlan`-Query und der Eintrag bleibt aus.
+ * `isManager` (Skipper / Admin / Vorstrecker) wird intern aus dem Plan
+ * abgeleitet, damit der Plan nicht doppelt geladen werden muss.
+ */
+export async function getPrepaymentNavState(
+  tripId: string,
+  viewer: {
+    personId: string | null;
+    isAdmin: boolean;
+    isTripSkipper: boolean;
+    tripSkipperId: string | null;
+  },
+): Promise<{ show: boolean }> {
+  const plan = await getPlan(tripId);
+  if (!plan) return { show: false };
+  const tranches = await getTranches(tripId);
+  if (tranches.length === 0) return { show: false };
+
+  const advancerId = plan.advancer_person_id ?? viewer.tripSkipperId;
+  const isManager =
+    viewer.isAdmin ||
+    viewer.isTripSkipper ||
+    (!!viewer.personId && advancerId === viewer.personId);
+
+  const [obligations, payments, pending] = await Promise.all([
+    getObligations(tripId),
+    getPaymentAggregates(tripId),
+    getPendingPayments(tripId),
+  ]);
+
+  const paidByKey = new Map<string, number>();
+  for (const p of payments) paidByKey.set(`${p.tranche_id}::${p.person_id}`, p.paid_amount);
+  const sollByPerson = new Map<string, number>();
+  for (const o of obligations) sollByPerson.set(o.person_id, o.total_amount);
+
+  const openFor = (personId: string): number => {
+    const totalSoll = sollByPerson.get(personId) ?? 0;
+    if (totalSoll <= 0) return 0;
+    return tranches.reduce((sum, t) => {
+      const soll = (totalSoll * t.percent) / 100;
+      const paid = paidByKey.get(`${t.id}::${personId}`) ?? 0;
+      return sum + Math.max(0, soll - paid);
+    }, 0);
+  };
+
+  if (!isManager) {
+    if (!viewer.personId) return { show: false };
+    const myOpen = openFor(viewer.personId) > 0.005;
+    const myPending = pending.some((p) => p.person_id === viewer.personId);
+    return { show: myOpen || myPending };
+  }
+
+  const anyCrewOpen = obligations.some((o) => openFor(o.person_id) > 0.005);
+  const anyPending = pending.length > 0;
+  const charterPaid = await getCharterPaymentsPerTranche(tripId);
+  const advancerOwes = tranches.some((t) => {
+    const soll = (plan.total_amount * t.percent) / 100;
+    const paid = charterPaid[t.id] ?? 0;
+    return soll - paid > 0.005;
+  });
+  return { show: anyCrewOpen || anyPending || advancerOwes };
+}
+
 export async function listPaymentsFor(
   tripId: string,
   trancheId: string,

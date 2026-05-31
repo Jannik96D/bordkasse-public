@@ -987,7 +987,7 @@ async function sendPrepaymentNoticeMails(
 
   const actorName = nameById.get(args.actorPersonId) ?? "Skipper";
   const subjectPersonName = nameById.get(args.subjectPersonId) ?? "Crew-Mitglied";
-  const advancerName = nameById.get(advancerPersonId) ?? "Vorstrecker";
+  const advancerName = nameById.get(advancerPersonId) ?? "die vorstreckende Person";
 
   const { renderPrepaymentNoticeMail } = await import(
     "@/lib/email/prepayment-notice-template"

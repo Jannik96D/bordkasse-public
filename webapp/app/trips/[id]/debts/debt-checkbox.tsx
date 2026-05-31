@@ -52,7 +52,7 @@ export function DebtCheckbox({
       }}
       className="h-5 w-5 cursor-pointer rounded border-rule disabled:cursor-not-allowed disabled:opacity-50"
       aria-label={optimisticSettled ? "Als unbezahlt markieren" : "Als erledigt markieren"}
-      title={canToggle ? undefined : "Nur Schuldner oder Gläubiger dürfen das Häkchen setzen."}
+      title={canToggle ? undefined : "Nur wer zahlt oder das Geld bekommt darf das Häkchen setzen."}
     />
   );
 }

@@ -54,6 +54,8 @@ export interface TransactionListRow {
   credit_to_name: string | null;  // null = "Alle" wenn type=credit
   /** Ersteller — gebraucht für Edit-Permission-Check in der Liste. */
   created_by_id: string | null;
+  /** Anzahlungs-Tranche, falls die Buchung dem Anzahlungs-Pool zugeordnet ist. */
+  tranche_label: string | null;
 }
 
 export async function listTransactions(tripId: string): Promise<TransactionListRow[]> {
@@ -66,7 +68,8 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
       paid_person:persons!transactions_paid_by_fkey(display_name),
       from_person:persons!transactions_credit_from_fkey(display_name),
       to_person:persons!transactions_credit_to_fkey(display_name),
-      category:trip_categories(name, icon)
+      category:trip_categories(name, icon),
+      tranche:prepayment_tranches(label)
     `)
     .eq("trip_id", tripId)
     .is("deleted_at", null)
@@ -92,6 +95,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
     from_person: { display_name: string } | { display_name: string }[] | null;
     to_person: { display_name: string } | { display_name: string }[] | null;
     category: { name: string; icon: string | null } | { name: string; icon: string | null }[] | null;
+    tranche: { label: string } | { label: string }[] | null;
   };
 
   const first = <T,>(v: T | T[] | null): T | null =>
@@ -114,6 +118,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
       ? null  // → "Alle"
       : first(r.to_person)?.display_name ?? null,
     created_by_id: r.created_by,
+    tranche_label: first(r.tranche)?.label ?? null,
   }));
 }
 

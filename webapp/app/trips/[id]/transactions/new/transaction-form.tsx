@@ -657,7 +657,7 @@ function ExpenseForm({
             Erweitert (Alkohol-Anteil)
           </button>
           {showAdvanced && (
-            <FieldGroup label="Alkohol-Anteil (€)" htmlFor="alcohol_amount" hint="Wird unter Trinkern verteilt; Rest nach Aufteilung.">
+            <FieldGroup label="Alkohol-Anteil (€)" htmlFor="alcohol_amount" hint="Wird auf alle verteilt, die Alkohol mittrinken; Rest nach Aufteilung.">
               <input
                 id="alcohol_amount" name="alcohol_amount" type="text"
                 inputMode="decimal" pattern="([0-9]+([,.][0-9]{1,2})?)?"

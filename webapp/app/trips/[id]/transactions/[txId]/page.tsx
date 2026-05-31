@@ -127,13 +127,13 @@ export default async function TransactionDetailPage({
           )}
 
           {!isExpense && (
-            <Field label="Empfänger">
+            <Field label="Geht an">
               <p className="font-medium">
                 {detail.credit_to_name ?? "Alle Crew-Mitglieder anteilig"}
                 {detail.credit_to_id == null && (
                   <InfoTooltip
                     label="Was bedeutet „An Alle“?"
-                    text="Der Betrag wird gleichmäßig auf alle Crew-Mitglieder außer den Zahler verteilt."
+                    text="Der Betrag wird gleichmäßig auf alle Crew-Mitglieder außer die zahlende Person verteilt."
                   />
                 )}
               </p>
@@ -179,8 +179,8 @@ export default async function TransactionDetailPage({
                       {s.is_alcoholic && detail.alcohol_amount > 0 && (
                         <span
                           className="ml-1 text-xs"
-                          title="Trinker — bekommt Alkohol-Anteil"
-                          aria-label="Trinker"
+                          title="Trinkt mit — bekommt Alkohol-Anteil"
+                          aria-label="trinkt Alkohol mit"
                         >
                           🍷
                         </span>
