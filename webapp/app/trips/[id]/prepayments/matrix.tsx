@@ -244,33 +244,6 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
         </button>
       </div>
 
-      {/* Status-Legende (#E1): erklärt die Symbole, damit niemand sie raten muss. */}
-      <details className="mb-3 rounded-md border border-rule bg-paper-soft px-3 py-2 text-sm">
-        <summary className="cursor-pointer text-ink-soft">Was bedeuten die Symbole?</summary>
-        <ul className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-2">
-          <li className="flex items-center gap-2">
-            <span className="inline-block h-4 w-4 shrink-0 rounded border border-rule bg-paper" aria-hidden="true" />
-            offen — noch nichts gezahlt
-          </li>
-          <li className="flex items-center gap-2">
-            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-primary text-primary" aria-hidden="true">◐</span>
-            teilweise bezahlt
-          </li>
-          <li className="flex items-center gap-2">
-            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-success bg-success/10 text-success" aria-hidden="true">✓</span>
-            vollständig bezahlt
-          </li>
-          <li className="flex items-center gap-2">
-            <span className="inline-block h-4 w-4 shrink-0 rounded border-2 border-danger bg-paper" aria-hidden="true" />
-            überfällig — Frist überschritten
-          </li>
-          <li className="flex items-center gap-2">
-            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-amber-500 text-amber-600" aria-hidden="true">⏳</span>
-            gemeldet — wartet auf Bestätigung
-          </li>
-        </ul>
-      </details>
-
       {/* Mobile: eine Karte pro Person — kein Seitwärts-Wischen (#4) */}
       <div className="space-y-2 sm:hidden">
         {memberRows.map(({ m, obl, cabin, cells, rowOpen, isAdvancerRow, advancerNothingOpen }) => (
@@ -409,6 +382,41 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
           </tbody>
         </table>
       </div>
+
+      {/* Status-Legende (#E1): unter Tabelle/Kacheln — erklärt Symbole + Aktions-Icons. */}
+      <details className="mt-3 rounded-md border border-rule bg-paper-soft px-3 py-2 text-sm">
+        <summary className="cursor-pointer text-ink-soft">Was bedeuten die Symbole?</summary>
+        <ul className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-2">
+          <li className="flex items-center gap-2">
+            <span className="inline-block h-4 w-4 shrink-0 rounded border border-rule bg-paper" aria-hidden="true" />
+            offen — noch nichts gezahlt
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-primary text-primary" aria-hidden="true">◐</span>
+            teilweise bezahlt
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-success bg-success/10 text-success" aria-hidden="true">✓</span>
+            vollständig bezahlt
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="inline-block h-4 w-4 shrink-0 rounded border-2 border-danger bg-paper" aria-hidden="true" />
+            überfällig — Frist überschritten
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-amber-500 text-amber-600" aria-hidden="true">⏳</span>
+            gemeldet — wartet auf Bestätigung
+          </li>
+          <li className="flex items-center gap-2">
+            <Bell className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+            Glocke — Erinnerungs-Mail an diese Person senden
+          </li>
+          <li className="flex items-center gap-2">
+            <MessageCircle className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+            Sprechblase — WhatsApp-Text zum Kopieren erzeugen
+          </li>
+        </ul>
+      </details>
 
       {paymentModal && (
         <PaymentModal
