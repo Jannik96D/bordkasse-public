@@ -824,7 +824,7 @@ function ExpenseForm({
                 </div>
                 <p className="mt-2 text-xs text-ink-soft">
                   {tipDistribution === "proportional"
-                    ? "Anteilig zum Bestellbetrag — wer mehr bestellt, zahlt mehr Trinkgeld."
+                    ? "Anteilig zum Bestellbetrag: wer mehr bestellt, zahlt mehr Trinkgeld."
                     : `Jeder Beteiligte zahlt gleich viel Trinkgeld.`}
                 </p>
               </div>

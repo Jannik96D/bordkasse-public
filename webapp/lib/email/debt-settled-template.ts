@@ -70,14 +70,14 @@ export function renderDebtSettledMail(p: DebtSettledMailParams): {
       subject = `Zahlung an ${p.creditorName} wurde abgehakt`;
       headline = "Zahlung wurde abgehakt";
       introText = `${actorLabel} hat soeben in der Bordkasse markiert, dass deine Zahlung in Höhe von ${amount} an ${p.creditorName} erledigt ist.`;
-      followupText = "Falls das ein Versehen war, sprich kurz mit dem Skipper — das Häkchen kann in der App auch wieder entfernt werden.";
+      followupText = "Falls das ein Versehen war, sprich kurz mit dem Skipper, das Häkchen kann in der App auch wieder entfernt werden.";
     }
   } else {
     if (p.actorRole === "debtor") {
       subject = `${p.debtorName} hat seine Zahlung an dich abgehakt`;
       headline = "Zahlung wurde abgehakt";
       introText = `${p.debtorName} hat soeben in der Bordkasse markiert, dass die Zahlung in Höhe von ${amount} an dich erledigt ist.`;
-      followupText = `Falls etwas nicht stimmt, sprich kurz mit ${p.debtorName} — das Häkchen kann in der App auch wieder entfernt werden.`;
+      followupText = `Falls etwas nicht stimmt, sprich kurz mit ${p.debtorName}, das Häkchen kann in der App auch wieder entfernt werden.`;
     } else if (p.actorRole === "creditor") {
       subject = `Bestätigung: Zahlung von ${p.debtorName} als erhalten markiert`;
       headline = "Empfang bestätigt";
@@ -87,7 +87,7 @@ export function renderDebtSettledMail(p: DebtSettledMailParams): {
       subject = `Zahlung von ${p.debtorName} an dich wurde abgehakt`;
       headline = "Zahlung wurde abgehakt";
       introText = `${actorLabel} hat soeben in der Bordkasse markiert, dass die Zahlung von ${p.debtorName} in Höhe von ${amount} an dich erledigt ist.`;
-      followupText = "Falls etwas nicht stimmt, sprich mit dem Skipper — das Häkchen kann in der App auch wieder entfernt werden.";
+      followupText = "Falls etwas nicht stimmt, sprich mit dem Skipper, das Häkchen kann in der App auch wieder entfernt werden.";
     }
   }
 
@@ -133,7 +133,7 @@ export function renderDebtSettledMail(p: DebtSettledMailParams): {
             </tr>
 ${renderActionButton(p.appUrl, "Schulden in der App ansehen")}
 ${renderHintBlock(
-  "Diese Mail wurde automatisch verschickt, sobald jemand eine Zahlung in der App abhakt — so wissen beide Seiten Bescheid und können den Stand in Ruhe prüfen.",
+  "Diese Mail wurde automatisch verschickt, sobald jemand eine Zahlung in der App abhakt, so wissen beide Seiten Bescheid und können den Stand in Ruhe prüfen.",
 )}`;
 
   const html = renderMailShell({

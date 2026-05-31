@@ -109,7 +109,7 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
               {pending && (
                 <p className="mt-2 rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
                   <span aria-hidden="true">⏳</span>{" "}
-                  Du hast <strong>{formatEuro(pending.amount)}</strong> am {formatDeDate(pending.date)} gemeldet — wartet auf Bestätigung durch deinen Skipper.
+                  Du hast <strong>{formatEuro(pending.amount)}</strong> am {formatDeDate(pending.date)} gemeldet, wartet auf Bestätigung durch deinen Skipper.
                 </p>
               )}
 
@@ -192,7 +192,7 @@ function SelfPaymentModal({
           Zahlung melden
         </h2>
         <p className="mt-1 text-sm text-ink-soft">
-          {trancheLabel} — dein Skipper bestätigt deine Meldung.
+          {trancheLabel}: dein Skipper bestätigt deine Meldung.
         </p>
 
         <div className="mt-4 space-y-3">

@@ -17,7 +17,7 @@ const decimalString = (v: unknown) =>
 // die sonst sofort die ganze Bilanz verzerren. 1 Mio € liegt weit über
 // jedem realistischen Törn-Posten, fängt aber "500000 statt 50" ab.
 const MAX_AMOUNT = 1_000_000;
-const MAX_AMOUNT_MSG = "Betrag ist unrealistisch hoch — bitte prüfen (max. 1.000.000 €).";
+const MAX_AMOUNT_MSG = "Betrag ist unrealistisch hoch, bitte prüfen (max. 1.000.000 €).";
 
 const Amount = z.preprocess(
   decimalString,

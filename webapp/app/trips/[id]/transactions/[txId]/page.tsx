@@ -21,7 +21,7 @@ const SPLIT_HINT = {
   equal: "Alle Crewmitglieder zahlen gleich viel, unabhängig von Anwesenheit.",
   on_board: "Nur Personen, die am Tag der Ausgabe an Bord waren, zahlen mit.",
   time_proportional: "Anteil proportional zu den Bord-Tagen pro Person.",
-  individual: "Nur die markierten Personen zahlen — alle gleich viel.",
+  individual: "Nur die markierten Personen zahlen, alle gleich viel.",
   per_person: "Jede Person zahlt einen eigenen Betrag (z. B. Restaurant).",
 } as const;
 

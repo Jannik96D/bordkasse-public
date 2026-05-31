@@ -21,7 +21,7 @@ export function NewTripForm() {
 
       <h1 className="text-2xl font-bold text-primary">Neuer Törn</h1>
       <p className="mt-1 text-sm text-ink-soft">
-        Stammdaten reichen — Crew und Kategorien fügst du im nächsten Schritt hinzu.
+        Stammdaten reichen, Crew und Kategorien fügst du im nächsten Schritt hinzu.
       </p>
 
       <form action={formAction} className="mt-8 space-y-5">
@@ -95,7 +95,7 @@ export function NewTripForm() {
           <p className="mt-2 text-xs text-ink-soft">
             E-Mail des zukünftigen Skippers. Lass das Feld leer, wenn du
             selbst Skipper sein möchtest. Wenn du den Törn für jemand
-            anderen anlegst, wird er Skipper — du selbst landest nicht
+            anderen anlegst, wird er Skipper, du selbst landest nicht
             in der Crew, hast aber als Admin trotzdem vollen Zugriff.
           </p>
         </div>

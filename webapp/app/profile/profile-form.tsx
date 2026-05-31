@@ -31,7 +31,7 @@ export function ProfileForm({
           className="mt-1 w-full rounded-md border border-rule bg-paper-soft px-4 text-base text-ink-soft"
         />
         <p className="mt-1 text-xs text-ink-soft">
-          Wird beim nächsten Login als Identität verwendet — nicht änderbar.
+          Wird beim nächsten Login als Identität verwendet. Nicht änderbar.
         </p>
       </div>
 

@@ -36,7 +36,7 @@ export function DatesSection({
         <span>
           Törndatum
           <InfoTooltip
-            text="Existierende Buchungen werden bei Datumsänderung nicht automatisch verschoben — einzelne Einträge ggf. manuell anpassen."
+            text="Existierende Buchungen werden bei Datumsänderung nicht automatisch verschoben, einzelne Einträge ggf. manuell anpassen."
             label="Hinweis zu Datumsänderung"
           />
         </span>

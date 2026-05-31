@@ -34,7 +34,7 @@ export default async function DebtsPage({
         <div className="text-3xl mb-3">🎉</div>
         <p className="font-medium">Alles ausgeglichen</p>
         <p className="mt-1 text-sm text-ink-soft">
-          Keine offenen Schulden — entweder noch nichts erfasst oder alle Salden = 0.
+          Keine offenen Schulden: entweder noch nichts erfasst oder alle Salden = 0.
         </p>
       </main>
     );
@@ -63,7 +63,7 @@ export default async function DebtsPage({
           Schulden
           <InfoTooltip
             label="Wie funktionieren die Bezahlt-Häkchen?"
-            text="Das Bezahlt-Häkchen wird crew-weit geteilt — alle sehen denselben Stand live. Sobald sich der Betrag durch eine neue Buchung ändert, ist die Schuld eine neue und das Häkchen verschwindet automatisch."
+            text="Das Bezahlt-Häkchen wird crew-weit geteilt, alle sehen denselben Stand live. Sobald sich der Betrag durch eine neue Buchung ändert, ist die Schuld eine neue und das Häkchen verschwindet automatisch."
           />
         </h1>
         <p className="mt-1 text-xs text-ink-soft">

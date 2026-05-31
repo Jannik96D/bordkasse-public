@@ -61,8 +61,8 @@ export function DebtCheckbox({
             const failed = res.mailsFailed ?? 0;
             show(
               failed > 0
-                ? `Als bezahlt markiert — ${failed} Benachrichtigung${failed === 1 ? "" : "en"} konnte${failed === 1 ? "" : "n"} nicht zugestellt werden.`
-                : "Als bezahlt markiert — Crew wurde benachrichtigt.",
+                ? `Als bezahlt markiert. ${failed} Benachrichtigung${failed === 1 ? "" : "en"} konnte${failed === 1 ? "" : "n"} nicht zugestellt werden.`
+                : "Als bezahlt markiert. Crew wurde benachrichtigt.",
               { variant: failed > 0 ? "error" : "success" },
             );
           }

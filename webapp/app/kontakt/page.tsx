@@ -33,7 +33,7 @@ export default function KontaktPage() {
         <div>
           <h2 className="text-base font-semibold">Betreiber</h2>
           <p>
-            Jannik Dieter — erreichbar unter{" "}
+            Jannik Dieter, erreichbar unter{" "}
             <a href="mailto:bordkasse@dieter.ms" className="underline">
               bordkasse@dieter.ms
             </a>

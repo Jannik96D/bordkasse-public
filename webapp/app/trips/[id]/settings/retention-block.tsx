@@ -29,7 +29,7 @@ export function RetentionBlock({ tripId }: { tripId: string }) {
       force
         ? {
             title: "Daten sofort löschen?",
-            body: "Buchungen, Crew und Schulden dieses Törns werden anonymisiert — nur die aggregierte Statistik bleibt. Das lässt sich nicht rückgängig machen.",
+            body: "Buchungen, Crew und Schulden dieses Törns werden anonymisiert, nur die aggregierte Statistik bleibt. Das lässt sich nicht rückgängig machen.",
             confirmLabel: "Trotzdem löschen",
             danger: true,
           }
@@ -70,7 +70,7 @@ export function RetentionBlock({ tripId }: { tripId: string }) {
     <section className="space-y-2 border-t border-rule pt-6">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-soft">DSGVO-Löschung</h2>
       <p className="text-xs text-ink-soft">
-        Personenbezogene Daten (Buchungen, Crew, Schulden) werden 30 Tage nach Törn-Ende automatisch gelöscht — vorausgesetzt
+        Personenbezogene Daten (Buchungen, Crew, Schulden) werden 30 Tage nach Törn-Ende automatisch gelöscht, vorausgesetzt
         die Abrechnung wurde verschickt und alle Zahlungen sind erledigt. Aggregierte Statistik (Kategorie + Tag) bleibt
         anonymisiert erhalten. Falls die Automatik mal nicht greift, kannst du den Vorgang hier manuell anstoßen.
       </p>

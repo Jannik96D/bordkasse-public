@@ -391,7 +391,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
         <ul className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-2">
           <li className="flex items-center gap-2">
             <span className="inline-block h-4 w-4 shrink-0 rounded border border-rule bg-paper" aria-hidden="true" />
-            offen — noch nichts gezahlt
+            offen: noch nichts gezahlt
           </li>
           <li className="flex items-center gap-2">
             <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-primary text-primary" aria-hidden="true">◐</span>
@@ -403,19 +403,19 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
           </li>
           <li className="flex items-center gap-2">
             <span className="inline-block h-4 w-4 shrink-0 rounded border-2 border-danger bg-paper" aria-hidden="true" />
-            überfällig — Frist überschritten
+            überfällig: Frist überschritten
           </li>
           <li className="flex items-center gap-2">
             <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-amber-500 text-amber-600" aria-hidden="true">⏳</span>
-            gemeldet — wartet auf Bestätigung
+            gemeldet: wartet auf Bestätigung
           </li>
           <li className="flex items-center gap-2">
             <Bell className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-            Glocke — Erinnerungs-Mail an diese Person senden
+            Glocke: Erinnerungs-Mail an diese Person senden
           </li>
           <li className="flex items-center gap-2">
             <MessageCircle className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-            Sprechblase — WhatsApp-Text zum Kopieren erzeugen
+            Sprechblase: WhatsApp-Text zum Kopieren erzeugen
           </li>
         </ul>
       </details>
@@ -528,7 +528,7 @@ function RowActions({
     ? !member.email
       ? "Für die vorstreckende Person ist keine E-Mail hinterlegt"
       : advancerNothingOpen
-        ? "Alles an die Agentur überwiesen — keine Erinnerung nötig"
+        ? "Alles an die Agentur überwiesen, keine Erinnerung nötig"
         : "Charter-Übersicht an dich selbst schicken (Σ Crew-Eingänge / Soll Agentur / noch zu überweisen)"
     : !member.email
       ? "E-Mail fehlt"
@@ -646,7 +646,7 @@ function PaymentModal({
           {isOverflow && overflowCandidates.length > 0 && (
             <div className="rounded-md bg-paper-soft p-3 text-sm">
               <p className="font-medium text-primary">
-                {formatEuro(numericAmount - cell.open)} mehr als Tranche-Soll — Überschuss umbuchen?
+                {formatEuro(numericAmount - cell.open)} mehr als Tranche-Soll: Überschuss umbuchen?
               </p>
               <label className="mt-2 block">
                 <span className="text-xs text-ink-soft">Zusatzbetrag auf Tranche:</span>
@@ -764,7 +764,7 @@ function WhatsAppModal({ title, text, onClose }: { title: string; text: string; 
         />
         {copyFailed && (
           <p role="alert" className="mt-2 text-xs text-danger">
-            Kopieren nicht möglich — bitte den Text oben manuell markieren und kopieren.
+            Kopieren nicht möglich. Bitte den Text oben manuell markieren und kopieren.
           </p>
         )}
         <div className="mt-3 flex justify-end gap-2">

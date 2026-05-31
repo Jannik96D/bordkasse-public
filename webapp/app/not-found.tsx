@@ -21,7 +21,7 @@ export default function NotFound() {
         <div className="space-y-2">
           <h1 className="text-2xl font-bold text-primary">Nicht gefunden</h1>
           <p className="text-sm text-ink-soft">
-            Diese Seite gibt es nicht — oder dieser Törn ist für dich nicht
+            Diese Seite gibt es nicht, oder dieser Törn ist für dich nicht
             freigegeben.
           </p>
         </div>
