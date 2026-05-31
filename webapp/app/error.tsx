@@ -16,7 +16,7 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Fürs Server-Log / Monitoring — der User sieht den Stacktrace nie.
+    // Fürs Serverlog / Monitoring — der User sieht den Stacktrace nie.
     console.error("[bordkasse:error-boundary]", error);
   }, [error]);
 

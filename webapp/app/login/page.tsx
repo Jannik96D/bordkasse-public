@@ -16,7 +16,7 @@ const RESEND_DELAY_MS = 30_000;
  * Original-Message würde sonst durchsickern.
  */
 function translateAuthError(code: string, _rawMessage: string | null): string {
-  void _rawMessage; // Im Server-Log unter [bordkasse:auth] verfügbar.
+  void _rawMessage; // Im Serverlog unter [bordkasse:auth] verfügbar.
   switch (code) {
     case "otp_expired":
       return "Der Magic-Link ist abgelaufen. Fordere bitte einen neuen an.";

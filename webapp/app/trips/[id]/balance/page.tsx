@@ -221,7 +221,7 @@ function BordkasseTable({ rows, sum, hasPlan }: { rows: BalanceRow[]; sum: numbe
   return (
     <>
       <h2 className="mb-2 text-sm font-semibold text-primary">
-        {hasPlan ? "Bordkasse — laufende Trip-Kosten" : "Bilanz"}
+        {hasPlan ? "Bordkasse — laufende Törnkosten" : "Bilanz"}
       </h2>
       <div className="overflow-hidden rounded-md border border-rule bg-paper">
         <table className="w-full text-sm">

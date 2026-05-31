@@ -142,7 +142,7 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/18-toern-fortschritt.webp",
-    alt: "Trip-Übersicht mit der Fortschrittskarte „Dein Törn im Überblick“ und den fünf Phasen",
+    alt: "Törnübersicht mit der Fortschrittskarte „Dein Törn im Überblick“ und den fünf Phasen",
   },
   {
     id: "buchungen",
@@ -231,7 +231,7 @@ const features: Feature[] = [
           Bestätigungs-Mails an die zahlende und die empfangende Person. Wenn ein Admin
           stellvertretend abhakt, bekommen Skipper und die vorstreckende Person
           zusätzlich eine Info-Mail, damit niemand übersieht, dass
-          jemand anderes in diesem Tripkontext geklickt hat.
+          jemand anderes in diesem Törnkontext geklickt hat.
         </p>
       </>
     ),
@@ -598,7 +598,7 @@ export default function AboutPage() {
             Kein kommerzielles Produkt, sondern ein privates Werkzeug für
             eigene Törns.
           </li>
-          <li>Keine Tracking-, Analyse- oder Werbe-Cookies.</li>
+          <li>Keine Tracking-, Analyse- oder Werbecookies.</li>
           <li>
             Keine Datenweitergabe an Dritte außerhalb der nötigen
             technischen Infrastruktur (siehe Datenschutz).

@@ -44,7 +44,7 @@ export default function DatenschutzPage() {
             </li>
             <li>
               <strong>Nachname (optional)</strong>: wird nur intern (Self + Skipper)
-              angezeigt, nicht in fremden Trips. Hilfreich, wenn mehrere Crewmitglieder
+              angezeigt, nicht in fremden Törns. Hilfreich, wenn mehrere Crewmitglieder
               den gleichen Vornamen haben.
             </li>
             <li>
@@ -52,18 +52,18 @@ export default function DatenschutzPage() {
               beeinflusst, wer den Alkoholanteil bei Ausgaben mitträgt.
             </li>
             <li>
-              <strong>Trip-Daten</strong>: Crew, Anwesenheitstage, Buchungen, Beträge,
-              Aufteilungen, geteilt nur mit den Crewmitgliedern dieses Trips.
+              <strong>Törndaten</strong>: Crew, Anwesenheitstage, Buchungen, Beträge,
+              Aufteilungen, geteilt nur mit den Crewmitgliedern dieses Törns.
             </li>
             <li>
-              <strong>Sichtbarkeits-Marker für Alt-Statistik</strong>: Nach DSGVO-Löschung
+              <strong>Sichtbarkeitsmarker für Alt-Statistik</strong>: Nach DSGVO-Löschung
               eines abgeschlossenen Törns (siehe §5) wird ausschließlich ein Verweis
               „Person X war Mitglied von Trip Y“ aufbewahrt, damit du deine anonymisierten
               Aggregate in der Gesamtstatistik (<em>/stats</em>) weiter sehen kannst. Keine
               weiteren personenbezogenen Inhalte.
             </li>
             <li>
-              <strong>Server-Logs</strong>: IP-Adresse, Zeitstempel, User-Agent,
+              <strong>Serverlogs</strong>: IP-Adresse, Zeitstempel, User-Agent,
               kurzfristig gespeichert zur Fehlersuche und Missbrauchsabwehr.
             </li>
           </ul>
@@ -136,7 +136,7 @@ export default function DatenschutzPage() {
             Du kannst dein Konto jederzeit selbst löschen (siehe §8 „Konto selbst löschen“).
           </p>
           <p className="mt-2">
-            <strong>Trip-bezogene Daten werden 30 Tage nach Törnende automatisch gelöscht,</strong>{" "}
+            <strong>Törnbezogene Daten werden 30 Tage nach Törnende automatisch gelöscht,</strong>{" "}
             sobald zusätzlich der Skipper die Abrechnung verschickt und alle Zahlungen in der
             App als erledigt markiert sind. Konkret betrifft das:
           </p>
@@ -152,7 +152,7 @@ export default function DatenschutzPage() {
             erhalten, sonst gingen die laufenden Zahlungen verloren.
           </p>
           <p className="mt-2">
-            Skipper und Admins können die Löschung über die Trip-Einstellungen auch
+            Skipper und Admins können die Löschung über die Törneinstellungen auch
             <em> früher</em> anstoßen, sobald alle Zahlungen erledigt sind. Die 30-Tage-Frist
             ist eine Obergrenze, kein Mindestwert.
           </p>
@@ -170,7 +170,7 @@ export default function DatenschutzPage() {
               erkennbar ist, wer beteiligt war oder wer gezahlt hat.
             </li>
             <li>
-              <strong>Sichtbarkeits-Marker</strong> (nur Person-ID + Trip-ID,
+              <strong>Sichtbarkeitsmarker</strong> (nur Person-ID + Törn-ID,
               kein Inhalt), wird nur für angemeldete Crewmitglieder mit Login
               angelegt (nicht für eingeladene Ghost-Personen). Zweck: damit dir
               in deiner persönlichen Gesamtstatistik unter <em>/stats</em> auch
@@ -181,15 +181,15 @@ export default function DatenschutzPage() {
             </li>
           </ul>
           <p className="mt-2">
-            Wenn du dein Konto vollständig löschst (Selbst-Service im{" "}
+            Wenn du dein Konto vollständig löschst (Selbstservice im{" "}
             <a href="/profile" className="underline">Profil</a>, siehe „Deine Rechte“),
-            werden auch deine Sichtbarkeits-Marker mit gelöscht. Die anonymen
+            werden auch deine Sichtbarkeitsmarker mit gelöscht. Die anonymen
             Aggregate bleiben dann ohne deinen Personenbezug erhalten. Andere
             ehemalige Crewmitglieder können sie weiterhin sehen, du selbst nicht mehr.
           </p>
           <p className="mt-2">
             Auf Wunsch löschen wir deine Daten auch vor Ablauf der 30 Tage unverzüglich
-            (siehe „Deine Rechte“). Server-Logs werden nach maximal 30 Tagen gelöscht.
+            (siehe „Deine Rechte“). Serverlogs werden nach maximal 30 Tagen gelöscht.
           </p>
         </div>
 
@@ -197,14 +197,14 @@ export default function DatenschutzPage() {
           <h2 className="text-base font-semibold">6. Cookies</h2>
           <p>
             Wir setzen ausschließlich technisch notwendige Cookies für die Login-Session
-            (Supabase Auth-Cookie). Es werden keine Tracking-, Analyse- oder Werbe-Cookies
+            (Supabase Auth-Cookie). Es werden keine Tracking-, Analyse- oder Werbecookies
             verwendet.
           </p>
         </div>
 
         <div>
           <h2 className="text-base font-semibold">
-            7. Offline-Nutzung & lokaler Cache
+            7. Offlinenutzung & lokaler Cache
           </h2>
           <p>
             Die Bordkasse funktioniert als Progressive Web App (PWA) auch ohne
@@ -213,7 +213,7 @@ export default function DatenschutzPage() {
           </p>
           <ul className="ml-5 mt-2 list-disc">
             <li>
-              <strong>Seiten-Cache</strong>: Bereits besuchte Crewliste, Buchungen,
+              <strong>Seitencache</strong>: Bereits besuchte Crewliste, Buchungen,
               Bilanz etc. werden gespeichert, damit du sie offline ansehen kannst.
             </li>
             <li>
@@ -279,8 +279,8 @@ export default function DatenschutzPage() {
             sonst gingen offene Schulden verloren.
           </p>
           <p className="mt-2">
-            Für alles, was nicht über den Selbst-Service abgedeckt ist
-            (Auskunft, Datenexport, vollständige Trip-Löschung als Skipper o. Ä.),
+            Für alles, was nicht über den Selbstservice abgedeckt ist
+            (Auskunft, Datenexport, vollständige Törnlöschung als Skipper o. Ä.),
             wende dich formlos an{" "}
             <a href="mailto:bordkasse@dieter.ms" className="underline">
               bordkasse@dieter.ms
