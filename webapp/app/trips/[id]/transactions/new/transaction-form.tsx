@@ -11,7 +11,7 @@ import {
   updateCredit,
   type TxState,
 } from "@/lib/actions/transactions";
-import { enqueue } from "@/lib/offline/outbox";
+import { enqueue, get as getOutboxItem } from "@/lib/offline/outbox";
 import { todayIso, cn, formatEuro, nowMs, daysBetween } from "@/lib/utils";
 import { CategorySelect } from "@/components/category-select";
 import { InfoTooltip } from "@/components/info-tooltip";
@@ -143,6 +143,14 @@ interface TransactionFormProps {
   expenseInitial?: ExpenseInitial;
   /** Wenn gesetzt, Form öffnet im Edit-Mode für eine Gutschrift. */
   creditInitial?: CreditInitial;
+  /**
+   * Wenn gesetzt, bearbeitet das Form einen noch nicht gesyncten Outbox-Entwurf
+   * (= `id` des OutboxItem). Statt einer Server-Action schreibt der Submit den
+   * Eintrag mit GLEICHER id zurück in die Outbox (Überschreiben). So lassen sich
+   * offline erfasste Buchungen vor dem Sync noch korrigieren. Prefill kommt über
+   * `expenseInitial` / `creditInitial` (von DraftEditor aus der Outbox abgeleitet).
+   */
+  draftId?: string;
 }
 
 export function TransactionForm({
@@ -157,6 +165,7 @@ export function TransactionForm({
   tripEnd,
   expenseInitial,
   creditInitial,
+  draftId,
 }: TransactionFormProps) {
   const isEdit = !!(expenseInitial || creditInitial);
   const initialType: "expense" | "credit" =
@@ -210,6 +219,7 @@ export function TransactionForm({
           tripStart={tripStart}
           tripEnd={tripEnd}
           initial={expenseInitial}
+          draftId={draftId}
         />
       ) : (
         <CreditForm
@@ -221,6 +231,7 @@ export function TransactionForm({
           tripStart={tripStart}
           tripEnd={tripEnd}
           initial={creditInitial}
+          draftId={draftId}
         />
       )}
     </>
@@ -299,6 +310,7 @@ function ExpenseForm({
   tripStart,
   tripEnd,
   initial,
+  draftId,
 }: {
   tripId: string;
   members: Member[];
@@ -309,6 +321,7 @@ function ExpenseForm({
   tripStart?: string;
   tripEnd?: string;
   initial?: ExpenseInitial;
+  draftId?: string;
 }) {
   // Eingeloggten User im "Bezahlt von"-Dropdown nach oben sortieren.
   const paidByOptions = (() => {
@@ -319,7 +332,10 @@ function ExpenseForm({
     return [me, ...opts.filter((o) => o.id !== currentPersonId)];
   })();
   const router = useRouter();
-  const isEdit = !!initial;
+  // Draft-Modus (Outbox-Eintrag bearbeiten) nutzt `initial` zum Vorbefüllen,
+  // ist aber KEIN Server-Edit: kein transaction_id, idempotency_key bleibt = draftId.
+  const isDraft = !!draftId;
+  const isEdit = !!initial && !isDraft;
   const [state, formAction, pending] = useActionState(
     isEdit ? updateExpense : createExpense,
     idleState,
@@ -477,6 +493,30 @@ function ExpenseForm({
       e.preventDefault();
       return;
     }
+    // Draft-Modus: nicht an den Server schicken, sondern den Outbox-Eintrag mit
+    // gleicher id überschreiben. Race-Schutz: ist der Eintrag inzwischen weg
+    // (Sync war schneller), nicht neu einreihen — sonst entstünde via gleichem
+    // idempotency_key ein No-Op und der User glaubt fälschlich, gespeichert zu haben.
+    if (isDraft && draftId) {
+      e.preventDefault();
+      const obj = formDataToObject(new FormData(e.currentTarget));
+      getOutboxItem(draftId)
+        .then((existing) => {
+          if (!existing) {
+            router.push(`/trips/${tripId}/transactions?toast=draft-synced`);
+            return;
+          }
+          return enqueue({
+            id: draftId,
+            tripId,
+            kind: "expense",
+            formData: obj,
+            createdAt: existing.createdAt,
+          }).then(() => router.push(`/trips/${tripId}/transactions?toast=draft-updated`));
+        })
+        .catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
+      return;
+    }
     if (!isEdit && typeof navigator !== "undefined" && !navigator.onLine) {
       e.preventDefault();
       const obj = formDataToObject(new FormData(e.currentTarget));
@@ -498,7 +538,7 @@ function ExpenseForm({
   // selbst wenn die Server-Action serverseitig doch noch durchlief, verwirft
   // der Replay-Insert das Duplikat (UNIQUE-Constraint).
   useEffect(() => {
-    if (isEdit || !pending) return;
+    if (isEdit || isDraft || !pending) return;
     const onOffline = () => {
       const form = formRef.current;
       if (!form) return;
@@ -512,7 +552,7 @@ function ExpenseForm({
     };
     window.addEventListener("offline", onOffline);
     return () => window.removeEventListener("offline", onOffline);
-  }, [isEdit, pending, idempotencyKey, tripId]);
+  }, [isEdit, isDraft, pending, idempotencyKey, tripId]);
 
   const errorField = state.status === "error" ? state.field : undefined;
   const fieldErrors = state.status === "error" ? (state.fieldErrors ?? {}) : {};
@@ -523,7 +563,9 @@ function ExpenseForm({
     <form ref={formRef} action={formAction} onSubmit={handleSubmit} className="space-y-5">
       <input type="hidden" name="trip_id" value={tripId} />
       <input type="hidden" name="split_type" value={splitType} />
-      {!isEdit && <input type="hidden" name="idempotency_key" value={idempotencyKey} />}
+      {/* Draft behält seinen idempotency_key (= draftId), damit der Replay nach
+          dem Sync exakt EINE Buchung erzeugt. Frischer Create nutzt den Zufalls-Key. */}
+      {!isEdit && <input type="hidden" name="idempotency_key" value={isDraft ? draftId : idempotencyKey} />}
       {isEdit && <input type="hidden" name="transaction_id" value={initial!.transactionId} />}
 
       <FieldGroup label="Datum" htmlFor="date" error={fieldError("date")}>
@@ -853,7 +895,13 @@ function ExpenseForm({
         disabled={pending}
         className="w-full rounded-md bg-primary px-4 py-3 font-medium text-paper hover:bg-navy-dark disabled:opacity-60"
       >
-        {pending ? "Speichere …" : isEdit ? "Änderungen speichern" : "Ausgabe speichern"}
+        {pending
+          ? "Speichere …"
+          : isDraft
+            ? "Entwurf speichern"
+            : isEdit
+              ? "Änderungen speichern"
+              : "Ausgabe speichern"}
       </button>
     </form>
   );
@@ -868,6 +916,7 @@ function CreditForm({
   tripStart,
   tripEnd,
   initial,
+  draftId,
 }: {
   tripId: string;
   members: Member[];
@@ -877,9 +926,12 @@ function CreditForm({
   tripStart?: string;
   tripEnd?: string;
   initial?: CreditInitial;
+  draftId?: string;
 }) {
   const router = useRouter();
-  const isEdit = !!initial;
+  // Draft-Modus (Outbox-Eintrag bearbeiten) — siehe ExpenseForm.
+  const isDraft = !!draftId;
+  const isEdit = !!initial && !isDraft;
   const [state, formAction, pending] = useActionState(
     isEdit ? updateCredit : createCredit,
     idleState,
@@ -926,6 +978,27 @@ function CreditForm({
       e.preventDefault();
       return;
     }
+    // Draft-Modus: Outbox-Eintrag mit gleicher id überschreiben (siehe ExpenseForm).
+    if (isDraft && draftId) {
+      e.preventDefault();
+      const obj = formDataToObject(new FormData(e.currentTarget));
+      getOutboxItem(draftId)
+        .then((existing) => {
+          if (!existing) {
+            router.push(`/trips/${tripId}/transactions?toast=draft-synced`);
+            return;
+          }
+          return enqueue({
+            id: draftId,
+            tripId,
+            kind: "credit",
+            formData: obj,
+            createdAt: existing.createdAt,
+          }).then(() => router.push(`/trips/${tripId}/transactions?toast=draft-updated`));
+        })
+        .catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
+      return;
+    }
     if (!isEdit && typeof navigator !== "undefined" && !navigator.onLine) {
       e.preventDefault();
       const obj = formDataToObject(new FormData(e.currentTarget));
@@ -944,7 +1017,7 @@ function CreditForm({
   // Mid-Flight-Schutz (siehe ExpenseForm): geht die Verbindung während eines
   // laufenden Submits verloren, in die Outbox retten. Dedup über idempotency_key.
   useEffect(() => {
-    if (isEdit || !pending) return;
+    if (isEdit || isDraft || !pending) return;
     const onOffline = () => {
       const form = formRef.current;
       if (!form) return;
@@ -958,12 +1031,12 @@ function CreditForm({
     };
     window.addEventListener("offline", onOffline);
     return () => window.removeEventListener("offline", onOffline);
-  }, [isEdit, pending, idempotencyKey, tripId]);
+  }, [isEdit, isDraft, pending, idempotencyKey, tripId]);
 
   return (
     <form ref={formRef} action={formAction} onSubmit={handleSubmit} className="space-y-5">
       <input type="hidden" name="trip_id" value={tripId} />
-      {!isEdit && <input type="hidden" name="idempotency_key" value={idempotencyKey} />}
+      {!isEdit && <input type="hidden" name="idempotency_key" value={isDraft ? draftId : idempotencyKey} />}
       {isEdit && <input type="hidden" name="transaction_id" value={initial!.transactionId} />}
 
       <FieldGroup label="Datum" htmlFor="date" error={fieldError("date")}>
@@ -1036,7 +1109,13 @@ function CreditForm({
         disabled={pending}
         className="w-full rounded-md bg-primary px-4 py-3 font-medium text-paper hover:bg-navy-dark disabled:opacity-60"
       >
-        {pending ? "Speichere …" : isEdit ? "Änderungen speichern" : "Gutschrift speichern"}
+        {pending
+          ? "Speichere …"
+          : isDraft
+            ? "Entwurf speichern"
+            : isEdit
+              ? "Änderungen speichern"
+              : "Gutschrift speichern"}
       </button>
     </form>
   );

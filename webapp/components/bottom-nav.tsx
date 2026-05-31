@@ -104,9 +104,19 @@ export function BottomNav({
 
 /** Floating-Action-Button für "+ Buchung" — primär CTA. */
 export function FabAddTransaction({ tripId }: { tripId: string }) {
+  const href = `/trips/${tripId}/transactions/new`;
   return (
     <Link
-      href={`/trips/${tripId}/transactions/new`}
+      href={href}
+      onClick={(e) => {
+        // Offline: Hard-Navigation erzwingen. Client-RSC-Navigation scheitert
+        // offline (Service Worker cacht keine RSC-Payloads); ein echter
+        // Navigate-Request liefert dagegen das vorgewärmte Form-Dokument aus.
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          e.preventDefault();
+          window.location.assign(href);
+        }
+      }}
       aria-label="Neue Buchung"
       className="fixed bottom-20 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-paper shadow-lg transition-transform hover:bg-navy-dark active:scale-95"
     >

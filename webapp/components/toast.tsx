@@ -18,6 +18,9 @@ const MESSAGES: Record<string, string> = {
   "expense-updated": "Ausgabe aktualisiert.",
   "credit-created": "Gutschrift erfasst.",
   "credit-updated": "Gutschrift aktualisiert.",
+  "draft-updated": "Entwurf geändert — wird beim nächsten Online-Gehen übertragen.",
+  "draft-synced": "Buchung wurde schon übertragen — bitte über die Liste bearbeiten.",
+  "draft-deleted": "Entwurf verworfen.",
 };
 
 export function Toast() {

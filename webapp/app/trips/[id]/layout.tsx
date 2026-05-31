@@ -8,6 +8,7 @@ import { BottomNav } from "@/components/bottom-nav";
 import { RealtimeTrip } from "@/components/realtime-trip";
 import { Toast } from "@/components/toast";
 import { TripHeader } from "@/components/trip-header";
+import { PrefetchOfflineForm } from "@/components/prefetch-offline-form";
 
 export default async function TripLayout({
   children,
@@ -55,6 +56,7 @@ export default async function TripLayout({
 
       <BottomNav tripId={id} showPrepayments={showPrepayments} />
       <RealtimeTrip tripId={id} currentPersonId={person?.id} />
+      <PrefetchOfflineForm tripId={id} />
     </div>
   );
 }
