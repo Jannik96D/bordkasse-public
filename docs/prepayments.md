@@ -41,7 +41,7 @@ prepayment_plan
   wero_id            TEXT           -- Wero-ID des Vorstreckers (Mobil/E-Mail), optional pro Trip
   whatsapp_template  TEXT           -- Editierbare Vorlage mit Platzhaltern
 
--- Nur wenn split_method = 'kojen': Kojen-Typen mit Preis pro Person
+-- Nur wenn split_method = 'kojen': Kojentypen mit Preis pro Person
 cabin_types
   id             UUID PK
   trip_id        UUID REFERENCES trips(id) ON DELETE CASCADE
@@ -102,7 +102,7 @@ Verteilung nach Bord-Tagen (siehe `calculation-rules.md` → „Zeitanteilig").
 Skipper tippt pro Person einen Betrag.
 
 ### 4. Nach Kojen
-- Skipper definiert Kojen-Typen mit **Preis pro Person**:
+- Skipper definiert Kojentypen mit **Preis pro Person**:
   ```
   Einzelkoje:  1 × 1.200 € pro Person   (Kapazität: 1)
   Doppelkoje:  2 × 800 € pro Person     (Kapazität: 2)

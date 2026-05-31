@@ -250,7 +250,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
 
           {splitMethod === "kojen" && (
             <div className="space-y-3">
-              <p className="text-sm font-medium text-primary">Kojen-Typen</p>
+              <p className="text-sm font-medium text-primary">Kojentypen</p>
               {cabinDrafts.map((c, idx) => (
                 <div key={idx} className="grid grid-cols-1 gap-2 sm:grid-cols-12 sm:items-end">
                   <label className="col-span-5 text-sm">
