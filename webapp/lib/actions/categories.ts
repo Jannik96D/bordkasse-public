@@ -79,7 +79,13 @@ export async function removeCategory(categoryId: string, tripId: string) {
   const auth = await requireSkipperOrAdmin(tripId);
   if (!auth.ok) return;
   const supabase = createAdminClient();
-  await supabase.from("trip_categories").delete().eq("id", categoryId);
+  // IDOR-Schutz: trip_id mitfiltern, sonst könnte ein Skipper über seinen
+  // eigenen tripId eine Kategorie eines fremden Törns löschen.
+  await supabase
+    .from("trip_categories")
+    .delete()
+    .eq("id", categoryId)
+    .eq("trip_id", tripId);
   await logAudit(supabase, {
     table_name: "trip_categories",
     operation: "DELETE",
@@ -111,7 +117,8 @@ export async function setCategoryIcon(
   const { error } = await supabase
     .from("trip_categories")
     .update({ icon: parsed.data.icon })
-    .eq("id", parsed.data.category_id);
+    .eq("id", parsed.data.category_id)
+    .eq("trip_id", parsed.data.trip_id);
   if (error) {
     console.error("[bordkasse:db]", error.message);
     return { ok: false, message: "Speichern fehlgeschlagen. Bitte erneut versuchen." };

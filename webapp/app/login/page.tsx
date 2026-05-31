@@ -27,7 +27,7 @@ function translateAuthError(code: string, _rawMessage: string | null): string {
     case "missing_token":
       return "Im Link fehlt der Token. Bitte fordere einen frischen Magic-Link an.";
     case "access_denied":
-      return "Zugriff verweigert. Falls dein Account neu ist, frage den Skipper, dich zur Crew einzuladen.";
+      return "Zugriff verweigert. Falls dein Account neu ist, frage deinen Skipper, dich zur Crew einzuladen.";
     case "user_not_allowed":
       return "Diese E-Mail-Adresse ist nicht eingeladen. Bitte beim Skipper melden.";
     default:
@@ -49,6 +49,8 @@ function LoginPageInner() {
   // Wechselt die Mail (Resend, andere Adresse), passt der Snapshot nicht
   // mehr und showResend ist wieder false — ohne synchrones setState im Effect.
   const [resendReadyFor, setResendReadyFor] = useState<string | null>(null);
+  // Sichtbarer Countdown bis der Resend freigeschaltet ist (statt stummer Wartezeit).
+  const [secondsLeft, setSecondsLeft] = useState(0);
   const okEmail = state.status === "ok" ? state.email : null;
   const showResend = state.status === "ok" && resendReadyFor === okEmail;
 
@@ -67,22 +69,36 @@ function LoginPageInner() {
 
   useEffect(() => {
     if (!okEmail) return;
+    let remaining = Math.ceil(RESEND_DELAY_MS / 1000);
+    // setState asynchron (nicht synchron im Effect-Body), um cascading renders
+    // zu vermeiden — react-hooks-Regel.
+    const init = setTimeout(() => setSecondsLeft(remaining), 0);
     const timer = setTimeout(() => setResendReadyFor(okEmail), RESEND_DELAY_MS);
-    return () => clearTimeout(timer);
+    const tick = setInterval(() => {
+      remaining -= 1;
+      setSecondsLeft(remaining > 0 ? remaining : 0);
+    }, 1000);
+    return () => {
+      clearTimeout(init);
+      clearTimeout(timer);
+      clearInterval(tick);
+    };
   }, [okEmail]);
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-12">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
-          <Image
-            src="/logo.png"
-            alt="Bordkasse"
-            width={160}
-            height={123}
-            priority
-            className="mx-auto mb-3 h-auto w-40"
-          />
+          <Link href="/" aria-label="Zur Startseite" className="mb-3 inline-block">
+            <Image
+              src="/logo.png"
+              alt="Bordkasse"
+              width={160}
+              height={123}
+              priority
+              className="h-auto w-40"
+            />
+          </Link>
           <h1 className="text-3xl font-bold text-primary">Bordkasse</h1>
           <p className="mt-2 text-sm text-ink-soft">
             Anmeldung per Magic-Link — du bekommst eine E-Mail mit einem
@@ -140,7 +156,7 @@ function LoginPageInner() {
               </p>
             </div>
 
-            {showResend && (
+            {showResend ? (
               <form action={formAction} className="rounded-lg border border-rule bg-paper-soft p-4 text-center">
                 <p className="text-sm text-ink-soft">Mail nicht angekommen?</p>
                 <input type="hidden" name="email" value={state.email} />
@@ -152,6 +168,16 @@ function LoginPageInner() {
                   {pending ? "Sende erneut …" : "Mail erneut senden"}
                 </button>
               </form>
+            ) : (
+              <div className="rounded-lg border border-rule bg-paper-soft p-4 text-center">
+                <button
+                  type="button"
+                  disabled
+                  className="w-full cursor-not-allowed rounded-md border border-rule px-4 py-3 text-sm font-medium text-ink-soft opacity-70"
+                >
+                  Erneut senden in 0:{String(secondsLeft).padStart(2, "0")} …
+                </button>
+              </div>
             )}
           </div>
         ) : (
@@ -204,7 +230,11 @@ function LoginPageInner() {
         )}
 
         <p className="text-center text-xs text-ink-soft">
+          <Link href="/about" className="hover:text-primary">Über die App</Link>
+          <span className="mx-2">·</span>
           <Link href="/datenschutz" className="hover:text-primary">Datenschutz</Link>
+          <span className="mx-2">·</span>
+          <Link href="/kontakt" className="hover:text-primary">Kontakt</Link>
         </p>
       </div>
     </main>

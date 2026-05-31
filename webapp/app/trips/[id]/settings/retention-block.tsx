@@ -77,7 +77,7 @@ export function RetentionBlock({ tripId }: { tripId: string }) {
             onClick={() => trigger(true)}
             className="w-full rounded-md border border-danger/40 bg-paper px-3 py-2 text-xs font-medium text-danger hover:bg-danger/5 disabled:opacity-60"
           >
-            Trotzdem sofort löschen (Force)
+            Trotzdem jetzt löschen
           </button>
         </div>
       )}

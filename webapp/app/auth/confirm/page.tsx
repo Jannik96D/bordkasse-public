@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { safeNextPath } from "@/lib/auth/origin";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,7 @@ export default async function ConfirmPage({
   const params = await searchParams;
   const token_hash = params.token_hash;
   const type = params.type;
-  const next = params.next ?? "/";
+  const next = safeNextPath(params.next);
   // Empfänger-E-Mail aus dem Magic-Link-Template (`{{ .Email }}`). Wird
   // benötigt, falls verifyOtp mit otp_expired antwortet — dann zeigt die
   // /login-Page einen Auto-Resend-Button für diese Adresse, ohne dass der

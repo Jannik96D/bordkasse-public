@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { safeNextPath } from "@/lib/auth/origin";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const token_hash = formData.get("token_hash")?.toString();
   const type = formData.get("type")?.toString() as EmailOtpType | null;
-  const next = formData.get("next")?.toString() ?? "/";
+  const next = safeNextPath(formData.get("next")?.toString());
   const email = formData.get("email")?.toString() ?? undefined;
 
   const origin = new URL(request.url).origin;

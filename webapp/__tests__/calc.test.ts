@@ -14,6 +14,7 @@ import {
   simplifyDebts,
   type Member,
   type Transaction,
+  type BalanceRow,
 } from "@/lib/calc";
 
 // ── Test-Crew (10 Personen, 11-Tage-Törn 5.–15. April) ──────────────────
@@ -298,6 +299,37 @@ describe("S7: Schulden-Greedy", () => {
     const totalTransferred = debts.reduce((a, d) => a + d.amount, 0);
     expect(round2(totalTransferred)).toBe(360);
   });
+
+  it("Cent-Reste: keine verlorenen/doppelten Cents, jeder Transfer gerundet", () => {
+    // Drei Schuldner mit Cent-Resten (aus zeitanteiliger Aufteilung), ein
+    // Gläubiger. Summe = 0. Regressions-Test für die Rundungs-Parität SQL↔TS.
+    const balances: BalanceRow[] = [
+      { personId: "a", paid: 0, share: 33.33, creditGiven: 0, creditReceived: 0, balance: -33.33 },
+      { personId: "b", paid: 0, share: 33.33, creditGiven: 0, creditReceived: 0, balance: -33.33 },
+      { personId: "c", paid: 0, share: 33.34, creditGiven: 0, creditReceived: 0, balance: -33.34 },
+      { personId: "d", paid: 100, share: 0, creditGiven: 0, creditReceived: 0, balance: 100 },
+    ];
+    const debts = simplifyDebts(balances);
+    // Alle fließen zum einzigen Gläubiger d.
+    expect(debts.every((t) => t.toPersonId === "d")).toBe(true);
+    // Jeder Transfer ist auf 2 NK gerundet.
+    for (const t of debts) expect(round2(t.amount)).toBe(t.amount);
+    // Summe der Überweisungen exakt = Forderung, kein Cent verloren/doppelt.
+    const total = debts.reduce((a, t) => a + t.amount, 0);
+    expect(round2(total)).toBe(100);
+  });
+
+  it("rundet ungerundete Eingangs-Salden vor dem Matching (SQL-Parität)", () => {
+    // Ungerundete Salden (wie computeBalances sie liefern kann) dürfen nicht
+    // zu einem unrunden Transferbetrag führen.
+    const balances: BalanceRow[] = [
+      { personId: "x", paid: 0, share: 0, creditGiven: 0, creditReceived: 0, balance: -49.999 },
+      { personId: "y", paid: 0, share: 0, creditGiven: 0, creditReceived: 0, balance: 49.999 },
+    ];
+    const debts = simplifyDebts(balances);
+    expect(debts).toHaveLength(1);
+    expect(debts[0]).toMatchObject({ fromPersonId: "x", toPersonId: "y", amount: 50 });
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────
@@ -388,6 +420,35 @@ describe("S8: Pro Person", () => {
     expect(byId["p3"]).toBe(12);
     const rawTotal = shares.reduce((a, s) => a + s.share, 0);
     expect(Math.abs(rawTotal - 66)).toBeLessThan(0.01);
+  });
+
+  it("Alkohol-Anteil wird NICHT doppelt verteilt (Einzelbeträge enthalten Alkohol bereits)", () => {
+    // Regressions-Test für 0029: Bei "Pro Person" ist Σ pp_amount = amount,
+    // der Alkohol steckt bereits in den Einzelbeträgen. Ein zusätzlicher
+    // alcohol_share würde den Betrag doppelt verteilen (Σ = 72 statt 60).
+    // 60€ Restaurant: Anna 20, Ben 30, Carla 10 (Carla = Trinkerin), 12€ Alkohol.
+    const tx: Transaction = {
+      id: "s8-alcohol",
+      type: "expense",
+      date: "2026-04-08",
+      amount: 60,
+      alcoholAmount: 12,
+      paidBy: "p1",
+      splitType: "per_person",
+      participantAmounts: [
+        { personId: "p1", amount: 20 }, // Anna (Nicht-Trinkerin)
+        { personId: "p2", amount: 30 }, // Ben (Nicht-Trinker)
+        { personId: "p3", amount: 10 }, // Carla (Trinkerin)
+      ],
+    };
+    const byId = sharesByPerson(tx);
+    // Jeder zahlt exakt seinen Einzelbetrag — kein Alkohol-Aufschlag.
+    expect(byId["p1"]).toBe(20);
+    expect(byId["p2"]).toBe(30);
+    expect(byId["p3"]).toBe(10);
+    // Summe = amount (NICHT amount + alcoholAmount).
+    const rawTotal = calculateShares(tx, crew).reduce((a, s) => a + s.share, 0);
+    expect(round2(rawTotal)).toBe(60);
   });
 
   it("Trinkgeld landet auf JEDEM Beteiligten, niemals auf Nicht-Beteiligten", () => {

@@ -115,6 +115,8 @@ export default async function EditTransactionPage({
         categories={categoryOptions}
         tranches={tranches.map((t) => ({ id: t.id, label: t.label, due_date: t.due_date }))}
         canEditTranche={admin || isMyTripSkipper || (!!plan && (plan.advancer_person_id ?? trip.skipper_id) === person.id)}
+        tripStart={trip.start_date}
+        tripEnd={trip.end_date}
         expenseInitial={expenseInitial}
         creditInitial={creditInitial}
       />

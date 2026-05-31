@@ -13,10 +13,19 @@ const DateString = z
 const decimalString = (v: unknown) =>
   typeof v === "string" ? v.replace(",", ".") : v;
 
-const Amount = z.preprocess(decimalString, z.coerce.number().positive("Betrag muss > 0 sein."));
+// Plausibilitäts-Obergrenze gegen Tippfehler (z. B. eine Null zu viel),
+// die sonst sofort die ganze Bilanz verzerren. 1 Mio € liegt weit über
+// jedem realistischen Törn-Posten, fängt aber "500000 statt 50" ab.
+const MAX_AMOUNT = 1_000_000;
+const MAX_AMOUNT_MSG = "Betrag ist unrealistisch hoch — bitte prüfen (max. 1.000.000 €).";
+
+const Amount = z.preprocess(
+  decimalString,
+  z.coerce.number().positive("Betrag muss > 0 sein.").max(MAX_AMOUNT, MAX_AMOUNT_MSG),
+);
 const NonNegativeAmount = z.preprocess(
   decimalString,
-  z.coerce.number().nonnegative("Betrag darf nicht negativ sein."),
+  z.coerce.number().nonnegative("Betrag darf nicht negativ sein.").max(MAX_AMOUNT, MAX_AMOUNT_MSG),
 );
 const Uuid = z.string().uuid("Ungültige Auswahl.");
 

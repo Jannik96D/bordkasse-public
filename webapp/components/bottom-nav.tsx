@@ -83,7 +83,10 @@ export function BottomNav({
                 href={t.href(tripId)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex flex-col items-center gap-1 py-2 text-[11px] transition-colors",
+                  // min-h-touch sichert das 44px-Tap-Ziel auch auf reinen <a>
+                  // (die globale CSS-Regel greift nur auf a.button) — bei
+                  // py-2 + Icon + Label ohnehin schon erfüllt, hier als Garantie.
+                  "flex min-h-touch flex-col items-center justify-center gap-1 py-2 text-[11px] transition-colors",
                   active ? "text-primary" : "text-ink-soft hover:text-ink",
                 )}
               >

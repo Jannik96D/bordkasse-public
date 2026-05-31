@@ -133,7 +133,7 @@ export function SettlementStatus({
     <div className="mb-4 flex items-start gap-2 rounded-md border border-rule bg-paper-soft p-3 text-sm">
       <Info className="mt-0.5 h-4 w-4 shrink-0 text-ink-soft" aria-hidden />
       <p className="text-ink-soft">
-        Der Törn ist vorbei — der Skipper prüft gerade die offenen Buchungen
+        Der Törn ist vorbei — dein Skipper prüft gerade die offenen Buchungen
         (z.B. Kaution-Rückzahlung). Sobald die Abrechnung verschickt ist,
         kannst du deine Zahlung in der App als erledigt markieren.
       </p>

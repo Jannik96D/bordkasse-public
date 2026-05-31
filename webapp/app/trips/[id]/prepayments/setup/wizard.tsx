@@ -97,6 +97,13 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
     [trancheDrafts],
   );
 
+  // Bei „gleichmäßig"/„zeitanteilig" wird das Soll aus der Gesamtsumme
+  // berechnet — ohne Betrag > 0 wäre alles 0. „individuell"/„kojen" leiten das
+  // Soll aus Einzel-/Kojenpreisen ab, da darf die Gesamtsumme leer bleiben.
+  const needsTotalAmount = splitMethod === "gleichmaessig" || splitMethod === "zeitanteilig";
+  const totalAmountNum = Number(totalAmount.replace(",", ".")) || 0;
+  const percentValid = Math.abs(percentSum - 100) <= 0.01;
+
   function savePlan(onSuccess?: () => void) {
     setError(null);
     const obligationsPayload = members.map((m) => {
@@ -226,7 +233,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
             <div className="space-y-3">
               <p className="text-sm font-medium text-primary">Kojen-Typen</p>
               {cabinDrafts.map((c, idx) => (
-                <div key={idx} className="grid grid-cols-12 items-end gap-2">
+                <div key={idx} className="grid grid-cols-1 gap-2 sm:grid-cols-12 sm:items-end">
                   <label className="col-span-5 text-sm">
                     <span className="text-xs text-ink-soft">Label</span>
                     <input
@@ -256,7 +263,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
                   </label>
                   <button
                     onClick={() => setCabinDrafts(cabinDrafts.filter((_, i) => i !== idx))}
-                    className="col-span-1 inline-flex h-9 items-center justify-center rounded-md border border-rule text-ink-soft hover:text-danger"
+                    className="col-span-1 inline-flex h-9 min-h-touch min-w-touch items-center justify-center justify-self-end rounded-md border border-rule text-ink-soft hover:text-danger sm:justify-self-auto"
                     title="Entfernen"
                     type="button"
                   >
@@ -387,10 +394,17 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
 
           {error && <p role="alert" className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
 
+          {needsTotalAmount && totalAmountNum <= 0 && (
+            <p className="text-xs text-ink-soft">
+              Trage zuerst eine Gesamtsumme &gt; 0 € ein — daraus werden die
+              Soll-Beträge der Crew berechnet.
+            </p>
+          )}
+
           <div className="flex justify-end">
             <button
               type="button"
-              disabled={pending}
+              disabled={pending || (needsTotalAmount && totalAmountNum <= 0)}
               onClick={() => savePlan(() => setStep(2))}
               className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-paper hover:bg-navy-dark disabled:opacity-50"
             >
@@ -406,7 +420,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
             Definiere, wann welcher Anteil fällig ist. Summe muss 100 % ergeben.
           </p>
           {trancheDrafts.map((t, idx) => (
-            <div key={idx} className="grid grid-cols-12 items-end gap-2">
+            <div key={idx} className="grid grid-cols-1 gap-2 sm:grid-cols-12 sm:items-end">
               <label className="col-span-3 text-sm">
                 <span className="text-xs text-ink-soft">Fällig am</span>
                 <input
@@ -435,7 +449,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
               </label>
               <button
                 onClick={() => setTrancheDrafts(trancheDrafts.filter((_, i) => i !== idx))}
-                className="col-span-1 inline-flex h-9 items-center justify-center rounded-md border border-rule text-ink-soft hover:text-danger"
+                className="col-span-1 inline-flex h-9 min-h-touch min-w-touch items-center justify-center justify-self-end rounded-md border border-rule text-ink-soft hover:text-danger sm:justify-self-auto"
                 title="Entfernen"
                 type="button"
               >
@@ -467,7 +481,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
             </button>
             <button
               type="button"
-              disabled={pending}
+              disabled={pending || trancheDrafts.length === 0 || !percentValid}
               onClick={saveTranchesAndFinish}
               className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-paper hover:bg-navy-dark disabled:opacity-50"
             >

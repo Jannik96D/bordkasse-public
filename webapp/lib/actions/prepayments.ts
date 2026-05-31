@@ -259,8 +259,11 @@ export async function saveTranches(
       wero_request_link: t.wero_request_link || null,
       sort_order: i,
     };
-    if (t.id) {
-      await supabase.from("prepayment_tranches").update(row).eq("id", t.id);
+    // Nur eine bereits zu DIESEM Törn gehörende Tranche aktualisieren — sonst
+    // ließe sich über eine untergeschobene Fremd-ID eine Tranche eines anderen
+    // Törns überschreiben/übernehmen. Unbekannte IDs werden als Insert behandelt.
+    if (t.id && existingIds.has(t.id)) {
+      await supabase.from("prepayment_tranches").update(row).eq("id", t.id).eq("trip_id", trip_id);
     } else {
       await supabase.from("prepayment_tranches").insert(row);
     }
@@ -334,6 +337,7 @@ export async function recordPayment(
     .from("prepayment_tranches")
     .select("percent, label")
     .eq("id", tranche_id)
+    .eq("trip_id", trip_id) // Cross-Trip-Schutz: Tranche muss zu diesem Törn gehören
     .maybeSingle();
   if (!trancheRow) return { status: "error", message: "Tranche nicht gefunden." };
 
@@ -724,7 +728,7 @@ export async function submitSelfPayment(
   const [{ data: tripRow }, { data: planRow }, { data: trancheRow }] = await Promise.all([
     supabase.from("trips").select("skipper_id, name").eq("id", trip_id).maybeSingle(),
     supabase.from("prepayment_plan").select("advancer_person_id").eq("trip_id", trip_id).maybeSingle(),
-    supabase.from("prepayment_tranches").select("label").eq("id", tranche_id).maybeSingle(),
+    supabase.from("prepayment_tranches").select("label").eq("id", tranche_id).eq("trip_id", trip_id).maybeSingle(),
   ]);
   if (!tripRow || !trancheRow) return { status: "error", message: "Törn/Tranche nicht gefunden." };
   const advancerId = planRow?.advancer_person_id || tripRow.skipper_id;

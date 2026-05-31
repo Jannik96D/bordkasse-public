@@ -151,7 +151,9 @@ const features: Feature[] = [
           „Erweitert“): Den Alkohol-Teil eines Belegs zahlen nur diejenigen,
           die als mittrinkend eingetragen sind. Der Rest läuft nach der
           gewählten Aufteilung. Das Komma im Betrag versteht die App
-          selbstverständlich auf Deutsch.
+          selbstverständlich auf Deutsch — und „Bezahlt von“ ist gleich mit
+          dir vorbelegt, weil meist die erfassende Person zahlt (mit einem
+          Tipp umstellbar).
         </p>
       </>
     ),
@@ -536,6 +538,10 @@ export default function AboutPage() {
       <p className="mt-12 text-center text-xs text-ink-soft">
         <Link href="/datenschutz" className="hover:text-primary">
           Datenschutz
+        </Link>
+        <span className="mx-2">·</span>
+        <Link href="/impressum" className="hover:text-primary">
+          Impressum
         </Link>
       </p>
     </main>

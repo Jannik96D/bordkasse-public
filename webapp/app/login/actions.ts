@@ -36,7 +36,7 @@ export async function signInWithMagicLink(
     return {
       status: "error",
       message:
-        "Diese E-Mail-Adresse ist nicht für die Bordkasse hinterlegt. Bitte den Skipper deines Törns, dich einzuladen.",
+        "Diese E-Mail-Adresse ist nicht für die Bordkasse hinterlegt. Bitte deinen Skipper, dich einzuladen.",
     };
   }
 

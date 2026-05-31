@@ -54,6 +54,64 @@ export async function signOut() {
   revalidatePath("/", "layout");
 }
 
+export type ExportResult =
+  | { status: "ok"; filename: string; json: string }
+  | { status: "error"; message: string };
+
+/**
+ * Self-Service-Datenexport (DSGVO Art. 20, Datenübertragbarkeit).
+ *
+ * Sammelt alle personenbezogenen Daten der angemeldeten Person in einem
+ * maschinenlesbaren JSON und gibt es als String zurück; der Client bietet
+ * es als Download an. Streng auf die eigene person.id begrenzt.
+ */
+export async function exportMyData(): Promise<ExportResult> {
+  const person = await getCurrentPerson();
+  if (!person) return { status: "error", message: "Nicht angemeldet." };
+
+  const supabase = createAdminClient();
+  const me = person.id;
+
+  try {
+    const [profile, priv, memberships, participations, obligations, paid, creditFrom, creditTo] =
+      await Promise.all([
+        supabase.from("persons").select("id, display_name, is_alcoholic, created_at").eq("id", me).maybeSingle(),
+        supabase.from("persons_private").select("last_name, email").eq("person_id", me).maybeSingle(),
+        supabase
+          .from("trip_members")
+          .select("trip_id, on_board_from, on_board_to, is_alcoholic, is_skipper, note, trips(name, start_date, end_date)")
+          .eq("person_id", me),
+        supabase.from("transaction_participants").select("transaction_id, amount").eq("person_id", me),
+        supabase.from("prepayment_obligations").select("trip_id, total_amount").eq("person_id", me),
+        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id").eq("paid_by", me).is("deleted_at", null),
+        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id").eq("credit_from", me).is("deleted_at", null),
+        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id").eq("credit_to", me).is("deleted_at", null),
+      ]);
+
+    const data = {
+      exportiert_am: new Date().toISOString(),
+      hinweis:
+        "Export deiner in der Bordkasse gespeicherten personenbezogenen Daten (DSGVO Art. 20).",
+      profil: { ...(profile.data ?? {}), ...(priv.data ?? {}) },
+      mitgliedschaften: memberships.data ?? [],
+      buchungen_bezahlt: paid.data ?? [],
+      gutschriften_von_mir: creditFrom.data ?? [],
+      gutschriften_an_mich: creditTo.data ?? [],
+      einzelanteile: participations.data ?? [],
+      anzahlungs_soll: obligations.data ?? [],
+    };
+
+    return {
+      status: "ok",
+      filename: `bordkasse-datenexport-${new Date().toISOString().slice(0, 10)}.json`,
+      json: JSON.stringify(data, null, 2),
+    };
+  } catch (err) {
+    console.error("[bordkasse:data-export]", err);
+    return { status: "error", message: "Export fehlgeschlagen. Bitte später erneut versuchen." };
+  }
+}
+
 export type DeleteAccountState =
   | { status: "idle" }
   | { status: "error"; message: string };

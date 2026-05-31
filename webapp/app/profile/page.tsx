@@ -5,6 +5,7 @@ import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { ProfileForm } from "./profile-form";
 import { DeleteAccountBlock } from "./delete-account-block";
+import { DataExportBlock } from "./data-export-block";
 import { signOut } from "./actions";
 
 export default async function ProfilePage() {
@@ -58,10 +59,16 @@ export default async function ProfilePage() {
         </form>
       </div>
 
+      <DataExportBlock />
+
       <DeleteAccountBlock />
 
       <p className="mt-8 text-center text-xs text-ink-soft">
+        <Link href="/about" className="hover:text-primary">Über die App</Link>
+        <span className="mx-2">·</span>
         <Link href="/datenschutz" className="hover:text-primary">Datenschutz</Link>
+        <span className="mx-2">·</span>
+        <Link href="/kontakt" className="hover:text-primary">Kontakt</Link>
       </p>
     </main>
   );

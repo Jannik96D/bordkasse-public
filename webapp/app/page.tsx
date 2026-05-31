@@ -131,7 +131,7 @@ export default async function Home({
           <p className="mt-1 text-sm text-ink-soft">
             {admin
               ? "Leg deinen ersten Törn an oder lass dich einladen."
-              : "Du wirst zu einem Törn eingeladen, sobald der Skipper dich aufgenommen hat."}
+              : "Du wirst zu einem Törn eingeladen, sobald dein Skipper dich aufgenommen hat."}
           </p>
         </div>
       )}
@@ -188,6 +188,8 @@ export default async function Home({
         <Link href="/about" className="hover:text-primary">Über die App</Link>
         <span className="mx-2">·</span>
         <Link href="/datenschutz" className="hover:text-primary">Datenschutz</Link>
+        <span className="mx-2">·</span>
+        <Link href="/kontakt" className="hover:text-primary">Kontakt</Link>
       </p>
     </main>
   );

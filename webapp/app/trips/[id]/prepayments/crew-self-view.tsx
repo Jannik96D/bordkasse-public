@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, RefreshCw } from "lucide-react";
+import { Modal } from "@/components/modal";
 import { formatEuro, todayIso } from "@/lib/utils";
 import { submitSelfPayment } from "@/lib/actions/prepayments";
 import { toCrewDueDate, formatDeDate } from "@/lib/prepayments/dates";
@@ -108,7 +109,7 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
               {pending && (
                 <p className="mt-2 rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
                   <span aria-hidden="true">⏳</span>{" "}
-                  Du hast <strong>{formatEuro(pending.amount)}</strong> am {formatDeDate(pending.date)} gemeldet — wartet auf Bestätigung durch den Skipper.
+                  Du hast <strong>{formatEuro(pending.amount)}</strong> am {formatDeDate(pending.date)} gemeldet — wartet auf Bestätigung durch deinen Skipper.
                 </p>
               )}
 
@@ -182,22 +183,16 @@ function SelfPaymentModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="self-payment-title"
+    <Modal
+      onClose={onClose}
+      labelledBy="self-payment-title"
+      backdropClassName="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center"
     >
-      <div
-        className="w-full max-w-md rounded-lg border border-rule bg-paper p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
         <h2 id="self-payment-title" className="text-base font-semibold text-primary">
           Zahlung melden
         </h2>
         <p className="mt-1 text-sm text-ink-soft">
-          {trancheLabel} — der Skipper bestätigt deine Meldung.
+          {trancheLabel} — dein Skipper bestätigt deine Meldung.
         </p>
 
         <div className="mt-4 space-y-3">
@@ -254,8 +249,7 @@ function SelfPaymentModal({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

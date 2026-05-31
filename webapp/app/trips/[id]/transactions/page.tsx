@@ -1,4 +1,5 @@
-import { Euro } from "lucide-react";
+import Link from "next/link";
+import { Euro, Users } from "lucide-react";
 import { listTransactions } from "@/lib/queries/transactions";
 import { getTripMembers } from "@/lib/queries/trips";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
@@ -25,10 +26,29 @@ export default async function TransactionsListPage({
   // canEdit-Check pro Row: Skipper / Co-Skipper / Admin / Ersteller.
   const myMember = members.find((m) => m.person_id === person?.id);
   const isMyTripSkipper = !!myMember?.is_skipper;
+  // Ohne Crew lässt sich keine sinnvolle Buchung anlegen (kein „Bezahlt von",
+  // keine Aufteilung). FAB + CTA daher nur mit Crew zeigen — sonst landet man
+  // in einem Formular ohne wählbare Personen (Sackgasse).
+  const hasMembers = members.length > 0;
 
   return (
     <main className="mx-auto max-w-2xl px-4 pb-24 pt-4">
-      {txs.length === 0 ? (
+      {!hasMembers ? (
+        <div className="rounded-lg border border-dashed border-rule p-10 text-center">
+          <Users className="mx-auto mb-3 h-10 w-10 text-ink-soft" />
+          <p className="font-medium">Noch keine Crew</p>
+          <p className="mt-1 text-sm text-ink-soft">
+            Lege zuerst die Crew an — danach kannst du Ausgaben erfassen und auf
+            die Crew aufteilen.
+          </p>
+          <Link
+            href={`/trips/${id}/settings`}
+            className="mt-4 inline-flex min-h-touch items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-paper hover:bg-navy-dark"
+          >
+            Crew hinzufügen
+          </Link>
+        </div>
+      ) : txs.length === 0 ? (
         <div className="rounded-lg border border-dashed border-rule p-10 text-center">
           <Euro className="mx-auto mb-3 h-10 w-10 text-ink-soft" />
           <p className="font-medium">Noch keine Buchung</p>
@@ -47,7 +67,7 @@ export default async function TransactionsListPage({
         />
       )}
 
-      <FabAddTransaction tripId={id} />
+      {hasMembers && <FabAddTransaction tripId={id} />}
     </main>
   );
 }

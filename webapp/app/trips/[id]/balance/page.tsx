@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { InfoTooltip } from "@/components/info-tooltip";
 import { getBalances, getBordkasseOnlyBalances } from "@/lib/queries/balances";
 import { getTrip } from "@/lib/queries/trips";
 import { getPlan, getPrepaymentPoolBalances, getCharterPaidTotal } from "@/lib/queries/prepayments";
@@ -51,7 +52,15 @@ export default async function BalancePage({
 
   return (
     <main className="mx-auto max-w-2xl px-4 pb-24 pt-4">
-      <h1 className="mb-4 text-lg font-bold text-primary">Bilanz</h1>
+      <h1 className="mb-4 text-lg font-bold text-primary">
+        Bilanz
+        {hasPlan && (
+          <InfoTooltip
+            label="Bilanz-Blöcke erklärt"
+            text="Diese Bilanz hat zwei Töpfe: „Anzahlung“ ist das Geld für die Yacht-Charter, das vorab an die Agentur gezahlt wird. „Bordkasse“ sind die laufenden Kosten während des Törns (Sprit, Hafen, Essen). „Gesamt“ fasst beide zusammen — das ist unterm Strich dein Saldo."
+          />
+        )}
+      </h1>
 
       {!tripStarted && hasPlan && (
         <PrepaymentsSummary
