@@ -58,6 +58,7 @@ const FORBIDDEN: { term: string; allowed?: string[] }[] = [
   { term: "Crew-Liste" },
   { term: "Yacht-Anzahlung" },
   { term: "Charter-Agentur" },
+  { term: "Törn-Ende" },
   {
     // „Törnfortschritt" ist der sichtbare Begriff; die internen Karten-/
     // Checklisten-Bezeichner in Kommentaren bleiben aber erlaubt.

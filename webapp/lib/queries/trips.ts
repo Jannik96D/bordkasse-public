@@ -13,7 +13,7 @@ export interface TripListRow {
   member_count: number;
   /** ISO-Timestamp. Wenn gesetzt, ist der Trip schon gepurged (Statistik bleibt). */
   retention_purged_at: string | null;
-  /** Wenn true: Törn-Ende liegt > 30 Tage zurück, aber Daten sind noch nicht gelöscht. */
+  /** Wenn true: Törnende liegt > 30 Tage zurück, aber Daten sind noch nicht gelöscht. */
   retention_overdue: boolean;
 }
 

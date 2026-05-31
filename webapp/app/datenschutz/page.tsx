@@ -136,7 +136,7 @@ export default function DatenschutzPage() {
             Du kannst dein Konto jederzeit selbst löschen (siehe §8 „Konto selbst löschen“).
           </p>
           <p className="mt-2">
-            <strong>Trip-bezogene Daten werden 30 Tage nach Törn-Ende automatisch gelöscht,</strong>{" "}
+            <strong>Trip-bezogene Daten werden 30 Tage nach Törnende automatisch gelöscht,</strong>{" "}
             sobald zusätzlich der Skipper die Abrechnung verschickt und alle Zahlungen in der
             App als erledigt markiert sind. Konkret betrifft das:
           </p>
@@ -274,7 +274,7 @@ export default function DatenschutzPage() {
             Block „Konto löschen“. Die Löschung greift sofort: E-Mail, Nachname
             und Login werden entfernt; in Törns, in denen du Buchungen erfasst hast,
             bleibt dein Vorname als „Ehemaliges Crewmitglied“ stehen, damit die
-            Bilanz nicht zerbricht. Während eines aktiven Törns (Törn-Ende in der
+            Bilanz nicht zerbricht. Während eines aktiven Törns (Törnende in der
             Zukunft) ist die Löschung blockiert, wenn du dort Buchungen hast,
             sonst gingen offene Schulden verloren.
           </p>

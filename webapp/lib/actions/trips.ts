@@ -41,7 +41,7 @@ const TripSchema = z
     skipper_email: z.string().trim().email("Ungültige Skipper-E-Mail.").optional().or(z.literal("")),
   })
   .refine((d) => d.end_date >= d.start_date, {
-    message: "Törn-Ende darf nicht vor dem Start liegen.",
+    message: "Törnende darf nicht vor dem Start liegen.",
     path: ["end_date"],
   });
 
@@ -155,7 +155,7 @@ const DateUpdateSchema = z
     end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum-Format YYYY-MM-DD."),
   })
   .refine((d) => d.end_date >= d.start_date, {
-    message: "Törn-Ende darf nicht vor dem Start liegen.",
+    message: "Törnende darf nicht vor dem Start liegen.",
     path: ["end_date"],
   });
 
@@ -280,7 +280,7 @@ export async function purgeTripNow(tripId: string, force: boolean): Promise<Purg
     case "already_purged":
       return { ok: false, message: "Daten dieses Törns wurden bereits gelöscht." };
     case "retention_not_reached":
-      return { ok: false, message: 'Die 30-Tage-Frist nach Törn-Ende ist noch nicht erreicht. Mit „Sofort löschen“ überspringst du die Frist.' };
+      return { ok: false, message: 'Die 30-Tage-Frist nach Törnende ist noch nicht erreicht. Mit „Sofort löschen“ überspringst du die Frist.' };
     case "settlement_not_announced":
       return { ok: false, message: "Bitte zuerst die Abrechnung verschicken. Danach kann gelöscht werden." };
     case "debts_open":
