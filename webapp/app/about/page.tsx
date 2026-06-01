@@ -569,7 +569,9 @@ export default function AboutPage() {
         </div>
 
         <h1 className="text-3xl font-bold text-primary">
-          Wer schuldet am Ende wem wie viel? Diese App rechnet&rsquo;s aus.
+          Wer schuldet am Ende wem wie viel?
+          <br />
+          Diese App rechnet&rsquo;s aus.
         </h1>
         <p className="mt-3 text-base leading-relaxed text-ink-soft">
           Faire Aufteilung gemeinsamer Kosten auf Segeltörns, auch wenn die

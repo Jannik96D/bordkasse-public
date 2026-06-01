@@ -233,17 +233,6 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
         charterPaidByTranche={charterPaidByTranche}
       />
 
-      {/* Sammelnachricht */}
-      <div className="mb-3">
-        <button
-          onClick={bulkWhatsApp}
-          className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper px-3 py-1.5 text-sm hover:border-primary/40"
-        >
-          <MessageCircle className="h-4 w-4" />
-          Sammelnachricht für alle Offenen
-        </button>
-      </div>
-
       {/* Mobile: eine Karte pro Person — kein Seitwärts-Wischen (#4) */}
       <div className="space-y-2 sm:hidden">
         {memberRows.map(({ m, obl, cabin, cells, rowOpen, isAdvancerRow, advancerNothingOpen }) => (
@@ -383,6 +372,17 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Sammelnachricht — unter Tabelle/Kacheln, sobald der Überblick steht */}
+      <div className="mt-3">
+        <button
+          onClick={bulkWhatsApp}
+          className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper px-3 py-1.5 text-sm hover:border-primary/40"
+        >
+          <MessageCircle className="h-4 w-4" />
+          Sammelnachricht für alle Offenen
+        </button>
       </div>
 
       {/* Statuslegende (#E1): unter Tabelle/Kacheln — erklärt Symbole + Aktions-Icons. */}
