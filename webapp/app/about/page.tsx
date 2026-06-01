@@ -129,9 +129,9 @@ const features: Feature[] = [
         <p>
           Auf der Startseite des Törns zeigt die App eine Checkliste mit fünf Phasen
           (Vorbereitung, Anzahlung, während des Törns, Abrechnung, Abschluss).
-          Die Häkchen setzen sich <strong>automatisch</strong> aus dem echten
-          Stand: Crew eingeladen, erste Ausgabe erfasst, Abrechnung verschickt …
-          Nichts muss von Hand abgehakt werden.
+          Die meisten Häkchen setzen sich <strong>automatisch</strong> aus dem
+          echten Stand: Crew eingeladen, erste Ausgabe erfasst, Abrechnung
+          verschickt … Nur „Kaution verrechnet“ hakt der Skipper selbst ab.
         </p>
         <p className="mt-2">
           Die aktuelle Phase ist aufgeklappt, kommende Schritte stehen gedämpft

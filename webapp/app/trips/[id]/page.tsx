@@ -65,6 +65,7 @@ export default async function TripDashboard({
       endDate: trip.end_date,
       memberCount,
       settlementAnnounced: !!trip.settlement_announced_at,
+      depositSettled: !!trip.deposit_settled_at,
     });
     progress = computeTripProgress(signals, todayIso());
   }
