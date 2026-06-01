@@ -70,9 +70,20 @@ export function InfoTooltip({
           e.preventDefault();
           setOpen((v) => !v);
         }}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        onFocus={() => setOpen(true)}
+        // Hover NUR bei echter Maus öffnen/schließen. Auf Touch feuern Browser
+        // synthetische mouseenter-/focus-Events VOR dem Click; öffneten sie das
+        // Popover, würde der direkt folgende Click es sofort wieder zuklappen
+        // → man müsste zweimal tippen. Über Pointer-Events ignorieren wir Touch
+        // hier komplett (pointerType !== "mouse"); der Tap toggelt allein per
+        // onClick. Tastatur öffnet via Enter/Space (löst ebenfalls click aus);
+        // bewusst KEIN Öffnen on focus, da sich Tastatur-Focus nicht
+        // zuverlässig vom Touch-Focus unterscheiden lässt.
+        onPointerEnter={(e) => {
+          if (e.pointerType === "mouse") setOpen(true);
+        }}
+        onPointerLeave={(e) => {
+          if (e.pointerType === "mouse") setOpen(false);
+        }}
         onBlur={() => setOpen(false)}
         // Explizite Maße via inline-style — manche Browser-Defaults für
         // `<button>` (min-width / min-height) ziehen den Button sonst auf
