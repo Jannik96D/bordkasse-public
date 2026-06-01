@@ -41,6 +41,13 @@ export interface ProgressItem {
   status: ItemStatus;
   /** Pfad relativ zu /trips/[id] (z. B. "transactions/new"). Fehlt bei not_yet. */
   href?: string;
+  /**
+   * Manuell vom Skipper abhakbar (kein abgeleiteter Status). Die UI rendert
+   * dann eine Checkbox statt eines Links. Aktuell nur "Kaution verrechnet" —
+   * die automatische Erkennung lief zu unsauber (umbenannte Kategorie,
+   * Gegenverrechnung per Gutschrift, …).
+   */
+  manual?: boolean;
 }
 
 export type PhaseId = "vorbereitung" | "anzahlung" | "toern" | "abrechnung" | "abschluss";
@@ -151,7 +158,8 @@ export function computeTripProgress(
       id: "deposit",
       label: "Kaution verrechnet",
       status: statusFor(s.depositSettled, idx("toern"), unlockedUpTo),
-      href: "transactions/new",
+      // Manuell abgehakt — kein href (Checkbox statt Link).
+      manual: true,
     },
   ];
   phases.push(makePhase("toern", "Während des Törns", toernItems));

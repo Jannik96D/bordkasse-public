@@ -2,9 +2,9 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { CheckCircle2, ChevronDown, Circle, Clock, Compass } from "lucide-react";
+import { CheckCircle2, ChevronDown, Circle, Clock, Compass, Loader2 } from "lucide-react";
 import type { ItemStatus, ProgressItem, TripProgress as TripProgressData } from "@/lib/calc/trip-progress";
-import { setChecklistCollapsed } from "@/lib/actions/trip-checklist";
+import { setChecklistCollapsed, setDepositSettled } from "@/lib/actions/trip-checklist";
 import { cn } from "@/lib/utils";
 
 const STATUS_LABEL: Record<ItemStatus, string> = {
@@ -146,8 +146,8 @@ function statusIcon(status: ItemStatus) {
   return <Circle className="h-4 w-4 shrink-0 text-ink-soft" aria-hidden="true" />;
 }
 
-function ProgressRow({ tripId, item }: { tripId: string; item: ProgressItem }) {
-  const label = (
+function ItemLabel({ item }: { item: ProgressItem }) {
+  return (
     <span
       className={cn(
         "flex-1",
@@ -159,6 +159,68 @@ function ProgressRow({ tripId, item }: { tripId: string; item: ProgressItem }) {
       <span className="sr-only"> — {STATUS_LABEL[item.status]}</span>
     </span>
   );
+}
+
+/**
+ * Manuell abhakbares Item (aktuell nur „Kaution verrechnet"): Checkbox, die
+ * der Skipper selbst setzt — kein abgeleiteter Status. Optimistisch, mit
+ * Rücksetzen bei verweigerter Berechtigung / Fehler. Vor der Törn-Phase
+ * ("noch nicht dran") statisch, sonst tickbar.
+ */
+function ManualProgressRow({ tripId, item }: { tripId: string; item: ProgressItem }) {
+  const [checked, setChecked] = useState(item.status === "done");
+  const [pending, startTransition] = useTransition();
+
+  if (item.status === "not_yet") {
+    return (
+      <li className="flex min-h-touch items-center gap-2 px-1 text-sm">
+        {statusIcon("not_yet")}
+        <ItemLabel item={item} />
+      </li>
+    );
+  }
+
+  function toggle() {
+    const next = !checked;
+    setChecked(next); // optimistisch
+    startTransition(async () => {
+      const res = await setDepositSettled(tripId, next);
+      if (!res.ok) setChecked(!next); // zurücksetzen
+    });
+  }
+
+  return (
+    <li>
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={checked}
+        onClick={toggle}
+        disabled={pending}
+        className="flex min-h-touch w-full items-center gap-2 rounded-md px-1 text-left text-sm hover:bg-navy-light/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-60"
+      >
+        {pending ? (
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ink-soft" aria-hidden="true" />
+        ) : checked ? (
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+        ) : (
+          <Circle className="h-4 w-4 shrink-0 text-ink-soft" aria-hidden="true" />
+        )}
+        <span className={cn("flex-1", checked && "text-ink-soft")}>
+          {item.label}
+          <span className="sr-only"> — {checked ? "erledigt" : "offen"}, zum Umschalten tippen</span>
+        </span>
+      </button>
+    </li>
+  );
+}
+
+function ProgressRow({ tripId, item }: { tripId: string; item: ProgressItem }) {
+  if (item.manual) {
+    return <ManualProgressRow tripId={tripId} item={item} />;
+  }
+
+  const label = <ItemLabel item={item} />;
 
   // Nur offene Items mit Ziel sind klickbar; erledigte/„noch nicht dran" statisch.
   if (item.status === "open" && item.href) {

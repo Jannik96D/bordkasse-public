@@ -108,6 +108,20 @@ describe("computeTripProgress — aktuelle Phase + Abschluss", () => {
     expect(firstExpense.status).toBe("done");
   });
 
+  it("'Kaution verrechnet' ist manuell (Checkbox) und ohne href", () => {
+    const p = computeTripProgress(base(), "2026-06-15");
+    const deposit = p.phases
+      .find((ph) => ph.id === "toern")!
+      .items.find((i) => i.id === "deposit")!;
+    expect(deposit.manual).toBe(true);
+    expect(deposit.href).toBeUndefined();
+    // Manueller Haken folgt weiter dem Signal: gesetzt → done.
+    const set = computeTripProgress(base({ depositSettled: true }), "2026-06-15");
+    expect(
+      set.phases.find((ph) => ph.id === "toern")!.items.find((i) => i.id === "deposit")!.status,
+    ).toBe("done");
+  });
+
   it("'Alle Schulden beglichen' ist NICHT erledigt ohne Abrechnungs-Versand", () => {
     // Zukunfts-Charter ohne Buchungen: 0 Schulden = trivial beglichen,
     // aber noch nichts verschickt → darf nicht verfrüht grün sein.
