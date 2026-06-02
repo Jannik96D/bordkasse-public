@@ -13,7 +13,7 @@ import { CREW_DUE_DAYS_BEFORE_CHARTER, addDays } from "@/lib/prepayments/dates";
  *                       Tranche. Vorstrecker wird übersprungen (eigene Mail).
  *
  *   - "advancer_3d"  → 3 Tage vor Charter-Fälligkeit (= echtes due_date in 3 Tagen)
- *                       an den Vorstrecker — nur wenn er der Agentur noch was
+ *                       an den Vorstrecker — nur wenn er dem Vercharterer noch was
  *                       schuldet. Hat er die Tranche bereits voll überwiesen,
  *                       wird übersprungen.
  *
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
   // Bulk-Load: alles für die betroffenen Trips/Tranchen parallel.
   // - confirmed payments aus v_prepayment_payments (für Soll-vs-Ist der Crew)
   // - pending self-reports aus v_prepayment_pending (zählen als "Person hat gemeldet")
-  // - charter expenses (Vorstrecker → Agentur) für advancer-skip
+  // - charter expenses (Vorstrecker → Vercharterer) für advancer-skip
   const [
     { data: trips },
     { data: plans },
@@ -155,7 +155,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Wie viel hat der Vorstrecker schon an die Agentur überwiesen — pro Tranche?
+  // Wie viel hat der Vorstrecker schon an den Vercharterer überwiesen — pro Tranche?
   const paidToAgencyByTranche = new Map<string, number>();
   for (const e of charterExpenses ?? []) {
     if (e.tranche_id) {
@@ -186,7 +186,7 @@ export async function GET(request: NextRequest) {
     // Wie viele Tage sind es noch bis zur Charterfrist?
     const daysToCharter = daysBetween(todayIso, t.due_date);
 
-    // advancer_3d: ab 3 Tage vor Charterfrist UND nur wenn er der Agentur noch was schuldet
+    // advancer_3d: ab 3 Tage vor Charterfrist UND nur wenn er dem Vercharterer noch was schuldet
     if (daysToCharter <= REMINDER_DAYS_BEFORE) {
       const sollAgency = (Number(plan.total_amount) * Number(t.percent)) / 100;
       const paidAgency = paidToAgencyByTranche.get(t.id) ?? 0;

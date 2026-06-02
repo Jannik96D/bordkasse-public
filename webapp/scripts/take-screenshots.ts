@@ -247,16 +247,13 @@ async function main() {
   console.log(`  ↳ Pfingst-Törn: ${tripId}`);
   console.log(`  ↳ Bareboat-Charter: ${tripCharterId}`);
 
-  // Trip-Übersicht bewusst vom Bareboat-Charter (Zukunft, läuft noch nicht):
-  // In der About-Flow-Reihenfolge steht die Übersicht früh (direkt nach
-  // „Trip anlegen"), da wäre der „Törn vorbei — Abrechnung verschicken"-Banner
-  // des bereits beendeten Pfingst-Törns verfrüht. Der Settlement-/Abrechnungs-
-  // Banner wird stattdessen im Schulden-Screenshot (08) gezeigt, der in der
-  // Abrechnungs-Phase sitzt.
-  console.log("→ Trip-Übersicht (Bareboat — Törn läuft noch)");
-  await page.goto(`${BASE_URL}/trips/${tripCharterId}`);
-  await waitForLoad(page);
-  await shot(page, "04-trip-overview");
+  // Hinweis: Screenshot „04-trip-overview" (Startseite des Törns) wird bewusst
+  // aus der CREW-Sicht (Clara, reguläres Mitglied) aufgenommen — siehe
+  // Clara-Block weiter unten. So zeigt die /about-Seite die Übersicht OHNE die
+  // skipper-only Karte „Dein Törn im Überblick" (die separat als Screenshot 18
+  // erscheint). Bewusst der Bareboat-Charter (Zukunft, läuft noch nicht), damit
+  // kein verfrühter „Törn vorbei — Abrechnung verschicken"-Banner auftaucht;
+  // der Settlement-Banner wird stattdessen im Schulden-Screenshot (08) gezeigt.
 
   console.log("→ Buchungs-Liste");
   await page.goto(`${BASE_URL}/trips/${tripId}/transactions`);
@@ -384,6 +381,26 @@ async function main() {
   console.log("→ Crew-Self-View — Re-Login als Clara");
   await logout(page, context);
   await loginAs(page, CREW_EMAIL);
+
+  // Startseite des Törns aus CREW-Sicht: reguläre Crewmitglieder sehen die
+  // Karte „Dein Törn im Überblick" NICHT (Skipper/Co-Skipper/Admin-only). Die
+  // Übersicht bleibt damit auf Header + Schnellzugriff-Kacheln beschränkt —
+  // genau das soll die /about-Seite für „Startseite des Törns" zeigen.
+  console.log("→ Startseite des Törns (Crew-Ansicht, ohne Törn-Fortschritt-Karte)");
+  await page.goto(`${BASE_URL}/trips/${tripCharterId}`);
+  await waitForLoad(page);
+  // PWA-Installations-Hinweis ausblenden (steht schon auf dem Welcome-Screenshot).
+  await page.evaluate(() => {
+    document.querySelectorAll('aside[role="note"]').forEach((el) => {
+      if (/installier/i.test(el.textContent ?? "")) {
+        (el as HTMLElement).style.display = "none";
+      }
+    });
+  });
+  await page.waitForTimeout(150);
+  await shot(page, "04-trip-overview");
+
+  console.log("→ Crew-Self-View — Anzahlungen");
   await page.goto(`${BASE_URL}/trips/${tripCharterId}/prepayments`);
   await waitForLoad(page);
   await shot(page, "17-anzahlung-crew-self");

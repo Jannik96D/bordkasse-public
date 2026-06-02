@@ -97,7 +97,7 @@ const features: Feature[] = [
   {
     id: "trip-overview",
     title: "Startseite des Törns",
-    lead: "Pro Törn ein eigener Bereich: Schnellzugriff auf Buchungen, Bilanz, Anzahlungen und Schulden.",
+    lead: "Pro Törn ein eigener Bereich mit Crew-Überblick und Schnellzugriff auf Buchungen und Bilanz; alle weiteren Bereiche sind über die feste Navigationsleiste erreichbar.",
     body: (
       <>
         <p>
@@ -319,7 +319,7 @@ const features: Feature[] = [
   {
     id: "anzahlung-setup",
     title: "Yachtanzahlung: Plan einrichten",
-    lead: "Wenn der Skipper Monate vor dem Törn die Charteranzahlung an die Agentur leistet, hilft die App, das Geld bei der Crew einzusammeln.",
+    lead: "Wenn der Skipper Monate vor dem Törn die Charteranzahlung an den Vercharterer leistet, hilft die App, das Geld bei der Crew einzusammeln.",
     body: (
       <>
         <p>
@@ -370,7 +370,7 @@ const features: Feature[] = [
         </p>
         <p className="mt-2">
           Daneben sieht die vorstreckende Person eine Übersicht, was sie noch an den
-          Charteranbieter überweisen muss, basierend auf dem, was die
+          Vercharterer überweisen muss, basierend auf dem, was die
           Crew schon bei ihr eingezahlt hat. 3 Tage vor jeder
           Charterfrist verschickt die App diese Übersicht zusätzlich
           per Mail; 3 Tage vor der Crewfrist gehen automatisch

@@ -57,7 +57,7 @@ export default async function BalancePage({
         {hasPlan && (
           <InfoTooltip
             label="Bilanzblöcke erklärt"
-            text="Diese Bilanz hat zwei Töpfe: „Anzahlung“ ist das Geld für die Yachtcharter, das vorab an die Agentur gezahlt wird. „Bordkasse“ sind die laufenden Kosten während des Törns (Sprit, Hafen, Essen). „Gesamt“ fasst beide zusammen. Das ist unterm Strich dein Saldo."
+            text="Diese Bilanz hat zwei Töpfe: „Anzahlung“ ist das Geld für die Yachtcharter, das vorab an den Vercharterer gezahlt wird. „Bordkasse“ sind die laufenden Kosten während des Törns (Sprit, Hafen, Essen). „Gesamt“ fasst beide zusammen. Das ist unterm Strich dein Saldo."
           />
         )}
       </h1>
@@ -101,7 +101,7 @@ function PrepaymentsSummary({
   tripId: string;
   poolBalances: PrepaymentPoolBalance[];
   nameById: Map<string, string>;
-  /** Gesamt-Anzahlungssumme aus dem Plan (= Charter-Preis ggü. Agentur). */
+  /** Gesamt-Anzahlungssumme aus dem Plan (= Charter-Preis ggü. Vercharterer). */
   planTotal: number;
   /** Σ aller Charter-Überweisungen (Vorstrecker → Vercharterer). */
   charterPaid: number;
@@ -111,7 +111,7 @@ function PrepaymentsSummary({
   const sumPaid = poolBalances.reduce((s, p) => s + Math.min(p.paid, p.soll), 0);
   const sumOpen = Math.max(0, sumSoll - sumPaid);
 
-  // Charterauslage: was wurde an die Agentur überwiesen vs. Soll
+  // Charterauslage: was wurde an den Vercharterer überwiesen vs. Soll
   const charterSoll = planTotal;
   const charterOpen = Math.max(0, charterSoll - charterPaid);
   const charterFulfilled = charterSoll > 0 && charterOpen <= 0.005;

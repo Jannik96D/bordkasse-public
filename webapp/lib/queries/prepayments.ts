@@ -139,7 +139,7 @@ export interface PaymentEntry {
  *   - für normale Crew:  Σ credit_given mit tranche_id (Zahlung an Vorstrecker)
  *   - für Vorstrecker:   Σ self_credit (Selbstverrechnung des eigenen Anteils)
  *
- * Charterauslagen (`paid_by` mit tranche_id, typisch Vorstrecker → Agentur)
+ * Charterauslagen (`paid_by` mit tranche_id, typisch Vorstrecker → Vercharterer)
  * zählen NICHT in `paid` — sie sind kein „Beitrag zum Crew-Pool", sondern
  * eine separate Bewegung „Geld aus Pool an Vercharterer". Wird in einem
  * eigenen Block angezeigt (siehe getCharterPaidTotal).
