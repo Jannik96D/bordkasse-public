@@ -4,7 +4,7 @@
  * Zwei Pfade:
  *   1. Crew-Pfad      → persönliche Tranchen-Liste mit Wero-Hinweis
  *                       (Empfänger ≠ Vorstrecker).
- *   2. Vorstrecker-Pfad → Charterübersicht (Soll Agentur / Creweingänge /
+ *   2. Vorstrecker-Pfad → Charterübersicht (Soll Vercharterer / Creweingänge /
  *                         schon überwiesen / noch offen) pro Tranche.
  *                         Wird auch vom Cron benutzt.
  *
@@ -239,7 +239,7 @@ async function sendCharterReminder(
     .filter((o) => o.person_id !== args.advancerPersonId)
     .reduce((s, o) => s + Number(o.total_amount), 0);
 
-  // Σ schon-an-Agentur-überwiesen pro Tranche (expense mit dieser tranche_id).
+  // Σ schon-an-Vercharterer-überwiesen pro Tranche (expense mit dieser tranche_id).
   const { data: expenseRows } = await supabase
     .from("transactions")
     .select("tranche_id, amount")

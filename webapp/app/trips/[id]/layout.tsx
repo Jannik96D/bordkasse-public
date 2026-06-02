@@ -28,7 +28,7 @@ export default async function TripLayout({
 
   // Kontextuelle Anzahlungs-Navigation: nur einblenden, solange der Eintrag
   // für diese Person gerade relevant ist (eigene/Crew-Tranche offen,
-  // Pending-Selbstmeldung oder Vorstrecker schuldet der Agentur noch).
+  // Pending-Selbstmeldung oder Vorstrecker schuldet dem Vercharterer noch).
   const isMyTripSkipper = !!members.find((m) => m.person_id === person?.id)?.is_skipper;
   const { show: showPrepayments } = await getPrepaymentNavState(id, {
     personId: person?.id ?? null,

@@ -146,7 +146,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
     ? members.find((m) => m.id === plan.advancer_person_id)?.display_name ?? "—"
     : null;
 
-  // Wie viel muss der Vorstrecker insgesamt noch an die Agentur überweisen?
+  // Wie viel muss der Vorstrecker insgesamt noch an den Vercharterer überweisen?
   // Steuert den 🔔-Button in seiner Zeile (Mail nur sinnvoll wenn offen).
   const charterOutstanding = tranches.reduce((sum, t) => {
     const soll = (plan.total_amount * t.percent) / 100;
@@ -528,8 +528,8 @@ function RowActions({
     ? !member.email
       ? "Für die vorstreckende Person ist keine E-Mail hinterlegt"
       : advancerNothingOpen
-        ? "Alles an die Agentur überwiesen, keine Erinnerung nötig"
-        : "Charterübersicht an dich selbst schicken (Σ Creweingänge / Soll Agentur / noch zu überweisen)"
+        ? "Alles an den Vercharterer überwiesen, keine Erinnerung nötig"
+        : "Charterübersicht an dich selbst schicken (Σ Creweingänge / Soll Vercharterer / noch zu überweisen)"
     : !member.email
       ? "E-Mail fehlt"
       : rowOpen <= 0.005
