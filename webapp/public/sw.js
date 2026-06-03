@@ -155,9 +155,12 @@ self.addEventListener("push", (event) => {
       // doppelte OS-Benachrichtigung. Ein anderes/gesperrtes Gerät oder ein
       // anderer Trip bekommt den Push trotzdem (die Mail kommt ohnehin immer).
       const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      const suppressed = wins.some(
-        (c) => c.visibilityState === "visible" && c.focused && sameTripScope(c.url, url),
-      );
+      // alwaysShow umgeht die Suppression (Events OHNE Realtime-Toast-Pendant,
+      // z. B. Abrechnung schreibt nur `trips`, das RealtimeTrip nicht abonniert
+      // → sonst sähe die fokussierte Crew gar nichts).
+      const suppressed =
+        !payload.alwaysShow &&
+        wins.some((c) => c.visibilityState === "visible" && c.focused && sameTripScope(c.url, url));
       if (suppressed) return;
 
       await self.registration.showNotification(title, {
@@ -183,21 +186,35 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(
     (async () => {
       const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const targetPath = new URL(url, self.location.origin).pathname;
+
+      // 1) Ein Fenster ist bereits exakt auf der Ziel-URL → nur fokussieren.
       for (const client of wins) {
-        if ("focus" in client) {
+        if ("focus" in client && client.url === absolute) return client.focus();
+      }
+      // 2) Ein Fenster im selben Trip-Scope → fokussieren und nur navigieren,
+      //    wenn der PFAD abweicht (reine Query/Hash-Differenz löst keine
+      //    Navigation aus). So wird kein Fenster eines ANDEREN Trips gekapert.
+      for (const client of wins) {
+        if ("focus" in client && sameTripScope(client.url, url)) {
           await client.focus();
-          if ("navigate" in client && client.url !== absolute) {
-            // navigate() kann scheitern (Fenster lädt gerade) — dann egal,
-            // der Nutzer ist immerhin in der App.
+          let clientPath = "";
+          try {
+            clientPath = new URL(client.url).pathname;
+          } catch {
+            /* ignorieren */
+          }
+          if (clientPath !== targetPath && "navigate" in client) {
             try {
               await client.navigate(url);
             } catch {
-              /* ignorieren */
+              /* Fenster lädt gerade — egal, der Nutzer ist in der App */
             }
           }
           return;
         }
       }
+      // 3) Sonst ein neues Fenster öffnen.
       if (self.clients.openWindow) await self.clients.openWindow(url);
     })(),
   );

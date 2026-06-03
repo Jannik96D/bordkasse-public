@@ -79,9 +79,20 @@ describe("payloads", () => {
     expect(prepaymentReminderPush({ trancheLabel: "1. Anzahlung", amount: 180, tripName: "T", tripId: "t", trancheId: "x" }).url).toBe("/trips/t/prepayments");
     expect(prepaymentReminderPush({ trancheLabel: "1. Anzahlung", amount: 180, tripName: "T", tripId: "t", trancheId: "x" }).body).toContain("180,00");
     expect(charterReminderPush({ tripName: "T", tripId: "t", trancheId: "x" }).tag).toBe("charter-x");
-    expect(paymentPendingPush({ payerName: "Mara", amount: 90, tripId: "t" }).body).toContain("Mara");
+    expect(paymentPendingPush({ payerName: "Mara", amount: 90, tripId: "t", trancheId: "tr1", payerPersonId: "pA" }).body).toContain("Mara");
     expect(paymentConfirmedPush({ amount: 90, tripId: "t" }).title).toBe("Zahlung bestätigt");
     expect(paymentRejectedPush({ amount: 90, tripId: "t" }).title).toBe("Zahlung abgelehnt");
+  });
+
+  it("settlement-Pushes setzen alwaysShow (kein Realtime-Toast für `trips`)", () => {
+    expect(settlementAnnouncedPush("X", "t").alwaysShow).toBe(true);
+    expect(settlementUpdatedPush("X", "t").alwaysShow).toBe(true);
+  });
+
+  it("pending-Tags zweier Melder kollidieren nicht (kein Collapse)", () => {
+    const a = paymentPendingPush({ payerName: "Mara", amount: 90, tripId: "t", trancheId: "tr1", payerPersonId: "pA" });
+    const b = paymentPendingPush({ payerName: "Tom", amount: 90, tripId: "t", trancheId: "tr1", payerPersonId: "pB" });
+    expect(a.tag).not.toBe(b.tag);
   });
 });
 

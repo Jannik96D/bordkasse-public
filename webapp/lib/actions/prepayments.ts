@@ -788,7 +788,13 @@ export async function submitSelfPayment(
   await sendPushToPersons(
     supabase,
     pushRecipients([advancerId], { excludeActorId: auth.personId }),
-    paymentPendingPush({ payerName: person.display_name, amount, tripId: trip_id }),
+    paymentPendingPush({
+      payerName: person.display_name,
+      amount,
+      tripId: trip_id,
+      trancheId: tranche_id,
+      payerPersonId: auth.personId,
+    }),
   );
 
   revalidatePath(`/trips/${trip_id}/prepayments`);

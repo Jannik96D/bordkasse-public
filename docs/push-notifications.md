@@ -74,6 +74,16 @@
   in den Profil-Einstellungen vergessen wird. Subscribe-Actions in
   [`push-actions.ts`](../webapp/app/profile/push-actions.ts). Opt-in pro Gerät,
   Permission nur auf Klick, `urlBase64ToUint8Array` für `applicationServerKey`.
+- **Sicherheit/Härtung:** `savePushSubscription` validiert den `endpoint`
+  https-only gegen eine **Allowlist echter Push-Dienst-Hosts** (FCM / Apple /
+  Mozilla / WNS) — der Server fragt den Endpoint per web-push an, eine offene
+  URL wäre **SSRF** (Guard: `__tests__/push-actions.test.ts`). `disable()`
+  kündigt das Browser-Abo nur, wenn die DB-Zeile wirklich dem aktuellen Nutzer
+  gehörte (kein Orphan auf geteilten Geräten). `isIos()`/`isStandalone()` liegen
+  geteilt in [`lib/pwa.ts`](../webapp/lib/pwa.ts) (inkl. iPadOS-Desktop-UA).
+  Settlement-Payloads tragen `alwaysShow: true`, weil `RealtimeTrip` nur
+  transactions/trip_members/settled_debts abonniert (NICHT `trips`) → sonst sähe
+  eine auf dem Trip fokussierte Crew die Abrechnung weder als Push noch als Toast.
 
 ## Env-Vars (Produktion + lokal)
 

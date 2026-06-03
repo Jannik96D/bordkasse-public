@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useToast } from "@/components/toast-provider";
 import { savePushSubscription, deletePushSubscription } from "@/app/profile/push-actions";
+import { isIos, isStandalone } from "@/lib/pwa";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -23,19 +24,6 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
   const out = new Uint8Array(raw.length);
   for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
   return out;
-}
-
-function isStandalone(): boolean {
-  if (typeof window === "undefined") return false;
-  return (
-    window.matchMedia?.("(display-mode: standalone)").matches ||
-    (window.navigator as unknown as { standalone?: boolean }).standalone === true
-  );
-}
-
-function isIos(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return /iphone|ipad|ipod/i.test(navigator.userAgent);
 }
 
 /**
@@ -107,7 +95,16 @@ export function usePushSubscription() {
         setStatus(permission === "denied" ? "denied" : "unsubscribed");
         return;
       }
-      const reg = await navigator.serviceWorker.ready;
+      // serviceWorker.ready resolved NIE, falls eine Registration zwar
+      // existiert, aber nie aktiv/controlling wird → 5s-Timeout statt Hänger.
+      const reg = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+      ]);
+      if (!reg) {
+        setError("Service Worker nicht bereit — bitte Seite neu laden und erneut versuchen.");
+        return;
+      }
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         // Cast: TS 5.9 typt Uint8Array generisch (ArrayBufferLike); subscribe()
@@ -139,8 +136,13 @@ export function usePushSubscription() {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
       if (sub) {
-        await deletePushSubscription(sub.endpoint);
-        await sub.unsubscribe().catch(() => {});
+        const res = await deletePushSubscription(sub.endpoint);
+        // Browser-Abo NUR kündigen, wenn das Geräte-Abo wirklich dem aktuellen
+        // Nutzer gehörte — sonst würde auf einem geteilten Gerät das Abo eines
+        // ANDEREN Accounts gekillt (dessen DB-Zeile bliebe als Leiche zurück).
+        if (res.ok && res.deleted) {
+          await sub.unsubscribe().catch(() => {});
+        }
       }
       setStatus("unsubscribed");
       show("Benachrichtigungen auf diesem Gerät deaktiviert.", { variant: "info" });

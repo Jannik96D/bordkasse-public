@@ -18,6 +18,11 @@ export interface PushPayload {
   url: string;
   /** Collapse-Key: gleicher Tag ersetzt eine vorhandene Notification. */
   tag?: string;
+  /** true → der Service Worker unterdrückt die Mitteilung NICHT, auch wenn der
+   *  Trip gerade im Vordergrund offen ist. Für Events OHNE Realtime-Toast-
+   *  Pendant (Abrechnung schreibt nur `trips`, was RealtimeTrip nicht abonniert
+   *  → sonst sähe die fokussierte Crew gar nichts). */
+  alwaysShow?: boolean;
 }
 
 const tripUrl = (tripId: string, sub = "") => `/trips/${tripId}${sub}`;
@@ -28,6 +33,7 @@ export function settlementAnnouncedPush(tripName: string, tripId: string): PushP
     body: `„${tripName}" ist abgerechnet. Tippe für Abrechnung.`,
     url: tripUrl(tripId, "/debts"),
     tag: `settlement-${tripId}`,
+    alwaysShow: true,
   };
 }
 
@@ -38,6 +44,7 @@ export function settlementUpdatedPush(tripName: string, tripId: string): PushPay
     url: tripUrl(tripId, "/debts"),
     // Gleicher Tag wie die Ankündigung → ersetzt sie statt zu stapeln.
     tag: `settlement-${tripId}`,
+    alwaysShow: true,
   };
 }
 
@@ -106,12 +113,16 @@ export function paymentPendingPush(args: {
   payerName: string;
   amount: number;
   tripId: string;
+  trancheId: string;
+  payerPersonId: string;
 }): PushPayload {
   return {
     title: "Zahlung gemeldet",
     body: `${args.payerName} meldet ${fmtEuro(args.amount)}. Bitte bestätigen oder ablehnen.`,
     url: tripUrl(args.tripId, "/prepayments"),
-    tag: `pending-${args.tripId}`,
+    // Pro (Trip, Tranche, Melder) eindeutig → zwei verschiedene Selbstmeldungen
+    // kollabieren nicht zu einer; der Vorstrecker muss jede einzeln bestätigen.
+    tag: `pending-${args.tripId}-${args.trancheId}-${args.payerPersonId}`,
   };
 }
 
