@@ -99,9 +99,9 @@ export function OfflineBanner() {
         <span className="flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-danger" />
           {failed.length === 1
-            ? "1 Buchung konnte nicht gespeichert werden"
-            : `${failed.length} Buchungen konnten nicht gespeichert werden`}
-          {failed[0]?.message ? ` (${failed[0].message})` : ""}
+            ? "1 Buchung konnte nicht übertragen werden"
+            : `${failed.length} Buchungen konnten nicht übertragen werden`}
+          {failed[0]?.message ? `: ${failed[0].message}` : ""}
         </span>
         <span className="flex items-center gap-1">
           <button
