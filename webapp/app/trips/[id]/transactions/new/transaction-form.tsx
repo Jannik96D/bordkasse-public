@@ -1,7 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronDown, ChevronUp, Check } from "lucide-react";
 import {
@@ -9,146 +8,56 @@ import {
   createCredit,
   updateExpense,
   updateCredit,
-  type TxState,
 } from "@/lib/actions/transactions";
-import { enqueue, get as getOutboxItem } from "@/lib/offline/outbox";
-import { todayIso, cn, formatEuro, nowMs, daysBetween } from "@/lib/utils";
+import { todayIso, cn, daysBetween } from "@/lib/utils";
 import { CategorySelect } from "@/components/category-select";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { PersonSelect } from "@/components/person-select";
 import { safeMathEval } from "@/lib/utils/math-eval";
 import { calculateShares } from "@/lib/calc/shares";
 import type { Member as CalcMember, Transaction as CalcTransaction } from "@/lib/calc/types";
+import {
+  type Member,
+  type Category,
+  type SplitType,
+  type TrancheOption,
+  type ExpenseInitial,
+  type CreditInitial,
+  SPLIT_LABEL,
+  SPLIT_TOOLTIP,
+  inputCls,
+  formatAmount,
+  FieldGroup,
+  TrancheField,
+  useBookingSubmit,
+  SharePreview,
+  PerPersonAmounts,
+} from "./transaction-form-parts";
 
-type Member = {
-  person_id: string;
-  display_name: string;
-  /** Anwesenheit (für „An Bord" / „Zeitanteilig"-Vorschau). Fällt auf Törn-Daten zurück. */
-  on_board_from?: string | null;
-  on_board_to?: string | null;
-  /** Trinkt Alkohol mit (für Alkoholanteil-Vorschau). */
-  is_alcoholic_effective?: boolean;
-};
-type Category = { id: string; name: string; icon: string | null };
-type SplitType =
-  | "equal"
-  | "on_board"
-  | "time_proportional"
-  | "individual"
-  | "per_person";
-
-const SPLIT_LABEL: Record<SplitType, string> = {
-  equal: "Gleichmäßig",
-  on_board: "An Bord",
-  time_proportional: "Zeitanteilig",
-  individual: "Individuell",
-  per_person: "Pro Person",
-};
-
-/**
- * Eine kompakte Sammelhilfe für alle Aufteilungs-Modi — landet im Tooltip
- * neben der „Aufteilung"-Überschrift, damit das Standard-Form nicht für
- * jeden Tab eine eigene Hilfezeile rendern muss.
- */
-const SPLIT_TOOLTIP =
-  "Gleichmäßig: alle teilen sich gleich. " +
-  "An Bord: nur am Buchungsdatum anwesende Personen. " +
-  "Zeitanteilig: proportional zu den Bordtagen. " +
-  "Individuell: nur explizit markierte Personen. " +
-  "Pro Person: jede Person trägt einen eigenen Betrag ein (z. B. Restaurant).";
-
-const idleState: TxState = { status: "idle" };
-
-// Schwelle für die Fat-Finger-Rückfrage: einzelne Bordkasse-Buchungen über
-// diesem Betrag sind selten — meist eine Null zu viel. Harte Obergrenze
-// (1 Mio) prüft zusätzlich das Zod-Schema serverseitig.
-const FAT_FINGER_THRESHOLD = 1000;
-
-/** Initialwerte für den Edit-Modus. */
-export type ExpenseInitial = {
-  transactionId: string;
-  date: string;
-  description: string;
-  categoryId: string | null;
-  paidBy: string;
-  amount: number;
-  alcoholAmount: number;
-  tipAmount: number;
-  tipDistribution: "proportional" | "equal";
-  splitType: SplitType;
-  participantIds: string[];
-  participantAmounts: Array<{ personId: string; amount: number }>;
-  /** Optional, Migration 0023 — Anzahlungstranche, falls die Buchung zugeordnet ist. */
-  trancheId?: string | null;
-};
-
-export type CreditInitial = {
-  transactionId: string;
-  date: string;
-  description: string;
-  amount: number;
-  creditFrom: string;
-  /** null = "Alle" */
-  creditTo: string | null;
-  /** Optional, Migration 0023 — Anzahlungstranche, falls zugeordnet. */
-  trancheId?: string | null;
-};
-
-function formDataToObject(fd: FormData): Record<string, string | string[]> {
-  const obj: Record<string, string | string[]> = {};
-  for (const [key, val] of fd.entries()) {
-    const str = typeof val === "string" ? val : "";
-    if (key in obj) {
-      const existing = obj[key];
-      obj[key] = Array.isArray(existing) ? [...existing, str] : [existing as string, str];
-    } else {
-      obj[key] = str;
-    }
-  }
-  return obj;
-}
-
-/** Formatiert eine Number als deutsches Komma-Format für das Input-Feld. */
-function formatAmount(n: number): string {
-  return n.toFixed(2).replace(".", ",");
-}
-
-/** Anzahlungstranche (Migration 0023) — nur Auswahl-Werte für die Form. */
-export type TrancheOption = { id: string; label: string; due_date: string };
+// Öffentliche Typen bleiben über diese Datei importierbar (draft-editor, edit-page).
+export type { ExpenseInitial, CreditInitial, TrancheOption } from "./transaction-form-parts";
 
 interface TransactionFormProps {
   tripId: string;
   isSkipper: boolean;
   members: Member[];
   categories: Category[];
-  /** Törnstart/-Ende (ISO) — begrenzt das Datums-Feld (min/max) gegen Eingaben außerhalb des Törns. */
+  /** Törnstart/-Ende (ISO) — begrenzt das Datums-Feld (min/max). */
   tripStart?: string;
   tripEnd?: string;
-  /** person_id des eingeloggten Users — wird im "Bezahlt von"-Dropdown nach oben sortiert. */
+  /** person_id des eingeloggten Users — im "Bezahlt von"-Dropdown nach oben sortiert. */
   currentPersonId?: string;
-  /**
-   * Verfügbare Anzahlungstranchen des Trips. Wenn ≥ 1, blendet die Form
-   * ein „Anzahlungstranche zuordnen"-Feld ein. Sonst (kein Plan) bleibt das
-   * Feld verborgen und die Buchung landet wie bisher im Bordkasse-Pool.
-   */
+  /** Verfügbare Anzahlungstranchen — wenn ≥ 1, blendet das Zuordnungs-Feld ein. */
   tranches?: TrancheOption[];
-  /**
-   * Darf der eingeloggte User die Anzahlungstranche-Zuordnung ändern?
-   * True für Skipper/Admin/Vorstrecker. False für normale Crew — sie sieht
-   * das Feld dann gar nicht (vermeidet Verwirrung), bestehende Zuordnung
-   * bleibt aber via Hidden-Input erhalten.
-   */
+  /** Darf der User die Tranche-Zuordnung ändern? (Skipper/Admin/Vorstrecker) */
   canEditTranche?: boolean;
-  /** Wenn gesetzt, Form öffnet im Edit-Mode für eine Ausgabe. */
+  /** Wenn gesetzt, Edit-Mode für eine Ausgabe. */
   expenseInitial?: ExpenseInitial;
-  /** Wenn gesetzt, Form öffnet im Edit-Mode für eine Gutschrift. */
+  /** Wenn gesetzt, Edit-Mode für eine Gutschrift. */
   creditInitial?: CreditInitial;
   /**
    * Wenn gesetzt, bearbeitet das Form einen noch nicht gesyncten Outbox-Entwurf
-   * (= `id` des OutboxItem). Statt einer Server-Action schreibt der Submit den
-   * Eintrag mit GLEICHER id zurück in die Outbox (Überschreiben). So lassen sich
-   * offline erfasste Buchungen vor dem Sync noch korrigieren. Prefill kommt über
-   * `expenseInitial` / `creditInitial` (von DraftEditor aus der Outbox abgeleitet).
+   * (= `id` des OutboxItem). Submit schreibt mit GLEICHER id zurück in die Outbox.
    */
   draftId?: string;
 }
@@ -168,8 +77,7 @@ export function TransactionForm({
   draftId,
 }: TransactionFormProps) {
   const isEdit = !!(expenseInitial || creditInitial);
-  const initialType: "expense" | "credit" =
-    creditInitial ? "credit" : expenseInitial ? "expense" : "expense";
+  const initialType: "expense" | "credit" = creditInitial ? "credit" : "expense";
   const [type, setType] = useState<"expense" | "credit">(initialType);
 
   return (
@@ -238,68 +146,6 @@ export function TransactionForm({
   );
 }
 
-/**
- * Wiederverwendbares Tranche-Select für Expense + Credit-Form.
- * Rendert ein Hidden-Input + ein zusammenklappbares `<details>`. Wenn die
- * Buchung schon einer Tranche zugeordnet ist, ist das Detail offen — damit
- * der User das nicht aus Versehen "vergisst" und beim Edit aktiviert.
- */
-function TrancheField({
-  tranches,
-  initialTrancheId,
-  canEdit,
-}: {
-  tranches?: TrancheOption[];
-  initialTrancheId?: string | null;
-  /**
-   * Nur Skipper/Admin/Vorstrecker dürfen die Anzahlungstranche setzen
-   * oder ändern. Crew sieht das Feld gar nicht. Die canEditTransaction-
-   * Policy in lib/actions/transactions.ts erlaubt Crew sowieso nur
-   * eigene Buchungen zu editieren — eine vom Skipper mit tranche_id
-   * angelegte Buchung kann die Crew nie aufrufen, daher kein Bedarf
-   * für eine Hidden-Input-Preservation.
-   */
-  canEdit: boolean;
-}) {
-  const [value, setValue] = useState(initialTrancheId ?? "");
-  if (!tranches || tranches.length === 0) return null;
-  if (!canEdit) return null;
-
-  return (
-    <details open={!!initialTrancheId} className="rounded-md border border-rule bg-paper p-3 text-sm">
-      <summary className="cursor-pointer text-ink-soft">
-        Anzahlungstranche zuordnen
-        {value && <span className="ml-2 text-primary">✓ aktiv</span>}
-      </summary>
-      <label className="mt-2 block">
-        <span className="text-xs text-ink-soft">Tranche</span>
-        <select
-          name="tranche_id"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          className="mt-1 w-full rounded-md border border-rule px-3 py-2"
-        >
-          <option value="">— Keine (Bordkasse-Pool) —</option>
-          {tranches.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.label} ({formatDeDate(t.due_date)})
-            </option>
-          ))}
-        </select>
-      </label>
-      <p className="mt-2 text-xs text-ink-soft">
-        Wenn gesetzt, landet die Buchung im Anzahlungspool statt in der laufenden Bordkasse.
-      </p>
-    </details>
-  );
-}
-
-function formatDeDate(iso: string): string {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-");
-  return `${Number(d)}.${Number(m)}.${y}`;
-}
-
 function ExpenseForm({
   tripId,
   members,
@@ -331,18 +177,10 @@ function ExpenseForm({
     if (!me) return opts;
     return [me, ...opts.filter((o) => o.id !== currentPersonId)];
   })();
-  const router = useRouter();
-  // Draft-Modus (Outbox-Eintrag bearbeiten) nutzt `initial` zum Vorbefüllen,
-  // ist aber KEIN Server-Edit: kein transaction_id, idempotency_key bleibt = draftId.
   const isDraft = !!draftId;
   const isEdit = !!initial && !isDraft;
-  const [state, formAction, pending] = useActionState(
-    isEdit ? updateExpense : createExpense,
-    idleState,
-  );
   const [splitType, setSplitType] = useState<SplitType>(initial?.splitType ?? "equal");
   const [showAdvanced, setShowAdvanced] = useState(!!initial && initial.alcoholAmount > 0);
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
 
   // Controlled-State für native Inputs, damit React-19's automatischer
   // Form-Reset nach Submit die Eingaben bei Validierungs-Fehler nicht löscht.
@@ -408,8 +246,7 @@ function ExpenseForm({
 
   // ── Livevorschau der Aufteilung ────────────────────────────────────────
   // Spiegelt mit der exakt gleichen Logik wie der Server (lib/calc/shares.ts)
-  // pro Person den Anteil, damit der User VOR dem Speichern sieht, wer wie
-  // viel zahlt. Eingeklappt (`<details>`), reagiert live auf alle Eingaben.
+  // pro Person den Anteil, damit der User VOR dem Speichern sieht, wer wie viel zahlt.
   const previewShares = useMemo(() => {
     const baseAmount = isPerPerson ? perPersonSum : safeMathEval(amount) ?? 0;
     const alc = !isPerPerson ? safeMathEval(alcoholAmount) ?? 0 : 0;
@@ -468,103 +305,24 @@ function ExpenseForm({
     tripEnd,
   ]);
 
-  // Bei Validierungs-Fehler: zum betroffenen Feld scrollen + fokussieren.
-  useEffect(() => {
-    if (state.status !== "error" || !state.field) return;
-    const el = document.getElementById(state.field);
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    if (el instanceof HTMLElement) el.focus({ preventScroll: true });
-  }, [state]);
-
-  const formRef = useRef<HTMLFormElement>(null);
-
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    // Fat-Finger-Schutz: ungewöhnlich hoher Betrag (oft eine Null zu viel) →
-    // weiche Rückfrage vor dem Speichern. Harte Max-Grenze prüft die Action.
-    const total = isPerPerson ? perPersonSum : Number(amount.replace(",", "."));
-    if (
-      Number.isFinite(total) &&
-      total > FAT_FINGER_THRESHOLD &&
-      !window.confirm(
-        `${formatEuro(total)} ist ungewöhnlich hoch für eine einzelne Buchung. Stimmt der Betrag?`,
-      )
-    ) {
-      e.preventDefault();
-      return;
-    }
-    // Draft-Modus: nicht an den Server schicken, sondern den Outbox-Eintrag mit
-    // gleicher id überschreiben. Race-Schutz: ist der Eintrag inzwischen weg
-    // (Sync war schneller), nicht neu einreihen — sonst entstünde via gleichem
-    // idempotency_key ein No-Op und der User glaubt fälschlich, gespeichert zu haben.
-    if (isDraft && draftId) {
-      e.preventDefault();
-      const obj = formDataToObject(new FormData(e.currentTarget));
-      getOutboxItem(draftId)
-        .then((existing) => {
-          if (!existing) {
-            router.push(`/trips/${tripId}/transactions?toast=draft-synced`);
-            return;
-          }
-          return enqueue({
-            id: draftId,
-            tripId,
-            kind: "expense",
-            formData: obj,
-            createdAt: existing.createdAt,
-          }).then(() => router.push(`/trips/${tripId}/transactions?toast=draft-updated`));
-        })
-        .catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
-      return;
-    }
-    if (!isEdit && typeof navigator !== "undefined" && !navigator.onLine) {
-      e.preventDefault();
-      const obj = formDataToObject(new FormData(e.currentTarget));
-      enqueue({
-        id: idempotencyKey,
-        tripId,
-        kind: "expense",
-        formData: obj,
-        createdAt: nowMs(),
-      })
-        .then(() => router.push(`/trips/${tripId}/transactions`))
-        .catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
-    }
-  };
-
-  // Mid-Flight-Schutz: Bricht die Verbindung NACH dem Klick aber VOR dem
-  // Redirect ab (typisch bei wackeligem Bord-WLAN), rettet dieser Listener die
-  // Buchung in die Outbox. Dedup-sicher über den identischen idempotency_key:
-  // selbst wenn die Server-Action serverseitig doch noch durchlief, verwirft
-  // der Replay-Insert das Duplikat (UNIQUE-Constraint).
-  useEffect(() => {
-    if (isEdit || isDraft || !pending) return;
-    const onOffline = () => {
-      const form = formRef.current;
-      if (!form) return;
-      enqueue({
-        id: idempotencyKey,
-        tripId,
-        kind: "expense",
-        formData: formDataToObject(new FormData(form)),
-        createdAt: nowMs(),
-      }).catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
-    };
-    window.addEventListener("offline", onOffline);
-    return () => window.removeEventListener("offline", onOffline);
-  }, [isEdit, isDraft, pending, idempotencyKey, tripId]);
-
-  const errorField = state.status === "error" ? state.field : undefined;
-  const fieldErrors = state.status === "error" ? (state.fieldErrors ?? {}) : {};
-  const fieldError = (field: string) => fieldErrors[field];
-  const isInvalid = (field: string) => !!fieldErrors[field] || errorField === field;
+  const { state, formAction, pending, formRef, handleSubmit, fieldError, isInvalid, idempotencyKey } =
+    useBookingSubmit({
+      tripId,
+      kind: "expense",
+      isEdit,
+      isDraft,
+      draftId,
+      createAction: createExpense,
+      updateAction: updateExpense,
+      getTotal: () => (isPerPerson ? perPersonSum : Number(amount.replace(",", "."))),
+      fatFingerNoun: "Buchung",
+    });
 
   return (
     <form ref={formRef} action={formAction} onSubmit={handleSubmit} className="space-y-5">
       <input type="hidden" name="trip_id" value={tripId} />
       <input type="hidden" name="split_type" value={splitType} />
-      {/* Draft behält seinen idempotency_key (= draftId), damit der Replay nach
-          dem Sync exakt EINE Buchung erzeugt. Frischer Create nutzt den Zufalls-Key. */}
+      {/* Draft behält seinen idempotency_key (= draftId); frischer Create nutzt den Zufalls-Key. */}
       {!isEdit && <input type="hidden" name="idempotency_key" value={isDraft ? draftId : idempotencyKey} />}
       {isEdit && <input type="hidden" name="transaction_id" value={initial!.transactionId} />}
 
@@ -604,9 +362,6 @@ function ExpenseForm({
         <PersonSelect
           name="paid_by"
           options={paidByOptions}
-          // Create-Modus: mit der eingeloggten Person vorbelegt — meist zahlt
-          // die erfassende Person selbst (bei Bedarf umstellbar). Edit-Modus
-          // behält die gebuchte Person.
           defaultValue={initial?.paidBy ?? currentPersonId ?? ""}
           invalid={isInvalid("paid_by")}
           currentUserId={currentPersonId}
@@ -631,9 +386,7 @@ function ExpenseForm({
         />
       </FieldGroup>
 
-      {/* Aufteilung als Tab-Row mit Underline für die aktive Auswahl.
-          Die einzelnen Modi werden im ⓘ-Tooltip neben der Überschrift erklärt —
-          spart eine Hilfezeile, die das Form sonst pro Tab gerendert hat. */}
+      {/* Aufteilung als Tab-Row; die Modi erklärt der ⓘ-Tooltip neben der Überschrift. */}
       <div>
         <span className="block text-sm font-medium">
           Aufteilung
@@ -699,85 +452,16 @@ function ExpenseForm({
       )}
 
       {isPerPerson && (
-        <FieldGroup label="Wer zahlt was?" error={fieldError("participant_amounts")} hint={"Pro Person Betrag eintragen. Rechnen geht auch (z. B. „3 + 17“) — auf dem Smartphone die „?123“-Taste der Tastatur für die Operatoren. Leer = nicht beteiligt."}>
-          <div
-            id="participant_amounts"
-            tabIndex={-1}
-            className={cn(
-              "space-y-2 rounded-md border border-rule bg-paper p-3 outline-none",
-              isInvalid("participant_amounts") && "border-danger ring-2 ring-danger/20",
-            )}
-          >
-            {perPersonAmounts.map((p) => {
-              const showEval = p.raw && p.valid && /[+\-*/]/.test(p.raw);
-              return (
-                <div key={p.personId} className="flex items-center gap-3">
-                  <label
-                    htmlFor={`pp-${p.personId}`}
-                    className="min-w-0 flex-1 truncate text-sm"
-                  >
-                    {p.displayName}
-                  </label>
-                  <div className="flex w-40 flex-col items-end gap-0.5">
-                    <div className="flex w-full items-center gap-2">
-                      {/* inputMode="text" statt "decimal", damit Mobile-Tastaturen
-                          die Symboltaste ("123" / "?123") für Operatoren erlauben
-                          — sonst ist man auf reines Zahlen-Pad festgenagelt und
-                          kann keine Rechenausdrücke wie "3+4" eintragen. */}
-                      <input
-                        id={`pp-${p.personId}`}
-                        type="text"
-                        inputMode="text"
-                        autoComplete="off"
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                        spellCheck={false}
-                        value={p.raw}
-                        onChange={(e) => setPerPerson(p.personId, e.target.value)}
-                        placeholder="–"
-                        aria-describedby={showEval ? `pp-eval-${p.personId}` : undefined}
-                        className={cn(
-                          "h-10 w-full rounded-md border bg-paper px-2 text-right text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20",
-                          p.valid ? "border-rule" : "border-danger ring-2 ring-danger/20",
-                        )}
-                      />
-                      <span className="w-4 shrink-0 text-sm text-ink-soft">€</span>
-                    </div>
-                    {/* Ergebnis des Mini-Rechners sichtbar machen (z. B. „= 20,00 €"),
-                        damit die Person den ausgewerteten Betrag vor dem Speichern sieht. */}
-                    {showEval && (
-                      <span
-                        id={`pp-eval-${p.personId}`}
-                        className="pr-6 text-xs text-ink-soft"
-                        aria-live="polite"
-                      >
-                        = {formatAmount(p.amount)} €
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            <div className="flex items-center justify-between border-t border-rule pt-2 text-sm font-medium">
-              <span>Summe</span>
-              <span className="text-primary">{formatEuro(perPersonSum)}</span>
-            </div>
-            {/* JSON-Bundle für FormData. Nur Einträge mit amount > 0. */}
-            <input
-              type="hidden"
-              name="participant_amounts"
-              value={JSON.stringify(
-                perPersonAmounts
-                  .filter((p) => p.amount > 0)
-                  .map((p) => ({ person_id: p.personId, amount: p.amount })),
-              )}
-            />
-          </div>
-        </FieldGroup>
+        <PerPersonAmounts
+          rows={perPersonAmounts}
+          sum={perPersonSum}
+          onChange={setPerPerson}
+          error={fieldError("participant_amounts")}
+          invalid={isInvalid("participant_amounts")}
+        />
       )}
 
-      {/* Trinkgeld ist semantisch nur bei "Pro Person" sinnvoll (Restaurant-
-          Szenario); für andere Aufteilungen wäre es eine versteckte Falle. */}
+      {/* Trinkgeld ist semantisch nur bei "Pro Person" sinnvoll (Restaurant-Szenario). */}
       {isPerPerson && (
         <>
           <FieldGroup label="Trinkgeld (€)" htmlFor="tip_amount" error={fieldError("tip_amount")}>
@@ -861,25 +545,7 @@ function ExpenseForm({
       )}
 
       {/* Livevorschau: wer zahlt wie viel — eingeklappt per Default. */}
-      {previewShares && previewShares.rows.length > 0 && (
-        <details className="rounded-md border border-rule bg-paper-soft p-3 text-sm">
-          <summary className="cursor-pointer font-medium text-ink">
-            Wer zahlt wie viel?
-          </summary>
-          <ul className="mt-3 space-y-1">
-            {previewShares.rows.map((r) => (
-              <li key={r.name} className="flex items-center justify-between gap-3">
-                <span className="min-w-0 truncate text-ink-soft">{r.name}</span>
-                <span className="shrink-0 tabular-nums">{formatEuro(r.share)}</span>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-2 flex items-center justify-between gap-3 border-t border-rule pt-2 font-medium">
-            <span>Summe</span>
-            <span className="tabular-nums text-primary">{formatEuro(previewShares.sum)}</span>
-          </div>
-        </details>
-      )}
+      <SharePreview preview={previewShares} />
 
       <TrancheField tranches={tranches} initialTrancheId={initial?.trancheId ?? null} canEdit={canEditTranche} />
 
@@ -928,18 +594,10 @@ function CreditForm({
   initial?: CreditInitial;
   draftId?: string;
 }) {
-  const router = useRouter();
-  // Draft-Modus (Outbox-Eintrag bearbeiten) — siehe ExpenseForm.
   const isDraft = !!draftId;
   const isEdit = !!initial && !isDraft;
-  const [state, formAction, pending] = useActionState(
-    isEdit ? updateCredit : createCredit,
-    idleState,
-  );
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
 
-  // Controlled-State, damit React-19's automatischer Form-Reset die Eingaben
-  // bei Validierungs-Fehlern nicht löscht (siehe ExpenseForm oben).
+  // Controlled-State, damit React-19's Form-Reset Eingaben bei Fehlern nicht löscht.
   const [date, setDate] = useState(initial?.date ?? todayIso());
   const [description, setDescription] = useState(initial?.description ?? "");
   const [amount, setAmount] = useState(initial ? formatAmount(initial.amount) : "");
@@ -950,88 +608,18 @@ function CreditForm({
       : initial.creditTo
     : "";
 
-  useEffect(() => {
-    if (state.status !== "error" || !state.field) return;
-    const el = document.getElementById(state.field);
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    if (el instanceof HTMLElement) el.focus({ preventScroll: true });
-  }, [state]);
-
-  const errorField = state.status === "error" ? state.field : undefined;
-  const fieldErrors = state.status === "error" ? (state.fieldErrors ?? {}) : {};
-  const fieldError = (field: string) => fieldErrors[field];
-  const isInvalid = (field: string) => !!fieldErrors[field] || errorField === field;
-
-  const formRef = useRef<HTMLFormElement>(null);
-
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    // Fat-Finger-Schutz wie bei der Ausgabe.
-    const total = Number(amount.replace(",", "."));
-    if (
-      Number.isFinite(total) &&
-      total > FAT_FINGER_THRESHOLD &&
-      !window.confirm(
-        `${formatEuro(total)} ist ungewöhnlich hoch für eine einzelne Gutschrift. Stimmt der Betrag?`,
-      )
-    ) {
-      e.preventDefault();
-      return;
-    }
-    // Draft-Modus: Outbox-Eintrag mit gleicher id überschreiben (siehe ExpenseForm).
-    if (isDraft && draftId) {
-      e.preventDefault();
-      const obj = formDataToObject(new FormData(e.currentTarget));
-      getOutboxItem(draftId)
-        .then((existing) => {
-          if (!existing) {
-            router.push(`/trips/${tripId}/transactions?toast=draft-synced`);
-            return;
-          }
-          return enqueue({
-            id: draftId,
-            tripId,
-            kind: "credit",
-            formData: obj,
-            createdAt: existing.createdAt,
-          }).then(() => router.push(`/trips/${tripId}/transactions?toast=draft-updated`));
-        })
-        .catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
-      return;
-    }
-    if (!isEdit && typeof navigator !== "undefined" && !navigator.onLine) {
-      e.preventDefault();
-      const obj = formDataToObject(new FormData(e.currentTarget));
-      enqueue({
-        id: idempotencyKey,
-        tripId,
-        kind: "credit",
-        formData: obj,
-        createdAt: nowMs(),
-      })
-        .then(() => router.push(`/trips/${tripId}/transactions`))
-        .catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
-    }
-  };
-
-  // Mid-Flight-Schutz (siehe ExpenseForm): geht die Verbindung während eines
-  // laufenden Submits verloren, in die Outbox retten. Dedup über idempotency_key.
-  useEffect(() => {
-    if (isEdit || isDraft || !pending) return;
-    const onOffline = () => {
-      const form = formRef.current;
-      if (!form) return;
-      enqueue({
-        id: idempotencyKey,
-        tripId,
-        kind: "credit",
-        formData: formDataToObject(new FormData(form)),
-        createdAt: nowMs(),
-      }).catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
-    };
-    window.addEventListener("offline", onOffline);
-    return () => window.removeEventListener("offline", onOffline);
-  }, [isEdit, isDraft, pending, idempotencyKey, tripId]);
+  const { state, formAction, pending, formRef, handleSubmit, fieldError, isInvalid, idempotencyKey } =
+    useBookingSubmit({
+      tripId,
+      kind: "credit",
+      isEdit,
+      isDraft,
+      draftId,
+      createAction: createCredit,
+      updateAction: updateCredit,
+      getTotal: () => Number(amount.replace(",", ".")),
+      fatFingerNoun: "Gutschrift",
+    });
 
   return (
     <form ref={formRef} action={formAction} onSubmit={handleSubmit} className="space-y-5">
@@ -1097,8 +685,7 @@ function CreditForm({
 
       <TrancheField tranches={tranches} initialTrancheId={initial?.trancheId ?? null} canEdit={canEditTranche} />
 
-      {/* Sammel-Fehler nur für allgemeine/DB-Fehler — Feld-Fehler stehen schon
-          direkt unter dem jeweiligen Feld. */}
+      {/* Sammel-Fehler nur für allgemeine/DB-Fehler. */}
       {state.status === "error" &&
         Object.keys(state.fieldErrors ?? {}).length === 0 && (
           <p className="text-sm text-danger" role="alert">{state.message}</p>
@@ -1118,35 +705,5 @@ function CreditForm({
               : "Gutschrift speichern"}
       </button>
     </form>
-  );
-}
-
-const inputCls =
-  "mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20";
-
-function FieldGroup({
-  label,
-  htmlFor,
-  hint,
-  error,
-  children,
-}: {
-  label: string;
-  htmlFor?: string;
-  hint?: string;
-  /** Feld-spezifische Fehlermeldung — wird direkt unter dem Feld gezeigt. */
-  error?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label htmlFor={htmlFor} className="block text-sm font-medium">{label}</label>
-      {children}
-      {error ? (
-        <p className="mt-1 text-xs text-danger" role="alert">{error}</p>
-      ) : (
-        hint && <p className="mt-1 text-xs text-ink-soft">{hint}</p>
-      )}
-    </div>
   );
 }

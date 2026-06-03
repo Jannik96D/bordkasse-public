@@ -2,19 +2,30 @@
 //
 // Strategie:
 //   - Static Assets (icons, manifest) → CacheFirst, lange Lebensdauer
-//   - Same-origin HTML/Page-Navigationen → NetworkFirst, Cache-Fallback
+//   - Same-origin HTML/Page-Navigationen → NetworkFirst, Cache-Fallback,
+//     letzter Fallback: vorgecachte /offline.html (markenkonform statt Browser-Dino)
 //   - Same-origin _next/static, _next/image → CacheFirst (immutable)
 //   - Cross-origin (Supabase API/Realtime) → niemals cachen, normales Fetch
 //   - POST/PUT/PATCH/DELETE (Server Actions) → niemals cachen
 //
+// Update-Flow (WICHTIG): Der Worker ruft NICHT mehr unbedingt skipWaiting() im
+// install — eine neue Version bleibt im `waiting`-Zustand, bis der Nutzer im
+// "Neue Version verfügbar"-Banner auf "Aktualisieren" tippt (→ SKIP_WAITING-
+// Message). So wird die Crew nicht mitten in einer Eingabe weggerissen
+// (automatischer Reload-Footgun). clients.claim() bleibt, damit der ERSTE
+// Worker die schon offene Seite ohne erzwungenen Reload übernimmt.
+//
 // Bei jeder Version den CACHE_VERSION-String hochzählen, damit alte
 // Caches beim Activate-Event aufgeräumt werden.
 
-const CACHE_VERSION = "bordkasse-v3";
+const CACHE_VERSION = "bordkasse-v5";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE = `${CACHE_VERSION}-pages`;
 
+const OFFLINE_URL = "/offline.html";
+
 const PRECACHE_URLS = [
+  OFFLINE_URL,
   "/manifest.json",
   "/logo.png",
   "/favicon.ico",
@@ -27,7 +38,8 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE_URLS)),
   );
-  self.skipWaiting();
+  // KEIN self.skipWaiting() — siehe Update-Flow oben. Der Worker wartet, bis
+  // der Nutzer das Update bewusst anstößt (SKIP_WAITING-Message).
 });
 
 self.addEventListener("activate", (event) => {
@@ -65,7 +77,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Page-Navigation → NetworkFirst, Fallback auf Cache.
+  // Page-Navigation → NetworkFirst, Fallback auf Cache, dann Offline-Seite.
   if (request.mode === "navigate" || request.headers.get("accept")?.includes("text/html")) {
     event.respondWith(networkFirst(request, PAGES_CACHE));
     return;
@@ -102,11 +114,18 @@ async function networkFirst(request, cacheName) {
     // Die Client-Seite liest `?draft=` und lädt den Entwurf aus IndexedDB.
     const ignoreSearch = await cache.match(request, { ignoreSearch: true });
     if (ignoreSearch) return ignoreSearch;
+    // Letzter Fallback für nie besuchte Seiten: markenkonforme Offline-Seite
+    // (liegt im STATIC_CACHE, nicht im PAGES_CACHE).
+    if (request.mode === "navigate") {
+      const offline = await caches.match(OFFLINE_URL);
+      if (offline) return offline;
+    }
     throw err;
   }
 }
 
-// Triggern eines Outbox-Sync per Message vom Client.
+// Triggern eines sofortigen Update-Wechsels per Message vom Client
+// ("Aktualisieren"-Button in components/service-worker-register.tsx).
 self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") {
     self.skipWaiting();

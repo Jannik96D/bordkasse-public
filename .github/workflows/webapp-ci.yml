@@ -43,9 +43,34 @@ jobs:
       - name: Tests (S1–S7)
         run: pnpm test
 
-# Hinweis: `supabase db lint` (search_path-Pins auf SECURITY-DEFINER-Funktionen
-# etc.) wird bewusst NICHT in CI ausgeführt — `supabase start` läuft im
-# GitHub-Runner nicht zuverlässig (Docker/Image-Setup) und produzierte nur ein
-# rotes, nicht-aussagekräftiges Kreuz. Stattdessen lokal vor größeren
-# Schema-Änderungen ausführen:
-#   supabase start && supabase db lint --level warning && supabase stop
+  # pgTAP-Tests gegen die echten SQL-Views/Funktionen. Zusammen mit den
+  # Vitest-Tests (TS-Mirror in lib/calc/*) bilden sie den Drift-Guard: ändert
+  # sich eine View, ohne dass der TS-Mirror nachgezogen wird (Bug-Klasse 0031/
+  # 0032), schlägt einer der beiden Läufe an.
+  #
+  # Historie: Früher lief das nicht in CI, weil das volle `supabase start` im
+  # GitHub-Runner unzuverlässig war. Lösung: nur die DB-relevanten Container
+  # starten (-x schließt die schweren UI-/Analytics-/Edge-Services aus), das
+  # ist deutlich schlanker und stabiler. Eigener Job, damit ein Infra-Flake den
+  # schnellen lint-test-Job nicht blockiert.
+  db-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webapp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start Supabase (DB-only)
+        run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,realtime,storage-api,inbucket
+
+      - name: pgTAP (SQL-Views/Funktionen)
+        run: pnpm test:db
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop

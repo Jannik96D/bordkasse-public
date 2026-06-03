@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
-import { OfflineBanner } from "@/components/offline-banner";
 import { ToastProvider } from "@/components/toast-provider";
 
 export const metadata: Metadata = {
@@ -37,6 +36,10 @@ export const viewport: Viewport = {
   themeColor: "#114884",
   width: "device-width",
   initialScale: 1,
+  // Randlose, native Anmutung im Standalone-Modus: erst mit viewport-fit=cover
+  // liefern die `env(safe-area-inset-*)` echte Werte (sonst 0). Die fixed
+  // BottomNav (pb-safe) und der sticky TripHeader (pt-safe) nutzen das.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -54,8 +57,13 @@ export default function RootLayout({
         >
           Direkt zum Inhalt springen
         </a>
+        {/* ServiceWorkerRegister bleibt global: der SW muss auch für
+            ausgeloggte Besucher (Landing/Login/About) registriert sein, sonst
+            gibt es kein Offline-Caching/keine Offline-Seite, wenn die PWA vom
+            Login-Screen aus installiert wird. Der schwere OfflineBanner
+            (IndexedDB-Outbox) hingegen lebt im Trip-Layout — er ist erst
+            relevant, sobald offline Buchungen erfasst werden. */}
         <ServiceWorkerRegister />
-        <OfflineBanner />
         <ToastProvider>
           <div id="main-content" tabIndex={-1} className="flex min-h-full flex-1 flex-col outline-none">
             {children}

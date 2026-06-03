@@ -230,11 +230,11 @@ function LoginPageInner() {
         )}
 
         <p className="text-center text-xs text-ink-soft">
-          <Link href="/about" className="hover:text-primary">Über die App</Link>
+          <Link href="/about" className="inline-block py-2 hover:text-primary">Über die App</Link>
           <span className="mx-2">·</span>
-          <Link href="/datenschutz" className="hover:text-primary">Datenschutz</Link>
+          <Link href="/datenschutz" className="inline-block py-2 hover:text-primary">Datenschutz</Link>
           <span className="mx-2">·</span>
-          <Link href="/kontakt" className="hover:text-primary">Kontakt</Link>
+          <Link href="/kontakt" className="inline-block py-2 hover:text-primary">Kontakt</Link>
         </p>
       </div>
     </main>

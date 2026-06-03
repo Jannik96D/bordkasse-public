@@ -19,24 +19,27 @@ export default async function Home({
 
   if (!person) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
+      <main className="flex flex-1 flex-col items-center px-6 pb-12 pt-[14vh] text-center">
         <div className="w-full max-w-md space-y-6">
           {justDeleted && (
             <div className="rounded-md border border-success/30 bg-success/5 p-3 text-sm text-success">
               Konto wurde gelöscht. Bis dann!
             </div>
           )}
-          <Image
-            src="/logo.png"
-            alt="Bordkasse"
-            width={200}
-            height={154}
-            priority
-            className="mx-auto h-auto w-48"
-          />
+          {/* Feste Box reserviert den Platz vor dem Laden → kein Layout-Shift (CLS). */}
+          <div className="mx-auto h-[148px] w-48">
+            <Image
+              src="/logo.png"
+              alt="Bordkasse"
+              width={192}
+              height={148}
+              priority
+              className="h-full w-full"
+            />
+          </div>
           <h1 className="text-4xl font-bold text-primary">Bordkasse</h1>
           <p className="text-lg text-ink-soft">
-            Unsere Bordkasse für gemeinsame Törns
+            Faire Kostenaufteilung auf Segeltörns – auch wenn die Crew wechselt.
           </p>
           <Link
             href="/login"
@@ -45,7 +48,7 @@ export default async function Home({
             Anmelden
           </Link>
           <p className="text-sm text-ink-soft">
-            <Link href="/about" className="underline hover:text-primary">
+            <Link href="/about" className="inline-block py-2 underline hover:text-primary">
               Über die Bordkassen-App
             </Link>
           </p>
@@ -185,11 +188,11 @@ export default async function Home({
       )}
 
       <p className="mt-8 text-center text-xs text-ink-soft">
-        <Link href="/about" className="hover:text-primary">Über die App</Link>
+        <Link href="/about" className="inline-block py-2 hover:text-primary">Über die App</Link>
         <span className="mx-2">·</span>
-        <Link href="/datenschutz" className="hover:text-primary">Datenschutz</Link>
+        <Link href="/datenschutz" className="inline-block py-2 hover:text-primary">Datenschutz</Link>
         <span className="mx-2">·</span>
-        <Link href="/kontakt" className="hover:text-primary">Kontakt</Link>
+        <Link href="/kontakt" className="inline-block py-2 hover:text-primary">Kontakt</Link>
       </p>
     </main>
   );

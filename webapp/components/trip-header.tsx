@@ -53,7 +53,7 @@ export function TripHeader({
   const showDates = isOverview || isSettings;
 
   return (
-    <header className="sticky top-0 z-10 border-b border-rule bg-paper/95 backdrop-blur-sm">
+    <header className="sticky top-0 z-10 border-b border-rule bg-paper/95 pt-[env(safe-area-inset-top)] backdrop-blur-sm">
       <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3">
         <Link
           href="/"

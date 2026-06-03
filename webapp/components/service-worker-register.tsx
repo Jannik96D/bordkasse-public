@@ -24,6 +24,12 @@ export function ServiceWorkerRegister() {
     }
 
     let cancelled = false;
+    // Gab es beim Laden schon einen Controller? Nur dann ist ein späterer
+    // controllerchange ein echter Update-Wechsel (→ Reload). Beim ALLERERSTEN
+    // Install übernimmt der Worker per clients.claim() die offene Seite und
+    // löst ebenfalls controllerchange aus — dann wollen wir NICHT neu laden.
+    const hadController = !!navigator.serviceWorker.controller;
+    let refreshing = false;
 
     navigator.serviceWorker
       .register("/sw.js", { scope: "/" })
@@ -50,9 +56,14 @@ export function ServiceWorkerRegister() {
         console.error("Service Worker Registration fehlgeschlagen:", err);
       });
 
-    // Wenn der wartende Worker übernommen hat, einmal neu laden, damit
-    // die neue Asset-Version zum Zug kommt.
-    const onControllerChange = () => window.location.reload();
+    // Reload erst, wenn der NEUE Worker tatsächlich übernimmt (nach Klick auf
+    // "Aktualisieren" → SKIP_WAITING). Der hadController-Guard verhindert den
+    // störenden Reload beim Erst-Install.
+    const onControllerChange = () => {
+      if (!hadController || refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    };
     navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
 
     return () => {
