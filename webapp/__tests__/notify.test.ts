@@ -199,4 +199,17 @@ describe("sendPushToPersons", () => {
     expect(res).toEqual({ sent: 0, failed: 0, removed: 0 });
     expect((webpush.sendNotification as Mock).mock.calls.length).toBe(0);
   });
+
+  it("wirft NICHT bei ungültiger VAPID-Konfiguration (setVapidDetails throws)", async () => {
+    const webpush = (await import("web-push")).default;
+    // Malformter Key/Subject in Env → setVapidDetails wirft. Das darf den
+    // aufrufenden Action-Pfad NICHT sprengen (Vertrag wie sendMail).
+    (webpush.setVapidDetails as Mock).mockImplementationOnce(() => {
+      throw new Error("invalid vapid key");
+    });
+    const { sendPushToPersons } = await import("@/lib/notify/web-push");
+    const res = await sendPushToPersons(makeSupabase([sub("s1")]) as never, ["p1"], payload);
+    expect(res).toEqual({ sent: 0, failed: 0, removed: 0 });
+    expect((webpush.sendNotification as Mock).mock.calls.length).toBe(0);
+  });
 });
