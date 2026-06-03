@@ -65,11 +65,18 @@ jobs:
         with:
           version: latest
 
+      # Das Legacy-seed.sql referenziert persons.email (vor Migration 0013) und
+      # bricht sonst `supabase start`. Die pgTAP-Tests erzeugen ihre eigenen
+      # Fixtures (BEGIN/ROLLBACK) — Seed-Daten sind hier unnötig, daher leeren.
+      - name: Legacy-Seed für CI leeren
+        run: ': > supabase/seed.sql'
+
       - name: Start Supabase (DB-only)
         run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,realtime,storage-api,inbucket
 
+      # Direkt über die Supabase-CLI (kein pnpm/Node im DB-Job nötig).
       - name: pgTAP (SQL-Views/Funktionen)
-        run: pnpm test:db
+        run: supabase test db
 
       - name: Stop Supabase
         if: always()
