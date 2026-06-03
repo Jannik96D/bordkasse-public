@@ -32,6 +32,7 @@ const PRECACHE_URLS = [
   "/icon-192.png",
   "/icon-512.png",
   "/apple-icon.png",
+  "/badge-96.png",
 ];
 
 self.addEventListener("install", (event) => {
@@ -164,7 +165,7 @@ self.addEventListener("push", (event) => {
         tag: payload.tag,
         renotify: Boolean(payload.tag),
         icon: "/icon-192.png",
-        badge: "/icon-192.png",
+        badge: "/badge-96.png",
         lang: "de",
         data: { url },
       });

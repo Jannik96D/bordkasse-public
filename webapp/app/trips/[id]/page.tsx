@@ -9,6 +9,7 @@ import { todayIso } from "@/lib/utils";
 import { FabAddTransaction } from "@/components/bottom-nav";
 import { OnboardingHint } from "@/components/onboarding-hint";
 import { SettlementStatus } from "@/components/settlement-status";
+import { NotificationNudge } from "@/components/notification-nudge";
 import { TripProgress } from "@/components/trip-progress";
 import { getTripProgressSignals } from "@/lib/queries/trip-progress";
 import { computeTripProgress } from "@/lib/calc/trip-progress";
@@ -81,6 +82,10 @@ export default async function TripDashboard({
         canAnnounce={canAnnounce}
         highlight={justEditedKaution}
       />
+
+      {/* Geräte-Push genau dort anbieten, wo die Crew ist — der Nudge
+          versteckt sich selbst, sobald abonniert/nicht unterstützt/weggeklickt. */}
+      {hasMembers && <NotificationNudge />}
 
       <section className="rounded-lg border border-rule bg-paper p-5">
         <div className="flex items-center justify-between">

@@ -61,10 +61,18 @@
 - **Empfänger:** [`lib/notify/recipients.ts`](../webapp/lib/notify/recipients.ts)
   — `pushRecipients` (dedup + Actor-Exclusion), pure.
 - **Service Worker:** [`public/sw.js`](../webapp/public/sw.js) — `push`- +
-  `notificationclick`-Listener, Foreground-Suppression, `CACHE_VERSION` →
-  `bordkasse-v6`.
-- **Client:** [`app/profile/notification-block.tsx`](../webapp/app/profile/notification-block.tsx)
-  + [`push-actions.ts`](../webapp/app/profile/push-actions.ts) — opt-in pro Gerät,
+  `notificationclick`-Listener, Foreground-Suppression, monochromes Badge
+  `/badge-96.png` (Android-Statusleiste; reproduzierbar via
+  `scripts/make-badge.mjs`), `CACHE_VERSION` → `bordkasse-v6`.
+- **Client:** geteilter Hook
+  [`components/use-push-subscription.ts`](../webapp/components/use-push-subscription.ts)
+  (Status/Permission/Subscribe) trägt ZWEI Einstiege — den Profil-Block
+  [`app/profile/notification-block.tsx`](../webapp/app/profile/notification-block.tsx)
+  und den **Übersicht-Nudge** [`components/notification-nudge.tsx`](../webapp/components/notification-nudge.tsx)
+  (dezenter, wegklickbarer Banner mit Inline-„Aktivieren", erscheint nur bei
+  `status === "unsubscribed"`, localStorage-Dismiss) — damit die Funktion nicht
+  in den Profil-Einstellungen vergessen wird. Subscribe-Actions in
+  [`push-actions.ts`](../webapp/app/profile/push-actions.ts). Opt-in pro Gerät,
   Permission nur auf Klick, `urlBase64ToUint8Array` für `applicationServerKey`.
 
 ## Env-Vars (Produktion + lokal)
