@@ -67,6 +67,15 @@ export default function DatenschutzPage() {
               E-Mail-Adressen Dritter (Datenminimierung).
             </li>
             <li>
+              <strong>Push-Benachrichtigungen (optional)</strong>: Aktivierst du auf einem
+              Gerät Push-Mitteilungen, speichern wir das vom Browser erzeugte Geräte-Abo
+              (eine Endpoint-Adresse beim Push-Dienst sowie zwei Verschlüsselungs-Schlüssel
+              deines Geräts). Damit schicken wir dieselben Hinweise wie per E-Mail zusätzlich
+              als kurze Mitteilung. Der Inhalt jeder Mitteilung ist für dein Gerät
+              verschlüsselt; der Push-Dienst sieht ihn nicht. Du kannst Push pro Gerät
+              jederzeit im Profil wieder abschalten, das Abo wird dann sofort gelöscht.
+            </li>
+            <li>
               <strong>Sichtbarkeitsmarker für Alt-Statistik</strong>: Nach DSGVO-Löschung
               eines abgeschlossenen Törns (siehe §5) wird ausschließlich ein Verweis
               „Person X war Mitglied von Trip Y“ aufbewahrt, damit du deine anonymisierten
@@ -136,6 +145,16 @@ export default function DatenschutzPage() {
               <strong>E-Mail-Versand</strong>: eigener Mailserver bei whost.dev (Deutschland)
               für Login-, Einladungs-, Abrechnungs- und Erinnerungs-Mails (zum Inhalt
               dieser Mails siehe §&nbsp;2, „E-Mail-Benachrichtigungen“).
+            </li>
+            <li>
+              <strong>Push-Dienste der Browser-Hersteller</strong> (nur wenn du Push
+              aktivierst): Mitteilungen werden über den Push-Dienst deines Browsers bzw.
+              Betriebssystems zugestellt — je nach Gerät Apple (APNs), Google (FCM) oder
+              Mozilla. Der Mitteilungs-Inhalt ist für dein Gerät verschlüsselt; technisch
+              notwendige Verbindungsdaten (Geräte-Endpoint, Zeitpunkt) verarbeiten diese
+              Dienste, teils auf Servern außerhalb der EU (Art. 46 DSGVO,
+              Standardvertragsklauseln bzw. EU-US Data Privacy Framework). Aktivierst du
+              Push nicht, findet diese Übermittlung nicht statt.
             </li>
           </ul>
         </div>

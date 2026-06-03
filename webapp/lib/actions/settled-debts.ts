@@ -8,6 +8,9 @@ import { logAudit } from "@/lib/db/audit";
 import { sendMail } from "@/lib/email/send";
 import { renderDebtSettledMail } from "@/lib/email/debt-settled-template";
 import { renderDebtObserverMail } from "@/lib/email/debt-observer-template";
+import { sendPushToPersons } from "@/lib/notify/web-push";
+import { pushRecipients } from "@/lib/notify/recipients";
+import { debtSettledPush } from "@/lib/notify/payloads";
 import { formatDate } from "@/lib/utils";
 
 const ToggleSchema = z.object({
@@ -324,6 +327,27 @@ async function sendDebtSettledMails(
       // PII (Mail-Adresse) bewusst NICHT loggen.
       console.error("[bordkasse:debt-settled-mail] failed", { person_id: r.personId, error: res.error });
     }
+  }
+
+  // Push (additiv zur Mail) — nur an die direkt Beteiligten (Schuldner /
+  // Gläubiger), NIE an Observer und nie an den Auslöser selbst. Schuldner und
+  // Gläubiger bekommen unterschiedlichen Text, daher pro Empfänger ein Push.
+  for (const pid of pushRecipients([args.fromPersonId, args.toPersonId], {
+    excludeActorId: args.actorPersonId,
+  })) {
+    await sendPushToPersons(
+      supabase,
+      [pid],
+      debtSettledPush({
+        recipientRole: pid === args.fromPersonId ? "debtor" : "creditor",
+        actorRole,
+        actorName,
+        amount: args.amount,
+        tripId: args.tripId,
+        fromPersonId: args.fromPersonId,
+        toPersonId: args.toPersonId,
+      }),
+    );
   }
 
   return { sent, failed };

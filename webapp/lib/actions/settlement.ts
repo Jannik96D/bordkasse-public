@@ -8,6 +8,9 @@ import { logAudit } from "@/lib/db/audit";
 import { getBalances, getSimplifiedDebts } from "@/lib/queries/balances";
 import { sendMail } from "@/lib/email/send";
 import { renderSettlementMail, type DebtItem } from "@/lib/email/settlement-template";
+import { sendPushToPersons } from "@/lib/notify/web-push";
+import { pushRecipients } from "@/lib/notify/recipients";
+import { settlementAnnouncedPush, settlementUpdatedPush } from "@/lib/notify/payloads";
 import { formatDate } from "@/lib/utils";
 
 type Result =
@@ -163,6 +166,14 @@ export async function announceSettlement(tripId: string): Promise<Result> {
     actor_person_id: person.id,
     payload: { settlement_announced: true, mails_sent: sent, mails_skipped: skipped, mails_failed: failed },
   });
+
+  // Push zusätzlich zur Mail (additiv, wirft nie). Den Auslöser selbst pushen
+  // wir nicht — er hat die Abrechnung gerade ausgelöst.
+  await sendPushToPersons(
+    supabase,
+    pushRecipients(members.map((m) => m.person_id), { excludeActorId: person.id }),
+    settlementAnnouncedPush(trip.name, tripId),
+  );
 
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/balance`);
@@ -359,6 +370,14 @@ export async function resendSettlement(tripId: string): Promise<Result> {
       change_summary: changeSummary ?? null,
     },
   });
+
+  // Push zusätzlich zur Update-Mail (gleicher Collapse-Tag wie die
+  // Ankündigung → ersetzt sie). Auslöser ausgenommen.
+  await sendPushToPersons(
+    supabase,
+    pushRecipients(members.map((m) => m.person_id), { excludeActorId: person.id }),
+    settlementUpdatedPush(trip.name, tripId),
+  );
 
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/balance`);

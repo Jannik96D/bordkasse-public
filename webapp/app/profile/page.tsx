@@ -6,6 +6,7 @@ import { isAdmin } from "@/lib/auth/authz";
 import { ProfileForm } from "./profile-form";
 import { DeleteAccountBlock } from "./delete-account-block";
 import { DataExportBlock } from "./data-export-block";
+import { NotificationBlock } from "./notification-block";
 import { signOut } from "./actions";
 
 export default async function ProfilePage() {
@@ -47,6 +48,8 @@ export default async function ProfilePage() {
           email={person.email ?? ""}
         />
       </div>
+
+      <NotificationBlock />
 
       <div className="mt-12 border-t border-rule pt-6">
         <form action={signOut}>

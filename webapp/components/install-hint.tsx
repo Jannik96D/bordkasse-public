@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Share, Smartphone, X, Download } from "lucide-react";
+import { isIos, isStandalone } from "@/lib/pwa";
 
 const DISMISS_KEY = "bordkasse:install-hint-dismissed";
 
@@ -31,25 +32,15 @@ export function InstallHint() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    // Bereits als PWA installiert → nichts zeigen
-    const standalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      // iOS Safari verwendet ein nicht-standard-property
-      (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
-    if (standalone) return;
+    // Bereits als PWA installiert → nichts zeigen (geteilte Erkennung mit dem
+    // Push-Hook, damit iPad-/Standalone-Logik nicht divergiert).
+    if (isStandalone()) return;
 
     // Vom User weggeklickt
     if (localStorage.getItem(DISMISS_KEY) === "1") return;
 
-    const ua = window.navigator.userAgent;
-    const isIphone = /iPhone|iPod/.test(ua);
-    // iPadOS 13+ sendet standardmäßig einen Desktop-Safari-UA, deshalb
-    // zusätzlich der Touch-Macintosh-Trick.
-    const isIpad =
-      /iPad/.test(ua) ||
-      (/Macintosh/.test(ua) && typeof navigator !== "undefined" && navigator.maxTouchPoints > 1);
-    const isIos = isIphone || isIpad;
-    const isAndroid = /Android/i.test(ua);
+    const iosDevice = isIos();
+    const isAndroid = /Android/i.test(window.navigator.userAgent);
 
     // beforeinstallprompt (Chrome/Android/Desktop-Chrome): den nativen
     // Mini-Infobar abfangen und stattdessen unseren eigenen Button anbieten.
@@ -76,9 +67,9 @@ export function InstallHint() {
     // react-hooks/set-state-in-effect ohne UX-Auswirkung. iOS: Anleitung.
     // Android ohne Event: textueller Fallback.
     let t: ReturnType<typeof setTimeout> | undefined;
-    if (isIos || isAndroid) {
+    if (iosDevice || isAndroid) {
       t = setTimeout(() => {
-        setVariant(isIos ? "ios" : "android");
+        setVariant(iosDevice ? "ios" : "android");
         setShow(true);
       }, 0);
     }
