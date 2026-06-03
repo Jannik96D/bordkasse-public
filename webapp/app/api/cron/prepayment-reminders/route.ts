@@ -3,6 +3,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyCronAuth } from "@/lib/auth/cron-auth";
 import { sendPrepaymentReminderMail } from "@/lib/email/send-prepayment-reminder";
 import { CREW_DUE_DAYS_BEFORE_CHARTER, addDays } from "@/lib/prepayments/dates";
+import { sendPushToPersons } from "@/lib/notify/web-push";
+import { prepaymentReminderPush, charterReminderPush } from "@/lib/notify/payloads";
 
 /**
  * Täglicher Cron — verschickt Anzahlungs-Erinnerungen 3 Tage vor der
@@ -43,6 +45,10 @@ interface ReminderJob {
   tripId: string;
   personId: string;
   type: "crew_3d" | "advancer_3d";
+  // Für den Push-Payload (zusätzlich zur Mail) am Versand-Punkt verfügbar.
+  trancheLabel: string;
+  tripName: string;
+  amount: number;
 }
 
 export async function GET(request: NextRequest) {
@@ -193,7 +199,15 @@ export async function GET(request: NextRequest) {
       const remainingAgency = sollAgency - paidAgency;
       const key = `${t.id}::${advancerId}::advancer_3d`;
       if (remainingAgency > FLOAT_TOL && !alreadySent.has(key)) {
-        jobs.push({ trancheId: t.id, tripId: t.trip_id, personId: advancerId, type: "advancer_3d" });
+        jobs.push({
+          trancheId: t.id,
+          tripId: t.trip_id,
+          personId: advancerId,
+          type: "advancer_3d",
+          trancheLabel: t.label,
+          tripName: trip.name,
+          amount: remainingAgency,
+        });
       }
     }
 
@@ -217,7 +231,15 @@ export async function GET(request: NextRequest) {
         if (pendingByTranchePerson.has(`${t.id}::${personId}`)) continue;
         const key = `${t.id}::${personId}::crew_3d`;
         if (alreadySent.has(key)) continue;
-        jobs.push({ trancheId: t.id, tripId: t.trip_id, personId, type: "crew_3d" });
+        jobs.push({
+          trancheId: t.id,
+          tripId: t.trip_id,
+          personId,
+          type: "crew_3d",
+          trancheLabel: t.label,
+          tripName: trip.name,
+          amount: trancheSoll - paid,
+        });
       }
     }
   }
@@ -249,6 +271,24 @@ export async function GET(request: NextRequest) {
         // Unique-Violation = parallele Cron-Instanz hat schon gelogged — egal.
         console.warn("[bordkasse:cron] log insert:", logErr.message);
       }
+
+      // Push zusätzlich zur Mail (additiv, wirft nie). Kein Actor → keine
+      // Exclusion; der Dedup-Log oben deckt beide Kanäle gemeinsam ab, sodass
+      // weder Mail noch Push erneut rausgehen.
+      await sendPushToPersons(
+        supabase,
+        [job.personId],
+        job.type === "crew_3d"
+          ? prepaymentReminderPush({
+              trancheLabel: job.trancheLabel,
+              amount: job.amount,
+              tripName: job.tripName,
+              tripId: job.tripId,
+              trancheId: job.trancheId,
+            })
+          : charterReminderPush({ tripName: job.tripName, tripId: job.tripId, trancheId: job.trancheId }),
+      );
+
       sent++;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

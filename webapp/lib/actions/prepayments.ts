@@ -7,6 +7,9 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireSkipperOrAdmin, requireMember, requireSkipperAdminOrAdvancer } from "@/lib/auth/authz";
+import { sendPushToPersons } from "@/lib/notify/web-push";
+import { pushRecipients } from "@/lib/notify/recipients";
+import { paymentPendingPush, paymentConfirmedPush, paymentRejectedPush } from "@/lib/notify/payloads";
 import { personsBelongToTrip, CROSS_TRIP_PERSON_MSG } from "@/lib/auth/cross-trip";
 import { logAudit } from "@/lib/db/audit";
 import {
@@ -450,6 +453,14 @@ export async function recordPayment(
     }
   }
 
+  // Push an die Crewperson (additiv zur Mail) — Actor ausgenommen. Gesamtbetrag
+  // der erfassten Zahlung, nicht pro Overflow-Split.
+  await sendPushToPersons(
+    supabase,
+    pushRecipients([person_id], { excludeActorId: actorPersonId }),
+    paymentConfirmedPush({ amount, tripId: trip_id }),
+  );
+
   revalidatePath(`/trips/${trip_id}/prepayments`);
   revalidatePath(`/trips/${trip_id}/balance`);
   revalidatePath(`/trips/${trip_id}/transactions`);
@@ -771,6 +782,15 @@ export async function submitSelfPayment(
     console.error("[bordkasse:pending-mail]", e);
   }
 
+  // Push an den Vorstrecker (additiv zur Mail) — die meldende Person selbst
+  // nicht (pushRecipients filtert den Actor; greift, falls der Vorstrecker
+  // ausnahmsweise für sich selbst meldet).
+  await sendPushToPersons(
+    supabase,
+    pushRecipients([advancerId], { excludeActorId: auth.personId }),
+    paymentPendingPush({ payerName: person.display_name, amount, tripId: trip_id }),
+  );
+
   revalidatePath(`/trips/${trip_id}/prepayments`);
   return { status: "ok" };
 }
@@ -835,6 +855,13 @@ export async function confirmSelfPayment(
   } catch (e) {
     console.error("[bordkasse:notice-mail]", e);
   }
+
+  // Push an die Crewperson (additiv) — Actor (Vorstrecker/Admin) ausgenommen.
+  await sendPushToPersons(
+    supabase,
+    pushRecipients([tx.credit_from], { excludeActorId: auth.personId }),
+    paymentConfirmedPush({ amount: Number(tx.amount), tripId: tx.trip_id }),
+  );
 
   revalidatePath(`/trips/${tx.trip_id}/prepayments`);
   revalidatePath(`/trips/${tx.trip_id}/balance`);
@@ -910,6 +937,13 @@ export async function rejectSelfPayment(
   } catch (e) {
     console.error("[bordkasse:notice-mail]", e);
   }
+
+  // Push an die Crewperson (additiv) — Actor (Vorstrecker/Admin) ausgenommen.
+  await sendPushToPersons(
+    supabase,
+    pushRecipients([tx.credit_from], { excludeActorId: auth.personId }),
+    paymentRejectedPush({ amount: Number(tx.amount), tripId: tx.trip_id }),
+  );
 
   revalidatePath(`/trips/${tx.trip_id}/prepayments`);
   return { status: "ok" };

@@ -18,7 +18,7 @@
 // Bei jeder Version den CACHE_VERSION-String hochzählen, damit alte
 // Caches beim Activate-Event aufgeräumt werden.
 
-const CACHE_VERSION = "bordkasse-v5";
+const CACHE_VERSION = "bordkasse-v6";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE = `${CACHE_VERSION}-pages`;
 
@@ -131,3 +131,87 @@ self.addEventListener("message", (event) => {
     self.skipWaiting();
   }
 });
+
+// ── Web-Push ──────────────────────────────────────────────────────────────
+// Eingehende Push-Nachricht. Payload = JSON { title, body, url, tag } (siehe
+// lib/notify/payloads.ts). Push + Mail gehen immer gemeinsam raus — der Push
+// ist der kurze Weckruf, die Mail liefert den Kontext.
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+  let payload;
+  try {
+    payload = event.data.json();
+  } catch {
+    payload = { title: "Bordkasse", body: event.data.text(), url: "/" };
+  }
+  const title = payload.title || "Bordkasse";
+  const url = payload.url || "/";
+
+  event.waitUntil(
+    (async () => {
+      // Foreground-Suppression: schaut der Nutzer GERADE auf die betroffene
+      // Trip-Seite, hat der Realtime-Toast die Info bereits gezeigt → keine
+      // doppelte OS-Benachrichtigung. Ein anderes/gesperrtes Gerät oder ein
+      // anderer Trip bekommt den Push trotzdem (die Mail kommt ohnehin immer).
+      const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const suppressed = wins.some(
+        (c) => c.visibilityState === "visible" && c.focused && sameTripScope(c.url, url),
+      );
+      if (suppressed) return;
+
+      await self.registration.showNotification(title, {
+        body: payload.body || "",
+        tag: payload.tag,
+        renotify: Boolean(payload.tag),
+        icon: "/icon-192.png",
+        badge: "/icon-192.png",
+        lang: "de",
+        data: { url },
+      });
+    })(),
+  );
+});
+
+// Klick auf die Benachrichtigung → bestehendes Fenster fokussieren (und
+// dorthin navigieren), sonst ein neues öffnen.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || "/";
+  const absolute = new URL(url, self.location.origin).href;
+
+  event.waitUntil(
+    (async () => {
+      const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of wins) {
+        if ("focus" in client) {
+          await client.focus();
+          if ("navigate" in client && client.url !== absolute) {
+            // navigate() kann scheitern (Fenster lädt gerade) — dann egal,
+            // der Nutzer ist immerhin in der App.
+            try {
+              await client.navigate(url);
+            } catch {
+              /* ignorieren */
+            }
+          }
+          return;
+        }
+      }
+      if (self.clients.openWindow) await self.clients.openWindow(url);
+    })(),
+  );
+});
+
+// Gehören zwei URLs zur selben /trips/<id>-Seite? Nur dann unterdrücken wir
+// bei sichtbarem Fenster — ein Push zu Trip B darf NICHT verschluckt werden,
+// nur weil gerade Trip A offen ist.
+function sameTripScope(clientUrl, targetUrl) {
+  try {
+    const c = new URL(clientUrl, self.location.origin).pathname.match(/^\/trips\/[^/]+/);
+    const t = new URL(targetUrl, self.location.origin).pathname.match(/^\/trips\/[^/]+/);
+    if (!c || !t) return false; // kein klarer Trip-Bezug → lieber anzeigen
+    return c[0] === t[0];
+  } catch {
+    return false;
+  }
+}
