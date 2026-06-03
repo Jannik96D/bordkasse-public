@@ -1,25 +1,33 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Share, Smartphone, X } from "lucide-react";
+import { Share, Smartphone, X, Download } from "lucide-react";
 
 const DISMISS_KEY = "bordkasse:install-hint-dismissed";
 
+// `BeforeInstallPromptEvent` ist (noch) nicht in den Standard-DOM-Lib-Typen.
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+};
+
 /**
  * Zeigt einen Hinweis, wie die Bordkasse als PWA auf dem Home-Screen
- * installiert wird. Zwei Varianten:
- *   - iOS (iPhone/iPad) → exakte Schritt-für-Schritt-Anleitung mit Teilen-Symbol
- *   - Android → generischer "Browser-Menü → Zum Home-Bildschirm"-Hinweis
+ * installiert wird. Drei Varianten:
+ *   - Chrome/Android (oder Desktop-Chrome): fängt das `beforeinstallprompt`-
+ *     Event ab und bietet einen Ein-Tipp-„Installieren"-Button (ruft den
+ *     nativen Prompt) — statt die Crew durchs Browser-Menü zu schicken.
+ *   - iOS (iPhone/iPad): Schritt-für-Schritt-Anleitung mit Teilen-Symbol
+ *     (Safari feuert kein `beforeinstallprompt`).
+ *   - Android ohne (noch) gefeuertes Event: textueller Menü-Hinweis als Fallback.
  *
- * Versteckt sich automatisch, wenn:
- *   - das Gerät weder iOS noch Android ist (Desktop hat keinen sinnvollen
- *     PWA-Install-Flow für unseren Use-Case)
- *   - die App schon als PWA läuft (`display-mode: standalone`)
- *   - der User den Hinweis weggeklickt hat
+ * Versteckt sich automatisch, wenn das Gerät weder iOS noch Android ist und
+ * kein Install-Event kam, die App schon als PWA läuft, oder weggeklickt wurde.
  */
 export function InstallHint() {
   const [show, setShow] = useState(false);
   const [variant, setVariant] = useState<"ios" | "android">("android");
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -43,22 +51,59 @@ export function InstallHint() {
     const isIos = isIphone || isIpad;
     const isAndroid = /Android/i.test(ua);
 
-    // Nur auf mobilen Geräten anzeigen — Desktop hat keinen sinnvollen
-    // Install-Flow, der hier dokumentiert wird.
-    if (!isIos && !isAndroid) return;
+    // beforeinstallprompt (Chrome/Android/Desktop-Chrome): den nativen
+    // Mini-Infobar abfangen und stattdessen unseren eigenen Button anbieten.
+    const onBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+      setVariant("android");
+      setShow(true);
+    };
+    window.addEventListener("beforeinstallprompt", onBeforeInstall);
+
+    // Nach erfolgreicher Installation ausblenden + merken.
+    const onInstalled = () => {
+      setShow(false);
+      try {
+        localStorage.setItem(DISMISS_KEY, "1");
+      } catch {
+        // ignorieren
+      }
+    };
+    window.addEventListener("appinstalled", onInstalled);
 
     // setTimeout 0 verschiebt den Show-State aus dem Effect-Body — erfüllt
-    // react-hooks/set-state-in-effect ohne UX-Auswirkung.
-    const t = setTimeout(() => {
-      setVariant(isIos ? "ios" : "android");
-      setShow(true);
-    }, 0);
-    return () => clearTimeout(t);
+    // react-hooks/set-state-in-effect ohne UX-Auswirkung. iOS: Anleitung.
+    // Android ohne Event: textueller Fallback.
+    let t: ReturnType<typeof setTimeout> | undefined;
+    if (isIos || isAndroid) {
+      t = setTimeout(() => {
+        setVariant(isIos ? "ios" : "android");
+        setShow(true);
+      }, 0);
+    }
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+      window.removeEventListener("appinstalled", onInstalled);
+      if (t) clearTimeout(t);
+    };
   }, []);
 
   const dismiss = () => {
     localStorage.setItem(DISMISS_KEY, "1");
     setShow(false);
+  };
+
+  const install = async () => {
+    if (!deferredPrompt) return;
+    await deferredPrompt.prompt();
+    try {
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === "accepted") dismiss();
+    } catch {
+      // ignorieren
+    }
+    setDeferredPrompt(null);
   };
 
   if (!show) return null;
@@ -72,7 +117,7 @@ export function InstallHint() {
         type="button"
         onClick={dismiss}
         aria-label="Hinweis ausblenden"
-        className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full text-ink-soft hover:bg-paper-soft hover:text-ink"
+        className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full text-ink-soft hover:bg-paper-soft hover:text-ink"
       >
         <X className="h-4 w-4" />
       </button>
@@ -91,6 +136,20 @@ export function InstallHint() {
               <li>Im Menü nach unten scrollen → <strong>„Zum Home-Bildschirm“</strong>.</li>
               <li>Bestätigen → das Icon erscheint wie eine App.</li>
             </ol>
+          ) : deferredPrompt ? (
+            <>
+              <p className="text-ink-soft">
+                Mit einem Tipp installieren — landet wie eine echte App auf dem Startbildschirm.
+              </p>
+              <button
+                type="button"
+                onClick={install}
+                className="mt-2 inline-flex min-h-touch items-center gap-1.5 rounded-md bg-primary px-3 py-2 font-medium text-paper transition-colors hover:bg-navy-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2"
+              >
+                <Download className="h-4 w-4" aria-hidden />
+                Installieren
+              </button>
+            </>
           ) : (
             <p className="text-ink-soft">
               Auf Android: Browser-Menü (⋮) → <strong>„App installieren“</strong> bzw. „Zum

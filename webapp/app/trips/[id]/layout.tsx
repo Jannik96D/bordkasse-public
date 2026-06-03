@@ -8,6 +8,7 @@ import { BottomNav } from "@/components/bottom-nav";
 import { RealtimeTrip } from "@/components/realtime-trip";
 import { Toast } from "@/components/toast";
 import { TripHeader } from "@/components/trip-header";
+import { OfflineBanner } from "@/components/offline-banner";
 import { PrefetchOfflineForm } from "@/components/prefetch-offline-form";
 
 export default async function TripLayout({
@@ -39,6 +40,11 @@ export default async function TripLayout({
 
   return (
     <div className="flex min-h-full flex-col">
+      {/* Offline-/Sync-Banner lebt hier (nicht global): die Outbox wird nur im
+          Buchungs-Flow eines Törns befüllt, der Sync triggert beim Online-
+          Werden auf jeder Törn-Seite. So bleibt der IndexedDB-Code aus dem
+          Bundle der öffentlichen Seiten (Landing/Login/About) heraus. */}
+      <OfflineBanner />
       <TripHeader
         tripId={id}
         tripName={trip.name}

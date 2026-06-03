@@ -27,5 +27,21 @@
       "type": "image/png",
       "purpose": "any"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Meine Törns",
+      "short_name": "Törns",
+      "description": "Übersicht deiner Törns öffnen",
+      "url": "/",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Gesamtstatistik",
+      "short_name": "Statistik",
+      "description": "Ausgaben über alle Törns",
+      "url": "/stats",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
   ]
 }

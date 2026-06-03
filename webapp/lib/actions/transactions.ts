@@ -286,18 +286,30 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     return { status: "error", message: dbErrorMessage(error, "Buchung konnte nicht angelegt werden. Bitte erneut versuchen.") };
   }
 
-  if (txData.split_type === "individual" && participant_ids.length > 0) {
-    await supabase
-      .from("transaction_participants")
-      .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })));
-  } else if (txData.split_type === "per_person" && participant_amounts.length > 0) {
-    await supabase
-      .from("transaction_participants")
-      .insert(
-        participant_amounts
-          .filter((p) => p.amount > 0)
-          .map((p) => ({ transaction_id: tx.id, person_id: p.person_id, amount: p.amount })),
-      );
+  const partRes =
+    txData.split_type === "individual" && participant_ids.length > 0
+      ? await supabase
+          .from("transaction_participants")
+          .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })))
+      : txData.split_type === "per_person" && participant_amounts.length > 0
+        ? await supabase
+            .from("transaction_participants")
+            .insert(
+              participant_amounts
+                .filter((p) => p.amount > 0)
+                .map((p) => ({ transaction_id: tx.id, person_id: p.person_id, amount: p.amount })),
+            )
+        : null;
+  if (partRes?.error) {
+    // Anteile konnten nicht geschrieben werden → die Buchung wäre falsch
+    // aufgeteilt. Rollback der gerade erzeugten Buchung (gibt den
+    // idempotency_key wieder frei → Retry erzeugt eine saubere Buchung)
+    // statt stillem "Erfolg" mit fehlenden Anteilen.
+    await supabase.from("transactions").delete().eq("id", tx.id);
+    return {
+      status: "error",
+      message: dbErrorMessage(partRes.error, "Buchung konnte nicht vollständig gespeichert werden. Bitte erneut versuchen."),
+    };
   }
 
   await logAudit(supabase, {
@@ -538,19 +550,35 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   if (error) return { status: "error", message: dbErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
 
   // Participants neu setzen — bei Wechsel der Aufteilung müssen alte raus.
-  await supabase.from("transaction_participants").delete().eq("transaction_id", transactionId);
-  if (txData.split_type === "individual" && participant_ids.length > 0) {
-    await supabase
-      .from("transaction_participants")
-      .insert(participant_ids.map((pid) => ({ transaction_id: transactionId, person_id: pid })));
-  } else if (txData.split_type === "per_person" && participant_amounts.length > 0) {
-    await supabase
-      .from("transaction_participants")
-      .insert(
-        participant_amounts
-          .filter((p) => p.amount > 0)
-          .map((p) => ({ transaction_id: transactionId, person_id: p.person_id, amount: p.amount })),
-      );
+  const delRes = await supabase
+    .from("transaction_participants")
+    .delete()
+    .eq("transaction_id", transactionId);
+  if (delRes.error) {
+    return {
+      status: "error",
+      message: dbErrorMessage(delRes.error, "Speichern fehlgeschlagen. Bitte erneut versuchen."),
+    };
+  }
+  const partRes =
+    txData.split_type === "individual" && participant_ids.length > 0
+      ? await supabase
+          .from("transaction_participants")
+          .insert(participant_ids.map((pid) => ({ transaction_id: transactionId, person_id: pid })))
+      : txData.split_type === "per_person" && participant_amounts.length > 0
+        ? await supabase
+            .from("transaction_participants")
+            .insert(
+              participant_amounts
+                .filter((p) => p.amount > 0)
+                .map((p) => ({ transaction_id: transactionId, person_id: p.person_id, amount: p.amount })),
+            )
+        : null;
+  if (partRes?.error) {
+    return {
+      status: "error",
+      message: dbErrorMessage(partRes.error, "Speichern fehlgeschlagen — die Aufteilung konnte nicht aktualisiert werden. Bitte erneut versuchen."),
+    };
   }
 
   await logAudit(supabase, {
@@ -853,18 +881,26 @@ export async function replayPendingTransaction(
     if (error || !tx) {
       return { ok: false, message: dbErrorMessage(error, "Buchung konnte nicht angelegt werden.") };
     }
-    if (txData.split_type === "individual" && participant_ids.length > 0) {
-      await supabase
-        .from("transaction_participants")
-        .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })));
-    } else if (txData.split_type === "per_person" && participant_amounts.length > 0) {
-      await supabase
-        .from("transaction_participants")
-        .insert(
-          participant_amounts
-            .filter((p) => p.amount > 0)
-            .map((p) => ({ transaction_id: tx.id, person_id: p.person_id, amount: p.amount })),
-        );
+    const partRes =
+      txData.split_type === "individual" && participant_ids.length > 0
+        ? await supabase
+            .from("transaction_participants")
+            .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })))
+        : txData.split_type === "per_person" && participant_amounts.length > 0
+          ? await supabase
+              .from("transaction_participants")
+              .insert(
+                participant_amounts
+                  .filter((p) => p.amount > 0)
+                  .map((p) => ({ transaction_id: tx.id, person_id: p.person_id, amount: p.amount })),
+              )
+          : null;
+    if (partRes?.error) {
+      // Rollback: Buchung löschen, damit der idempotency_key frei wird und der
+      // nächste Replay einen sauberen Versuch macht. Sonst griffe oben der
+      // Unique-Violation-Kurzschluss und die Anteile fehlten dauerhaft.
+      await supabase.from("transactions").delete().eq("id", tx.id);
+      return { ok: false, message: dbErrorMessage(partRes.error, "Buchung konnte nicht vollständig übertragen werden.") };
     }
     await logAudit(supabase, {
       table_name: "transactions",
