@@ -25,7 +25,7 @@ const tripUrl = (tripId: string, sub = "") => `/trips/${tripId}${sub}`;
 export function settlementAnnouncedPush(tripName: string, tripId: string): PushPayload {
   return {
     title: "Törn abgerechnet",
-    body: `„${tripName}" ist abgerechnet — tippe für Bilanz & Zahlungsplan.`,
+    body: `„${tripName}" ist abgerechnet. Tippe für Abrechnung.`,
     url: tripUrl(tripId, "/debts"),
     tag: `settlement-${tripId}`,
   };
@@ -109,7 +109,7 @@ export function paymentPendingPush(args: {
 }): PushPayload {
   return {
     title: "Zahlung gemeldet",
-    body: `${args.payerName} meldet ${fmtEuro(args.amount)} — bitte bestätigen oder ablehnen.`,
+    body: `${args.payerName} meldet ${fmtEuro(args.amount)}. Bitte bestätigen oder ablehnen.`,
     url: tripUrl(args.tripId, "/prepayments"),
     tag: `pending-${args.tripId}`,
   };
@@ -126,7 +126,7 @@ export function paymentConfirmedPush(args: { amount: number; tripId: string }): 
 export function paymentRejectedPush(args: { amount: number; tripId: string }): PushPayload {
   return {
     title: "Zahlung abgelehnt",
-    body: `Deine Anzahlungs-Meldung über ${fmtEuro(args.amount)} wurde abgelehnt — bitte prüfen.`,
+    body: `Deine gemeldete Anzahlung von ${fmtEuro(args.amount)} wurde abgelehnt. Bitte prüfen.`,
     url: tripUrl(args.tripId, "/prepayments"),
   };
 }
