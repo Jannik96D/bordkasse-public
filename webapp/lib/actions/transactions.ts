@@ -488,7 +488,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     return { status: "error", message: "Buchung gehört nicht zu diesem Törn." };
   }
   if (existing.type !== "expense") {
-    return { status: "error", message: "Buchungstyp passt nicht (erwartet: Ausgabe)." };
+    return { status: "error", message: "Diese Buchung ist keine Ausgabe." };
   }
 
   // Beteiligte VOR dem Neuschreiben laden — für den Bilanz-Diff (s. u.).
@@ -686,7 +686,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     return { status: "error", message: "Buchung gehört nicht zu diesem Törn." };
   }
   if (existing.type !== "credit") {
-    return { status: "error", message: "Buchungstyp passt nicht (erwartet: Gutschrift)." };
+    return { status: "error", message: "Diese Buchung ist keine Gutschrift." };
   }
 
   // Gutschriften ändern: weiterhin nur Skipper/Admin (oder Creator —
@@ -831,7 +831,7 @@ export async function replayPendingTransaction(
   if (!person) return { ok: false, message: "Nicht angemeldet." };
 
   const tripId = String(formObject.trip_id ?? "");
-  if (!tripId) return { ok: false, message: "trip_id fehlt." };
+  if (!tripId) return { ok: false, message: "Ungültige Daten." };
   // Gutschriften nur Skipper/Admin, Ausgaben jeder Crew-Member.
   const authCheck = kind === "credit"
     ? await requireSkipperOrAdmin(tripId)
@@ -879,7 +879,7 @@ export async function replayPendingTransaction(
       return { ok: true };
     }
     if (error || !tx) {
-      return { ok: false, message: dbErrorMessage(error, "Buchung konnte nicht angelegt werden.") };
+      return { ok: false, message: dbErrorMessage(error, "Serverfehler") };
     }
     const partRes =
       txData.split_type === "individual" && participant_ids.length > 0
@@ -900,7 +900,7 @@ export async function replayPendingTransaction(
       // nächste Replay einen sauberen Versuch macht. Sonst griffe oben der
       // Unique-Violation-Kurzschluss und die Anteile fehlten dauerhaft.
       await supabase.from("transactions").delete().eq("id", tx.id);
-      return { ok: false, message: dbErrorMessage(partRes.error, "Buchung konnte nicht vollständig übertragen werden.") };
+      return { ok: false, message: dbErrorMessage(partRes.error, "Aufteilung fehlgeschlagen") };
     }
     await logAudit(supabase, {
       table_name: "transactions",
@@ -965,7 +965,7 @@ export async function replayPendingTransaction(
     revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
     return { ok: true };
   }
-  if (error || !tx) return { ok: false, message: dbErrorMessage(error, "Gutschrift konnte nicht angelegt werden.") };
+  if (error || !tx) return { ok: false, message: dbErrorMessage(error, "Serverfehler") };
   await logAudit(supabase, {
     table_name: "transactions",
     operation: "INSERT",
