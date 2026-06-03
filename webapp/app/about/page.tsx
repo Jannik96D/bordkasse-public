@@ -115,6 +115,13 @@ const features: Feature[] = [
           Yachtanzahlungen verschickt sie 3 Tage vor jeder Frist
           selbstständig Erinnerungen.
         </p>
+        <p className="mt-2">
+          Optional lassen sich – im Profil oder über einen Hinweis hier auf der
+          Übersicht – <strong>Push-Benachrichtigungen</strong> fürs Handy
+          aktivieren: zusätzlich zur E-Mail, nie als Ersatz. So kommt etwa die
+          fertige Abrechnung oder eine fällige Anzahlung sofort als Mitteilung
+          aufs Gerät (auf dem iPhone nur in der installierten App).
+        </p>
       </>
     ),
     screenshot: "/about/04-trip-overview.webp",
