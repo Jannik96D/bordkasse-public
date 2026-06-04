@@ -11,10 +11,11 @@ import { useEffect, useState } from "react";
  * Client-RSC-Navigation oder Server-Action ohne Netz wirft hier herein. Dann
  * zeigen wir eine ruhige "Du bist offline"-Variante statt "Etwas ist
  * schiefgelaufen", inkl. Hinweis, dass Erfassen über den + weiterhin geht.
- * Der "Zur Törn-Übersicht"-Link ist bewusst eine HARTE Navigation (<a>, kein
- * <Link>): nach einem Fehler kann der Client-Router in einem kaputten Zustand
- * sein, und offline liefert erst die Hard-Navigation die gecachte Seite bzw.
- * die Offline-Seite aus dem Service Worker.
+ * Der "Zur Törn-Übersicht"-Button löst bewusst eine HARTE Navigation aus
+ * (window.location statt <Link>): nach einem Fehler kann der Client-Router in
+ * einem kaputten Zustand sein, und offline liefert erst die Hard-Navigation die
+ * gecachte Seite bzw. die Offline-Seite aus dem Service Worker. (Ein <a href>
+ * verbietet hier @next/next/no-html-link-for-pages — daher der Button.)
  */
 export default function Error({
   error,
@@ -62,12 +63,13 @@ export default function Error({
           >
             Erneut versuchen
           </button>
-          <a
-            href="/"
+          <button
+            type="button"
+            onClick={() => window.location.assign("/")}
             className="w-full rounded-md border border-rule px-4 py-3 text-sm font-medium text-primary hover:bg-paper-soft focus:outline-none focus:ring-2 focus:ring-primary/40"
           >
             Zur Törn-Übersicht
-          </a>
+          </button>
         </div>
         {error.digest && (
           <p className="text-xs text-ink-soft">Fehler-Kennung: {error.digest}</p>
