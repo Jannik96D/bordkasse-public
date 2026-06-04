@@ -1,5 +1,6 @@
 import { AlertTriangle, CheckCircle2, Info, RefreshCw } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import type { TripVocab } from "@/lib/trip-vocab";
 import { SettlementAnnounceButton } from "./settlement-announce-button";
 import { SettlementResendButton } from "./settlement-resend-button";
 
@@ -28,6 +29,7 @@ export function SettlementStatus({
   lastResendAt = null,
   canAnnounce,
   highlight = false,
+  vocab,
 }: {
   tripId: string;
   endDate: string;
@@ -40,6 +42,8 @@ export function SettlementStatus({
   canAnnounce: boolean;
   /** true = nach Kaution-Edit/-Delete; Hinweis wird prominenter dargestellt. */
   highlight?: boolean;
+  /** Reise-typ-abhängiges Vokabular (vom aufrufenden Server-Component gereicht). */
+  vocab: TripVocab;
 }) {
   if (announcedAt) {
     if (changesPendingSince) {
@@ -91,8 +95,8 @@ export function SettlementStatus({
 
   if (canAnnounce) {
     const headline = highlight
-      ? "Kaution-Buchung aktualisiert — Bordkasse jetzt zur Abrechnung freigeben?"
-      : "Törn vorbei — Abrechnung verschicken?";
+      ? `Kaution-Buchung aktualisiert — ${vocab.kitty} jetzt zur Abrechnung freigeben?`
+      : `${vocab.trip} vorbei — Abrechnung verschicken?`;
     // Kurzer Standard-Hinweis im Banner; die ausführliche Erklärung (was
     // passiert beim Versand, Kaution-Hinweis) steckt im Aufklapper darunter.
     const subline = highlight
@@ -120,7 +124,7 @@ export function SettlementStatus({
                 <span className="hidden group-open:inline">‹ Schließen</span>
               </summary>
               <p className="mt-1 text-xs text-ink-soft">
-                Jedes Crew-Mitglied bekommt eine Mail mit der eigenen Bilanz und dem Zahlungsplan. Häkchen für „bezahlt“ sind danach in der App freigeschaltet. Bei späteren Buchungs-Änderungen kannst du eine Update-Mail nachschicken.
+                Jedes {vocab.member} bekommt eine Mail mit der eigenen Bilanz und dem Zahlungsplan. Häkchen für „bezahlt“ sind danach in der App freigeschaltet. Bei späteren Buchungs-Änderungen kannst du eine Update-Mail nachschicken.
               </p>
             </details>
           </div>
@@ -133,7 +137,7 @@ export function SettlementStatus({
     <div className="mb-4 flex items-start gap-2 rounded-md border border-rule bg-paper-soft p-3 text-sm">
       <Info className="mt-0.5 h-4 w-4 shrink-0 text-ink-soft" aria-hidden />
       <p className="text-ink-soft">
-        Der Törn ist vorbei — dein Skipper prüft gerade die offenen Buchungen
+        {vocab.trip === "Reise" ? "Die Reise ist" : "Der Törn ist"} vorbei — {vocab.skipper === "Skipper" ? "dein Skipper" : "deine Reiseleitung"} prüft gerade die offenen Buchungen
         (z.B. Kaution-Rückzahlung). Sobald die Abrechnung verschickt ist,
         kannst du deine Zahlung in der App als erledigt markieren.
       </p>

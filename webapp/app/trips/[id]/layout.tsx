@@ -6,6 +6,7 @@ import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { BottomNav } from "@/components/bottom-nav";
 import { RealtimeTrip } from "@/components/realtime-trip";
+import { TripVocabProvider } from "@/components/trip-vocab-provider";
 import { Toast } from "@/components/toast";
 import { TripHeader } from "@/components/trip-header";
 import { OfflineBanner } from "@/components/offline-banner";
@@ -39,6 +40,7 @@ export default async function TripLayout({
   });
 
   return (
+    <TripVocabProvider tripType={trip.trip_type}>
     <div className="flex min-h-full flex-col">
       {/* Offline-/Sync-Banner lebt hier (nicht global): die Outbox wird nur im
           Buchungs-Flow eines Törns befüllt, der Sync triggert beim Online-
@@ -61,8 +63,9 @@ export default async function TripLayout({
       <div className="flex-1 pb-20">{children}</div>
 
       <BottomNav tripId={id} showPrepayments={showPrepayments} />
-      <RealtimeTrip tripId={id} currentPersonId={person?.id} />
+      <RealtimeTrip tripId={id} currentPersonId={person?.id} tripType={trip.trip_type} />
       <PrefetchOfflineForm tripId={id} />
     </div>
+    </TripVocabProvider>
   );
 }

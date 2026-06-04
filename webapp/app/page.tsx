@@ -260,7 +260,7 @@ function TripCard({
             )}
           </div>
           <div className="text-right">
-            <p className="text-sm text-ink-soft">{trip.member_count} Crew</p>
+            <p className="text-sm text-ink-soft">{trip.member_count} {trip.trip_type === "other" ? "Personen" : "Crew"}</p>
             {trip.is_skipper ? (
               <span className="mt-1 inline-block rounded-full bg-navy-light px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
                 Skipper

@@ -5,16 +5,18 @@ import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { deleteTransaction } from "@/lib/actions/transactions";
 import { useConfirm } from "@/components/confirm-dialog";
+import { useTripVocab } from "@/components/trip-vocab-provider";
 
 export function DeleteButton({ transactionId, tripId }: { transactionId: string; tripId: string }) {
   const [pending, startTransition] = useTransition();
   const router = useRouter();
   const { confirm, confirmDialog } = useConfirm();
+  const vocab = useTripVocab();
 
   const handleClick = async () => {
     const ok = await confirm({
       title: "Buchung löschen?",
-      body: "Die Buchung verschwindet aus der Bilanz aller Crewmitglieder. Das lässt sich nicht rückgängig machen.",
+      body: `Die Buchung verschwindet aus der Bilanz aller ${vocab.member === "Crewmitglied" ? "Crewmitglieder" : "Mitreisenden"}. Das lässt sich nicht rückgängig machen.`,
       confirmLabel: "Löschen",
       danger: true,
     });

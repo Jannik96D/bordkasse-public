@@ -990,7 +990,7 @@ async function sendPrepaymentNoticeMails(
   const SITE_URL = process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.dieter.ms";
 
   const [{ data: trip }, { data: plan }, { data: tranche }] = await Promise.all([
-    supabase.from("trips").select("name, skipper_id").eq("id", args.tripId).maybeSingle(),
+    supabase.from("trips").select("name, skipper_id, trip_type").eq("id", args.tripId).maybeSingle(),
     supabase
       .from("prepayment_plan")
       .select("advancer_person_id")
@@ -1003,6 +1003,7 @@ async function sendPrepaymentNoticeMails(
       .maybeSingle(),
   ]);
   if (!trip || !tranche) return;
+  const tripType: "sailing" | "other" = trip.trip_type === "other" ? "other" : "sailing";
   const advancerPersonId = plan?.advancer_person_id ?? trip.skipper_id;
 
   // Empfänger-Set: je nach Aktionsart.
@@ -1061,6 +1062,7 @@ async function sendPrepaymentNoticeMails(
       trancheLabel: tranche.label,
       tripName: trip.name,
       appUrl: `${SITE_URL}/trips/${args.tripId}/prepayments`,
+      tripType,
     });
 
     const res = await sendMail({

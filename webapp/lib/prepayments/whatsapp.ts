@@ -13,6 +13,8 @@
  *   {{wero_link_or_id}} Wero-Request-Link oder Wero-ID, je nachdem was gesetzt
  */
 
+import type { TripVocab } from "@/lib/trip-vocab";
+
 export const DEFAULT_WHATSAPP_TEMPLATE = `Hi {{name}}, kurze Erinnerung an die {{tranche_label}}
 für unseren Törn {{trip_name}}:
 
@@ -22,6 +24,24 @@ für unseren Törn {{trip_name}}:
   Verwendungszweck: Anzahlung {{trip_name}} {{tranche_label}}
 
 Danke! 🙏 ⛵`;
+
+/**
+ * Reise-typ-abhängige Default-Vorlage: ersetzt nur „Törn" durch das passende
+ * Wort (z. B. „Reise"). Wird im Wizard als Startwert des editierbaren
+ * Textfelds genutzt. `DEFAULT_WHATSAPP_TEMPLATE` bleibt der Segel-Default
+ * (Render-Fallback, falls eine gespeicherte Vorlage leer ist).
+ */
+export function defaultWhatsappTemplate(vocab: TripVocab): string {
+  return `Hi {{name}}, kurze Erinnerung an die {{tranche_label}}
+für unsere${vocab.trip === "Reise" ? "" : "n"} ${vocab.trip} {{trip_name}}:
+
+  Betrag: {{amount}} €
+  Fällig: {{due_date}}
+  Wero:   {{wero_link_or_id}}
+  Verwendungszweck: Anzahlung {{trip_name}} {{tranche_label}}
+
+Danke! 🙏 ⛵`;
+}
 
 export interface WhatsAppRenderInput {
   template?: string | null;

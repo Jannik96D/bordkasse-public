@@ -5,6 +5,7 @@ import { getTrip, getTripMembers } from "@/lib/queries/trips";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { formatEuro } from "@/lib/utils";
+import { tripVocab } from "@/lib/trip-vocab";
 import { SettlementStatus } from "@/components/settlement-status";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { DebtCheckbox } from "./debt-checkbox";
@@ -27,6 +28,7 @@ export default async function DebtsPage({
   const isMyTripSkipper = !!members.find((m) => m.person_id === person?.id)?.is_skipper;
   const canAnnounce = admin || isMyTripSkipper;
   const settlementAnnounced = !!trip?.settlement_announced_at;
+  const vocab = tripVocab(trip?.trip_type);
 
   if (debts.length === 0) {
     return (
@@ -56,6 +58,7 @@ export default async function DebtsPage({
           changesPendingSince={trip.changes_pending_since ?? null}
           lastResendAt={trip.last_settlement_resend_at ?? null}
           canAnnounce={canAnnounce}
+          vocab={vocab}
         />
       )}
       <header className="mb-4">
@@ -63,7 +66,7 @@ export default async function DebtsPage({
           Schulden
           <InfoTooltip
             label="Wie funktionieren die Bezahlt-Häkchen?"
-            text="Das Bezahlt-Häkchen wird crew-weit geteilt, alle sehen denselben Stand live. Sobald sich der Betrag durch eine neue Buchung ändert, ist die Schuld eine neue und das Häkchen verschwindet automatisch."
+            text={`Das Bezahlt-Häkchen wird in der ganzen ${vocab.crew} geteilt, alle sehen denselben Stand live. Sobald sich der Betrag durch eine neue Buchung ändert, ist die Schuld eine neue und das Häkchen verschwindet automatisch.`}
           />
         </h1>
         <p className="mt-1 text-xs text-ink-soft">

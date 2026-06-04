@@ -7,6 +7,7 @@
  */
 
 import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
+import { tripVocab } from "@/lib/trip-vocab";
 
 export type ReminderTrancheItem = {
   label: string;
@@ -23,6 +24,8 @@ export type PrepaymentReminderParams = {
   /** Anzeigename der Person, an die die Crew zahlt (Vorstrecker — Default = Skipper). */
   advancerName: string;
   appUrl: string;
+  /** Reise-Typ — steuert das Vokabular (Bordkasse/Törn vs. Urlaubskasse/Reise). */
+  tripType: "sailing" | "other";
 };
 
 export function renderPrepaymentReminderMail(p: PrepaymentReminderParams): {
@@ -30,7 +33,8 @@ export function renderPrepaymentReminderMail(p: PrepaymentReminderParams): {
   text: string;
   subject: string;
 } {
-  const subject = `Erinnerung Bordkasse-Anzahlung: ${p.tripName}`;
+  const vocab = tripVocab(p.tripType);
+  const subject = `Erinnerung ${vocab.kitty}-Anzahlung: ${p.tripName}`;
   const totalOpen = p.tranches.reduce((s, t) => s + t.amount_due, 0);
 
   const trancheRows = p.tranches
@@ -85,7 +89,7 @@ export function renderPrepaymentReminderMail(p: PrepaymentReminderParams): {
                   Hi ${escapeHtml(p.recipientName)},
                 </p>
                 <p style="margin:0;font-size:15px;line-height:1.55;color:#1A2533;">
-                  hier deine offenen Anzahlungstranchen für den Törn
+                  hier deine offenen Anzahlungstranchen für ${p.tripType === "other" ? "die Reise" : "den Törn"}
                   <strong>${escapeHtml(p.tripName)}</strong>.
                   Insgesamt offen: <strong>${fmtEuro(totalOpen)}</strong>.
                 </p>
@@ -103,7 +107,7 @@ export function renderPrepaymentReminderMail(p: PrepaymentReminderParams): {
               </td>
             </tr>
 ${weroBlock}
-${renderActionButton(p.appUrl, "In der Bordkasse anzeigen")}
+${renderActionButton(p.appUrl, `In der ${vocab.kitty} anzeigen`)}
 ${renderHintBlock(
   "Wero bietet aktuell keine öffentliche Schnittstelle für Klick-Links. Bitte die Wero-ID in deiner Wero-App als Empfänger eingeben und Betrag + Verwendungszweck manuell übernehmen.",
 )}`;
@@ -133,7 +137,7 @@ ${p.tripName}
 
 Hi ${p.recipientName},
 
-hier deine offenen Anzahlungstranchen für den Törn ${p.tripName}.
+hier deine offenen Anzahlungstranchen für ${p.tripType === "other" ? "die Reise" : "den Törn"} ${p.tripName}.
 
 Offene Tranchen:
 ${trancheText}

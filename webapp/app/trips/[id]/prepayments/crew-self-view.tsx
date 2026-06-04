@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, RefreshCw } from "lucide-react";
 import { Modal } from "@/components/modal";
+import { useTripVocab } from "@/components/trip-vocab-provider";
 import { formatEuro, todayIso } from "@/lib/utils";
 import { submitSelfPayment } from "@/lib/actions/prepayments";
 import { toCrewDueDate, formatDeDate } from "@/lib/prepayments/dates";
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pendingByTranche }: Props) {
+  const vocab = useTripVocab();
   const [modal, setModal] = useState<{
     trancheId: string;
     trancheLabel: string;
@@ -35,7 +37,7 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
     return (
       <section className="rounded-lg border border-rule bg-paper p-5 text-center">
         <p className="text-sm text-ink-soft">
-          Noch kein Anzahlungsplan vorhanden. Der Skipper richtet das ein.
+          Noch kein Anzahlungsplan vorhanden. {vocab.skipper === "Skipper" ? "Der Skipper" : "Die Reiseleitung"} richtet das ein.
         </p>
       </section>
     );
@@ -109,7 +111,7 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
               {pending && (
                 <p className="mt-2 rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
                   <span aria-hidden="true">⏳</span>{" "}
-                  Du hast <strong>{formatEuro(pending.amount)}</strong> am {formatDeDate(pending.date)} gemeldet, wartet auf Bestätigung durch deinen Skipper.
+                  Du hast <strong>{formatEuro(pending.amount)}</strong> am {formatDeDate(pending.date)} gemeldet, wartet auf Bestätigung durch {vocab.skipper === "Skipper" ? "deinen Skipper" : "deine Reiseleitung"}.
                 </p>
               )}
 
@@ -157,6 +159,7 @@ function SelfPaymentModal({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const vocab = useTripVocab();
   const [amount, setAmount] = useState(defaultAmount.toFixed(2).replace(".", ","));
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState("");
@@ -192,7 +195,7 @@ function SelfPaymentModal({
           Zahlung melden
         </h2>
         <p className="mt-1 text-sm text-ink-soft">
-          {trancheLabel}: Dein Skipper bestätigt deine Meldung.
+          {trancheLabel}: {vocab.skipper === "Skipper" ? "Dein Skipper" : "Deine Reiseleitung"} bestätigt deine Meldung.
         </p>
 
         <div className="mt-4 space-y-3">

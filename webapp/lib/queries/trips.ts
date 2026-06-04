@@ -15,6 +15,8 @@ export interface TripListRow {
   retention_purged_at: string | null;
   /** Wenn true: Törnende liegt > 30 Tage zurück, aber Daten sind noch nicht gelöscht. */
   retention_overdue: boolean;
+  /** Segeltörn (Default) vs. „Andere Reise" — steuert Wording in der Liste. */
+  trip_type: "sailing" | "other";
 }
 
 /**
@@ -34,7 +36,7 @@ export async function listMyTrips(): Promise<TripListRow[]> {
   const { data, error } = await supabase
     .from("trips")
     .select(
-      "id, name, start_date, end_date, ship_name, archived, retention_purged_at, trip_members(person_id, is_skipper)",
+      "id, name, start_date, end_date, ship_name, archived, retention_purged_at, trip_type, trip_members(person_id, is_skipper)",
     )
     .order("start_date", { ascending: false });
 
@@ -48,6 +50,7 @@ export async function listMyTrips(): Promise<TripListRow[]> {
     ship_name: string | null;
     archived: boolean;
     retention_purged_at: string | null;
+    trip_type: string | null;
     trip_members: { person_id: string; is_skipper: boolean }[];
   };
 
@@ -70,6 +73,7 @@ export async function listMyTrips(): Promise<TripListRow[]> {
       member_count: t.trip_members.length,
       retention_purged_at: t.retention_purged_at,
       retention_overdue: !t.retention_purged_at && t.end_date < cutoffIso,
+      trip_type: t.trip_type === "other" ? "other" : "sailing",
     };
   });
 }

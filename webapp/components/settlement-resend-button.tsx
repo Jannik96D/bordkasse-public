@@ -4,16 +4,18 @@ import { useState, useTransition } from "react";
 import { RefreshCw } from "lucide-react";
 import { resendSettlement } from "@/lib/actions/settlement";
 import { useConfirm } from "@/components/confirm-dialog";
+import { useTripVocab } from "@/components/trip-vocab-provider";
 
 /**
  * Skipper-Button "Update-Mail verschicken" — wird angezeigt, wenn nach der
  * initialen Abrechnung Buchungen geändert wurden (changes_pending_since
  * gesetzt). Schickt eine Mail mit dem Wortlaut "Bilanz aktualisiert" und
- * dem aktuellen Saldo + Zahlungsplan an jedes Crew-Mitglied.
+ * dem aktuellen Saldo + Zahlungsplan an jedes Crewmitglied.
  */
 export function SettlementResendButton({ tripId }: { tripId: string }) {
   const [pending, startTransition] = useTransition();
   const { confirm, confirmDialog } = useConfirm();
+  const vocab = useTripVocab();
   const [status, setStatus] = useState<
     | { kind: "idle" }
     | { kind: "ok"; sent: number; skipped: number; failed: number }
@@ -23,7 +25,7 @@ export function SettlementResendButton({ tripId }: { tripId: string }) {
   const trigger = async () => {
     const ok = await confirm({
       title: "Update-Mail verschicken?",
-      body: "Alle Crew-Mitglieder mit E-Mail-Adresse bekommen eine Mail mit der aktualisierten Bilanz und dem neuen Zahlungsplan.",
+      body: `Alle in der ${vocab.crew} mit E-Mail-Adresse bekommen eine Mail mit der aktualisierten Bilanz und dem neuen Zahlungsplan.`,
       confirmLabel: "Verschicken",
     });
     if (!ok) return;

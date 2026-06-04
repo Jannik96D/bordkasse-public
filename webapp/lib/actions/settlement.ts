@@ -47,7 +47,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
   // Trip + bereits angekündigt? Idempotenz.
   const { data: trip } = await supabase
     .from("trips")
-    .select("id, name, start_date, end_date, settlement_announced_at")
+    .select("id, name, start_date, end_date, settlement_announced_at, trip_type")
     .eq("id", tripId)
     .maybeSingle();
   if (!trip) return { ok: false, message: "Törn nicht gefunden." };
@@ -89,6 +89,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
   const skipperName = skipperRow ? displayName(skipperRow) : "Skipper";
 
   const tripDates = `${formatDate(trip.start_date)} – ${formatDate(trip.end_date)}`;
+  const tripType: "sailing" | "other" = trip.trip_type === "other" ? "other" : "sailing";
   // Link führt direkt zu den Schulden — dort sieht das Crewmitglied den
   // Zahlungsplan und kann erledigte Zahlungen abhaken. Für den Gesamt-Saldo
   // ist der Bilanz-Tab nur einen Tap entfernt.
@@ -133,6 +134,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
       debts: myDebts,
       appUrl,
       skipperName,
+      tripType,
     });
 
     const res = await sendMail({ to: email, subject, html, text });
@@ -211,7 +213,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
   const { data: trip } = await supabase
     .from("trips")
     .select(
-      "id, name, start_date, end_date, settlement_announced_at, changes_pending_since, last_settlement_resend_at",
+      "id, name, start_date, end_date, settlement_announced_at, changes_pending_since, last_settlement_resend_at, trip_type",
     )
     .eq("id", tripId)
     .maybeSingle();
@@ -288,6 +290,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
   const skipperName = skipperRow ? displayName(skipperRow) : "Skipper";
 
   const tripDates = `${formatDate(trip.start_date)} – ${formatDate(trip.end_date)}`;
+  const tripType: "sailing" | "other" = trip.trip_type === "other" ? "other" : "sailing";
   const appUrl = `${process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.example"}/trips/${tripId}/debts`;
 
   let sent = 0;
@@ -330,6 +333,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
       skipperName,
       isUpdate: true,
       changeSummary,
+      tripType,
     });
 
     const res = await sendMail({ to: email, subject, html, text });

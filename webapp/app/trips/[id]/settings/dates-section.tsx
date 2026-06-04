@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { CalendarDays } from "lucide-react";
 import { updateTripDates, type DateUpdateState } from "@/lib/actions/trips";
 import { InfoTooltip } from "@/components/info-tooltip";
+import { useTripVocab } from "@/components/trip-vocab-provider";
 
 const initial: DateUpdateState = { status: "idle" };
 
@@ -24,6 +25,7 @@ export function DatesSection({
   const [state, formAction, pending] = useActionState(updateTripDates, initial);
   const [start, setStart] = useState(startDate);
   const [end, setEnd] = useState(endDate);
+  const vocab = useTripVocab();
 
   const dirty = start !== startDate || end !== endDate;
 
@@ -34,7 +36,7 @@ export function DatesSection({
         {/* Titel + Info gruppiert, damit das flex-`gap-2` nicht zum
             ml-1 des Tooltips addiert (sonst doppelter Abstand vor dem i). */}
         <span>
-          Törndatum
+          {vocab.trip}datum
           <InfoTooltip
             text="Existierende Buchungen werden bei Datumsänderung nicht automatisch verschoben, einzelne Einträge ggf. manuell anpassen."
             label="Hinweis zu Datumsänderung"

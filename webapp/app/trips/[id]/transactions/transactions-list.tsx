@@ -5,16 +5,9 @@ import Link from "next/link";
 import { Anchor, Info, Pencil, Search, X } from "lucide-react";
 import type { TransactionListRow } from "@/lib/queries/transactions";
 import { CategoryIcon } from "@/components/category-icon";
+import { useTripVocab } from "@/components/trip-vocab-provider";
 import { formatDate, formatEuro } from "@/lib/utils";
 import { DeleteButton } from "./delete-button";
-
-const SPLIT_LABEL = {
-  equal: "Gleichmäßig",
-  on_board: "An Bord",
-  time_proportional: "Zeitanteilig",
-  individual: "Individuell",
-  per_person: "Pro Person",
-} as const;
 
 export function TransactionsList({
   tripId,
@@ -32,6 +25,14 @@ export function TransactionsList({
   /** Vorbelegung des Suchfelds via URL-Param `?q=` (z. B. von Statistik-Drilldown). */
   initialQuery?: string;
 }) {
+  const vocab = useTripVocab();
+  const SPLIT_LABEL = {
+    equal: "Gleichmäßig",
+    on_board: vocab.onBoard,
+    time_proportional: "Zeitanteilig",
+    individual: "Individuell",
+    per_person: "Pro Person",
+  } as const;
   // Skipper + Admin dürfen jede Buchung editieren; Ersteller die eigene.
   const canEditRow = (row: TransactionListRow) =>
     isMyTripSkipper || isAdmin || (currentPersonId !== null && row.created_by_id === currentPersonId);
@@ -131,7 +132,7 @@ export function TransactionsList({
                           <p className="mt-1">
                             <span
                               className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
-                              aria-label={`Anzahlungspool, Tranche ${t.tranche_label} — nicht in der laufenden Bordkasse`}
+                              aria-label={`Anzahlungspool, Tranche ${t.tranche_label} — nicht in der laufenden ${vocab.kitty}`}
                             >
                               <Anchor className="h-3 w-3" aria-hidden="true" />
                               Anzahlung · {t.tranche_label}

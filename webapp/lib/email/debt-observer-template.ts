@@ -9,6 +9,7 @@
  */
 
 import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
+import { tripVocab } from "@/lib/trip-vocab";
 
 export type DebtObserverMailParams = {
   recipientName: string;
@@ -24,6 +25,8 @@ export type DebtObserverMailParams = {
   tripName: string;
   tripDates: string;
   appUrl: string;
+  /** Reise-Typ — steuert das Vokabular (Bordkasse/Törn/Skipper vs. Urlaubskasse/Reise/Reiseleitung). */
+  tripType: "sailing" | "other";
 };
 
 export function renderDebtObserverMail(p: DebtObserverMailParams): {
@@ -31,20 +34,21 @@ export function renderDebtObserverMail(p: DebtObserverMailParams): {
   text: string;
   subject: string;
 } {
+  const vocab = tripVocab(p.tripType);
   const amount = fmtEuro(p.amount);
   const subject = `Schuld abgehakt: ${p.debtorName} → ${p.creditorName} (${p.tripName})`;
   const detailLine = `${p.debtorName} → ${p.creditorName} · ${amount}`;
-  const introText = `${p.actorName} hat soeben in der Bordkasse markiert, dass die Zahlung von ${p.debtorName} in Höhe von ${amount} an ${p.creditorName} erledigt ist.`;
+  const introText = `${p.actorName} hat soeben in der ${vocab.kitty} markiert, dass die Zahlung von ${p.debtorName} in Höhe von ${amount} an ${p.creditorName} erledigt ist.`;
   const reasonText =
     p.recipientReason === "advancer"
-      ? "Du bekommst diese Info-Mail, weil du die Anzahlung für diesen Törn vorstreckst."
-      : "Du bekommst diese Info-Mail, weil du Skipper dieses Törns bist.";
+      ? `Du bekommst diese Info-Mail, weil du die ${vocab.prepayment} für ${p.tripType === "other" ? "diese Reise" : "diesen Törn"} vorstreckst.`
+      : `Du bekommst diese Info-Mail, weil du ${p.tripType === "other" ? "Reiseleitung dieser Reise" : "Skipper dieses Törns"} bist.`;
 
   const body = `
             <tr>
               <td style="padding:32px 32px 8px 32px;">
                 <h2 style="margin:0 0 12px 0;font-size:18px;font-weight:600;color:#1D4281;">
-                  Schuld in deinem Törn abgehakt
+                  Schuld in ${p.tripType === "other" ? "deiner Reise" : "deinem Törn"} abgehakt
                 </h2>
                 <p style="margin:0 0 12px 0;font-size:15px;line-height:1.55;color:#1A2533;">
                   Hi ${escapeHtml(p.recipientName)},
@@ -82,7 +86,7 @@ ${renderHintBlock(
     body,
   });
 
-  const text = `Schuld in deinem Törn abgehakt
+  const text = `Schuld in ${p.tripType === "other" ? "deiner Reise" : "deinem Törn"} abgehakt
 ${p.tripName} · ${p.tripDates}
 
 Hi ${p.recipientName},

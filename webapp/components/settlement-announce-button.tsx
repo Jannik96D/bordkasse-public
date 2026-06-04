@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Send } from "lucide-react";
 import { announceSettlement } from "@/lib/actions/settlement";
 import { useConfirm } from "@/components/confirm-dialog";
+import { useTripVocab } from "@/components/trip-vocab-provider";
 
 /**
  * Skipper-Button "Abrechnung verschicken" — löst Mailversand an die Crew aus
@@ -14,6 +15,7 @@ import { useConfirm } from "@/components/confirm-dialog";
 export function SettlementAnnounceButton({ tripId }: { tripId: string }) {
   const [pending, startTransition] = useTransition();
   const { confirm, confirmDialog } = useConfirm();
+  const vocab = useTripVocab();
   const [status, setStatus] = useState<
     | { kind: "idle" }
     | { kind: "ok"; sent: number; skipped: number; failed: number }
@@ -23,7 +25,7 @@ export function SettlementAnnounceButton({ tripId }: { tripId: string }) {
   const trigger = async () => {
     const ok = await confirm({
       title: "Abrechnung verschicken?",
-      body: "Es geht eine Mail an jedes Crew-Mitglied mit E-Mail-Adresse — mit Saldo und Zahlungsplan. Danach sind die Bezahlt-Häkchen freigeschaltet.",
+      body: `Es geht eine Mail an jedes ${vocab.member} mit E-Mail-Adresse — mit Saldo und Zahlungsplan. Danach sind die Bezahlt-Häkchen freigeschaltet.`,
       confirmLabel: "Verschicken",
     });
     if (!ok) return;

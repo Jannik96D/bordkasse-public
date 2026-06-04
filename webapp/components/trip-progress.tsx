@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CheckCircle2, ChevronDown, Circle, Clock, Compass, Loader2 } from "lucide-react";
 import type { ItemStatus, ProgressItem, TripProgress as TripProgressData } from "@/lib/calc/trip-progress";
 import { setChecklistCollapsed, setDepositSettled } from "@/lib/actions/trip-checklist";
+import { useTripVocab } from "@/components/trip-vocab-provider";
 import { cn } from "@/lib/utils";
 
 const STATUS_LABEL: Record<ItemStatus, string> = {
@@ -33,6 +34,7 @@ export function TripProgress({
 }) {
   const [open, setOpen] = useState(!collapsed);
   const [pending, startTransition] = useTransition();
+  const vocab = useTripVocab();
 
   const pct =
     progress.totalCount === 0
@@ -53,9 +55,9 @@ export function TripProgress({
       <section className="mb-4 flex items-start gap-2 rounded-lg border border-success/30 bg-success/5 p-4">
         <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" aria-hidden="true" />
         <p className="text-sm">
-          <span className="font-medium text-success">Törn abgeschlossen</span>
+          <span className="font-medium text-success">{vocab.trip} abgeschlossen</span>
           <span className="block text-ink-soft">
-            Alle Schritte erledigt. Die Daten werden 30 Tage nach Törn-Ende
+            Alle Schritte erledigt. Die Daten werden 30 Tage nach {vocab.tripEnd}
             automatisch gelöscht.
           </span>
         </p>
@@ -68,7 +70,7 @@ export function TripProgress({
       <div className="flex items-center gap-3">
         <Compass className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <h2 className="font-semibold text-ink">Dein Törn im Überblick</h2>
+          <h2 className="font-semibold text-ink">{vocab.trip === "Reise" ? "Deine Reise" : "Dein Törn"} im Überblick</h2>
           <p className="text-xs text-ink-soft">
             {progress.doneCount} von {progress.totalCount} erledigt
           </p>
@@ -93,7 +95,7 @@ export function TripProgress({
         aria-valuenow={progress.doneCount}
         aria-valuemin={0}
         aria-valuemax={progress.totalCount}
-        aria-label={`Törn-Fortschritt: ${progress.doneCount} von ${progress.totalCount} Schritten erledigt`}
+        aria-label={`${vocab.trip}-Fortschritt: ${progress.doneCount} von ${progress.totalCount} Schritten erledigt`}
         className="mt-3 h-2 w-full overflow-hidden rounded-full bg-navy-light/40"
       >
         <div

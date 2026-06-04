@@ -12,6 +12,7 @@ import {
 } from "@/lib/queries/prepayments";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
+import { tripVocab, type TripType } from "@/lib/trip-vocab";
 import { PrepaymentMatrix } from "./matrix";
 import { CrewSelfView } from "./crew-self-view";
 
@@ -38,6 +39,9 @@ export default async function PrepaymentsPage({
     ]);
 
   if (!trip) return null;
+
+  const tripType: TripType = trip.trip_type === "other" ? "other" : "sailing";
+  const vocab = tripVocab(tripType);
 
   const myMember = members.find((m) => m.person_id === person?.id);
   const isMyTripSkipper = !!myMember?.is_skipper;
@@ -75,8 +79,8 @@ export default async function PrepaymentsPage({
         <section className="rounded-lg border border-dashed border-primary/30 bg-navy-light/30 p-6 text-center">
           <p className="font-medium text-primary">Noch kein Anzahlungsplan</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-ink-soft">
-            Lege Aufteilung, Kojen (optional) und Tranchen fest. Crewmitglieder sehen danach
-            ihre Sollbeträge und können in der Matrix abgehakt werden.
+            Lege Aufteilung, {vocab.cabinPlural} (optional) und Tranchen fest. Die {vocab.crew} sieht danach
+            ihre Sollbeträge und kann in der Matrix abgehakt werden.
           </p>
           <Link
             href={`/trips/${id}/prepayments/setup`}
@@ -107,6 +111,7 @@ export default async function PrepaymentsPage({
       <PrepaymentMatrix
         tripId={id}
         tripName={trip.name}
+        tripType={tripType}
         plan={plan}
         tranches={tranches}
         cabins={cabins}

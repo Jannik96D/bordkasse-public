@@ -9,6 +9,8 @@
  * wie die übrigen lib/calc/-Module).
  */
 
+import { tripVocab, type TripType } from "@/lib/trip-vocab";
+
 export interface TripProgressSignals {
   /** Törnstart (YYYY-MM-DD). */
   startDate: string;
@@ -106,7 +108,9 @@ function statusFor(done: boolean, phaseIndex: number, unlockedUpTo: number): Ite
 export function computeTripProgress(
   s: TripProgressSignals,
   todayIso: string,
+  tripType: TripType = "sailing",
 ): TripProgress {
+  const vocab = tripVocab(tripType);
   const unlockedUpTo = timeUnlockedUpTo(s.startDate, s.endDate, todayIso);
   const idx = (id: Exclude<PhaseId, "abschluss">) => PHASE_ORDER.indexOf(id);
 
@@ -120,7 +124,7 @@ export function computeTripProgress(
   const vorbereitungItems: ProgressItem[] = [
     {
       id: "crew-invited",
-      label: "Crew einladen",
+      label: `${vocab.crew} einladen`,
       status: statusFor(s.crewInvited, idx("vorbereitung"), unlockedUpTo),
       href: "settings",
     },
@@ -132,13 +136,13 @@ export function computeTripProgress(
     const anzahlungItems: ProgressItem[] = [
       {
         id: "charter-advance",
-        label: "Yachtanzahlung an Vercharterer erfasst",
+        label: `${vocab.prepayment} an ${vocab.provider} erfasst`,
         status: statusFor(s.charterAdvancePaid, idx("anzahlung"), unlockedUpTo),
         href: "prepayments",
       },
       {
         id: "crew-prepayments",
-        label: "Alle Crewanzahlungen eingegangen",
+        label: tripType === "other" ? "Alle Anzahlungen der Reisegruppe eingegangen" : "Alle Crewanzahlungen eingegangen",
         status: statusFor(s.crewPrepaymentsComplete, idx("anzahlung"), unlockedUpTo),
         href: "prepayments",
       },

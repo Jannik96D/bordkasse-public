@@ -15,6 +15,7 @@
  */
 
 import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
+import { tripVocab } from "@/lib/trip-vocab";
 
 export type DebtSettledMailParams = {
   recipientName: string;
@@ -39,6 +40,8 @@ export type DebtSettledMailParams = {
   tripDates: string;
   /** Link zur Schuldenseite des Trips. */
   appUrl: string;
+  /** Reise-Typ — steuert das Vokabular (Bordkasse/Skipper vs. Urlaubskasse/Reiseleitung). */
+  tripType: "sailing" | "other";
 };
 
 export function renderDebtSettledMail(p: DebtSettledMailParams): {
@@ -46,6 +49,10 @@ export function renderDebtSettledMail(p: DebtSettledMailParams): {
   text: string;
   subject: string;
 } {
+  const vocab = tripVocab(p.tripType);
+  // Dativ-Form für „sprich mit …" — beim Segeltörn „dem Skipper", sonst
+  // „der Reiseleitung" (Artikel folgt dem Genus von vocab.skipper).
+  const skipperDative = p.tripType === "other" ? "der Reiseleitung" : "dem Skipper";
   const recipientIsDebtor = p.recipientRole === "debtor";
   const actorLabel = p.actorRole === "other" ? p.actorName ?? "Jemand" : "";
   const amount = fmtEuro(p.amount);
@@ -59,35 +66,35 @@ export function renderDebtSettledMail(p: DebtSettledMailParams): {
     if (p.actorRole === "debtor") {
       subject = `Bestätigung: Zahlung an ${p.creditorName} abgehakt`;
       headline = "Zahlung als erledigt markiert";
-      introText = `du hast soeben in der Bordkasse abgehakt, dass du deine Schuld in Höhe von ${amount} an ${p.creditorName} bezahlt hast.`;
+      introText = `du hast soeben in der ${vocab.kitty} abgehakt, dass du deine Schuld in Höhe von ${amount} an ${p.creditorName} bezahlt hast.`;
       followupText = "Falls du dich vertan hast, kannst du das Häkchen in der App auch wieder entfernen.";
     } else if (p.actorRole === "creditor") {
       subject = `${p.creditorName} hat deine Zahlung als erhalten bestätigt`;
       headline = "Zahlung als angekommen bestätigt";
-      introText = `${p.creditorName} hat soeben in der Bordkasse bestätigt, dass deine Zahlung in Höhe von ${amount} angekommen ist. Damit ist die Schuld erledigt.`;
+      introText = `${p.creditorName} hat soeben in der ${vocab.kitty} bestätigt, dass deine Zahlung in Höhe von ${amount} angekommen ist. Damit ist die Schuld erledigt.`;
       followupText = "Falls das ein Versehen war, kann das Häkchen in der App auch wieder entfernt werden.";
     } else {
       subject = `Zahlung an ${p.creditorName} wurde abgehakt`;
       headline = "Zahlung wurde abgehakt";
-      introText = `${actorLabel} hat soeben in der Bordkasse markiert, dass deine Zahlung in Höhe von ${amount} an ${p.creditorName} erledigt ist.`;
-      followupText = "Falls das ein Versehen war, sprich kurz mit dem Skipper, das Häkchen kann in der App auch wieder entfernt werden.";
+      introText = `${actorLabel} hat soeben in der ${vocab.kitty} markiert, dass deine Zahlung in Höhe von ${amount} an ${p.creditorName} erledigt ist.`;
+      followupText = `Falls das ein Versehen war, sprich kurz mit ${skipperDative}, das Häkchen kann in der App auch wieder entfernt werden.`;
     }
   } else {
     if (p.actorRole === "debtor") {
       subject = `${p.debtorName} hat seine Zahlung an dich abgehakt`;
       headline = "Zahlung wurde abgehakt";
-      introText = `${p.debtorName} hat soeben in der Bordkasse markiert, dass die Zahlung in Höhe von ${amount} an dich erledigt ist.`;
+      introText = `${p.debtorName} hat soeben in der ${vocab.kitty} markiert, dass die Zahlung in Höhe von ${amount} an dich erledigt ist.`;
       followupText = `Falls etwas nicht stimmt, sprich kurz mit ${p.debtorName}, das Häkchen kann in der App auch wieder entfernt werden.`;
     } else if (p.actorRole === "creditor") {
       subject = `Bestätigung: Zahlung von ${p.debtorName} als erhalten markiert`;
       headline = "Empfang bestätigt";
-      introText = `du hast soeben in der Bordkasse abgehakt, dass die Zahlung von ${p.debtorName} in Höhe von ${amount} bei dir angekommen ist.`;
+      introText = `du hast soeben in der ${vocab.kitty} abgehakt, dass die Zahlung von ${p.debtorName} in Höhe von ${amount} bei dir angekommen ist.`;
       followupText = "Falls du dich vertan hast, kannst du das Häkchen in der App auch wieder entfernen.";
     } else {
       subject = `Zahlung von ${p.debtorName} an dich wurde abgehakt`;
       headline = "Zahlung wurde abgehakt";
-      introText = `${actorLabel} hat soeben in der Bordkasse markiert, dass die Zahlung von ${p.debtorName} in Höhe von ${amount} an dich erledigt ist.`;
-      followupText = "Falls etwas nicht stimmt, sprich mit dem Skipper, das Häkchen kann in der App auch wieder entfernt werden.";
+      introText = `${actorLabel} hat soeben in der ${vocab.kitty} markiert, dass die Zahlung von ${p.debtorName} in Höhe von ${amount} an dich erledigt ist.`;
+      followupText = `Falls etwas nicht stimmt, sprich mit ${skipperDative}, das Häkchen kann in der App auch wieder entfernt werden.`;
     }
   }
 

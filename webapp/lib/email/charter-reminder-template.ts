@@ -13,6 +13,7 @@
  */
 
 import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
+import { tripVocab } from "@/lib/trip-vocab";
 
 export type CharterReminderTranche = {
   label: string;
@@ -31,6 +32,8 @@ export type CharterReminderParams = {
   appUrl: string;
   /** true = ausgelöst vom Cron (3 Tage vor Frist); false = manuell. */
   isAutomated?: boolean;
+  /** Reise-Typ — steuert das Vokabular (Vercharterer/Charteranzahlung vs. Anbieter/Urlaubsanzahlung). */
+  tripType: "sailing" | "other";
 };
 
 export function renderCharterReminderMail(p: CharterReminderParams): {
@@ -38,14 +41,23 @@ export function renderCharterReminderMail(p: CharterReminderParams): {
   text: string;
   subject: string;
 } {
+  const vocab = tripVocab(p.tripType);
+  // „Charteranzahlung" als Mail-Begriff → die typabhängige Anzahlungs-Bezeichnung
+  // (Yachtanzahlung / Urlaubsanzahlung). Beide Provider-Begriffe (Vercharterer /
+  // Anbieter) sind maskulin → „an den {provider}" trägt für beide Typen.
+  const prepaymentLabel = vocab.prepayment;
+  // Plural für „Alle {…}anzahlungen sind überwiesen" — beide Begriffe enden auf
+  // „-anzahlung", Plural also durch Anhängen von „en".
+  const allDoneLabel = `${vocab.prepayment}en`;
+  const toProvider = `an den ${vocab.provider}`;
   const totalRemaining = p.tranches.reduce((s, t) => s + Math.max(0, t.remaining_to_agency), 0);
   const subject = p.isAutomated
-    ? `Charteranzahlung fällig: ${p.tripName}`
-    : `Charteranzahlung – Übersicht: ${p.tripName}`;
-  const headline = p.isAutomated ? "Charteranzahlung steht an" : "Charteranzahlung – Übersicht";
+    ? `${prepaymentLabel} fällig: ${p.tripName}`
+    : `${prepaymentLabel} – Übersicht: ${p.tripName}`;
+  const headline = p.isAutomated ? `${prepaymentLabel} steht an` : `${prepaymentLabel} – Übersicht`;
   const introText = p.isAutomated
-    ? `in den nächsten Tagen wird deine Anzahlung an den Vercharterer fällig. Hier eine Übersicht, was bei dir ankommt und was du noch überweisen musst.`
-    : `hier dein aktueller Stand für die Anzahlung an den Vercharterer: was bei dir ankommt und was du noch überweisen musst.`;
+    ? `in den nächsten Tagen wird deine Anzahlung ${toProvider} fällig. Hier eine Übersicht, was bei dir ankommt und was du noch überweisen musst.`
+    : `hier dein aktueller Stand für die Anzahlung ${toProvider}: was bei dir ankommt und was du noch überweisen musst.`;
 
   const trancheRows = p.tranches
     .map((t) => {
@@ -61,19 +73,19 @@ export function renderCharterReminderMail(p: CharterReminderParams): {
                     <div style="margin-bottom:4px;">
                       <strong>${escapeHtml(t.label)}</strong>
                       ${overdueBadge}
-                      <span style="color:#587EA8;"> · Charterfrist ${escapeHtml(t.charter_due_date)}</span>
+                      <span style="color:#587EA8;"> · ${p.tripType === "other" ? "Frist" : "Charterfrist"} ${escapeHtml(t.charter_due_date)}</span>
                     </div>
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:6px;font-size:13px;">
                       <tr>
-                        <td style="padding:2px 0;color:#587EA8;">Soll Vercharterer:</td>
+                        <td style="padding:2px 0;color:#587EA8;">Soll ${escapeHtml(vocab.provider)}:</td>
                         <td style="padding:2px 0;text-align:right;font-weight:600;">${fmtEuro(t.soll_to_agency)}</td>
                       </tr>
                       <tr>
-                        <td style="padding:2px 0;color:#587EA8;">Crew bei dir eingegangen:</td>
+                        <td style="padding:2px 0;color:#587EA8;">${escapeHtml(vocab.crew)} bei dir eingegangen:</td>
                         <td style="padding:2px 0;text-align:right;">${fmtEuro(t.crew_paid_to_advancer)} <span style="color:#587EA8;">von ${fmtEuro(t.crew_total_due)}</span></td>
                       </tr>
                       <tr>
-                        <td style="padding:2px 0;color:#587EA8;">An Vercharterer überwiesen:</td>
+                        <td style="padding:2px 0;color:#587EA8;">${escapeHtml(toProvider.charAt(0).toUpperCase() + toProvider.slice(1))} überwiesen:</td>
                         <td style="padding:2px 0;text-align:right;">${fmtEuro(t.paid_to_agency)}</td>
                       </tr>
                       <tr>
@@ -104,7 +116,7 @@ export function renderCharterReminderMail(p: CharterReminderParams): {
                 <p style="margin:0;font-size:16px;line-height:1.5;color:${totalRemaining > 0.005 ? "#A93226" : "#1E8449"};font-weight:600;">
                   ${totalRemaining > 0.005
                     ? `Insgesamt noch zu überweisen: ${fmtEuro(totalRemaining)}`
-                    : "Alle Charteranzahlungen sind vollständig überwiesen."}
+                    : `Alle ${escapeHtml(allDoneLabel)} sind vollständig überwiesen.`}
                 </p>
               </td>
             </tr>
@@ -119,27 +131,28 @@ export function renderCharterReminderMail(p: CharterReminderParams): {
                 </table>
               </td>
             </tr>
-${renderActionButton(p.appUrl, "In der Bordkasse ansehen")}
+${renderActionButton(p.appUrl, `In der ${vocab.kitty} ansehen`)}
 ${renderHintBlock(
-  "Sobald du an den Vercharterer überwiesen hast, erfasse die Überweisung als neue Ausgabe und ordne sie der passenden Tranche zu, sie taucht dann hier korrekt an.",
+  `Sobald du ${toProvider} überwiesen hast, erfasse die Überweisung als neue Ausgabe und ordne sie der passenden Tranche zu, sie taucht dann hier korrekt an.`,
 )}`;
 
   const html = renderMailShell({
     title: subject,
     preheader: totalRemaining > 0.005
-      ? `Noch ${fmtEuro(totalRemaining)} an den Vercharterer überweisen — ${p.tripName}`
-      : `Alle Charteranzahlungen für ${p.tripName} sind vollständig überwiesen.`,
+      ? `Noch ${fmtEuro(totalRemaining)} ${toProvider} überweisen — ${p.tripName}`
+      : `Alle ${allDoneLabel} für ${p.tripName} sind vollständig überwiesen.`,
     subtitle: p.tripName,
     body,
   });
 
+  const dueLabel = p.tripType === "other" ? "Frist" : "Charterfrist";
   const trancheText = p.tranches
     .map(
       (t) =>
-        `  - ${t.label} (Charterfrist ${t.charter_due_date}):
-      Soll Vercharterer:  ${fmtEuro(t.soll_to_agency)}
-      Crew bei dir:       ${fmtEuro(t.crew_paid_to_advancer)} von ${fmtEuro(t.crew_total_due)}
-      An Vercharterer:    ${fmtEuro(t.paid_to_agency)}
+        `  - ${t.label} (${dueLabel} ${t.charter_due_date}):
+      Soll ${vocab.provider}:  ${fmtEuro(t.soll_to_agency)}
+      ${vocab.crew} bei dir:       ${fmtEuro(t.crew_paid_to_advancer)} von ${fmtEuro(t.crew_total_due)}
+      An ${vocab.provider}:    ${fmtEuro(t.paid_to_agency)}
       NOCH ZU ÜBERWEISEN: ${fmtEuro(Math.max(0, t.remaining_to_agency))}`,
     )
     .join("\n\n");
@@ -153,7 +166,7 @@ ${introText}
 
 ${totalRemaining > 0.005
     ? `Insgesamt noch zu überweisen: ${fmtEuro(totalRemaining)}`
-    : "Alle Charteranzahlungen sind vollständig überwiesen."}
+    : `Alle ${allDoneLabel} sind vollständig überwiesen.`}
 
 Tranchen:
 ${trancheText}

@@ -3,6 +3,7 @@ import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { getTrip, getTripMembers, getCategories } from "@/lib/queries/trips";
 import { getTranches, getPlan } from "@/lib/queries/prepayments";
+import { tripVocab } from "@/lib/trip-vocab";
 import { TransactionForm } from "./transaction-form";
 import { DraftEditor } from "../draft-editor";
 
@@ -25,6 +26,7 @@ export default async function NewTransactionPage({
     isAdmin(),
   ]);
   if (!trip) notFound();
+  const vocab = tripVocab(trip.trip_type);
   const myMember = members.find((m) => m.person_id === person?.id);
   const isMyTripSkipper = !!myMember?.is_skipper;
   const isSkipper = isMyTripSkipper || person?.id === trip.skipper_id;
@@ -35,9 +37,9 @@ export default async function NewTransactionPage({
   if (members.length === 0) {
     return (
       <main className="mx-auto max-w-2xl px-4 py-10 text-center">
-        <p className="font-medium text-danger">Keine Crew angelegt</p>
+        <p className="font-medium text-danger">Keine {vocab.crew} angelegt</p>
         <p className="mt-2 text-sm text-ink-soft">
-          Bevor du Buchungen erfasst, lege mindestens eine Person in der Crew an.
+          Bevor du Buchungen erfasst, lege mindestens eine Person in der {vocab.crew} an.
         </p>
       </main>
     );

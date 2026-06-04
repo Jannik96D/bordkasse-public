@@ -4,26 +4,33 @@ import { ChevronLeft, Pencil } from "lucide-react";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { getTransactionDetail } from "@/lib/queries/transactions";
-import { getTripMembers } from "@/lib/queries/trips";
+import { getTrip, getTripMembers } from "@/lib/queries/trips";
+import { tripVocab, type TripVocab } from "@/lib/trip-vocab";
 import { CategoryIcon } from "@/components/category-icon";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { formatDate, formatEuro } from "@/lib/utils";
 
-const SPLIT_LABEL = {
-  equal: "Gleichmäßig",
-  on_board: "An Bord",
-  time_proportional: "Zeitanteilig",
-  individual: "Individuell",
-  per_person: "Pro Person",
-} as const;
+type SplitKey = "equal" | "on_board" | "time_proportional" | "individual" | "per_person";
 
-const SPLIT_HINT = {
-  equal: "Alle Crewmitglieder zahlen gleich viel, unabhängig von Anwesenheit.",
-  on_board: "Nur Personen, die am Tag der Ausgabe an Bord waren, zahlen mit.",
-  time_proportional: "Anteil proportional zu den Bordtagen pro Person.",
-  individual: "Nur die markierten Personen zahlen, alle gleich viel.",
-  per_person: "Jede Person zahlt einen eigenen Betrag (z. B. Restaurant).",
-} as const;
+function splitLabel(vocab: TripVocab): Record<SplitKey, string> {
+  return {
+    equal: "Gleichmäßig",
+    on_board: vocab.onBoard,
+    time_proportional: "Zeitanteilig",
+    individual: "Individuell",
+    per_person: "Pro Person",
+  };
+}
+
+function splitHint(vocab: TripVocab): Record<SplitKey, string> {
+  return {
+    equal: `Alle ${vocab.member === "Crewmitglied" ? "Crewmitglieder" : "Mitreisenden"} zahlen gleich viel, unabhängig von Anwesenheit.`,
+    on_board: `Nur Personen, die am Tag der Ausgabe ${vocab.onBoard === "An Bord" ? "an Bord" : "anwesend"} waren, zahlen mit.`,
+    time_proportional: "Anteil proportional zu den Bordtagen pro Person.",
+    individual: "Nur die markierten Personen zahlen, alle gleich viel.",
+    per_person: "Jede Person zahlt einen eigenen Betrag (z. B. Restaurant).",
+  };
+}
 
 export default async function TransactionDetailPage({
   params,
@@ -34,12 +41,17 @@ export default async function TransactionDetailPage({
   const person = await getCurrentPerson();
   if (!person) redirect(`/login?redirect=/trips/${tripId}/transactions`);
 
-  const [detail, members, admin] = await Promise.all([
+  const [detail, members, admin, trip] = await Promise.all([
     getTransactionDetail(txId, tripId),
     getTripMembers(tripId),
     isAdmin(),
+    getTrip(tripId),
   ]);
   if (!detail) notFound();
+
+  const vocab = tripVocab(trip?.trip_type);
+  const SPLIT_LABEL = splitLabel(vocab);
+  const SPLIT_HINT = splitHint(vocab);
 
   // Wer darf bearbeiten? Skipper / Co-Skipper / Admin / Ersteller (analog Edit-Page).
   const myMember = members.find((m) => m.person_id === person.id);
@@ -129,11 +141,11 @@ export default async function TransactionDetailPage({
           {!isExpense && (
             <Field label="Geht an">
               <p className="font-medium">
-                {detail.credit_to_name ?? "Alle Crewmitglieder anteilig"}
+                {detail.credit_to_name ?? `Alle ${vocab.member === "Crewmitglied" ? "Crewmitglieder" : "Mitreisenden"} anteilig`}
                 {detail.credit_to_id == null && (
                   <InfoTooltip
                     label="Was bedeutet „An Alle“?"
-                    text="Der Betrag wird gleichmäßig auf alle Crewmitglieder außer die zahlende Person verteilt."
+                    text={`Der Betrag wird gleichmäßig auf alle ${vocab.member === "Crewmitglied" ? "Crewmitglieder" : "Mitreisenden"} außer die zahlende Person verteilt.`}
                   />
                 )}
               </p>

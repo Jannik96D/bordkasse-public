@@ -29,7 +29,7 @@ export async function sendPaymentPendingMail(params: {
 
   // Trip + Plan (für Empfänger-E-Mail)
   const [{ data: trip }, { data: plan }] = await Promise.all([
-    supabase.from("trips").select("name, skipper_id").eq("id", params.tripId).maybeSingle(),
+    supabase.from("trips").select("name, skipper_id, trip_type").eq("id", params.tripId).maybeSingle(),
     supabase.from("prepayment_plan").select("advancer_person_id").eq("trip_id", params.tripId).maybeSingle(),
   ]);
   if (!trip) return { ok: false, message: "Törn nicht gefunden." };
@@ -57,6 +57,7 @@ export async function sendPaymentPendingMail(params: {
     amount: Number(tx.amount),
     note: tx.description,
     appUrl: `${SITE_URL}/trips/${params.tripId}/prepayments`,
+    tripType: trip.trip_type === "other" ? "other" : "sailing",
   });
 
   const result = await sendMail({
