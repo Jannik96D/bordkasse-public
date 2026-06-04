@@ -1,19 +1,70 @@
 name: webapp-ci
 
+# Branch-Protection-Hinweis (wichtig):
+# Der Path-Filter ("nur bei webapp/** laufen") saß früher hier oben unter `on:`.
+# Problem: Ein PFLICHT-Status-Check, der wegen Path-Filter gar nicht erst startet,
+# bleibt für GitHub ewig "Expected — waiting for status to be reported" und
+# blockiert den Merge — auch bei reinen Doku-/Sheets-PRs.
+#
+# Lösung: Der Workflow läuft jetzt bei JEDEM PR/Push auf main. Ein schlanker
+# `changes`-Job entscheidet per git-diff, ob webapp-relevante Dateien betroffen
+# sind; nur dann laufen die schweren Jobs (lint-test, db-tests). Der `ci`-Gate-Job
+# läuft IMMER und fasst die Ergebnisse zu EINEM stabilen Status-Check zusammen.
+#
+# => In den Branch-Protection-Regeln für `main` ausschließlich den Check `ci`
+#    als "Required status check" auswählen (NICHT lint-test/db-tests einzeln).
+#    Dann lässt sich auch "Include administrators" gefahrlos aktivieren.
+
 on:
   push:
     branches: [main]
-    paths:
-      - "webapp/**"
-      - ".github/workflows/webapp-ci.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "webapp/**"
-      - ".github/workflows/webapp-ci.yml"
 
 jobs:
+  # Ermittelt dependency-frei (ohne Drittanbieter-Action), ob für diesen Lauf
+  # webapp-relevante Dateien geändert wurden. Fail-safe: ist die Diff-Basis nicht
+  # bestimmbar (erster Push, fehlende Historie), wird im Zweifel ausgeführt —
+  # lieber einmal zu viel testen als einen echten Code-Change ungeprüft mergen.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      webapp: ${{ steps.filter.outputs.webapp }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -eu
+          if [ "$EVENT" = "pull_request" ]; then
+            base="$BASE"
+          else
+            base="$BEFORE"
+          fi
+          # Diff-Basis unbekannt (leerer / 000…-SHA, nicht vorhanden) → sicherheitshalber laufen.
+          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            echo "Diff-Basis unbekannt → CI sicherheitshalber ausführen."
+            echo "webapp=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --name-only "$base" "$HEAD" \
+               | grep -qE '^(webapp/|[.]github/workflows/webapp-ci[.]yml)'; then
+            echo "Relevante Änderungen erkannt → CI ausführen."
+            echo "webapp=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Keine webapp-relevanten Änderungen → schwere Jobs überspringen."
+            echo "webapp=false" >> "$GITHUB_OUTPUT"
+          fi
+
   lint-test:
+    needs: changes
+    if: ${{ needs.changes.outputs.webapp == 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -54,6 +105,8 @@ jobs:
   # ist deutlich schlanker und stabiler. Eigener Job, damit ein Infra-Flake den
   # schnellen lint-test-Job nicht blockiert.
   db-tests:
+    needs: changes
+    if: ${{ needs.changes.outputs.webapp == 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -74,6 +127,13 @@ jobs:
       - name: Start Supabase (DB-only)
         run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,realtime,storage-api,inbucket
 
+      # Schema-/plpgsql-Linter gegen die frisch migrierte DB. --fail-on error
+      # blockt nur bei echten Fehlern (kaputte Referenzen, Typfehler in
+      # Funktionen); Warnungen werden nur angezeigt. Später ggf. auf
+      # --fail-on warning anziehen, wenn die Ausgabe dauerhaft sauber ist.
+      - name: DB-Lint (plpgsql / Schema)
+        run: supabase db lint --local --level warning --fail-on error
+
       # Direkt über die Supabase-CLI (kein pnpm/Node im DB-Job nötig).
       - name: pgTAP (SQL-Views/Funktionen)
         run: supabase test db
@@ -81,3 +141,30 @@ jobs:
       - name: Stop Supabase
         if: always()
         run: supabase stop
+
+  # Stabiler Sammel-Check für die Branch-Protection. Läuft IMMER (`always()`),
+  # auch wenn lint-test/db-tests per changes-Gate übersprungen wurden, und meldet
+  # daher zuverlässig genau einen Status-Check. NUR diesen Job (`ci`) als
+  # Required status check für `main` auswählen.
+  #
+  # Bewertung: success ODER skipped gilt als bestanden (skipped = die schweren
+  # Jobs waren für diesen PR nicht nötig). failure/cancelled/sonstiges blockiert.
+  ci:
+    if: ${{ always() }}
+    needs: [changes, lint-test, db-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pflicht-Checks auswerten
+        env:
+          R_CHANGES: ${{ needs.changes.result }}
+          R_LINT: ${{ needs.lint-test.result }}
+          R_DB: ${{ needs.db-tests.result }}
+        run: |
+          echo "Ergebnisse: changes=$R_CHANGES  lint-test=$R_LINT  db-tests=$R_DB"
+          for r in "$R_CHANGES" "$R_LINT" "$R_DB"; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "::error::Pflicht-Job-Ergebnis '$r' — Merge blockiert."; exit 1 ;;
+            esac
+          done
+          echo "Alle Pflicht-Checks bestanden."

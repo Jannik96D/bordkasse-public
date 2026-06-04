@@ -1,0 +1,24 @@
+name: Dependency Review
+
+# Blockt PRs, die Dependencies mit bekannten Schwachstellen einschleppen.
+# Nutzt den Dependency-Graph (für öffentliche Repos standardmäßig aktiv).
+# Läuft nur bei PRs gegen main.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          # Nur bei hohen/kritischen Lücken blocken; moderate = nur Hinweis.
+          fail-on-severity: high

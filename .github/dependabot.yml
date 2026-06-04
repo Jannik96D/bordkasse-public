@@ -1,0 +1,34 @@
+# Dependabot — automatische Versions-Updates (gratis für alle Repos).
+# Achtung: Dependabot-SECURITY-ALERTS sind ein separater Schalter unter
+# Settings → Code security → "Dependabot alerts"/"security updates" — die
+# hier definierten "version updates" sind unabhängig davon.
+version: 2
+updates:
+  # npm-Dependencies der Web-App (webapp/)
+  - package-ecosystem: npm
+    directory: /webapp
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      # Minor-/Patch-Updates gebündelt → ein Sammel-PR statt vieler einzelner.
+      # Major-Updates (z. B. Next 16→17) kommen weiterhin einzeln zur Review.
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Versionen der GitHub-Actions (actions/checkout, setup-node, supabase/setup-cli,
+  # codeql-action, dependency-review-action, …) — scannt .github/workflows/.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci
+    groups:
+      github-actions:
+        patterns:
+          - "*"
