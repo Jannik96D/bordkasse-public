@@ -1,0 +1,41 @@
+name: CodeQL
+
+# Statische Security-Analyse für JS/TS. Für öffentliche Repos kostenlos
+# (GitHub Advanced Security). Ergebnisse landen im "Security"-Tab des Repos.
+# Läuft ohne Path-Filter → meldet immer; kann daher gefahrlos als zusätzlicher
+# Required-Check für `main` gesetzt werden (kein "stuck pending").
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "27 3 * * 1" # wöchentlich, montags 03:27 UTC
+
+jobs:
+  analyze:
+    name: Analyse (javascript-typescript)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: CodeQL initialisieren
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          # Apps-Script-Dateien (Google-Globals) aus der Analyse nehmen — sie
+          # gehören nicht zur Web-App und erzeugen sonst Fehlalarme.
+          config: |
+            paths-ignore:
+              - assets/**
+
+      - name: CodeQL-Analyse
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
