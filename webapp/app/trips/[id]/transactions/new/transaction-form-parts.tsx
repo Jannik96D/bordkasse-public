@@ -151,7 +151,7 @@ export function FieldGroup({
   error,
   children,
 }: {
-  label: string;
+  label: ReactNode;
   htmlFor?: string;
   hint?: string;
   /** Feld-spezifische Fehlermeldung — wird direkt unter dem Feld gezeigt. */
@@ -209,7 +209,7 @@ export function TrancheField({
         </select>
       </label>
       <p className="mt-2 text-xs text-ink-soft">
-        Wenn gesetzt, landet die Buchung im Anzahlungspool statt in der laufenden {vocab.kitty}.
+        Wenn gesetzt, zählt die Buchung zur {vocab.prepayment} statt zur laufenden {vocab.kitty}.
       </p>
     </details>
   );

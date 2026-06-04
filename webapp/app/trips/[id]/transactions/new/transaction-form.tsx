@@ -677,7 +677,18 @@ function CreditForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Empfängt (An)" error={fieldError("credit_to")}>
+      <FieldGroup
+        label={
+          <>
+            Empfängt (An)
+            <InfoTooltip
+              label="Was bedeutet „An Alle“?"
+              text={`„Alle“ verteilt den Betrag gleichmäßig auf die gesamte ${vocab.crew} außer die zahlende Person. Sonst geht die Gutschrift nur an die eine gewählte Person.`}
+            />
+          </>
+        }
+        error={fieldError("credit_to")}
+      >
         <PersonSelect
           name="credit_to"
           options={members.map((m) => ({ id: m.person_id, name: m.display_name }))}

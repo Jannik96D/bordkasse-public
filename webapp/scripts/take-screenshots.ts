@@ -40,6 +40,10 @@
  *        npx tsx scripts/take-screenshots.ts; RC=$?
  *        kill $SRV
  *
+ * SELEKTIVER RE-RUN: `SHOTS=12-gutschrift,18-toern-fortschritt npx tsx
+ *   scripts/take-screenshots.ts` nimmt NUR die gelisteten Shots neu auf
+ *   (Navigation läuft komplett, übrige WebP bleiben unangetastet).
+ *
  * Hinweise:
  *   - Login läuft über Mailpit (lokaler Magic-Link); seed-demo.sh legt
  *     Anna (skipper@) + Clara (clara@) via Admin-API an und verknüpft
@@ -52,7 +56,7 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import sharp from "sharp";
 
-const BASE_URL = "http://localhost:3000";
+const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";
 const MAILPIT_URL = "http://127.0.0.1:54324";
 const SKIPPER_EMAIL = "skipper@example.com";   // Anna (Skipper + Admin)
 const CREW_EMAIL = "clara@example.com";        // Clara (reguläres Crew-Member)
@@ -97,7 +101,20 @@ async function clearMailpit() {
   await fetch(`${MAILPIT_URL}/api/v1/messages`, { method: "DELETE" });
 }
 
+// Optionaler Allowlist-Filter: `SHOTS=12-gutschrift,17-…` nimmt NUR die
+// genannten Shots neu auf (selektiver Re-Run). Die übrige Navigation läuft
+// trotzdem komplett (Logins + Trip-Lookup sind Voraussetzung), aber die
+// nicht-gelisteten WebP bleiben unangetastet. Leer = alle Shots.
+const SHOT_ALLOWLIST = (process.env.SHOTS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 async function shot(page: Page, name: string) {
+  if (SHOT_ALLOWLIST.length > 0 && !SHOT_ALLOWLIST.includes(name)) {
+    console.log(`  ⤫ ${name}.webp (übersprungen)`);
+    return;
+  }
   // Playwright kann nur PNG/JPEG; wir nehmen den PNG-Buffer und schreiben
   // ihn als WebP raus (~65 % kleiner, von der /about-Seite referenziert).
   const buf = await page.screenshot({ fullPage: false });
