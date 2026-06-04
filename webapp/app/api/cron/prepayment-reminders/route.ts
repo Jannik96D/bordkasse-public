@@ -194,11 +194,16 @@ export async function GET(request: NextRequest) {
 
     // advancer_3d: ab 3 Tage vor Charterfrist UND nur wenn er dem Vercharterer noch was schuldet
     if (daysToCharter <= REMINDER_DAYS_BEFORE) {
-      const sollAgency = (Number(plan.total_amount) * Number(t.percent)) / 100;
-      const paidAgency = paidToAgencyByTranche.get(t.id) ?? 0;
-      const remainingAgency = sollAgency - paidAgency;
+      // Gesamt-basiert: nur mahnen, solange der Vorstrecker dem Vercharterer
+      // INSGESAMT noch etwas schuldet (Überzahlung einer Tranche deckt eine
+      // andere) — sonst Mahnung trotz summenmäßig vollständig beglichenem Charter.
+      const sollTotal = Number(plan.total_amount);
+      const paidTotal = tranches
+        .filter((x) => x.trip_id === t.trip_id)
+        .reduce((s, x) => s + (paidToAgencyByTranche.get(x.id) ?? 0), 0);
+      const remainingTotal = sollTotal - paidTotal;
       const key = `${t.id}::${advancerId}::advancer_3d`;
-      if (remainingAgency > FLOAT_TOL && !alreadySent.has(key)) {
+      if (remainingTotal > FLOAT_TOL && !alreadySent.has(key)) {
         jobs.push({
           trancheId: t.id,
           tripId: t.trip_id,
@@ -206,7 +211,7 @@ export async function GET(request: NextRequest) {
           type: "advancer_3d",
           trancheLabel: t.label,
           tripName: trip.name,
-          amount: remainingAgency,
+          amount: remainingTotal,
         });
       }
     }

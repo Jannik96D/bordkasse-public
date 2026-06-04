@@ -151,11 +151,11 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
 
   // Wie viel muss der Vorstrecker insgesamt noch an den Vercharterer überweisen?
   // Steuert den 🔔-Button in seiner Zeile (Mail nur sinnvoll wenn offen).
-  const charterOutstanding = tranches.reduce((sum, t) => {
-    const soll = (plan.total_amount * t.percent) / 100;
-    const paid = charterPaidByTranche[t.id] ?? 0;
-    return sum + Math.max(0, soll - paid);
-  }, 0);
+  // Gesamt offen an den Vercharterer (NICHT pro Tranche aufsummiert): eine
+  // Überzahlung auf einer Tranche deckt eine andere → maßgeblich ist nur die
+  // Gesamtsumme, konsistent mit der Bilanz (charterOpen = total − Σ gezahlt).
+  const charterPaidTotal = tranches.reduce((sum, t) => sum + (charterPaidByTranche[t.id] ?? 0), 0);
+  const charterOutstanding = Math.max(0, plan.total_amount - charterPaidTotal);
 
   // Pro Person einmal berechnen — von Mobile-Karten UND Desktop-Tabelle genutzt.
   const memberRows = members.map((m) => {
@@ -828,7 +828,12 @@ function CharterReminderBanner({
     return { tranche: t, soll, paid, remaining, daysLeft, overdue, soon };
   });
 
-  const anythingOutstanding = rows.some((r) => r.remaining > 0.005);
+  // Gesamt-basiert statt pro Tranche: der Charter gilt als beglichen, sobald die
+  // Summe der Überweisungen die Plansumme deckt (Überzahlung einer Tranche deckt
+  // eine andere). Die per-Tranche-`rows` bleiben nur für die Detail-Anzeige.
+  const totalSoll = rows.reduce((s, r) => s + r.soll, 0);
+  const totalPaid = rows.reduce((s, r) => s + r.paid, 0);
+  const anythingOutstanding = round2(totalSoll - totalPaid) > 0.005;
   if (!anythingOutstanding) {
     return (
       <p className="mb-3 rounded-md border border-success/30 bg-success/5 px-3 py-2 text-xs text-success">
