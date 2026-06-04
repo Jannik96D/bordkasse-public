@@ -94,12 +94,19 @@ export const RecordPaymentSchema = z.object({
   idempotency_key: Uuid.optional(),
 });
 
-export const ReplaceMemberSchema = z.object({
-  trip_id: Uuid,
-  old_person_id: Uuid,
-  new_display_name: z.string().trim().min(1).max(80),
-  new_email: z.string().email().optional().or(z.literal("")),
-});
+export const ReplaceMemberSchema = z
+  .object({
+    trip_id: Uuid,
+    old_person_id: Uuid,
+    // Name optional — fehlt er, wird er aus der E-Mail abgeleitet (analog
+    // InviteSchema). Ungültig ist nur „beides leer".
+    new_display_name: z.string().trim().max(80).optional().or(z.literal("")),
+    new_email: z.string().email().optional().or(z.literal("")),
+  })
+  .refine(
+    (d) => !!d.new_email || !!(d.new_display_name && d.new_display_name.length >= 1),
+    { message: "Entweder E-Mail oder Name angeben.", path: ["new_display_name"] },
+  );
 
 export type PlanInput = z.infer<typeof PlanSchema>;
 export type TranchesInput = z.infer<typeof TranchesSchema>;

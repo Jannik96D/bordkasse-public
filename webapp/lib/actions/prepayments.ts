@@ -22,7 +22,7 @@ import { calculateObligations } from "@/lib/calc/prepayment-shares";
 import type { PrepaymentMember, PrepaymentCabin } from "@/lib/calc/prepayment-shares";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
 import { resolveOrigin } from "@/lib/auth/origin";
-import { round2, daysBetween } from "@/lib/utils";
+import { round2, daysBetween, displayNameFromEmail } from "@/lib/utils";
 
 const PG_UNIQUE_VIOLATION = "23505";
 
@@ -488,6 +488,9 @@ export async function replaceMember(
     return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
   const { trip_id, old_person_id, new_display_name, new_email } = parsed.data;
+  // Name optional: fehlt er, aus der E-Mail ableiten. Das Schema-Refine
+  // garantiert, dass mindestens eins von beidem gesetzt ist.
+  const effectiveName = new_display_name || displayNameFromEmail(new_email);
 
   const auth = await requireSkipperOrAdmin(trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
@@ -518,18 +521,21 @@ export async function replaceMember(
     } else {
       const { data: created, error } = await supabase
         .from("persons")
-        .insert({ display_name: new_display_name })
+        .insert({ display_name: effectiveName })
         .select("id")
         .single();
       if (error || !created) return { status: "error", message: dbErr(error, "Person konnte nicht angelegt werden.") };
       newPersonId = created.id;
-      await supabase.from("persons_private").insert({ person_id: newPersonId, email: new_email });
+      const { error: privErr } = await supabase
+        .from("persons_private")
+        .insert({ person_id: newPersonId, email: new_email });
+      if (privErr) return { status: "error", message: dbErr(privErr, "E-Mail konnte nicht gespeichert werden.") };
     }
   } else {
     // Ghost-Person ohne E-Mail
     const { data: created, error } = await supabase
       .from("persons")
-      .insert({ display_name: new_display_name })
+      .insert({ display_name: effectiveName })
       .select("id")
       .single();
     if (error || !created) return { status: "error", message: dbErr(error, "Person konnte nicht angelegt werden.") };
@@ -601,7 +607,7 @@ export async function replaceMember(
       trip_id,
       type: "credit",
       date: p.date,
-      description: `Crewwechsel: ${new_display_name} übernimmt Anzahlung`,
+      description: `Crewwechsel: ${effectiveName} übernimmt Anzahlung`,
       amount: p.amount,
       credit_from: newPersonId,
       credit_to: old_person_id,
@@ -615,7 +621,7 @@ export async function replaceMember(
   //    für Audit. Bei aktiven Buchungen wäre Löschen sowieso geblockt.
   await supabase
     .from("trip_members")
-    .update({ on_board_from: null, on_board_to: null, note: `Ersetzt durch ${new_display_name}` })
+    .update({ on_board_from: null, on_board_to: null, note: `Ersetzt durch ${effectiveName}` })
     .eq("id", oldMember.id);
 
   await logAudit(supabase, {

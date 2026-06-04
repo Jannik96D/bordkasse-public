@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { iconForCategoryName } from "@/lib/categories/icons";
+import { displayNameFromEmail } from "@/lib/utils";
 
 // Reihenfolge bewusst gewählt — siehe `docs/categories.md` bzw. README.
 // Crew-User-Feedback: zuerst die im Alltag häufigen (Lebensmittel, Restaurant),
@@ -80,7 +81,7 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
     if (existingPriv) {
       skipperId = existingPriv.person_id;
     } else {
-      const fallbackName = email.split("@")[0];
+      const fallbackName = displayNameFromEmail(email);
       const { data: created, error: pErr } = await supabase
         .from("persons")
         .insert({ display_name: fallbackName })

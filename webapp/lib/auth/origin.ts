@@ -7,14 +7,18 @@
  * `emailRedirectTo` fließen, könnte ein Angreifer den Magic-Link auf eine
  * fremde Domain lenken und den Auth-Code abgreifen. Deshalb akzeptieren wir
  * den Header nur, wenn er auf einer Allowlist steht (Production-Origin aus
- * NEXT_PUBLIC_SITE_URL + lokale Dev-Hosts).
+ * NEXT_PUBLIC_SITE_URL bzw. NEXT_PUBLIC_APP_ORIGIN + lokale Dev-Hosts).
  *
  * Priorität:
  *   1. Origin-Header — NUR wenn auf der Allowlist.
- *   2. NEXT_PUBLIC_SITE_URL aus der Env.
+ *   2. NEXT_PUBLIC_SITE_URL, ersatzweise NEXT_PUBLIC_APP_ORIGIN aus der Env.
+ *      Beide halten denselben Origin-Wert; APP_ORIGIN wird ohnehin von den
+ *      Mail-Templates genutzt. Der Fallback verhindert, dass ein vergessenes
+ *      SITE_URL den Magic-Link-/Invite-Versand komplett lahmlegt (genau das
+ *      ist in Prod passiert).
  *   3. http://localhost:3000 — nur im Dev-Build.
  *
- * In Production ohne erlaubten Origin UND ohne NEXT_PUBLIC_SITE_URL wird
+ * In Production ohne erlaubten Origin UND ohne beide Env-Variablen wird
  * **fail-loud** geworfen.
  */
 
@@ -27,9 +31,18 @@ function normalizeOrigin(value: string): string | null {
   }
 }
 
+/**
+ * Konfigurierter App-Origin aus der Env. NEXT_PUBLIC_SITE_URL hat Vorrang,
+ * NEXT_PUBLIC_APP_ORIGIN ist der Fallback (gleicher Wert, von den Mail-
+ * Templates genutzt) — so genügt es, eine der beiden Variablen zu setzen.
+ */
+function configuredOrigin(): string | undefined {
+  return process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXT_PUBLIC_APP_ORIGIN;
+}
+
 function allowedOrigins(): Set<string> {
   const allowed = new Set<string>();
-  const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  const envUrl = configuredOrigin();
   if (envUrl) {
     const o = normalizeOrigin(envUrl);
     if (o) allowed.add(o);
@@ -50,7 +63,7 @@ export function resolveOrigin(originHeader: string | null): string {
     // Nicht-erlaubter Origin → ignorieren und auf die Env zurückfallen.
   }
 
-  const envUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  const envUrl = configuredOrigin();
   if (envUrl) {
     const o = normalizeOrigin(envUrl);
     if (o) return o;
@@ -58,7 +71,7 @@ export function resolveOrigin(originHeader: string | null): string {
 
   if (process.env.NODE_ENV === "production") {
     throw new Error(
-      "[bordkasse:origin] NEXT_PUBLIC_SITE_URL fehlt und es kam kein erlaubter Origin-Header — Magic-Link-Versand würde auf localhost zeigen. Bitte Env-Variable in Vercel setzen.",
+      "[bordkasse:origin] Weder NEXT_PUBLIC_SITE_URL noch NEXT_PUBLIC_APP_ORIGIN gesetzt und kein erlaubter Origin-Header — Magic-Link-Versand würde auf localhost zeigen. Bitte eine der beiden Env-Variablen in Vercel setzen.",
     );
   }
   return "http://localhost:3000";

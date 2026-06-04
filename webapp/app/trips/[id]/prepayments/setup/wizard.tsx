@@ -535,11 +535,13 @@ function CrewQuickAdd({ tripId, memberCount }: { tripId: string; memberCount: nu
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function add() {
     setError(null);
     setSuccess(null);
+    setWarning(null);
     if (!name.trim() && !email.trim()) {
       setError("Mindestens Name oder E-Mail angeben.");
       return;
@@ -554,6 +556,7 @@ function CrewQuickAdd({ tripId, memberCount }: { tripId: string; memberCount: nu
         setError(res.message);
       } else {
         setSuccess(`„${name.trim() || email.trim()}" hinzugefügt.`);
+        if (res.status === "ok" && res.warning) setWarning(res.warning);
         setName("");
         setEmail("");
         // Server-Component neu rendern lassen, damit der neue Member
@@ -596,6 +599,11 @@ function CrewQuickAdd({ tripId, memberCount }: { tripId: string; memberCount: nu
         </label>
         {error && <p role="alert" className="text-xs text-danger">{error}</p>}
         {success && <p role="status" className="text-xs text-success">{success}</p>}
+        {warning && (
+          <p role="status" className="rounded-md border border-gold/30 bg-gold-soft px-2 py-1 text-xs text-ink">
+            ⚠ {warning}
+          </p>
+        )}
         <button
           type="button"
           onClick={add}
