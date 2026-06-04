@@ -85,9 +85,14 @@ export async function getGlobalStats(): Promise<GlobalStats> {
 
   // 1. Alle für den User sichtbaren Trips holen (RLS filtert für Reguläre,
   //    Admin sieht alles via Service-Role).
+  // Nur Segeltörns aggregieren — „Andere Reisen" (trip_type='other') sind
+  // bewusst aus der Gesamtstatistik ausgeschlossen (ihre Pro-Törn-Statistik
+  // bleibt erreichbar). Der Filter greift für live- UND gepurgte Trips, da
+  // die trips-Zeile nach dem Purge erhalten bleibt.
   const { data: tripsRaw } = await supabase
     .from("trips")
     .select("id, name, start_date, end_date, retention_purged_at")
+    .eq("trip_type", "sailing")
     .order("start_date", { ascending: false });
 
   const trips = (tripsRaw ?? []) as Array<{

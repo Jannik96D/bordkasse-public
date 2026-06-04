@@ -13,6 +13,7 @@ import { todayIso, cn, daysBetween } from "@/lib/utils";
 import { CategorySelect } from "@/components/category-select";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { PersonSelect } from "@/components/person-select";
+import { useTripVocab } from "@/components/trip-vocab-provider";
 import { safeMathEval } from "@/lib/utils/math-eval";
 import { calculateShares } from "@/lib/calc/shares";
 import type { Member as CalcMember, Transaction as CalcTransaction } from "@/lib/calc/types";
@@ -23,8 +24,9 @@ import {
   type TrancheOption,
   type ExpenseInitial,
   type CreditInitial,
-  SPLIT_LABEL,
-  SPLIT_TOOLTIP,
+  SPLIT_KEYS,
+  splitLabel,
+  splitTooltip,
   inputCls,
   formatAmount,
   FieldGroup,
@@ -169,6 +171,8 @@ function ExpenseForm({
   initial?: ExpenseInitial;
   draftId?: string;
 }) {
+  const vocab = useTripVocab();
+  const SPLIT_LABEL = splitLabel(vocab);
   // Eingeloggten User im "Bezahlt von"-Dropdown nach oben sortieren.
   const paidByOptions = (() => {
     const opts = members.map((m) => ({ id: m.person_id, name: m.display_name }));
@@ -390,10 +394,10 @@ function ExpenseForm({
       <div>
         <span className="block text-sm font-medium">
           Aufteilung
-          <InfoTooltip text={SPLIT_TOOLTIP} label="Aufteilungs-Modi erklärt" />
+          <InfoTooltip text={splitTooltip(vocab)} label="Aufteilungs-Modi erklärt" />
         </span>
         <div className="mt-2 flex border-b border-rule" role="tablist" aria-label="Aufteilung">
-          {(Object.keys(SPLIT_LABEL) as SplitType[]).map((s) => (
+          {SPLIT_KEYS.map((s) => (
             <button
               key={s}
               type="button"
@@ -594,6 +598,7 @@ function CreditForm({
   initial?: CreditInitial;
   draftId?: string;
 }) {
+  const vocab = useTripVocab();
   const isDraft = !!draftId;
   const isEdit = !!initial && !isDraft;
 
@@ -676,7 +681,7 @@ function CreditForm({
         <PersonSelect
           name="credit_to"
           options={members.map((m) => ({ id: m.person_id, name: m.display_name }))}
-          extraOption={{ value: "ALL", label: "Alle (Aufteilung an gesamte Crew)" }}
+          extraOption={{ value: "ALL", label: `Alle (Aufteilung an gesamte ${vocab.crew})` }}
           defaultValue={initialCreditTo}
           invalid={isInvalid("credit_to")}
           currentUserId={currentPersonId}

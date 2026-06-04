@@ -12,7 +12,7 @@ import { displayNameFromEmail } from "@/lib/utils";
 // Reihenfolge bewusst gewählt — siehe `docs/categories.md` bzw. README.
 // Crew-User-Feedback: zuerst die im Alltag häufigen (Lebensmittel, Restaurant),
 // dann Hafen/Aktivitäten/Ausrüstung, dann Verbrauchs- + Verwaltungs-Sachen.
-const DEFAULT_CATEGORY_NAMES = [
+const DEFAULT_CATEGORY_NAMES_SAILING = [
   "Lebensmittel",
   "Restaurant",
   "Hafen / Liegeplatz",
@@ -25,10 +25,24 @@ const DEFAULT_CATEGORY_NAMES = [
   "Sonstiges",
 ] as const;
 
-const DEFAULT_CATEGORIES = DEFAULT_CATEGORY_NAMES.map((name) => ({
-  name,
-  icon: iconForCategoryName(name),
-}));
+// „Andere Reise": ohne segel-spezifische Kategorien (Yacht/Sprit/Hafen/
+// Ausrüstung), dafür Unterkunft + Transport. Pro Reise frei editierbar.
+const DEFAULT_CATEGORY_NAMES_OTHER = [
+  "Lebensmittel",
+  "Restaurant",
+  "Unterkunft",
+  "Aktivitäten",
+  "Transport",
+  "Versicherung",
+  "Kaution",
+  "Sonstiges",
+] as const;
+
+function defaultCategoriesFor(tripType: "sailing" | "other") {
+  const names =
+    tripType === "other" ? DEFAULT_CATEGORY_NAMES_OTHER : DEFAULT_CATEGORY_NAMES_SAILING;
+  return names.map((name) => ({ name, icon: iconForCategoryName(name) }));
+}
 
 const TripSchema = z
   .object({
@@ -36,6 +50,9 @@ const TripSchema = z
     start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum-Format YYYY-MM-DD."),
     end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum-Format YYYY-MM-DD."),
     ship_name: z.string().trim().max(80).optional().or(z.literal("")),
+    // Segeltörn (Default) vs. „Andere Reise" — steuert das Wording und den
+    // Ausschluss aus der Gesamtstatistik (siehe lib/trip-vocab.ts).
+    trip_type: z.enum(["sailing", "other"]).default("sailing"),
     // Wenn gesetzt, wird dieser User Skipper statt der Admin selbst —
     // damit der Admin Törns für andere anlegen kann ohne hinterher
     // wieder rausgeworfen werden zu müssen.
@@ -59,6 +76,7 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
     start_date: formData.get("start_date"),
     end_date: formData.get("end_date"),
     ship_name: formData.get("ship_name") || "",
+    trip_type: formData.get("trip_type") || "sailing",
     skipper_email: formData.get("skipper_email") || "",
   });
   if (!parsed.success) {
@@ -107,6 +125,7 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
       start_date: parsed.data.start_date,
       end_date: parsed.data.end_date,
       ship_name: parsed.data.ship_name || null,
+      trip_type: parsed.data.trip_type,
       skipper_id: skipperId,
     })
     .select()
@@ -136,9 +155,9 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
     is_skipper: true,
   });
 
-  // Default-Kategorien anlegen (mit Emoji-Icon).
+  // Default-Kategorien anlegen (typabhängig: Segeltörn vs. Andere Reise).
   await supabase.from("trip_categories").insert(
-    DEFAULT_CATEGORIES.map((c, i) => ({
+    defaultCategoriesFor(parsed.data.trip_type).map((c, i) => ({
       trip_id: trip.id,
       name: c.name,
       icon: c.icon,
@@ -232,6 +251,29 @@ export async function toggleArchive(tripId: string, archived: boolean) {
   });
   revalidatePath("/");
   revalidatePath(`/trips/${tripId}`);
+}
+
+/**
+ * Reise-Typ umschalten (Segeltörn ↔ Andere Reise). Steuert Wording in der
+ * Oberfläche und den Ausschluss aus der Gesamtstatistik. Nur Skipper/Admin.
+ */
+export async function updateTripType(tripId: string, tripType: "sailing" | "other") {
+  if (tripType !== "sailing" && tripType !== "other") return;
+  const auth = await requireSkipperOrAdmin(tripId);
+  if (!auth.ok) return;
+  const supabase = createAdminClient();
+  await supabase.from("trips").update({ trip_type: tripType }).eq("id", tripId);
+  await logAudit(supabase, {
+    table_name: "trips",
+    operation: "UPDATE",
+    record_id: tripId,
+    trip_id: tripId,
+    actor_person_id: auth.personId,
+    payload: { trip_type: tripType },
+  });
+  revalidatePath("/");
+  revalidatePath(`/trips/${tripId}`);
+  revalidatePath(`/trips/${tripId}/settings`);
 }
 
 /**

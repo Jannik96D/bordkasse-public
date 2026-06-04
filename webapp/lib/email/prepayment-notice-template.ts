@@ -17,6 +17,7 @@
  */
 
 import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
+import { tripVocab } from "@/lib/trip-vocab";
 
 export type PrepaymentNoticeKind = "payment_recorded" | "payment_confirmed" | "payment_rejected";
 
@@ -32,6 +33,8 @@ export type PrepaymentNoticeParams = {
   trancheLabel: string;
   tripName: string;
   appUrl: string;
+  /** Reise-Typ — steuert das Vokabular (Bordkasse/Skipper vs. Urlaubskasse/Reiseleitung). */
+  tripType: "sailing" | "other";
 };
 
 export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
@@ -39,6 +42,10 @@ export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
   text: string;
   subject: string;
 } {
+  const vocab = tripVocab(p.tripType);
+  // Dativ für „sprich mit … oder {…}" — Segeltörn „dem Skipper", sonst
+  // „der Reiseleitung".
+  const skipperDative = p.tripType === "other" ? "der Reiseleitung" : "dem Skipper";
   let subject: string;
   let headline: string;
   let introText: string;
@@ -51,7 +58,7 @@ export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
       introText =
         p.recipientName === p.subjectPersonName
           ? `${p.actorName} hat soeben eine Anzahlung in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} im Namen von dir erfasst.`
-          : `${p.actorName} hat soeben eine Anzahlung von ${p.subjectPersonName} in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} in der Bordkasse erfasst.`;
+          : `${p.actorName} hat soeben eine Anzahlung von ${p.subjectPersonName} in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} in der ${vocab.kitty} erfasst.`;
       pillColor = "#1E8449";
       break;
     case "payment_confirmed":
@@ -70,8 +77,8 @@ export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
 
   const followupText =
     p.kind === "payment_rejected"
-      ? "Falls die Ablehnung ein Versehen war, sprich kurz mit der vorstreckenden Person oder dem Skipper, die Buchung kann neu erfasst werden."
-      : "Falls etwas nicht stimmt, sprich kurz mit der vorstreckenden Person oder dem Skipper, Buchungen können in der App noch geändert werden.";
+      ? `Falls die Ablehnung ein Versehen war, sprich kurz mit der vorstreckenden Person oder ${skipperDative}, die Buchung kann neu erfasst werden.`
+      : `Falls etwas nicht stimmt, sprich kurz mit der vorstreckenden Person oder ${skipperDative}, Buchungen können in der App noch geändert werden.`;
 
   const detailLine = `${p.subjectPersonName} · ${escapeHtml(p.trancheLabel)} · ${fmtEuro(p.amount)}`;
 
@@ -109,11 +116,11 @@ export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
                 </p>
               </td>
             </tr>
-${renderActionButton(p.appUrl, "In der Bordkasse ansehen")}
+${renderActionButton(p.appUrl, `In der ${vocab.kitty} ansehen`)}
 ${renderHintBlock(
   p.advancerName
-    ? `Du bekommst diese Mail, weil ${p.advancerName} für diesen Törn vorstreckt und ${p.actorName} eine Aktion zu deiner Anzahlung ausgelöst hat.`
-    : `Du bekommst diese Mail, weil die Anzahlungen an dich gehen (du streckst für diesen Törn vor). Aktionen anderer Personen — wie ${p.actorName} hier — landen automatisch bei dir.`,
+    ? `Du bekommst diese Mail, weil ${p.advancerName} für ${p.tripType === "other" ? "diese Reise" : "diesen Törn"} vorstreckt und ${p.actorName} eine Aktion zu deiner Anzahlung ausgelöst hat.`
+    : `Du bekommst diese Mail, weil die Anzahlungen an dich gehen (du streckst für ${p.tripType === "other" ? "diese Reise" : "diesen Törn"} vor). Aktionen anderer Personen — wie ${p.actorName} hier — landen automatisch bei dir.`,
 )}`;
 
   const html = renderMailShell({

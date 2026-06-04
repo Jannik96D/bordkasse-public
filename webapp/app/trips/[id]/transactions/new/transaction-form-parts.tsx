@@ -20,6 +20,8 @@ import {
 import { useRouter } from "next/navigation";
 import { enqueue, get as getOutboxItem } from "@/lib/offline/outbox";
 import { cn, formatEuro, nowMs } from "@/lib/utils";
+import { useTripVocab } from "@/components/trip-vocab-provider";
+import type { TripVocab } from "@/lib/trip-vocab";
 import type { TxState } from "@/lib/actions/transactions";
 
 // ── Typen ───────────────────────────────────────────────────────────────
@@ -74,21 +76,37 @@ export type CreditInitial = {
 };
 
 // ── Konstanten ──────────────────────────────────────────────────────────
-export const SPLIT_LABEL: Record<SplitType, string> = {
-  equal: "Gleichmäßig",
-  on_board: "An Bord",
-  time_proportional: "Zeitanteilig",
-  individual: "Individuell",
-  per_person: "Pro Person",
-};
+// Reise-typ-abhängige Labels: nur „An Bord"/„Anwesend" hängt am Vokabular,
+// die übrigen vier Modi bleiben fix. `splitLabel(vocab)` liefert die volle
+// Map (Reihenfolge = Tab-Reihenfolge), `SPLIT_KEYS` die Schlüssel zum Iterieren.
+export const SPLIT_KEYS: SplitType[] = [
+  "equal",
+  "on_board",
+  "time_proportional",
+  "individual",
+  "per_person",
+];
+
+export function splitLabel(vocab: TripVocab): Record<SplitType, string> {
+  return {
+    equal: "Gleichmäßig",
+    on_board: vocab.onBoard,
+    time_proportional: "Zeitanteilig",
+    individual: "Individuell",
+    per_person: "Pro Person",
+  };
+}
 
 /** Sammelhilfe für alle Aufteilungs-Modi — landet im ⓘ-Tooltip. */
-export const SPLIT_TOOLTIP =
-  "Gleichmäßig: alle teilen sich gleich. " +
-  "An Bord: nur am Buchungsdatum anwesende Personen. " +
-  "Zeitanteilig: proportional zu den Bordtagen. " +
-  "Individuell: nur explizit markierte Personen. " +
-  "Pro Person: jede Person trägt einen eigenen Betrag ein (z. B. Restaurant).";
+export function splitTooltip(vocab: TripVocab): string {
+  return (
+    "Gleichmäßig: alle teilen sich gleich. " +
+    `${vocab.onBoard}: nur am Buchungsdatum anwesende Personen. ` +
+    "Zeitanteilig: proportional zu den Bordtagen. " +
+    "Individuell: nur explizit markierte Personen. " +
+    "Pro Person: jede Person trägt einen eigenen Betrag ein (z. B. Restaurant)."
+  );
+}
 
 export const idleState: TxState = { status: "idle" };
 
@@ -163,6 +181,7 @@ export function TrancheField({
   initialTrancheId?: string | null;
   canEdit: boolean;
 }) {
+  const vocab = useTripVocab();
   const [value, setValue] = useState(initialTrancheId ?? "");
   if (!tranches || tranches.length === 0) return null;
   if (!canEdit) return null;
@@ -181,7 +200,7 @@ export function TrancheField({
           onChange={(e) => setValue(e.target.value)}
           className="mt-1 w-full rounded-md border border-rule px-3 py-2"
         >
-          <option value="">— Keine (Bordkasse-Pool) —</option>
+          <option value="">— Keine ({vocab.kitty}-Pool) —</option>
           {tranches.map((t) => (
             <option key={t.id} value={t.id}>
               {t.label} ({formatDeDate(t.due_date)})
@@ -190,7 +209,7 @@ export function TrancheField({
         </select>
       </label>
       <p className="mt-2 text-xs text-ink-soft">
-        Wenn gesetzt, landet die Buchung im Anzahlungspool statt in der laufenden Bordkasse.
+        Wenn gesetzt, landet die Buchung im Anzahlungspool statt in der laufenden {vocab.kitty}.
       </p>
     </details>
   );

@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, UserPlus } from "lucide-react";
 import { savePrepaymentPlan, saveTranches } from "@/lib/actions/prepayments";
 import { inviteMember } from "@/lib/actions/trip-members";
-import { DEFAULT_WHATSAPP_TEMPLATE } from "@/lib/prepayments/whatsapp";
+import { defaultWhatsappTemplate } from "@/lib/prepayments/whatsapp";
 import { formatEuro, todayIso } from "@/lib/utils";
 import { InfoTooltip } from "@/components/info-tooltip";
+import { tripVocab, type TripType, type TripVocab } from "@/lib/trip-vocab";
 import type {
   PrepaymentPlan,
   CabinType,
@@ -20,6 +21,7 @@ interface MemberLite { id: string; display_name: string }
 
 interface Props {
   tripId: string;
+  tripType?: TripType;
   members: MemberLite[];
   plan: PrepaymentPlan | null;
   cabins: CabinType[];
@@ -43,7 +45,8 @@ interface TrancheDraft {
   percent: string;
 }
 
-export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obligations }: Props) {
+export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, cabins, tranches, obligations }: Props) {
+  const vocab = tripVocab(tripType);
   const router = useRouter();
   const [step, setStep] = useState<1 | 2>(1);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +56,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
   const [totalAmount, setTotalAmount] = useState(plan?.total_amount.toFixed(2).replace(".", ",") ?? "");
   const [advancerId, setAdvancerId] = useState<string>(plan?.advancer_person_id ?? "");
   const [weroId, setWeroId] = useState(plan?.wero_id ?? "");
-  const [whatsappTemplate, setWhatsappTemplate] = useState(plan?.whatsapp_template ?? DEFAULT_WHATSAPP_TEMPLATE);
+  const [whatsappTemplate, setWhatsappTemplate] = useState(plan?.whatsapp_template ?? defaultWhatsappTemplate(vocab));
 
   // Cabin-Drafts: neue Kojen bekommen client-seitig eine UUID, damit der
   // Dropdown sie eindeutig identifizieren kann (sonst kollidieren alle neuen
@@ -62,7 +65,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
   const [cabinDrafts, setCabinDrafts] = useState<CabinDraft[]>(
     cabins.length > 0
       ? cabins.map((c) => ({ id: c.id, label: c.label, price_per_person: c.price_per_person.toFixed(2).replace(".", ","), capacity: String(c.capacity) }))
-      : [{ id: crypto.randomUUID(), label: "Doppelkoje", price_per_person: "", capacity: "2" }],
+      : [{ id: crypto.randomUUID(), label: vocab.cabinDefaultLabel, price_per_person: "", capacity: "2" }],
   );
 
   // Cabin-/Manual-Assignment pro Crew-Member
@@ -233,7 +236,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
               Aufteilungsmethode
               <InfoTooltip
                 label="Wie werden die Sollbeträge berechnet?"
-                text="Bei „Gleichmäßig“ und „Zeitanteilig“ werden die Sollbeträge automatisch aus der Gesamtsumme und der Crewanwesenheit berechnet. Bei „Individuell“ und „Nach Kojen“ gibst du sie pro Person bzw. pro Koje vor."
+                text={`Bei „Gleichmäßig“ und „Zeitanteilig“ werden die Sollbeträge automatisch aus der Gesamtsumme und der Anwesenheit der ${vocab.crew} berechnet. Bei „Individuell“ und „Nach Kojen“ gibst du sie pro Person bzw. pro Koje vor.`}
               />
             </span>
             <select
@@ -244,13 +247,13 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
               <option value="gleichmaessig">Gleichmäßig auf alle</option>
               <option value="zeitanteilig">Zeitanteilig (nach Bordtagen)</option>
               <option value="individuell">Individuell (pro Person)</option>
-              <option value="kojen">Nach Kojen</option>
+              <option value="kojen">Nach {vocab.cabinPlural}</option>
             </select>
           </label>
 
           {splitMethod === "kojen" && (
             <div className="space-y-3">
-              <p className="text-sm font-medium text-primary">Kojentypen</p>
+              <p className="text-sm font-medium text-primary">{vocab.cabinPlural}typen</p>
               {cabinDrafts.map((c, idx) => (
                 <div key={idx} className="grid grid-cols-1 gap-2 sm:grid-cols-12 sm:items-end">
                   <label className="col-span-5 text-sm">
@@ -295,11 +298,11 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
                 onClick={() => setCabinDrafts([...cabinDrafts, { id: crypto.randomUUID(), label: "", price_per_person: "", capacity: "2" }])}
                 className="inline-flex items-center gap-1 rounded-md border border-rule px-3 py-1.5 text-sm hover:border-primary/40"
               >
-                <Plus className="h-4 w-4" /> Koje hinzufügen
+                <Plus className="h-4 w-4" /> {vocab.cabin} hinzufügen
               </button>
 
-              <p className="text-sm font-medium text-primary">Zuordnung Crew → Koje</p>
-              <CrewQuickAdd tripId={tripId} memberCount={members.length} />
+              <p className="text-sm font-medium text-primary">Zuordnung {vocab.crew} → {vocab.cabin}</p>
+              <CrewQuickAdd tripId={tripId} memberCount={members.length} vocab={vocab} />
               <ul className="space-y-2">
                 {members.map((m) => (
                   <li key={m.id} className="flex items-center justify-between gap-3 rounded-md border border-rule px-3 py-2 text-sm">
@@ -312,7 +315,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
                       <option value="">— keine —</option>
                       {cabinDrafts.map((c, i) => (
                         <option key={c.id} value={c.id}>
-                          {c.label || `Koje ${i + 1}`} {c.price_per_person ? `(${c.price_per_person} €)` : ""}
+                          {c.label || `${vocab.cabin} ${i + 1}`} {c.price_per_person ? `(${c.price_per_person} €)` : ""}
                         </option>
                       ))}
                     </select>
@@ -327,7 +330,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
                     const over = used > Number(c.capacity);
                     return (
                       <li key={c.id} className={over ? "text-danger" : undefined}>
-                        {c.label || "(Koje)"}: {used} / {c.capacity} belegt {over && " — Überbelegung!"}
+                        {c.label || `(${vocab.cabin})`}: {used} / {c.capacity} belegt {over && " — Überbelegung!"}
                       </li>
                     );
                   })}
@@ -339,10 +342,10 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
                   Pool. Nur zeigen, wenn eine Gesamtsumme gesetzt ist. */}
               {totalAmountNum > 0 && Math.abs(cabinSum - totalAmountNum) > 0.005 && (
                 <p className="rounded-md border border-gold/30 bg-gold-soft px-3 py-2 text-xs text-ink" role="status">
-                  Σ Kojen {formatEuro(cabinSum)} weicht von der Gesamtsumme {formatEuro(totalAmountNum)} ab
+                  Σ {vocab.cabinPlural} {formatEuro(cabinSum)} weicht von der Gesamtsumme {formatEuro(totalAmountNum)} ab
                   {cabinSum < totalAmountNum
-                    ? " — die Differenz läuft über die Bordkasse."
-                    : " — die Kojen übersteigen die Gesamtsumme, bitte Preise prüfen."}
+                    ? ` — die Differenz läuft über die ${vocab.kitty}.`
+                    : ` — die ${vocab.cabinPlural} übersteigen die Gesamtsumme, bitte Preise prüfen.`}
                 </p>
               )}
             </div>
@@ -351,7 +354,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
           {splitMethod === "individuell" && (
             <div className="space-y-2">
               <p className="text-sm font-medium text-primary">Soll pro Person</p>
-              <CrewQuickAdd tripId={tripId} memberCount={members.length} />
+              <CrewQuickAdd tripId={tripId} memberCount={members.length} vocab={vocab} />
               {members.map((m) => (
                 <label key={m.id} className="flex items-center justify-between gap-3 text-sm">
                   <span className="font-medium">{m.display_name}</span>
@@ -372,7 +375,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
 
           {(splitMethod === "gleichmaessig" || splitMethod === "zeitanteilig") && (
             <div className="space-y-3">
-              <CrewQuickAdd tripId={tripId} memberCount={members.length} />
+              <CrewQuickAdd tripId={tripId} memberCount={members.length} vocab={vocab} />
             </div>
           )}
 
@@ -381,7 +384,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
               Wer streckt vor?
               <InfoTooltip
                 label="Wer streckt vor?"
-                text="Wer die Yachtanzahlung an die Charteragentur vorstreckt. Alle Crewanzahlungen werden an diese Person verbucht; ihren eigenen Anteil kann sie bilanzneutral als Selbstverrechnung abhaken. Default ist der Törn-Skipper."
+                text={`Wer die ${vocab.prepayment} ${tripType === "other" ? "an den Anbieter" : "an die Charteragentur"} vorstreckt. Alle Anzahlungen der ${vocab.crew} werden an diese Person verbucht; ihren eigenen Anteil kann sie bilanzneutral als Selbstverrechnung abhaken. Default ist ${vocab.skipper === "Skipper" ? "der Törn-Skipper" : "die Reiseleitung"}.`}
               />
             </span>
             <select
@@ -389,7 +392,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
               onChange={(e) => setAdvancerId(e.target.value)}
               className="mt-1 w-full rounded-md border border-rule px-3 py-2"
             >
-              <option value="">— Törn-Skipper (Default) —</option>
+              <option value="">— {vocab.skipper === "Skipper" ? "Törn-Skipper" : "Reiseleitung"} (Default) —</option>
               {members.map((m) => (
                 <option key={m.id} value={m.id}>{m.display_name}</option>
               ))}
@@ -528,7 +531,7 @@ export function PrepaymentWizard({ tripId, members, plan, cabins, tranches, obli
 // Spart den Detour über Settings, wenn der Skipper den Anzahlungsplan
 // noch vor dem eigentlichen Crew-Onboarding erstellt.
 // ────────────────────────────────────────────────────────────────────────
-function CrewQuickAdd({ tripId, memberCount }: { tripId: string; memberCount: number }) {
+function CrewQuickAdd({ tripId, memberCount, vocab }: { tripId: string; memberCount: number; vocab: TripVocab }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -574,7 +577,7 @@ function CrewQuickAdd({ tripId, memberCount }: { tripId: string; memberCount: nu
     >
       <summary className="cursor-pointer text-primary">
         <UserPlus className="mr-1 inline h-4 w-4" />
-        Crewmitglied hinzufügen
+        {vocab.addMember}
         <span className="ml-2 text-xs font-normal text-ink-soft">(aktuell {memberCount})</span>
       </summary>
       <div className="mt-3 space-y-2">
@@ -610,7 +613,7 @@ function CrewQuickAdd({ tripId, memberCount }: { tripId: string; memberCount: nu
           disabled={pending}
           className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-paper hover:bg-navy-dark disabled:opacity-50"
         >
-          {pending ? "Lege an …" : "Crew hinzufügen"}
+          {pending ? "Lege an …" : `${vocab.crew} hinzufügen`}
         </button>
         <p className="text-xs text-ink-soft">
           Ohne E-Mail wird die Person als Ghost angelegt (kein Login, aber Anzahlungssoll und WhatsApp-Texte gehen trotzdem).

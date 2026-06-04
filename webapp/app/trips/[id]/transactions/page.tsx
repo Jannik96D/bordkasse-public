@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { Euro, Users } from "lucide-react";
 import { listTransactions } from "@/lib/queries/transactions";
-import { getTripMembers } from "@/lib/queries/trips";
+import { getTrip, getTripMembers } from "@/lib/queries/trips";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
+import { tripVocab } from "@/lib/trip-vocab";
 import { FabAddTransaction } from "@/components/bottom-nav";
 import { TransactionsList } from "./transactions-list";
 import { PendingTransactions } from "./pending-transactions";
@@ -18,12 +19,14 @@ export default async function TransactionsListPage({
   const { id } = await params;
   const sp = await searchParams;
   const initialQuery = typeof sp.q === "string" ? sp.q : "";
-  const [txs, members, person, admin] = await Promise.all([
+  const [txs, members, person, admin, trip] = await Promise.all([
     listTransactions(id),
     getTripMembers(id),
     getCurrentPerson(),
     isAdmin(),
+    getTrip(id),
   ]);
+  const vocab = tripVocab(trip?.trip_type);
   // canEdit-Check pro Row: Skipper / Co-Skipper / Admin / Ersteller.
   const myMember = members.find((m) => m.person_id === person?.id);
   const isMyTripSkipper = !!myMember?.is_skipper;
@@ -44,16 +47,16 @@ export default async function TransactionsListPage({
       {!hasMembers ? (
         <div className="rounded-lg border border-dashed border-rule p-10 text-center">
           <Users className="mx-auto mb-3 h-10 w-10 text-ink-soft" />
-          <p className="font-medium">Noch keine Crew</p>
+          <p className="font-medium">Noch keine {vocab.crew}</p>
           <p className="mt-1 text-sm text-ink-soft">
-            Lege zuerst die Crew an, danach kannst du Ausgaben erfassen und auf
-            die Crew aufteilen.
+            Lege zuerst die {vocab.crew} an, danach kannst du Ausgaben erfassen und auf
+            die {vocab.crew} aufteilen.
           </p>
           <Link
             href={`/trips/${id}/settings`}
             className="mt-4 inline-flex min-h-touch items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-paper hover:bg-navy-dark"
           >
-            Crew hinzufügen
+            {vocab.crew} hinzufügen
           </Link>
         </div>
       ) : txs.length === 0 ? (

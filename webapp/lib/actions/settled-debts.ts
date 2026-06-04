@@ -187,7 +187,7 @@ async function sendDebtSettledMails(
   const [{ data: trip }, { data: plan }] = await Promise.all([
     supabase
       .from("trips")
-      .select("name, start_date, end_date, skipper_id")
+      .select("name, start_date, end_date, skipper_id, trip_type")
       .eq("id", args.tripId)
       .maybeSingle(),
     supabase
@@ -255,6 +255,7 @@ async function sendDebtSettledMails(
   const creditorName = nameById.get(args.toPersonId) ?? "die empfangende Person";
   const actorName = nameById.get(args.actorPersonId) ?? "Skipper";
   const tripDates = `${formatDate(trip.start_date)} – ${formatDate(trip.end_date)}`;
+  const tripType: "sailing" | "other" = trip.trip_type === "other" ? "other" : "sailing";
   const appUrl = `${process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.example"}/trips/${args.tripId}/debts`;
 
   // Dedup: pro Person-ID nur EINE Mail (falls jemand sowohl Skipper als
@@ -293,6 +294,7 @@ async function sendDebtSettledMails(
         tripName: trip.name,
         tripDates,
         appUrl,
+        tripType,
       });
       const res = await sendMail({ to: email, subject, html, text });
       if (res.ok) {
@@ -318,6 +320,7 @@ async function sendDebtSettledMails(
       tripName: trip.name,
       tripDates,
       appUrl,
+      tripType,
     });
     const res = await sendMail({ to: email, subject, html, text });
     if (res.ok) {

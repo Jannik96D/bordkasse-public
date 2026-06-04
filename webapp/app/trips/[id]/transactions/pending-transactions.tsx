@@ -11,6 +11,7 @@ import {
 } from "@/lib/offline/outbox";
 import { useConfirm } from "@/components/confirm-dialog";
 import { useToast } from "@/components/toast-provider";
+import { useTripVocab } from "@/components/trip-vocab-provider";
 import { formatEuro } from "@/lib/utils";
 
 function subscribeOnline(callback: () => void) {
@@ -75,6 +76,7 @@ export function PendingTransactions({
   const [items, setItems] = useState<OutboxItem[]>([]);
   const { confirm, confirmDialog } = useConfirm();
   const toast = useToast();
+  const vocab = useTripVocab();
 
   const refresh = useCallback(async () => {
     try {
@@ -106,7 +108,7 @@ export function PendingTransactions({
   const handleDelete = async (item: OutboxItem) => {
     const ok = await confirm({
       title: "Entwurf verwerfen?",
-      body: "Diese noch nicht übertragene Buchung wird gelöscht. Sie wurde noch nicht in die Bordkasse aufgenommen.",
+      body: `Diese noch nicht übertragene Buchung wird gelöscht. Sie wurde noch nicht in die ${vocab.kitty} aufgenommen.`,
       confirmLabel: "Verwerfen",
       danger: true,
     });

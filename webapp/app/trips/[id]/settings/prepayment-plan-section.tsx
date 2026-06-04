@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Coins } from "lucide-react";
 import { InfoTooltip } from "@/components/info-tooltip";
+import { tripVocab, type TripType } from "@/lib/trip-vocab";
 
 /**
  * Einstieg in den Anzahlungs-Wizard aus den Trip-Einstellungen heraus (D).
@@ -14,10 +15,13 @@ import { InfoTooltip } from "@/components/info-tooltip";
 export function PrepaymentPlanSection({
   tripId,
   planExists,
+  tripType = "sailing",
 }: {
   tripId: string;
   planExists: boolean;
+  tripType?: TripType;
 }) {
+  const vocab = tripVocab(tripType);
   return (
     <section>
       <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold text-primary">
@@ -25,15 +29,15 @@ export function PrepaymentPlanSection({
         Anzahlungsplan
         <InfoTooltip
           label="Was ist ein Anzahlungsplan?"
-          text="Für Yachtanzahlungen, die die vorstreckende Person Monate vor dem Törn an die Charteragentur leistet und sich von der Crew in Tranchen zurückerstatten lässt."
+          text={`Für ${vocab.prepayment}en, die die vorstreckende Person Monate vor dem Törn ${tripType === "other" ? "an den Anbieter" : "an die Charteragentur"} leistet und sich von der ${vocab.crew} in Tranchen zurückerstatten lässt.`}
         />
       </h2>
 
       <div className="rounded-md border border-rule bg-paper p-4">
         <p className="text-sm text-ink-soft">
           {planExists
-            ? "Aufteilung, Kojen und Tranchen anpassen oder die vorstreckende Person ändern."
-            : "Lege fest, wie sich die Yachtanzahlung auf die Crew verteilt und in welchen Tranchen sie fällig wird."}
+            ? `Aufteilung, ${vocab.cabinPlural} und Tranchen anpassen oder die vorstreckende Person ändern.`
+            : `Lege fest, wie sich die ${vocab.prepayment} auf die ${vocab.crew} verteilt und in welchen Tranchen sie fällig wird.`}
         </p>
         <Link
           href={`/trips/${tripId}/prepayments/setup`}
