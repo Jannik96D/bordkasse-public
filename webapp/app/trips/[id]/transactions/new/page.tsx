@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { getTrip, getTripMembers, getCategories } from "@/lib/queries/trips";
-import { getTranches, getPlan } from "@/lib/queries/prepayments";
+import { getTranches, getPlan, getPrepaymentNavState } from "@/lib/queries/prepayments";
 import { tripVocab } from "@/lib/trip-vocab";
 import { TransactionForm } from "./transaction-form";
 import { DraftEditor } from "../draft-editor";
@@ -33,6 +33,16 @@ export default async function NewTransactionPage({
   // Tranche-Feld nur für Skipper/Admin/Vorstrecker sichtbar (sonst Verwirrung).
   const isAdvancer = !!plan && !!person && (plan.advancer_person_id ?? trip.skipper_id) === person.id;
   const canEditTranche = admin || isSkipper || isAdvancer;
+  // Tranche-Zuordnung nur anbieten, solange die Anzahlung noch relevant ist.
+  // Ist der Plan vollständig beglichen (Crew + Anbieter), liefert
+  // getPrepaymentNavState `show=false` → dann kein Tranche-Feld mehr im
+  // Buchungsformular (gleiche „erfüllt"-Definition wie Tab + Bilanz-Collapse).
+  const { show: prepaymentRelevant } = await getPrepaymentNavState(id, {
+    personId: person?.id ?? null,
+    isAdmin: admin,
+    isTripSkipper: isMyTripSkipper,
+    tripSkipperId: trip.skipper_id,
+  });
 
   if (members.length === 0) {
     return (
@@ -53,7 +63,11 @@ export default async function NewTransactionPage({
     is_alcoholic_effective: m.is_alcoholic_effective,
   }));
   const mappedCategories = categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon }));
-  const mappedTranches = tranches.map((t) => ({ id: t.id, label: t.label, due_date: t.due_date }));
+  // Bei vollständig beglichenem Plan keine Tranchen ans Formular geben →
+  // TrancheField rendert dann nichts (zeigt sich nur bei tranches.length ≥ 1).
+  const mappedTranches = prepaymentRelevant
+    ? tranches.map((t) => ({ id: t.id, label: t.label, due_date: t.due_date }))
+    : [];
 
   return (
     <main className="mx-auto max-w-md px-4 py-6">
