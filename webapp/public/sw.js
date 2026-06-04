@@ -4,6 +4,8 @@
 //   - Static Assets (icons, manifest) → CacheFirst, lange Lebensdauer
 //   - Same-origin HTML/Page-Navigationen → NetworkFirst, Cache-Fallback,
 //     letzter Fallback: vorgecachte /offline.html (markenkonform statt Browser-Dino)
+//   - Same-origin RSC-Navigation (Client-Router, Header "RSC: 1", kein Prefetch)
+//     → NetworkFirst in eigenen Cache → online besuchte Seiten offline abrufbar
 //   - Same-origin _next/static, _next/image → CacheFirst (immutable)
 //   - Cross-origin (Supabase API/Realtime) → niemals cachen, normales Fetch
 //   - POST/PUT/PATCH/DELETE (Server Actions) → niemals cachen
@@ -18,9 +20,10 @@
 // Bei jeder Version den CACHE_VERSION-String hochzählen, damit alte
 // Caches beim Activate-Event aufgeräumt werden.
 
-const CACHE_VERSION = "bordkasse-v6";
+const CACHE_VERSION = "bordkasse-v7";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE = `${CACHE_VERSION}-pages`;
+const RSC_CACHE = `${CACHE_VERSION}-rsc`;
 
 const OFFLINE_URL = "/offline.html";
 
@@ -78,6 +81,19 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // RSC-Navigation des Client-Routers (Header "RSC: 1", aber KEIN Prefetch) →
+  // NetworkFirst in eigenen Cache. So sind online besuchte Seiten (Törn-Auswahl
+  // → Törn, Bilanz, Schulden) offline abrufbar. Prefetches (partielle Trees)
+  // bewusst NICHT cachen, sonst überschreiben sie die vollständige Navigations-
+  // RSC. Die ?_rsc=-Query ist nur Cache-Buster (wird ignoriert).
+  if (
+    request.headers.get("RSC") === "1" &&
+    request.headers.get("Next-Router-Prefetch") !== "1"
+  ) {
+    event.respondWith(rscNetworkFirst(request));
+    return;
+  }
+
   // Page-Navigation → NetworkFirst, Fallback auf Cache, dann Offline-Seite.
   if (request.mode === "navigate" || request.headers.get("accept")?.includes("text/html")) {
     event.respondWith(networkFirst(request, PAGES_CACHE));
@@ -121,6 +137,28 @@ async function networkFirst(request, cacheName) {
       const offline = await caches.match(OFFLINE_URL);
       if (offline) return offline;
     }
+    throw err;
+  }
+}
+
+// RSC-Payloads des Client-Routers. NetworkFirst: online immer frisch (und neu
+// gecacht), offline die zuletzt geladene RSC dieser URL. Schlüssel ohne die
+// volatile ?_rsc=-Query; ignoreVary, weil Next die Antwort u. a. auf RSC /
+// Next-Router-State-Tree / Next-Url variiert — wir wollen bewusst die letzte
+// Vollnavigation unabhängig vom State-Tree liefern. Cache-Miss offline → der
+// Fetch wirft, die offline-bewusste Error-Boundary (app/error.tsx) fängt es ab.
+async function rscNetworkFirst(request) {
+  const cache = await caches.open(RSC_CACHE);
+  const url = new URL(request.url);
+  url.searchParams.delete("_rsc");
+  const keyUrl = url.toString();
+  try {
+    const response = await fetch(request);
+    if (response.ok) await cache.put(keyUrl, response.clone());
+    return response;
+  } catch (err) {
+    const cached = await cache.match(keyUrl, { ignoreVary: true });
+    if (cached) return cached;
     throw err;
   }
 }
