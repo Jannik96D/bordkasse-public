@@ -31,7 +31,7 @@ jobs:
     outputs:
       webapp: ${{ steps.filter.outputs.webapp }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - id: filter
@@ -71,9 +71,9 @@ jobs:
         working-directory: webapp
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -112,9 +112,9 @@ jobs:
       run:
         working-directory: webapp
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: supabase/setup-cli@v1
+      - uses: supabase/setup-cli@v2
         with:
           version: latest
 
