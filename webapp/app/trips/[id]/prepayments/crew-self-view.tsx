@@ -88,24 +88,48 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
           const ariaLabel = pending
             ? `Tranche ${t.label}: ${formatEuro(pending.amount)} gemeldet, wartet auf Bestätigung`
             : `Tranche ${t.label}: ${labelFor(status, isOverdue)}, offen ${formatEuro(Math.max(0, open))}`;
+          // Offene (auch teilbezahlte) Tranche ohne laufende Meldung → die Crew
+          // kann eine Zahlung melden. Gleiche Bedingung wie der „Ich habe
+          // gezahlt"-Button; Box UND Button lösen denselben Dialog aus.
+          const actionable = open > 0.005 && !pending;
+          const reportPayment = () =>
+            setModal({ trancheId: t.id, trancheLabel: t.label, open: Math.max(0, open) });
           return (
             <li key={t.id} className="rounded-lg border border-rule bg-paper p-4">
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{t.label}</p>
                   <p className="text-xs text-ink-soft">
                     Fällig {formatDeDate(crewDue)} &middot; {t.percent.toFixed(0)} %
                   </p>
                 </div>
-                <span className="inline-flex items-center gap-2 text-sm font-medium" role="status" aria-label={ariaLabel}>
-                  <span
-                    className={`inline-flex h-6 w-6 items-center justify-center rounded border-2 text-sm font-bold ${boxClass}`}
-                    aria-hidden="true"
+                {actionable ? (
+                  <button
+                    type="button"
+                    onClick={reportPayment}
+                    aria-label={`Zahlung melden für ${t.label}, offen ${formatEuro(Math.max(0, open))}`}
+                    title="Zahlung melden"
+                    className="inline-flex min-h-[44px] items-center gap-2 rounded-md px-1.5 text-sm font-medium hover:bg-navy-light/20 focus:outline-none focus:ring-2 focus:ring-primary/20"
                   >
-                    {boxContent}
+                    <span
+                      className={`inline-flex h-6 w-6 items-center justify-center rounded border-2 text-sm font-bold ${boxClass}`}
+                      aria-hidden="true"
+                    >
+                      {boxContent}
+                    </span>
+                    <span className="tabular-nums">{formatEuro(Math.max(0, open))}</span>
+                  </button>
+                ) : (
+                  <span className="inline-flex items-center gap-2 text-sm font-medium" role="status" aria-label={ariaLabel}>
+                    <span
+                      className={`inline-flex h-6 w-6 items-center justify-center rounded border-2 text-sm font-bold ${boxClass}`}
+                      aria-hidden="true"
+                    >
+                      {boxContent}
+                    </span>
+                    <span className="tabular-nums">{formatEuro(Math.max(0, open))}</span>
                   </span>
-                  <span className="tabular-nums">{formatEuro(Math.max(0, open))}</span>
-                </span>
+                )}
               </div>
 
               {pending && (
@@ -116,10 +140,10 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
               )}
 
               <div className="mt-3 flex flex-wrap gap-2">
-                {open > 0.005 && !pending && (
+                {actionable && (
                   <button
                     type="button"
-                    onClick={() => setModal({ trancheId: t.id, trancheLabel: t.label, open: Math.max(0, open) })}
+                    onClick={reportPayment}
                     className="inline-flex min-h-[44px] items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-paper hover:bg-navy-dark"
                   >
                     <CheckCircle2 className="h-4 w-4" aria-hidden="true" />

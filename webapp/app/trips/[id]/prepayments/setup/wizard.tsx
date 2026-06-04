@@ -257,7 +257,7 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
               {cabinDrafts.map((c, idx) => (
                 <div key={idx} className="grid grid-cols-1 gap-2 sm:grid-cols-12 sm:items-end">
                   <label className="col-span-5 text-sm">
-                    <span className="text-xs text-ink-soft">Label</span>
+                    <span className="text-xs text-ink-soft">{vocab.cabinPlural}typ</span>
                     <input
                       value={c.label}
                       onChange={(e) => setCabinDrafts(cabinDrafts.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x)))}
