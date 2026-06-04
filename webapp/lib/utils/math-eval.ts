@@ -35,7 +35,8 @@ export function safeMathEval(expr: string): number | null {
  * CSP-sicherer Arithmetik-Parser (Recursive Descent) für + - * / und Klammern.
  * Wirft bei ungültiger Syntax, Division durch Null oder Resten am Ende — der
  * Aufrufer fängt das und liefert `null`. Erwartet bereits normalisierte
- * Eingabe (Komma→Punkt, ohne Whitespace) aus genau dem Zeichensatz [\d.+\-*/()].
+ * Eingabe (Komma→Punkt, ohne Whitespace) aus dem oben per Regex geprüften
+ * Zeichensatz (Ziffern, Punkt, Grundrechenarten, Klammern).
  */
 function evalArithmetic(input: string): number {
   let i = 0;
