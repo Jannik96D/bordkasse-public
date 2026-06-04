@@ -92,7 +92,11 @@ function evalArithmetic(input: string): number {
   // number := [0-9.]+  (genau eine valide Dezimalzahl)
   function parseNumber(): number {
     const start = i;
-    while (!eof() && /[0-9.]/.test(input[i])) i++;
+    let ch = input[i];
+    while (ch !== undefined && /[0-9.]/.test(ch)) {
+      i++;
+      ch = input[i];
+    }
     const numStr = input.slice(start, i);
     if (!/^\d*\.?\d+$|^\d+\.?\d*$/.test(numStr)) throw new Error("ungültige Zahl");
     const n = Number(numStr);
