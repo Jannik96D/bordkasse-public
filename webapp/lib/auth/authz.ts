@@ -7,6 +7,7 @@
  * vorher RLS hatte: prüfen, ob der eingeloggte User die Operation darf.
  */
 
+import { cache } from "react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "./get-current-person";
 
@@ -34,11 +35,11 @@ export function getAdminEmails(): string[] {
     .filter(Boolean);
 }
 
-export async function isAdmin(): Promise<boolean> {
+export const isAdmin = cache(async (): Promise<boolean> => {
   const person = await getCurrentPerson();
   if (!person?.email) return false;
   return getAdminEmails().includes(person.email.toLowerCase());
-}
+});
 
 /**
  * Whitelist-Check für die Login-Page: dürfen wir für diese E-Mail

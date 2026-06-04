@@ -57,6 +57,26 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  /**
+   * Client-Router-Cache (Performance): besuchte Törn-Tabs bleiben 30 s im
+   * Browser wiederverwendbar. Das Hin- und Herwechseln zwischen
+   * Übersicht/Buchungen/Bilanz/Schulden/Statistik ist dann sofort, ohne
+   * erneuten Server-Roundtrip. `dynamic` greift, weil unsere Nav-Links
+   * (components/bottom-nav.tsx) kein explizites `prefetch` setzen; Next
+   * behandelt alle Törn-Seiten als dynamisch (Cookie-Auth → kein Prerender).
+   *
+   * Sicher für die Finanzdaten: `router.refresh()` (RealtimeTrip bei Änderung
+   * durch andere Crew) UND `revalidatePath` (eigene Schreib-Actions) verwerfen
+   * diesen Cache sofort — die 30 s greifen nur für reines Navigieren ohne
+   * zwischenzeitliche Mutation. `static` (= prefetch={true}) bleibt auf dem
+   * Next-Default von 300 s, damit explizite Prefetches sich nicht ändern.
+   */
+  experimental: {
+    staleTimes: {
+      dynamic: 30,
+      static: 300,
+    },
+  },
   async headers() {
     return [
       {
