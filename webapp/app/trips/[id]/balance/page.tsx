@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChevronDown, Check } from "lucide-react";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { getBalances, getBordkasseOnlyBalances } from "@/lib/queries/balances";
 import { getTrip } from "@/lib/queries/trips";
@@ -129,11 +130,29 @@ function PrepaymentsSummary({
   const charterSoll = planTotal;
   const charterOpen = Math.max(0, charterSoll - charterPaid);
   const charterFulfilled = charterSoll > 0 && charterOpen <= 0.005;
+  // Plan vollständig beglichen = Crew hat alles zurückgezahlt UND der Anbieter
+  // ist voll bezahlt (gleiche Definition wie der Anzahlungs-Tab in
+  // getPrepaymentNavState). Dann den Block einklappen — er ist nur noch Archiv.
+  const hasObligation = sumSoll > 0.005 || charterSoll > 0.005;
+  const planFulfilled = hasObligation && sumOpen <= 0.005 && charterOpen <= 0.005;
 
   return (
     <section className="mb-4 rounded-lg border border-rule bg-paper p-4">
-      <div className="mb-3 flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold text-primary">{vocab.prepayment}</h2>
+      <details open={!planFulfilled} className="group">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 [&::-webkit-details-marker]:hidden">
+          <span className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-primary">{vocab.prepayment}</h2>
+            {planFulfilled && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+                <Check className="h-3 w-3" aria-hidden="true" />
+                vollständig beglichen
+              </span>
+            )}
+          </span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-ink-soft transition-transform group-open:rotate-180" aria-hidden="true" />
+        </summary>
+
+      <div className="mb-2 mt-3 flex items-baseline justify-end gap-2">
         <Link className="text-xs text-primary hover:underline" href={`/trips/${tripId}/prepayments`}>
           Details →
         </Link>
@@ -198,6 +217,7 @@ function PrepaymentsSummary({
           )}
         </div>
       )}
+      </details>
     </section>
   );
 }
