@@ -7,6 +7,10 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireSkipperOrAdmin, requireMember, requireSkipperAdminOrAdvancer } from "@/lib/auth/authz";
+import { sendPushToPersons } from "@/lib/notify/web-push";
+import { pushRecipients } from "@/lib/notify/recipients";
+import { paymentPendingPush, paymentConfirmedPush, paymentRejectedPush } from "@/lib/notify/payloads";
+import { personsBelongToTrip, CROSS_TRIP_PERSON_MSG } from "@/lib/auth/cross-trip";
 import { logAudit } from "@/lib/db/audit";
 import {
   PlanSchema,
@@ -18,7 +22,7 @@ import { calculateObligations } from "@/lib/calc/prepayment-shares";
 import type { PrepaymentMember, PrepaymentCabin } from "@/lib/calc/prepayment-shares";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
 import { resolveOrigin } from "@/lib/auth/origin";
-import { round2, daysBetween } from "@/lib/utils";
+import { round2, daysBetween, displayNameFromEmail } from "@/lib/utils";
 
 const PG_UNIQUE_VIOLATION = "23505";
 
@@ -315,6 +319,14 @@ export async function recordPayment(
 
   const supabase = createAdminClient();
 
+  // Cross-Trip-Schutz: person_id kommt aus dem Formular (nur als UUID
+  // validiert). Der Service-Role-Client umgeht RLS, also hier prüfen, dass
+  // die Person wirklich Crew dieses Törns ist — sonst könnte ein Skipper/
+  // Vorstrecker eine fremde Person in den Anzahlungspool von trip_id ziehen.
+  if (!(await personsBelongToTrip(supabase, [person_id], trip_id))) {
+    return { status: "error", message: CROSS_TRIP_PERSON_MSG };
+  }
+
   // Vorstrecker ermitteln: aus prepayment_plan.advancer_person_id, sonst
   // Trip-Skipper als Fallback. Crewanzahlungen werden gegen diese Person
   // verbucht. Self-Credit (Vorstrecker zahlt seinen eigenen Anteil) ist seit
@@ -441,6 +453,14 @@ export async function recordPayment(
     }
   }
 
+  // Push an die Crewperson (additiv zur Mail) — Actor ausgenommen. Gesamtbetrag
+  // der erfassten Zahlung, nicht pro Overflow-Split.
+  await sendPushToPersons(
+    supabase,
+    pushRecipients([person_id], { excludeActorId: actorPersonId }),
+    paymentConfirmedPush({ amount, tripId: trip_id }),
+  );
+
   revalidatePath(`/trips/${trip_id}/prepayments`);
   revalidatePath(`/trips/${trip_id}/balance`);
   revalidatePath(`/trips/${trip_id}/transactions`);
@@ -468,6 +488,9 @@ export async function replaceMember(
     return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
   const { trip_id, old_person_id, new_display_name, new_email } = parsed.data;
+  // Name optional: fehlt er, aus der E-Mail ableiten. Das Schema-Refine
+  // garantiert, dass mindestens eins von beidem gesetzt ist.
+  const effectiveName = new_display_name || displayNameFromEmail(new_email);
 
   const auth = await requireSkipperOrAdmin(trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
@@ -498,18 +521,21 @@ export async function replaceMember(
     } else {
       const { data: created, error } = await supabase
         .from("persons")
-        .insert({ display_name: new_display_name })
+        .insert({ display_name: effectiveName })
         .select("id")
         .single();
       if (error || !created) return { status: "error", message: dbErr(error, "Person konnte nicht angelegt werden.") };
       newPersonId = created.id;
-      await supabase.from("persons_private").insert({ person_id: newPersonId, email: new_email });
+      const { error: privErr } = await supabase
+        .from("persons_private")
+        .insert({ person_id: newPersonId, email: new_email });
+      if (privErr) return { status: "error", message: dbErr(privErr, "E-Mail konnte nicht gespeichert werden.") };
     }
   } else {
     // Ghost-Person ohne E-Mail
     const { data: created, error } = await supabase
       .from("persons")
-      .insert({ display_name: new_display_name })
+      .insert({ display_name: effectiveName })
       .select("id")
       .single();
     if (error || !created) return { status: "error", message: dbErr(error, "Person konnte nicht angelegt werden.") };
@@ -581,7 +607,7 @@ export async function replaceMember(
       trip_id,
       type: "credit",
       date: p.date,
-      description: `Crewwechsel: ${new_display_name} übernimmt Anzahlung`,
+      description: `Crewwechsel: ${effectiveName} übernimmt Anzahlung`,
       amount: p.amount,
       credit_from: newPersonId,
       credit_to: old_person_id,
@@ -595,7 +621,7 @@ export async function replaceMember(
   //    für Audit. Bei aktiven Buchungen wäre Löschen sowieso geblockt.
   await supabase
     .from("trip_members")
-    .update({ on_board_from: null, on_board_to: null, note: `Ersetzt durch ${new_display_name}` })
+    .update({ on_board_from: null, on_board_to: null, note: `Ersetzt durch ${effectiveName}` })
     .eq("id", oldMember.id);
 
   await logAudit(supabase, {
@@ -762,6 +788,21 @@ export async function submitSelfPayment(
     console.error("[bordkasse:pending-mail]", e);
   }
 
+  // Push an den Vorstrecker (additiv zur Mail) — die meldende Person selbst
+  // nicht (pushRecipients filtert den Actor; greift, falls der Vorstrecker
+  // ausnahmsweise für sich selbst meldet).
+  await sendPushToPersons(
+    supabase,
+    pushRecipients([advancerId], { excludeActorId: auth.personId }),
+    paymentPendingPush({
+      payerName: person.display_name,
+      amount,
+      tripId: trip_id,
+      trancheId: tranche_id,
+      payerPersonId: auth.personId,
+    }),
+  );
+
   revalidatePath(`/trips/${trip_id}/prepayments`);
   return { status: "ok" };
 }
@@ -826,6 +867,13 @@ export async function confirmSelfPayment(
   } catch (e) {
     console.error("[bordkasse:notice-mail]", e);
   }
+
+  // Push an die Crewperson (additiv) — Actor (Vorstrecker/Admin) ausgenommen.
+  await sendPushToPersons(
+    supabase,
+    pushRecipients([tx.credit_from], { excludeActorId: auth.personId }),
+    paymentConfirmedPush({ amount: Number(tx.amount), tripId: tx.trip_id }),
+  );
 
   revalidatePath(`/trips/${tx.trip_id}/prepayments`);
   revalidatePath(`/trips/${tx.trip_id}/balance`);
@@ -902,6 +950,13 @@ export async function rejectSelfPayment(
     console.error("[bordkasse:notice-mail]", e);
   }
 
+  // Push an die Crewperson (additiv) — Actor (Vorstrecker/Admin) ausgenommen.
+  await sendPushToPersons(
+    supabase,
+    pushRecipients([tx.credit_from], { excludeActorId: auth.personId }),
+    paymentRejectedPush({ amount: Number(tx.amount), tripId: tx.trip_id }),
+  );
+
   revalidatePath(`/trips/${tx.trip_id}/prepayments`);
   return { status: "ok" };
 }
@@ -935,7 +990,7 @@ async function sendPrepaymentNoticeMails(
   const SITE_URL = process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.dieter.ms";
 
   const [{ data: trip }, { data: plan }, { data: tranche }] = await Promise.all([
-    supabase.from("trips").select("name, skipper_id").eq("id", args.tripId).maybeSingle(),
+    supabase.from("trips").select("name, skipper_id, trip_type").eq("id", args.tripId).maybeSingle(),
     supabase
       .from("prepayment_plan")
       .select("advancer_person_id")
@@ -948,6 +1003,7 @@ async function sendPrepaymentNoticeMails(
       .maybeSingle(),
   ]);
   if (!trip || !tranche) return;
+  const tripType: "sailing" | "other" = trip.trip_type === "other" ? "other" : "sailing";
   const advancerPersonId = plan?.advancer_person_id ?? trip.skipper_id;
 
   // Empfänger-Set: je nach Aktionsart.
@@ -1006,6 +1062,7 @@ async function sendPrepaymentNoticeMails(
       trancheLabel: tranche.label,
       tripName: trip.name,
       appUrl: `${SITE_URL}/trips/${args.tripId}/prepayments`,
+      tripType,
     });
 
     const res = await sendMail({

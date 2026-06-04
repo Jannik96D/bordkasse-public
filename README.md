@@ -72,6 +72,10 @@ Vollständige Anleitung + Deploy-Schritte: [`webapp/README.md`](webapp/README.md
 └── assets/sheets-current/          produktive xlsx + Apps Script + alte Versionen
 ```
 
+## Hinweis zur KI-Unterstützung
+
+Teile dieses Projekts wurden mit Hilfe von KI-Werkzeugen (u. a. Claude Code) entwickelt. Code, Dokumentation und Texte wurden vor der Übernahme geprüft. Dieser Hinweis ist freiwillig — die App selbst enthält keine KI-Funktionen (kein Chatbot, keine generativen Inhalte), sodass die Transparenzpflichten des EU AI Act (Art. 50) hier nicht greifen.
+
 ## Wichtigste Regeln (siehe `CLAUDE.md`)
 
 1. **Deutsch ist verbindlich** für UI, Domain-Begriffe, User-Texte

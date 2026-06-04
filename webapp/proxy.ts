@@ -5,9 +5,9 @@ import { createServerClient } from "@supabase/ssr";
  * Refresht die Supabase-Auth-Session bei jedem Request und schützt private
  * Routen. Läuft VOR jeder Server-Komponenten-Render-Phase.
  *
- * Hinweis: Next.js 16 hat das in "proxy" umbenannt (deprecation-Warnung
- * im Log). Wir bleiben in v0.1 bei `middleware.ts` — Migration auf
- * `proxy.ts` sobald sich die Next.js-16-Convention stabilisiert hat.
+ * Hinweis: In Next.js 16 heißt diese Konvention `proxy` (vormals
+ * `middleware` — seit 16.2 deprecated). Datei + Export-Name entsprechend
+ * `proxy`; die `config.matcher`-Logik bleibt unverändert.
  */
 
 const PUBLIC_ROUTES = new Set([
@@ -20,7 +20,7 @@ const PUBLIC_ROUTES = new Set([
   "/about",
 ]);
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -65,10 +65,11 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     // Alles außer Next.js-Internals und statischen Assets. robots.txt,
-    // manifest.json und sw.js sind öffentliche Dateien aus public/ und
-    // müssen OHNE Auth erreichbar sein — sonst 307 → /login: Crawler lesen
-    // robots.txt nicht, PWA-Manifest + Service Worker laden auf den
-    // öffentlichen Seiten (Welcome/About/Login) nicht.
-    "/((?!_next/static|_next/image|favicon.ico|robots.txt|manifest.json|sw.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    // manifest.json, sw.js und offline.html sind öffentliche Dateien aus
+    // public/ und müssen OHNE Auth erreichbar sein — sonst 307 → /login:
+    // Crawler lesen robots.txt nicht, PWA-Manifest + Service Worker laden auf
+    // den öffentlichen Seiten nicht, und der SW würde statt der Offline-Seite
+    // einen Login-Redirect cachen.
+    "/((?!_next/static|_next/image|favicon.ico|robots.txt|manifest.json|sw.js|offline.html|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

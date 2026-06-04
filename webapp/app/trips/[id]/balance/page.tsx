@@ -4,6 +4,7 @@ import { getBalances, getBordkasseOnlyBalances } from "@/lib/queries/balances";
 import { getTrip } from "@/lib/queries/trips";
 import { getPlan, getPrepaymentPoolBalances, getCharterPaidTotal } from "@/lib/queries/prepayments";
 import { formatEuro, todayIso } from "@/lib/utils";
+import { tripVocab, type TripType } from "@/lib/trip-vocab";
 import type { PrepaymentPoolBalance } from "@/lib/queries/prepayments";
 import type { BalanceRow } from "@/lib/queries/balances";
 
@@ -22,13 +23,16 @@ export default async function BalancePage({
     getCharterPaidTotal(id),
   ]);
 
+  const tripType: TripType = trip?.trip_type === "other" ? "other" : "sailing";
+  const vocab = tripVocab(tripType);
+
   if (rows.length === 0) {
     return (
       <main className="mx-auto max-w-2xl px-4 py-10 text-center">
         <div className="text-3xl mb-3">⚖️</div>
-        <p className="font-medium">Noch keine Crew angelegt</p>
+        <p className="font-medium">Noch keine {vocab.crew} angelegt</p>
         <p className="mt-1 text-sm text-ink-soft">
-          Lege erst Crew + Buchungen an, dann erscheint hier die Bilanz.
+          Lege erst {vocab.crew} + Buchungen an, dann erscheint hier die Bilanz.
         </p>
       </main>
     );
@@ -57,7 +61,11 @@ export default async function BalancePage({
         {hasPlan && (
           <InfoTooltip
             label="Bilanzblöcke erklärt"
-            text="Diese Bilanz hat zwei Töpfe: „Anzahlung“ ist das Geld für die Yachtcharter, das vorab an die Agentur gezahlt wird. „Bordkasse“ sind die laufenden Kosten während des Törns (Sprit, Hafen, Essen). „Gesamt“ fasst beide zusammen. Das ist unterm Strich dein Saldo."
+            text={
+              tripType === "other"
+                ? `Diese Bilanz hat zwei Töpfe: „Anzahlung“ ist das Geld für die Reise, das vorab an den Anbieter gezahlt wird. „${vocab.kitty}“ sind die laufenden Kosten während der Reise (z. B. Verpflegung, Unterkunft). „Gesamt“ fasst beide zusammen. Das ist unterm Strich dein Saldo.`
+                : `Diese Bilanz hat zwei Töpfe: „Anzahlung“ ist das Geld für die Yachtcharter, das vorab an den Vercharterer gezahlt wird. „${vocab.kitty}“ sind die laufenden Kosten während des Törns (Sprit, Hafen, Essen). „Gesamt“ fasst beide zusammen. Das ist unterm Strich dein Saldo.`
+            }
           />
         )}
       </h1>
@@ -69,10 +77,11 @@ export default async function BalancePage({
           nameById={nameById}
           planTotal={plan?.total_amount ?? 0}
           charterPaid={charterPaid}
+          tripType={tripType}
         />
       )}
 
-      <BordkasseTable rows={tableRows} sum={sum} hasPlan={hasPlan} />
+      <BordkasseTable rows={tableRows} sum={sum} hasPlan={hasPlan} tripType={tripType} />
 
       {tripStarted && hasPlan && (
         <PrepaymentsSummary
@@ -81,6 +90,7 @@ export default async function BalancePage({
           nameById={nameById}
           planTotal={plan?.total_amount ?? 0}
           charterPaid={charterPaid}
+          tripType={tripType}
         />
       )}
     </main>
@@ -97,21 +107,25 @@ function PrepaymentsSummary({
   nameById,
   planTotal,
   charterPaid,
+  tripType,
 }: {
   tripId: string;
   poolBalances: PrepaymentPoolBalance[];
   nameById: Map<string, string>;
-  /** Gesamt-Anzahlungssumme aus dem Plan (= Charter-Preis ggü. Agentur). */
+  /** Gesamt-Anzahlungssumme aus dem Plan (= Preis ggü. Anbieter). */
   planTotal: number;
-  /** Σ aller Charter-Überweisungen (Vorstrecker → Vercharterer). */
+  /** Σ aller Anzahlungs-Überweisungen (Vorstrecker → Anbieter). */
   charterPaid: number;
+  tripType: TripType;
 }) {
-  // Σ Crewbeiträge (für Header-Zeile)
+  const vocab = tripVocab(tripType);
+  const isOther = tripType === "other";
+  // Σ Beiträge (für Header-Zeile)
   const sumSoll = poolBalances.reduce((s, p) => s + p.soll, 0);
   const sumPaid = poolBalances.reduce((s, p) => s + Math.min(p.paid, p.soll), 0);
   const sumOpen = Math.max(0, sumSoll - sumPaid);
 
-  // Charterauslage: was wurde an die Agentur überwiesen vs. Soll
+  // Charterauslage: was wurde an den Vercharterer überwiesen vs. Soll
   const charterSoll = planTotal;
   const charterOpen = Math.max(0, charterSoll - charterPaid);
   const charterFulfilled = charterSoll > 0 && charterOpen <= 0.005;
@@ -119,14 +133,14 @@ function PrepaymentsSummary({
   return (
     <section className="mb-4 rounded-lg border border-rule bg-paper p-4">
       <div className="mb-3 flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold text-primary">Anzahlung Yachtcharter</h2>
+        <h2 className="text-sm font-semibold text-primary">{vocab.prepayment}</h2>
         <Link className="text-xs text-primary hover:underline" href={`/trips/${tripId}/prepayments`}>
           Details →
         </Link>
       </div>
 
       {/* Block 1: Crewbeiträge */}
-      <p className="mb-2 text-xs uppercase tracking-wide text-ink-soft">Crewbeiträge</p>
+      <p className="mb-2 text-xs uppercase tracking-wide text-ink-soft">{vocab.contributions}</p>
       <p className="mb-3 text-xs text-ink-soft">
         Insgesamt <strong className="text-ink">{formatEuro(sumPaid)}</strong> von{" "}
         <strong className="text-ink">{formatEuro(sumSoll)}</strong> bezahlt
@@ -166,9 +180,9 @@ function PrepaymentsSummary({
       {/* Block 2: Charterauslage (Vorstrecker → Vercharterer) */}
       {charterSoll > 0 && (
         <div className="mt-4 border-t border-rule pt-3">
-          <p className="mb-2 text-xs uppercase tracking-wide text-ink-soft">An Vercharterer überwiesen</p>
+          <p className="mb-2 text-xs uppercase tracking-wide text-ink-soft">An {vocab.provider} überwiesen</p>
           <div className="flex items-center justify-between gap-3 rounded-md bg-paper-soft px-3 py-2 text-sm">
-            <span className="font-medium">Charteranzahlung</span>
+            <span className="font-medium">{vocab.prepayment}</span>
             <span className="inline-flex items-center gap-2">
               <StatusBadge status={charterFulfilled ? "paid" : charterPaid > 0.005 ? "partial" : "open"} />
               <span className="tabular-nums text-ink-soft">
@@ -179,7 +193,7 @@ function PrepaymentsSummary({
           </div>
           {charterOpen > 0.005 && (
             <p className="mt-2 text-xs text-ink-soft">
-              Noch <strong className="text-danger">{formatEuro(charterOpen)}</strong> an die Charteragentur zu überweisen.
+              Noch <strong className="text-danger">{formatEuro(charterOpen)}</strong> {isOther ? "an den Anbieter" : "an die Charteragentur"} zu überweisen.
             </p>
           )}
         </div>
@@ -217,16 +231,17 @@ function StatusBadge({ status }: { status: "open" | "partial" | "paid" | "overpa
   );
 }
 
-function BordkasseTable({ rows, sum, hasPlan }: { rows: BalanceRow[]; sum: number; hasPlan: boolean }) {
+function BordkasseTable({ rows, sum, hasPlan, tripType }: { rows: BalanceRow[]; sum: number; hasPlan: boolean; tripType: TripType }) {
+  const vocab = tripVocab(tripType);
   return (
     <>
       <h2 className="mb-2 text-sm font-semibold text-primary">
-        {hasPlan ? "Bordkasse — laufende Törnkosten" : "Bilanz"}
+        {hasPlan ? `${vocab.kitty} — laufende ${vocab.trip}kosten` : "Bilanz"}
       </h2>
       <div className="overflow-hidden rounded-md border border-rule bg-paper">
         <table className="w-full text-sm">
           <caption className="sr-only">
-            Bilanz der Crew: Saldo pro Person. Positive Beträge bekommen Geld zurück, negative zahlen nach.
+            Bilanz der {vocab.crew}: Saldo pro Person. Positive Beträge bekommen Geld zurück, negative zahlen nach.
           </caption>
           <thead className="bg-paper-soft text-xs text-ink-soft">
             <tr>

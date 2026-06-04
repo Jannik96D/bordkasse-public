@@ -28,12 +28,14 @@ export interface TripProgressInput {
   endDate: string;
   memberCount: number;
   settlementAnnounced: boolean;
+  /** Manuell vom Skipper gesetzt (trips.deposit_settled_at IS NOT NULL). */
+  depositSettled: boolean;
 }
 
 export async function getTripProgressSignals(
   input: TripProgressInput,
 ): Promise<TripProgressSignals> {
-  const { tripId, startDate, endDate, memberCount, settlementAnnounced } = input;
+  const { tripId, startDate, endDate, memberCount, settlementAnnounced, depositSettled } = input;
 
   const supabase = await readClient();
 
@@ -42,7 +44,6 @@ export async function getTripProgressSignals(
     charterPaid,
     poolBalances,
     expenseCount,
-    kautionExists,
     simplified,
     settledKeys,
   ] = await Promise.all([
@@ -50,7 +51,6 @@ export async function getTripProgressSignals(
     getCharterPaidTotal(tripId),
     getPrepaymentPoolBalances(tripId),
     countBordkasseExpenses(supabase, tripId),
-    hasKautionTransaction(supabase, tripId),
     getSimplifiedDebts(tripId),
     getSettledDebtKeys(tripId),
   ]);
@@ -78,7 +78,7 @@ export async function getTripProgressSignals(
     charterAdvancePaid: charterPaid > 0,
     crewPrepaymentsComplete,
     firstExpenseRecorded: expenseCount > 0,
-    depositSettled: kautionExists,
+    depositSettled,
     settlementAnnounced,
     allDebtsSettled,
   };
@@ -97,27 +97,4 @@ async function countBordkasseExpenses(
     .is("tranche_id", null)
     .is("deleted_at", null);
   return count ?? 0;
-}
-
-/** Gibt es eine aktive Buchung in einer "Kaution"-Kategorie? */
-async function hasKautionTransaction(
-  supabase: Client,
-  tripId: string,
-): Promise<boolean> {
-  const { data: cats } = await supabase
-    .from("trip_categories")
-    .select("id, name")
-    .eq("trip_id", tripId);
-  const kautionIds = (cats ?? [])
-    .filter((c) => /kaution/i.test(c.name ?? ""))
-    .map((c) => c.id);
-  if (kautionIds.length === 0) return false;
-
-  const { count } = await supabase
-    .from("transactions")
-    .select("id", { count: "exact", head: true })
-    .eq("trip_id", tripId)
-    .in("category_id", kautionIds)
-    .is("deleted_at", null);
-  return (count ?? 0) > 0;
 }

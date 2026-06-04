@@ -8,6 +8,9 @@ import { logAudit } from "@/lib/db/audit";
 import { getBalances, getSimplifiedDebts } from "@/lib/queries/balances";
 import { sendMail } from "@/lib/email/send";
 import { renderSettlementMail, type DebtItem } from "@/lib/email/settlement-template";
+import { sendPushToPersons } from "@/lib/notify/web-push";
+import { pushRecipients } from "@/lib/notify/recipients";
+import { settlementAnnouncedPush, settlementUpdatedPush } from "@/lib/notify/payloads";
 import { formatDate } from "@/lib/utils";
 
 type Result =
@@ -44,7 +47,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
   // Trip + bereits angekündigt? Idempotenz.
   const { data: trip } = await supabase
     .from("trips")
-    .select("id, name, start_date, end_date, settlement_announced_at")
+    .select("id, name, start_date, end_date, settlement_announced_at, trip_type")
     .eq("id", tripId)
     .maybeSingle();
   if (!trip) return { ok: false, message: "Törn nicht gefunden." };
@@ -86,6 +89,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
   const skipperName = skipperRow ? displayName(skipperRow) : "Skipper";
 
   const tripDates = `${formatDate(trip.start_date)} – ${formatDate(trip.end_date)}`;
+  const tripType: "sailing" | "other" = trip.trip_type === "other" ? "other" : "sailing";
   // Link führt direkt zu den Schulden — dort sieht das Crewmitglied den
   // Zahlungsplan und kann erledigte Zahlungen abhaken. Für den Gesamt-Saldo
   // ist der Bilanz-Tab nur einen Tap entfernt.
@@ -130,6 +134,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
       debts: myDebts,
       appUrl,
       skipperName,
+      tripType,
     });
 
     const res = await sendMail({ to: email, subject, html, text });
@@ -163,6 +168,14 @@ export async function announceSettlement(tripId: string): Promise<Result> {
     actor_person_id: person.id,
     payload: { settlement_announced: true, mails_sent: sent, mails_skipped: skipped, mails_failed: failed },
   });
+
+  // Push zusätzlich zur Mail (additiv, wirft nie). Den Auslöser selbst pushen
+  // wir nicht — er hat die Abrechnung gerade ausgelöst.
+  await sendPushToPersons(
+    supabase,
+    pushRecipients(members.map((m) => m.person_id), { excludeActorId: person.id }),
+    settlementAnnouncedPush(trip.name, tripId),
+  );
 
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/balance`);
@@ -200,7 +213,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
   const { data: trip } = await supabase
     .from("trips")
     .select(
-      "id, name, start_date, end_date, settlement_announced_at, changes_pending_since, last_settlement_resend_at",
+      "id, name, start_date, end_date, settlement_announced_at, changes_pending_since, last_settlement_resend_at, trip_type",
     )
     .eq("id", tripId)
     .maybeSingle();
@@ -277,6 +290,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
   const skipperName = skipperRow ? displayName(skipperRow) : "Skipper";
 
   const tripDates = `${formatDate(trip.start_date)} – ${formatDate(trip.end_date)}`;
+  const tripType: "sailing" | "other" = trip.trip_type === "other" ? "other" : "sailing";
   const appUrl = `${process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.example"}/trips/${tripId}/debts`;
 
   let sent = 0;
@@ -319,6 +333,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
       skipperName,
       isUpdate: true,
       changeSummary,
+      tripType,
     });
 
     const res = await sendMail({ to: email, subject, html, text });
@@ -359,6 +374,14 @@ export async function resendSettlement(tripId: string): Promise<Result> {
       change_summary: changeSummary ?? null,
     },
   });
+
+  // Push zusätzlich zur Update-Mail (gleicher Collapse-Tag wie die
+  // Ankündigung → ersetzt sie). Auslöser ausgenommen.
+  await sendPushToPersons(
+    supabase,
+    pushRecipients(members.map((m) => m.person_id), { excludeActorId: person.id }),
+    settlementUpdatedPush(trip.name, tripId),
+  );
 
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/balance`);

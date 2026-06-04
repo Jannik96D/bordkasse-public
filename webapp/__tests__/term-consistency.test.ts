@@ -98,12 +98,18 @@ describe("Begriffs-Konsistenz (Dehyphenierung aus den letzten Sessions)", () => 
     ).toEqual([]);
   });
 
-  it("Anzahlungs-Banner heisst 'Offene Charteranzahlungen'", () => {
+  it("Anzahlungs-Banner-Label kommt aus dem Reise-Vokabular", () => {
+    // Seit dem Reise-Typ-Feature liefert lib/trip-vocab.ts das Banner-Label
+    // (Segeltörn: „Offene Charteranzahlungen", Andere Reise: „Offene
+    // Anzahlungen"); matrix.tsx rendert es über vocab.openPrepayments.
+    const vocab = readFileSync(resolve(here, "../lib/trip-vocab.ts"), "utf8");
+    expect(vocab).toContain("Offene Charteranzahlungen");
+    expect(vocab).toContain("Offene Anzahlungen");
     const matrix = readFileSync(
       resolve(here, "../app/trips/[id]/prepayments/matrix.tsx"),
       "utf8",
     );
-    expect(matrix).toContain("Offene Charteranzahlungen");
+    expect(matrix).toContain("vocab.openPrepayments");
     expect(matrix).not.toContain("deine Überweisungen");
   });
 });

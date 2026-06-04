@@ -6,7 +6,13 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin, requireMember, requireSkipperOrAdmin } from "@/lib/auth/authz";
+import {
+  trancheBelongsToTrip,
+  personsBelongToTrip,
+  CROSS_TRIP_PERSON_MSG,
+} from "@/lib/auth/cross-trip";
 import { logAudit } from "@/lib/db/audit";
+import { round2 } from "@/lib/utils";
 import { ExpenseSchema, CreditSchema } from "@/lib/validation/transaction-schema";
 
 const TransactionId = z.string().uuid();
@@ -83,53 +89,10 @@ async function checkMinShare(
   return { ok: true };
 }
 
-/**
- * Cross-Trip-Schutz: stellt sicher, dass eine optional zugeordnete Tranche
- * wirklich zu diesem Törn gehört. Verhindert, dass eine Buchung in Törn A
- * über eine untergeschobene Fremd-tranche_id mit dem Anzahlungspool eines
- * anderen Törns verknüpft wird. Ohne Tranche (null) immer ok.
- */
-async function trancheBelongsToTrip(
-  supabase: ReturnType<typeof createAdminClient>,
-  trancheId: string | null | undefined,
-  tripId: string,
-): Promise<boolean> {
-  if (!trancheId) return true;
-  const { data } = await supabase
-    .from("prepayment_tranches")
-    .select("id")
-    .eq("id", trancheId)
-    .eq("trip_id", tripId)
-    .maybeSingle();
-  return !!data;
-}
-
-/**
- * Cross-Trip-Schutz für Personen-Referenzen: stellt sicher, dass jede
- * angegebene person_id (paid_by / participant_ids / credit_from / credit_to)
- * wirklich Crew dieses Törns ist. Verhindert, dass über eine untergeschobene
- * Fremd-person_id eine Person aus Törn B in die Bilanz von Törn A gezogen
- * wird (der Service-Role-Schreibpfad umgeht RLS, daher App-Layer-Check).
- * Leere Liste / nur null-Werte → immer ok.
- */
-async function personsBelongToTrip(
-  supabase: ReturnType<typeof createAdminClient>,
-  personIds: Array<string | null | undefined>,
-  tripId: string,
-): Promise<boolean> {
-  const ids = Array.from(new Set(personIds.filter((id): id is string => !!id)));
-  if (ids.length === 0) return true;
-  const { data } = await supabase
-    .from("trip_members")
-    .select("person_id")
-    .eq("trip_id", tripId)
-    .in("person_id", ids);
-  const found = new Set((data ?? []).map((r) => r.person_id));
-  return ids.every((id) => found.has(id));
-}
-
-const CROSS_TRIP_PERSON_MSG =
-  "Eine ausgewählte Person gehört nicht zu diesem Törn. Bitte Seite neu laden.";
+// Cross-Trip-Schutz (trancheBelongsToTrip / personsBelongToTrip /
+// CROSS_TRIP_PERSON_MSG) liegt in @/lib/auth/cross-trip — geteilt mit
+// lib/actions/prepayments.ts, damit beide Schreibpfade dieselbe Invariante
+// erzwingen.
 
 /**
  * Generisches deutsches Fallback für unbehandelte PostgREST-/Postgres-Fehler.
@@ -155,6 +118,92 @@ async function markPostSettlementChange(
 ): Promise<void> {
   const { error } = await supabase.rpc("mark_post_settlement_change", { p_trip_id: tripId });
   if (error) console.error("[bordkasse:settlement-resend]", error.message);
+}
+
+/**
+ * Hat sich an einer Buchung etwas geändert, das die **Bilanz** beeinflusst?
+ *
+ * Reine Umbenennung (`description`) oder Umkategorisierung (`category_id`)
+ * verschieben keinen einzigen Cent zwischen Personen — dafür soll der
+ * "Bilanz hat sich seit der Abrechnung geändert"-Banner NICHT erscheinen.
+ * Beide Felder werden hier bewusst NICHT verglichen.
+ */
+function participantSignature(
+  parts: { person_id: string; amount: number | null }[],
+): string {
+  return parts
+    .map((p) => `${p.person_id}:${p.amount == null ? "" : round2(p.amount)}`)
+    .sort()
+    .join("|");
+}
+
+interface ExpenseBalanceFields {
+  date: string;
+  paid_by: string;
+  amount: number;
+  alcohol_amount: number;
+  tip_amount: number;
+  tip_distribution: string;
+  split_type: string;
+  tranche_id: string | null;
+  participants: { person_id: string; amount: number | null }[];
+}
+
+/**
+ * Bilanz-relevant bei Ausgaben: Datum (steuert "An Bord"), Bezahler, Betrag,
+ * Alkohol-/Trinkgeld-Anteil, Trinkgeld-Verteilung, Aufteilungsart,
+ * Tranchen-Zuordnung (Pool ↔ Bordkasse) und die Beteiligten samt Anteilen.
+ */
+function expenseBalanceChanged(before: ExpenseBalanceFields, after: ExpenseBalanceFields): boolean {
+  return (
+    before.date !== after.date ||
+    before.paid_by !== after.paid_by ||
+    round2(before.amount) !== round2(after.amount) ||
+    round2(before.alcohol_amount) !== round2(after.alcohol_amount) ||
+    round2(before.tip_amount) !== round2(after.tip_amount) ||
+    before.tip_distribution !== after.tip_distribution ||
+    before.split_type !== after.split_type ||
+    (before.tranche_id ?? null) !== (after.tranche_id ?? null) ||
+    participantSignature(before.participants) !== participantSignature(after.participants)
+  );
+}
+
+interface CreditBalanceFields {
+  amount: number;
+  credit_from: string;
+  credit_to: string | null;
+  tranche_id: string | null;
+}
+
+/**
+ * Bilanz-relevant bei Gutschriften: Betrag, Von/An und Tranchen-Zuordnung.
+ * Das Datum ist bei Gutschriften rein informativ (keine datumsabhängige
+ * Aufteilung) und zählt daher NICHT.
+ */
+function creditBalanceChanged(before: CreditBalanceFields, after: CreditBalanceFields): boolean {
+  return (
+    round2(before.amount) !== round2(after.amount) ||
+    before.credit_from !== after.credit_from ||
+    (before.credit_to ?? null) !== (after.credit_to ?? null) ||
+    (before.tranche_id ?? null) !== (after.tranche_id ?? null)
+  );
+}
+
+/** Neue Beteiligten-Signatur einer Ausgabe aus den Formularwerten. */
+function newExpenseParticipants(
+  splitType: string,
+  participantIds: string[],
+  participantAmounts: { person_id: string; amount: number }[],
+): { person_id: string; amount: number | null }[] {
+  if (splitType === "individual") {
+    return participantIds.map((id) => ({ person_id: id, amount: null }));
+  }
+  if (splitType === "per_person") {
+    return participantAmounts
+      .filter((p) => p.amount > 0)
+      .map((p) => ({ person_id: p.person_id, amount: p.amount }));
+  }
+  return [];
 }
 
 export async function createExpense(_prev: TxState, formData: FormData): Promise<TxState> {
@@ -237,18 +286,30 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     return { status: "error", message: dbErrorMessage(error, "Buchung konnte nicht angelegt werden. Bitte erneut versuchen.") };
   }
 
-  if (txData.split_type === "individual" && participant_ids.length > 0) {
-    await supabase
-      .from("transaction_participants")
-      .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })));
-  } else if (txData.split_type === "per_person" && participant_amounts.length > 0) {
-    await supabase
-      .from("transaction_participants")
-      .insert(
-        participant_amounts
-          .filter((p) => p.amount > 0)
-          .map((p) => ({ transaction_id: tx.id, person_id: p.person_id, amount: p.amount })),
-      );
+  const partRes =
+    txData.split_type === "individual" && participant_ids.length > 0
+      ? await supabase
+          .from("transaction_participants")
+          .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })))
+      : txData.split_type === "per_person" && participant_amounts.length > 0
+        ? await supabase
+            .from("transaction_participants")
+            .insert(
+              participant_amounts
+                .filter((p) => p.amount > 0)
+                .map((p) => ({ transaction_id: tx.id, person_id: p.person_id, amount: p.amount })),
+            )
+        : null;
+  if (partRes?.error) {
+    // Anteile konnten nicht geschrieben werden → die Buchung wäre falsch
+    // aufgeteilt. Rollback der gerade erzeugten Buchung (gibt den
+    // idempotency_key wieder frei → Retry erzeugt eine saubere Buchung)
+    // statt stillem "Erfolg" mit fehlenden Anteilen.
+    await supabase.from("transactions").delete().eq("id", tx.id);
+    return {
+      status: "error",
+      message: dbErrorMessage(partRes.error, "Buchung konnte nicht vollständig gespeichert werden. Bitte erneut versuchen."),
+    };
   }
 
   await logAudit(supabase, {
@@ -417,7 +478,9 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   const supabase = createAdminClient();
   const { data: existing } = await supabase
     .from("transactions")
-    .select("created_by, type, trip_id, deleted_at, category_id")
+    .select(
+      "created_by, type, trip_id, deleted_at, category_id, date, paid_by, amount, alcohol_amount, tip_amount, tip_distribution, split_type, tranche_id",
+    )
     .eq("id", transactionId)
     .maybeSingle();
   if (!existing || existing.deleted_at) return { status: "error", message: "Buchung nicht gefunden." };
@@ -425,8 +488,14 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     return { status: "error", message: "Buchung gehört nicht zu diesem Törn." };
   }
   if (existing.type !== "expense") {
-    return { status: "error", message: "Buchungstyp passt nicht (erwartet: Ausgabe)." };
+    return { status: "error", message: "Diese Buchung ist keine Ausgabe." };
   }
+
+  // Beteiligte VOR dem Neuschreiben laden — für den Bilanz-Diff (s. u.).
+  const { data: existingParts } = await supabase
+    .from("transaction_participants")
+    .select("person_id, amount")
+    .eq("transaction_id", transactionId);
   if (!(await canEditTransaction(txData.trip_id, existing.created_by, person.id))) {
     return { status: "error", message: "Nur Skipper, Admin oder die Person, die gebucht hat, dürfen ändern." };
   }
@@ -481,19 +550,35 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   if (error) return { status: "error", message: dbErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
 
   // Participants neu setzen — bei Wechsel der Aufteilung müssen alte raus.
-  await supabase.from("transaction_participants").delete().eq("transaction_id", transactionId);
-  if (txData.split_type === "individual" && participant_ids.length > 0) {
-    await supabase
-      .from("transaction_participants")
-      .insert(participant_ids.map((pid) => ({ transaction_id: transactionId, person_id: pid })));
-  } else if (txData.split_type === "per_person" && participant_amounts.length > 0) {
-    await supabase
-      .from("transaction_participants")
-      .insert(
-        participant_amounts
-          .filter((p) => p.amount > 0)
-          .map((p) => ({ transaction_id: transactionId, person_id: p.person_id, amount: p.amount })),
-      );
+  const delRes = await supabase
+    .from("transaction_participants")
+    .delete()
+    .eq("transaction_id", transactionId);
+  if (delRes.error) {
+    return {
+      status: "error",
+      message: dbErrorMessage(delRes.error, "Speichern fehlgeschlagen. Bitte erneut versuchen."),
+    };
+  }
+  const partRes =
+    txData.split_type === "individual" && participant_ids.length > 0
+      ? await supabase
+          .from("transaction_participants")
+          .insert(participant_ids.map((pid) => ({ transaction_id: transactionId, person_id: pid })))
+      : txData.split_type === "per_person" && participant_amounts.length > 0
+        ? await supabase
+            .from("transaction_participants")
+            .insert(
+              participant_amounts
+                .filter((p) => p.amount > 0)
+                .map((p) => ({ transaction_id: transactionId, person_id: p.person_id, amount: p.amount })),
+            )
+        : null;
+  if (partRes?.error) {
+    return {
+      status: "error",
+      message: dbErrorMessage(partRes.error, "Speichern fehlgeschlagen — die Aufteilung konnte nicht aktualisiert werden. Bitte erneut versuchen."),
+    };
   }
 
   await logAudit(supabase, {
@@ -505,7 +590,33 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     payload: { type: "expense", ...txData, participant_ids, participant_amounts },
   });
 
-  await markPostSettlementChange(supabase, txData.trip_id);
+  // Banner nur, wenn sich tatsächlich die Bilanz ändert — reine Umbenennung
+  // oder Umkategorisierung soll keine Update-Mail-Aufforderung auslösen.
+  const balanceChanged = expenseBalanceChanged(
+    {
+      date: existing.date,
+      paid_by: existing.paid_by,
+      amount: existing.amount,
+      alcohol_amount: existing.alcohol_amount ?? 0,
+      tip_amount: existing.tip_amount ?? 0,
+      tip_distribution: existing.tip_distribution ?? "proportional",
+      split_type: existing.split_type,
+      tranche_id: existing.tranche_id,
+      participants: existingParts ?? [],
+    },
+    {
+      date: txData.date,
+      paid_by: txData.paid_by,
+      amount: txData.amount,
+      alcohol_amount: txData.alcohol_amount,
+      tip_amount: txData.tip_amount,
+      tip_distribution: txData.tip_distribution,
+      split_type: txData.split_type,
+      tranche_id: trancheId ?? null,
+      participants: newExpenseParticipants(txData.split_type, participant_ids, participant_amounts),
+    },
+  );
+  if (balanceChanged) await markPostSettlementChange(supabase, txData.trip_id);
   revalidatePath(`/trips/${txData.trip_id}/transactions`);
   revalidatePath(`/trips/${txData.trip_id}/balance`);
   revalidatePath(`/trips/${txData.trip_id}/debts`);
@@ -567,7 +678,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
   const supabase = createAdminClient();
   const { data: existing } = await supabase
     .from("transactions")
-    .select("created_by, type, trip_id, deleted_at")
+    .select("created_by, type, trip_id, deleted_at, amount, credit_from, credit_to, tranche_id")
     .eq("id", transactionId)
     .maybeSingle();
   if (!existing || existing.deleted_at) return { status: "error", message: "Buchung nicht gefunden." };
@@ -575,7 +686,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     return { status: "error", message: "Buchung gehört nicht zu diesem Törn." };
   }
   if (existing.type !== "credit") {
-    return { status: "error", message: "Buchungstyp passt nicht (erwartet: Gutschrift)." };
+    return { status: "error", message: "Diese Buchung ist keine Gutschrift." };
   }
 
   // Gutschriften ändern: weiterhin nur Skipper/Admin (oder Creator —
@@ -636,7 +747,23 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     payload: { type: "credit", ...parsed.data },
   });
 
-  await markPostSettlementChange(supabase, parsed.data.trip_id);
+  // Banner nur bei echter Bilanz-Änderung (s. updateExpense) — reine
+  // Umbenennung der Gutschrift soll keine Update-Mail-Aufforderung auslösen.
+  const balanceChanged = creditBalanceChanged(
+    {
+      amount: existing.amount,
+      credit_from: existing.credit_from,
+      credit_to: existing.credit_to,
+      tranche_id: existing.tranche_id,
+    },
+    {
+      amount: parsed.data.amount,
+      credit_from: parsed.data.credit_from,
+      credit_to: parsed.data.credit_to,
+      tranche_id: parsed.data.tranche_id ?? null,
+    },
+  );
+  if (balanceChanged) await markPostSettlementChange(supabase, parsed.data.trip_id);
   revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
   revalidatePath(`/trips/${parsed.data.trip_id}/balance`);
   revalidatePath(`/trips/${parsed.data.trip_id}/debts`);
@@ -704,7 +831,7 @@ export async function replayPendingTransaction(
   if (!person) return { ok: false, message: "Nicht angemeldet." };
 
   const tripId = String(formObject.trip_id ?? "");
-  if (!tripId) return { ok: false, message: "trip_id fehlt." };
+  if (!tripId) return { ok: false, message: "Ungültige Daten." };
   // Gutschriften nur Skipper/Admin, Ausgaben jeder Crew-Member.
   const authCheck = kind === "credit"
     ? await requireSkipperOrAdmin(tripId)
@@ -752,20 +879,28 @@ export async function replayPendingTransaction(
       return { ok: true };
     }
     if (error || !tx) {
-      return { ok: false, message: dbErrorMessage(error, "Buchung konnte nicht angelegt werden.") };
+      return { ok: false, message: dbErrorMessage(error, "Serverfehler") };
     }
-    if (txData.split_type === "individual" && participant_ids.length > 0) {
-      await supabase
-        .from("transaction_participants")
-        .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })));
-    } else if (txData.split_type === "per_person" && participant_amounts.length > 0) {
-      await supabase
-        .from("transaction_participants")
-        .insert(
-          participant_amounts
-            .filter((p) => p.amount > 0)
-            .map((p) => ({ transaction_id: tx.id, person_id: p.person_id, amount: p.amount })),
-        );
+    const partRes =
+      txData.split_type === "individual" && participant_ids.length > 0
+        ? await supabase
+            .from("transaction_participants")
+            .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })))
+        : txData.split_type === "per_person" && participant_amounts.length > 0
+          ? await supabase
+              .from("transaction_participants")
+              .insert(
+                participant_amounts
+                  .filter((p) => p.amount > 0)
+                  .map((p) => ({ transaction_id: tx.id, person_id: p.person_id, amount: p.amount })),
+              )
+          : null;
+    if (partRes?.error) {
+      // Rollback: Buchung löschen, damit der idempotency_key frei wird und der
+      // nächste Replay einen sauberen Versuch macht. Sonst griffe oben der
+      // Unique-Violation-Kurzschluss und die Anteile fehlten dauerhaft.
+      await supabase.from("transactions").delete().eq("id", tx.id);
+      return { ok: false, message: dbErrorMessage(partRes.error, "Aufteilung fehlgeschlagen") };
     }
     await logAudit(supabase, {
       table_name: "transactions",
@@ -830,7 +965,7 @@ export async function replayPendingTransaction(
     revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
     return { ok: true };
   }
-  if (error || !tx) return { ok: false, message: dbErrorMessage(error, "Gutschrift konnte nicht angelegt werden.") };
+  if (error || !tx) return { ok: false, message: dbErrorMessage(error, "Serverfehler") };
   await logAudit(supabase, {
     table_name: "transactions",
     operation: "INSERT",

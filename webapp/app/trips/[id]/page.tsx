@@ -6,9 +6,11 @@ import { countMyTransactions } from "@/lib/queries/transactions";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
 import { todayIso } from "@/lib/utils";
+import { tripVocab } from "@/lib/trip-vocab";
 import { FabAddTransaction } from "@/components/bottom-nav";
 import { OnboardingHint } from "@/components/onboarding-hint";
 import { SettlementStatus } from "@/components/settlement-status";
+import { NotificationNudge } from "@/components/notification-nudge";
 import { TripProgress } from "@/components/trip-progress";
 import { getTripProgressSignals } from "@/lib/queries/trip-progress";
 import { computeTripProgress } from "@/lib/calc/trip-progress";
@@ -32,6 +34,7 @@ export default async function TripDashboard({
   ]);
   if (!trip) return null;
 
+  const vocab = tripVocab(trip.trip_type);
   const memberCount = members.length;
   const hasMembers = memberCount > 0;
   const myMember = members.find((m) => m.person_id === person?.id);
@@ -65,8 +68,9 @@ export default async function TripDashboard({
       endDate: trip.end_date,
       memberCount,
       settlementAnnounced: !!trip.settlement_announced_at,
+      depositSettled: !!trip.deposit_settled_at,
     });
-    progress = computeTripProgress(signals, todayIso());
+    progress = computeTripProgress(signals, todayIso(), trip.trip_type === "other" ? "other" : "sailing");
   }
 
   return (
@@ -79,12 +83,17 @@ export default async function TripDashboard({
         lastResendAt={trip.last_settlement_resend_at ?? null}
         canAnnounce={canAnnounce}
         highlight={justEditedKaution}
+        vocab={vocab}
       />
+
+      {/* Geräte-Push genau dort anbieten, wo die Crew ist — der Nudge
+          versteckt sich selbst, sobald abonniert/nicht unterstützt/weggeklickt. */}
+      {hasMembers && <NotificationNudge />}
 
       <section className="rounded-lg border border-rule bg-paper p-5">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-ink-soft">Crew</p>
+            <p className="text-sm text-ink-soft">{vocab.crew}</p>
             <p className="mt-1 text-2xl font-semibold">{memberCount}</p>
           </div>
           <Link
@@ -99,16 +108,16 @@ export default async function TripDashboard({
       {!hasMembers && (
         <section className="mt-4 rounded-lg border border-dashed border-primary/30 bg-navy-light/30 p-5 text-center">
           <Users className="mx-auto mb-2 h-8 w-8 text-primary" />
-          <p className="font-medium text-primary">Crew einladen</p>
+          <p className="font-medium text-primary">{vocab.crew} einladen</p>
           <p className="mt-1 text-sm text-ink-soft">
-            Bevor du Buchungen erfasst, lege die Crew an.
+            Bevor du Buchungen erfasst, lege die {vocab.crew} an.
           </p>
           <Link
             href={`/trips/${id}/settings`}
             className="mt-3 inline-flex items-center gap-1 rounded-md bg-primary px-4 py-2 text-sm font-medium text-paper hover:bg-navy-dark"
           >
             <Plus className="h-4 w-4" />
-            Crew hinzufügen
+            {vocab.crew} hinzufügen
           </Link>
         </section>
       )}
@@ -139,7 +148,7 @@ export default async function TripDashboard({
             >
               <Coins className="h-5 w-5 text-primary" />
               <span className="font-medium text-primary">Jetzt Anzahlung anlegen</span>
-              <span className="text-xs text-ink-soft">Yachtanzahlung auf die Crew aufteilen</span>
+              <span className="text-xs text-ink-soft">{vocab.prepayment} auf die {vocab.crew} aufteilen</span>
             </Link>
           )}
         </div>

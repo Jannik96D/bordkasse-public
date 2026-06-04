@@ -97,7 +97,7 @@ const features: Feature[] = [
   {
     id: "trip-overview",
     title: "Startseite des Törns",
-    lead: "Pro Törn ein eigener Bereich: Schnellzugriff auf Buchungen, Bilanz, Anzahlungen und Schulden.",
+    lead: "Pro Törn ein eigener Bereich mit Crew-Überblick und Schnellzugriff auf Buchungen und Bilanz; alle weiteren Bereiche sind über die feste Navigationsleiste erreichbar.",
     body: (
       <>
         <p>
@@ -115,6 +115,13 @@ const features: Feature[] = [
           Yachtanzahlungen verschickt sie 3 Tage vor jeder Frist
           selbstständig Erinnerungen.
         </p>
+        <p className="mt-2">
+          Optional lassen sich – im Profil oder über einen Hinweis hier auf der
+          Übersicht – <strong>Push-Benachrichtigungen</strong> fürs Handy
+          aktivieren: zusätzlich zur E-Mail, nie als Ersatz. So kommt etwa die
+          fertige Abrechnung oder eine fällige Anzahlung sofort als Mitteilung
+          aufs Gerät (auf dem iPhone nur in der installierten App).
+        </p>
       </>
     ),
     screenshot: "/about/04-trip-overview.webp",
@@ -129,9 +136,9 @@ const features: Feature[] = [
         <p>
           Auf der Startseite des Törns zeigt die App eine Checkliste mit fünf Phasen
           (Vorbereitung, Anzahlung, während des Törns, Abrechnung, Abschluss).
-          Die Häkchen setzen sich <strong>automatisch</strong> aus dem echten
-          Stand: Crew eingeladen, erste Ausgabe erfasst, Abrechnung verschickt …
-          Nichts muss von Hand abgehakt werden.
+          Die meisten Häkchen setzen sich <strong>automatisch</strong> aus dem
+          echten Stand: Crew eingeladen, erste Ausgabe erfasst, Abrechnung
+          verschickt … Nur „Kaution verrechnet“ hakt der Skipper selbst ab.
         </p>
         <p className="mt-2">
           Die aktuelle Phase ist aufgeklappt, kommende Schritte stehen gedämpft
@@ -319,7 +326,7 @@ const features: Feature[] = [
   {
     id: "anzahlung-setup",
     title: "Yachtanzahlung: Plan einrichten",
-    lead: "Wenn der Skipper Monate vor dem Törn die Charteranzahlung an die Agentur leistet, hilft die App, das Geld bei der Crew einzusammeln.",
+    lead: "Wenn der Skipper Monate vor dem Törn die Charteranzahlung an den Vercharterer leistet, hilft die App, das Geld bei der Crew einzusammeln.",
     body: (
       <>
         <p>
@@ -370,7 +377,7 @@ const features: Feature[] = [
         </p>
         <p className="mt-2">
           Daneben sieht die vorstreckende Person eine Übersicht, was sie noch an den
-          Charteranbieter überweisen muss, basierend auf dem, was die
+          Vercharterer überweisen muss, basierend auf dem, was die
           Crew schon bei ihr eingezahlt hat. 3 Tage vor jeder
           Charterfrist verschickt die App diese Übersicht zusätzlich
           per Mail; 3 Tage vor der Crewfrist gehen automatisch
@@ -569,7 +576,9 @@ export default function AboutPage() {
         </div>
 
         <h1 className="text-3xl font-bold text-primary">
-          Wer schuldet am Ende wem wie viel? Diese App rechnet&rsquo;s aus.
+          Wer schuldet am Ende wem wie viel?
+          <br />
+          Diese App rechnet&rsquo;s aus.
         </h1>
         <p className="mt-3 text-base leading-relaxed text-ink-soft">
           Faire Aufteilung gemeinsamer Kosten auf Segeltörns, auch wenn die

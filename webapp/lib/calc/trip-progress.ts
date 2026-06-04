@@ -9,6 +9,8 @@
  * wie die übrigen lib/calc/-Module).
  */
 
+import { tripVocab, type TripType } from "@/lib/trip-vocab";
+
 export interface TripProgressSignals {
   /** Törnstart (YYYY-MM-DD). */
   startDate: string;
@@ -41,6 +43,13 @@ export interface ProgressItem {
   status: ItemStatus;
   /** Pfad relativ zu /trips/[id] (z. B. "transactions/new"). Fehlt bei not_yet. */
   href?: string;
+  /**
+   * Manuell vom Skipper abhakbar (kein abgeleiteter Status). Die UI rendert
+   * dann eine Checkbox statt eines Links. Aktuell nur "Kaution verrechnet" —
+   * die automatische Erkennung lief zu unsauber (umbenannte Kategorie,
+   * Gegenverrechnung per Gutschrift, …).
+   */
+  manual?: boolean;
 }
 
 export type PhaseId = "vorbereitung" | "anzahlung" | "toern" | "abrechnung" | "abschluss";
@@ -99,7 +108,9 @@ function statusFor(done: boolean, phaseIndex: number, unlockedUpTo: number): Ite
 export function computeTripProgress(
   s: TripProgressSignals,
   todayIso: string,
+  tripType: TripType = "sailing",
 ): TripProgress {
+  const vocab = tripVocab(tripType);
   const unlockedUpTo = timeUnlockedUpTo(s.startDate, s.endDate, todayIso);
   const idx = (id: Exclude<PhaseId, "abschluss">) => PHASE_ORDER.indexOf(id);
 
@@ -113,7 +124,7 @@ export function computeTripProgress(
   const vorbereitungItems: ProgressItem[] = [
     {
       id: "crew-invited",
-      label: "Crew einladen",
+      label: `${vocab.crew} einladen`,
       status: statusFor(s.crewInvited, idx("vorbereitung"), unlockedUpTo),
       href: "settings",
     },
@@ -125,13 +136,13 @@ export function computeTripProgress(
     const anzahlungItems: ProgressItem[] = [
       {
         id: "charter-advance",
-        label: "Yachtanzahlung an Agentur erfasst",
+        label: `${vocab.prepayment} an ${vocab.provider} erfasst`,
         status: statusFor(s.charterAdvancePaid, idx("anzahlung"), unlockedUpTo),
         href: "prepayments",
       },
       {
         id: "crew-prepayments",
-        label: "Alle Crewanzahlungen eingegangen",
+        label: tripType === "other" ? "Alle Anzahlungen der Reisegruppe eingegangen" : "Alle Crewanzahlungen eingegangen",
         status: statusFor(s.crewPrepaymentsComplete, idx("anzahlung"), unlockedUpTo),
         href: "prepayments",
       },
@@ -151,10 +162,11 @@ export function computeTripProgress(
       id: "deposit",
       label: "Kaution verrechnet",
       status: statusFor(s.depositSettled, idx("toern"), unlockedUpTo),
-      href: "transactions/new",
+      // Manuell abgehakt — kein href (Checkbox statt Link).
+      manual: true,
     },
   ];
-  phases.push(makePhase("toern", "Während des Törns", toernItems));
+  phases.push(makePhase("toern", `Während ${vocab.trip === "Reise" ? "der Reise" : "des Törns"}`, toernItems));
 
   // ── Phase 4 — Abrechnung ────────────────────────────────────────────
   const abrechnungItems: ProgressItem[] = [

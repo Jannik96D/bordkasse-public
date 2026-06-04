@@ -11,6 +11,7 @@ import {
 } from "@/lib/actions/trip-members";
 import type { TripMemberRow } from "@/lib/queries/trips";
 import { formatDate } from "@/lib/utils";
+import { tripVocab, type TripType, type TripVocab } from "@/lib/trip-vocab";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { useConfirm } from "@/components/confirm-dialog";
 
@@ -23,6 +24,7 @@ export function CrewSection({
   ownerId,
   startDate,
   endDate,
+  tripType = "sailing",
 }: {
   tripId: string;
   members: TripMemberRow[];
@@ -30,7 +32,9 @@ export function CrewSection({
   ownerId: string;
   startDate: string;
   endDate: string;
+  tripType?: TripType;
 }) {
+  const vocab = tripVocab(tripType);
   const [showForm, setShowForm] = useState(members.length === 0);
   const [state, formAction, pending] = useActionState(inviteMember, initial);
   const [, startTransition] = useTransition();
@@ -41,8 +45,8 @@ export function CrewSection({
   const handleRemove = async (m: TripMemberRow) => {
     if (m.person_id === ownerId) return;
     const ok = await confirm({
-      title: `${m.display_name} aus der Crew entfernen?`,
-      body: "Die Person wird von diesem Törn entfernt. Bereits erfasste Buchungen müssen vorher umgebucht sein.",
+      title: `${m.display_name} aus der ${vocab.crew} entfernen?`,
+      body: `Die Person wird von ${vocab.trip === "Reise" ? "dieser Reise" : "diesem Törn"} entfernt. Bereits erfasste Buchungen müssen vorher umgebucht sein.`,
       confirmLabel: "Entfernen",
       danger: true,
     });
@@ -71,7 +75,7 @@ export function CrewSection({
   return (
     <section>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-primary">Crew</h2>
+        <h2 className="text-lg font-semibold text-primary">{vocab.crew}</h2>
         {canEdit && !showForm && (
           <button
             onClick={() => setShowForm(true)}
@@ -84,7 +88,7 @@ export function CrewSection({
 
       {members.length === 0 && !showForm && (
         <p className="rounded-md border border-dashed border-rule p-4 text-center text-sm text-ink-soft">
-          Keine Crew angelegt.
+          Keine {vocab.crew} angelegt.
         </p>
       )}
 
@@ -118,10 +122,10 @@ export function CrewSection({
                   {m.is_skipper && (
                     <span
                       className="inline-flex items-center gap-1 rounded-full bg-navy-light/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
-                      title={m.person_id === ownerId ? "Original-Skipper" : "Co-Skipper"}
+                      title={m.person_id === ownerId ? `Original-${vocab.skipper}` : vocab.coSkipper}
                     >
                       <Anchor className="h-3 w-3" />
-                      {m.person_id === ownerId ? "Skipper" : "Co-Skipper"}
+                      {m.person_id === ownerId ? vocab.skipper : vocab.coSkipper}
                     </span>
                   )}
                   {m.is_alcoholic_effective && (
@@ -138,8 +142,8 @@ export function CrewSection({
                     der Hinweis. */}
                 {(m.on_board_from || m.on_board_to) && (
                   <p className="mt-1 text-xs text-ink-soft">
-                    An Bord:{" "}
-                    {m.on_board_from ? formatDate(m.on_board_from) : "ab Törnstart"}
+                    {vocab.onBoard}:{" "}
+                    {m.on_board_from ? formatDate(m.on_board_from) : `ab ${vocab.tripStart}`}
                     {" – "}
                     {m.on_board_to ? formatDate(m.on_board_to) : "bis Ende"}
                   </p>
@@ -165,15 +169,15 @@ export function CrewSection({
                     }
                     aria-label={
                       m.is_skipper
-                        ? `Skipperrechte für ${m.display_name} entziehen`
-                        : `${m.display_name} zum Skipper machen`
+                        ? `${vocab.skipper}rechte für ${m.display_name} entziehen`
+                        : `${m.display_name} zum ${vocab.skipper} machen`
                     }
                     title={
                       m.person_id === ownerId
-                        ? "Der Original-Skipper kann nicht degradiert werden."
+                        ? `Der Original-${vocab.skipper} kann nicht degradiert werden.`
                         : m.is_skipper
-                          ? "Skipperrechte entziehen"
-                          : "Zum Co-Skipper machen"
+                          ? `${vocab.skipper}rechte entziehen`
+                          : `Zum ${vocab.coSkipper} machen`
                     }
                   >
                     <Anchor className="h-4 w-4" />
@@ -197,7 +201,7 @@ export function CrewSection({
                     aria-label={`${m.display_name} entfernen`}
                     title={
                       m.person_id === ownerId
-                        ? "Der Original-Skipper kann nicht entfernt werden."
+                        ? `Der Original-${vocab.skipper} kann nicht entfernt werden.`
                         : "Entfernen"
                     }
                   >
@@ -213,6 +217,7 @@ export function CrewSection({
                 tripId={tripId}
                 startDate={startDate}
                 endDate={endDate}
+                vocab={vocab}
                 onClose={() => setEditingId(null)}
               />
             )}
@@ -226,7 +231,7 @@ export function CrewSection({
           className="mt-4 space-y-3 rounded-md border border-rule bg-paper-soft p-4"
         >
           <div className="flex items-center justify-between">
-            <h3 className="font-medium">Crewmitglied hinzufügen</h3>
+            <h3 className="font-medium">{vocab.addMember}</h3>
             <button
               type="button"
               onClick={() => setShowForm(false)}
@@ -267,7 +272,7 @@ export function CrewSection({
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label htmlFor="on_board_from" className="block text-xs font-medium">
-                  An Bord ab
+                  {vocab.onBoard} ab
                 </label>
                 <input id="on_board_from" name="on_board_from" type="date"
                   min={startDate} max={endDate}
@@ -277,7 +282,7 @@ export function CrewSection({
               </div>
               <div>
                 <label htmlFor="on_board_to" className="block text-xs font-medium">
-                  An Bord bis
+                  {vocab.onBoard} bis
                 </label>
                 <input id="on_board_to" name="on_board_to" type="date"
                   min={startDate} max={endDate}
@@ -287,7 +292,7 @@ export function CrewSection({
               </div>
             </div>
             <p className="mt-1 text-xs text-ink-soft">
-              Leer lassen für volle Törndauer ({formatDate(startDate)} – {formatDate(endDate)}).
+              Leer lassen für volle {vocab.trip}dauer ({formatDate(startDate)} – {formatDate(endDate)}).
             </p>
           </div>
 
@@ -322,7 +327,16 @@ export function CrewSection({
             <p className="text-sm text-danger" role="alert">{state.message}</p>
           )}
           {state.status === "ok" && (
-            <p className="text-sm text-success" role="status">✓ Hinzugefügt.</p>
+            state.warning ? (
+              <p
+                className="rounded-md border border-gold/30 bg-gold-soft px-3 py-2 text-sm text-ink"
+                role="status"
+              >
+                ⚠ {state.warning}
+              </p>
+            ) : (
+              <p className="text-sm text-success" role="status">✓ Hinzugefügt.</p>
+            )
           )}
 
           <button
@@ -349,12 +363,14 @@ function EditMemberForm({
   tripId,
   startDate,
   endDate,
+  vocab,
   onClose,
 }: {
   member: TripMemberRow;
   tripId: string;
   startDate: string;
   endDate: string;
+  vocab: TripVocab;
   onClose: () => void;
 }) {
   const [state, formAction, pending] = useActionState(updateMember, initial);
@@ -425,7 +441,7 @@ function EditMemberForm({
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label htmlFor={`from-${member.id}`} className="block text-xs font-medium">
-            An Bord ab
+            {vocab.onBoard} ab
           </label>
           <input
             id={`from-${member.id}`}
@@ -439,7 +455,7 @@ function EditMemberForm({
         </div>
         <div>
           <label htmlFor={`to-${member.id}`} className="block text-xs font-medium">
-            An Bord bis
+            {vocab.onBoard} bis
           </label>
           <input
             id={`to-${member.id}`}

@@ -2,10 +2,12 @@ import { getTrip, getTripMembers, getCategories } from "@/lib/queries/trips";
 import { getPlan } from "@/lib/queries/prepayments";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
+import { tripVocab } from "@/lib/trip-vocab";
 import { CrewSection } from "./crew-section";
 import { CategorySection } from "./category-section";
 import { ArchiveBlock } from "./archive-block";
 import { DatesSection } from "./dates-section";
+import { TripTypeSection } from "./trip-type-section";
 import { PrepaymentPlanSection } from "./prepayment-plan-section";
 import { RetentionBlock } from "./retention-block";
 
@@ -29,13 +31,14 @@ export default async function SettingsPage({
   // ebenso jeder Admin (auch wenn er nicht Member ist).
   const myMember = members.find((m) => m.person_id === person?.id);
   const canEdit = admin || !!myMember?.is_skipper;
+  const vocab = tripVocab(trip.trip_type);
 
   return (
     <main className="mx-auto max-w-2xl space-y-8 px-4 py-6">
       {!canEdit && (
         <p className="rounded-md border border-rule bg-paper-soft px-3 py-2 text-sm text-ink-soft">
-          Du siehst die Einstellungen nur zur Ansicht. Crew und Kategorien
-          können nur Skipper oder Admin bearbeiten.
+          Du siehst die Einstellungen nur zur Ansicht. {vocab.crew} und Kategorien
+          können nur {vocab.skipper} oder Admin bearbeiten.
         </p>
       )}
       {canEdit && (
@@ -45,6 +48,12 @@ export default async function SettingsPage({
           endDate={trip.end_date}
         />
       )}
+      {canEdit && (
+        <TripTypeSection
+          tripId={id}
+          tripType={trip.trip_type === "other" ? "other" : "sailing"}
+        />
+      )}
       <CrewSection
         tripId={id}
         members={members}
@@ -52,8 +61,15 @@ export default async function SettingsPage({
         ownerId={trip.skipper_id}
         startDate={trip.start_date}
         endDate={trip.end_date}
+        tripType={trip.trip_type === "other" ? "other" : "sailing"}
       />
-      {canEdit && <PrepaymentPlanSection tripId={id} planExists={!!plan} />}
+      {canEdit && (
+        <PrepaymentPlanSection
+          tripId={id}
+          planExists={!!plan}
+          tripType={trip.trip_type === "other" ? "other" : "sailing"}
+        />
+      )}
       <CategorySection tripId={id} categories={categories} canEdit={canEdit} />
       {canEdit && <ArchiveBlock tripId={id} archived={trip.archived} />}
       {canEdit && !trip.retention_purged_at && <RetentionBlock tripId={id} />}

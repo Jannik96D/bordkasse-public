@@ -3,6 +3,7 @@
 import { useOptimistic, useTransition } from "react";
 import { toggleDebtSettled } from "@/lib/actions/settled-debts";
 import { useToast } from "@/components/toast-provider";
+import { useTripVocab } from "@/components/trip-vocab-provider";
 
 /**
  * "Erledigt"-Häkchen pro Schuldenzeile. Persistiert trip-übergreifend in
@@ -32,6 +33,7 @@ export function DebtCheckbox({
   const [optimisticSettled, setOptimisticSettled] = useOptimistic(initialSettled);
   const [pending, startTransition] = useTransition();
   const { show } = useToast();
+  const vocab = useTripVocab();
 
   return (
     <input
@@ -62,7 +64,7 @@ export function DebtCheckbox({
             show(
               failed > 0
                 ? `Als bezahlt markiert. ${failed} Benachrichtigung${failed === 1 ? "" : "en"} konnte${failed === 1 ? "" : "n"} nicht zugestellt werden.`
-                : "Als bezahlt markiert. Crew wurde benachrichtigt.",
+                : `Als bezahlt markiert. ${vocab.crew} wurde benachrichtigt.`,
               { variant: failed > 0 ? "error" : "success" },
             );
           }

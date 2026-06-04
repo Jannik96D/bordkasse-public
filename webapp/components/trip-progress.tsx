@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { CheckCircle2, ChevronDown, Circle, Clock, Compass } from "lucide-react";
+import { CheckCircle2, ChevronDown, Circle, Clock, Compass, Loader2 } from "lucide-react";
 import type { ItemStatus, ProgressItem, TripProgress as TripProgressData } from "@/lib/calc/trip-progress";
-import { setChecklistCollapsed } from "@/lib/actions/trip-checklist";
+import { setChecklistCollapsed, setDepositSettled } from "@/lib/actions/trip-checklist";
 import { InfoTooltip } from "@/components/info-tooltip";
+import { useTripVocab } from "@/components/trip-vocab-provider";
 import { cn } from "@/lib/utils";
 
 const STATUS_LABEL: Record<ItemStatus, string> = {
@@ -34,6 +35,7 @@ export function TripProgress({
 }) {
   const [open, setOpen] = useState(!collapsed);
   const [pending, startTransition] = useTransition();
+  const vocab = useTripVocab();
 
   const pct =
     progress.totalCount === 0
@@ -54,9 +56,9 @@ export function TripProgress({
       <section className="mb-4 flex items-start gap-2 rounded-lg border border-success/30 bg-success/5 p-4">
         <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" aria-hidden="true" />
         <p className="text-sm">
-          <span className="font-medium text-success">Törn abgeschlossen</span>
+          <span className="font-medium text-success">{vocab.trip} abgeschlossen</span>
           <span className="block text-ink-soft">
-            Alle Schritte erledigt. Die Daten werden 30 Tage nach Törn-Ende
+            Alle Schritte erledigt. Die Daten werden 30 Tage nach {vocab.tripEnd}
             automatisch gelöscht.
           </span>
         </p>
@@ -70,7 +72,7 @@ export function TripProgress({
         <Compass className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <h2 className="font-semibold text-ink">
-            Dein Törn im Überblick
+            {vocab.trip === "Reise" ? "Deine Reise" : "Dein Törn"} im Überblick
             <InfoTooltip
               label="Wie funktioniert diese Übersicht?"
               text="Die Haken setzen sich automatisch, sobald ein Schritt in der App erledigt ist — nichts wird manuell abgehakt. Offene Schritte führen dich per Klick zur passenden Seite."
@@ -100,7 +102,7 @@ export function TripProgress({
         aria-valuenow={progress.doneCount}
         aria-valuemin={0}
         aria-valuemax={progress.totalCount}
-        aria-label={`Törn-Fortschritt: ${progress.doneCount} von ${progress.totalCount} Schritten erledigt`}
+        aria-label={`${vocab.trip}-Fortschritt: ${progress.doneCount} von ${progress.totalCount} Schritten erledigt`}
         className="mt-3 h-2 w-full overflow-hidden rounded-full bg-navy-light/40"
       >
         <div
@@ -153,8 +155,8 @@ function statusIcon(status: ItemStatus) {
   return <Circle className="h-4 w-4 shrink-0 text-ink-soft" aria-hidden="true" />;
 }
 
-function ProgressRow({ tripId, item }: { tripId: string; item: ProgressItem }) {
-  const label = (
+function ItemLabel({ item }: { item: ProgressItem }) {
+  return (
     <span
       className={cn(
         "flex-1",
@@ -166,6 +168,68 @@ function ProgressRow({ tripId, item }: { tripId: string; item: ProgressItem }) {
       <span className="sr-only"> — {STATUS_LABEL[item.status]}</span>
     </span>
   );
+}
+
+/**
+ * Manuell abhakbares Item (aktuell nur „Kaution verrechnet"): Checkbox, die
+ * der Skipper selbst setzt — kein abgeleiteter Status. Optimistisch, mit
+ * Rücksetzen bei verweigerter Berechtigung / Fehler. Vor der Törn-Phase
+ * ("noch nicht dran") statisch, sonst tickbar.
+ */
+function ManualProgressRow({ tripId, item }: { tripId: string; item: ProgressItem }) {
+  const [checked, setChecked] = useState(item.status === "done");
+  const [pending, startTransition] = useTransition();
+
+  if (item.status === "not_yet") {
+    return (
+      <li className="flex min-h-touch items-center gap-2 px-1 text-sm">
+        {statusIcon("not_yet")}
+        <ItemLabel item={item} />
+      </li>
+    );
+  }
+
+  function toggle() {
+    const next = !checked;
+    setChecked(next); // optimistisch
+    startTransition(async () => {
+      const res = await setDepositSettled(tripId, next);
+      if (!res.ok) setChecked(!next); // zurücksetzen
+    });
+  }
+
+  return (
+    <li>
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={checked}
+        onClick={toggle}
+        disabled={pending}
+        className="flex min-h-touch w-full items-center gap-2 rounded-md px-1 text-left text-sm hover:bg-navy-light/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-60"
+      >
+        {pending ? (
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ink-soft" aria-hidden="true" />
+        ) : checked ? (
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+        ) : (
+          <Circle className="h-4 w-4 shrink-0 text-ink-soft" aria-hidden="true" />
+        )}
+        <span className={cn("flex-1", checked && "text-ink-soft")}>
+          {item.label}
+          <span className="sr-only"> — {checked ? "erledigt" : "offen"}, zum Umschalten tippen</span>
+        </span>
+      </button>
+    </li>
+  );
+}
+
+function ProgressRow({ tripId, item }: { tripId: string; item: ProgressItem }) {
+  if (item.manual) {
+    return <ManualProgressRow tripId={tripId} item={item} />;
+  }
+
+  const label = <ItemLabel item={item} />;
 
   // Nur offene Items mit Ziel sind klickbar; erledigte/„noch nicht dran" statisch.
   if (item.status === "open" && item.href) {

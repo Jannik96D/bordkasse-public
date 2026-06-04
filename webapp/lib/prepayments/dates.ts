@@ -2,7 +2,7 @@
  * Datum-Helpers für das Anzahlungs-Modul.
  *
  * Konvention: `prepayment_tranches.due_date` ist das Charter-Fälligkeits-
- * Datum (Vorstrecker → Agentur). Die Crew bekommt einen 3-Tage-Puffer
+ * Datum (Vorstrecker → Vercharterer). Die Crew bekommt einen 3-Tage-Puffer
  * davor, damit der Vorstrecker das Geld rechtzeitig zusammen hat.
  */
 

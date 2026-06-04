@@ -12,8 +12,9 @@ import {
   confirmSelfPayment,
   rejectSelfPayment,
 } from "@/lib/actions/prepayments";
-import { renderWhatsAppText, renderBulkWhatsAppText, DEFAULT_WHATSAPP_TEMPLATE } from "@/lib/prepayments/whatsapp";
+import { renderWhatsAppText, renderBulkWhatsAppText, defaultWhatsappTemplate } from "@/lib/prepayments/whatsapp";
 import { toCrewDueDate, formatDeDate } from "@/lib/prepayments/dates";
+import { tripVocab, type TripType, type TripVocab } from "@/lib/trip-vocab";
 import type {
   PrepaymentPlan,
   Tranche,
@@ -32,6 +33,7 @@ interface Member {
 interface Props {
   tripId: string;
   tripName: string;
+  tripType?: TripType;
   plan: PrepaymentPlan;
   tranches: Tranche[];
   cabins: CabinType[];
@@ -56,7 +58,8 @@ interface MatrixCell {
   pending: PendingPayment | null;
 }
 
-export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, members, obligations, payments, pending, charterPaidByTranche }: Props) {
+export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan, tranches, cabins, members, obligations, payments, pending, charterPaidByTranche }: Props) {
+  const vocab = tripVocab(tripType);
   const [paymentModal, setPaymentModal] = useState<{ cell: MatrixCell; personName: string } | null>(null);
   const [whatsAppModal, setWhatsAppModal] = useState<{ text: string; title: string } | null>(null);
 
@@ -116,7 +119,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
       })
       .filter((x): x is { name: string; totalOpen: number; firstOpenTranche: { label: string; due_date: string } } => x !== null);
     const text = renderBulkWhatsAppText({
-      template: plan.whatsapp_template,
+      template: plan.whatsapp_template || defaultWhatsappTemplate(vocab),
       tripName,
       weroId: plan.wero_id,
       persons,
@@ -131,7 +134,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
     const firstOpen = cells.find((c) => c.open > 0.005)!;
     const firstTranche = tranches.find((t) => t.id === firstOpen.trancheId)!;
     const text = renderWhatsAppText({
-      template: plan.whatsapp_template,
+      template: plan.whatsapp_template || defaultWhatsappTemplate(vocab),
       name: member.display_name,
       trancheLabel: firstTranche.label,
       tripName,
@@ -146,7 +149,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
     ? members.find((m) => m.id === plan.advancer_person_id)?.display_name ?? "—"
     : null;
 
-  // Wie viel muss der Vorstrecker insgesamt noch an die Agentur überweisen?
+  // Wie viel muss der Vorstrecker insgesamt noch an den Vercharterer überweisen?
   // Steuert den 🔔-Button in seiner Zeile (Mail nur sinnvoll wenn offen).
   const charterOutstanding = tranches.reduce((sum, t) => {
     const soll = (plan.total_amount * t.percent) / 100;
@@ -224,25 +227,15 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
       {/* Statusbereich (#5): Selbstmeldungen zuerst (sofort aktionierbar),
           Charterübersicht eingeklappt darunter (#2). */}
       {pending.length > 0 && (
-        <PendingBanner pending={pending} members={members} tranches={tranches} />
+        <PendingBanner pending={pending} members={members} tranches={tranches} vocab={vocab} />
       )}
       <CharterReminderBanner
         tripId={tripId}
         tranches={tranches}
         totalAmount={plan.total_amount}
         charterPaidByTranche={charterPaidByTranche}
+        vocab={vocab}
       />
-
-      {/* Sammelnachricht */}
-      <div className="mb-3">
-        <button
-          onClick={bulkWhatsApp}
-          className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper px-3 py-1.5 text-sm hover:border-primary/40"
-        >
-          <MessageCircle className="h-4 w-4" />
-          Sammelnachricht für alle Offenen
-        </button>
-      </div>
 
       {/* Mobile: eine Karte pro Person — kein Seitwärts-Wischen (#4) */}
       <div className="space-y-2 sm:hidden">
@@ -275,6 +268,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
                 advancerNothingOpen={advancerNothingOpen}
                 rowOpen={rowOpen}
                 onWhatsApp={personWhatsApp}
+                vocab={vocab}
               />
             </div>
             <ul className="mt-3 space-y-1.5">
@@ -293,7 +287,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
                         <span className="min-w-0">
                           <span className="block truncate text-sm font-medium">{t.label}</span>
                           <span className="block text-xs text-ink-soft">
-                            Crew bis {formatDeDate(toCrewDueDate(t.due_date))} · {t.percent.toFixed(0)} %
+                            {vocab.crew} bis {formatDeDate(toCrewDueDate(t.due_date))} · {t.percent.toFixed(0)} %
                           </span>
                         </span>
                       </span>
@@ -319,7 +313,7 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
                 <th key={t.id} scope="col" className="px-1 py-2 text-center font-medium sm:px-3">
                   <div>{t.label}</div>
                   <div className="font-normal text-ink-soft">
-                    Crew bis {formatDeDate(toCrewDueDate(t.due_date))} · {t.percent.toFixed(0)}%
+                    {vocab.crew} bis {formatDeDate(toCrewDueDate(t.due_date))} · {t.percent.toFixed(0)}%
                   </div>
                 </th>
               ))}
@@ -377,12 +371,24 @@ export function PrepaymentMatrix({ tripId, tripName, plan, tranches, cabins, mem
                     advancerNothingOpen={advancerNothingOpen}
                     rowOpen={rowOpen}
                     onWhatsApp={personWhatsApp}
+                    vocab={vocab}
                   />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Sammelnachricht — unter Tabelle/Kacheln, sobald der Überblick steht */}
+      <div className="mt-3">
+        <button
+          onClick={bulkWhatsApp}
+          className="inline-flex items-center gap-1 rounded-md border border-rule bg-paper px-3 py-1.5 text-sm hover:border-primary/40"
+        >
+          <MessageCircle className="h-4 w-4" />
+          Sammelnachricht für alle Offenen
+        </button>
       </div>
 
       {/* Statuslegende (#E1): unter Tabelle/Kacheln — erklärt Symbole + Aktions-Icons. */}
@@ -515,6 +521,7 @@ function RowActions({
   advancerNothingOpen,
   rowOpen,
   onWhatsApp,
+  vocab,
 }: {
   tripId: string;
   member: Member;
@@ -522,14 +529,15 @@ function RowActions({
   advancerNothingOpen: boolean;
   rowOpen: number;
   onWhatsApp: (m: Member) => void;
+  vocab: TripVocab;
 }) {
   const reminderDisabled = !member.email || (isAdvancerRow ? advancerNothingOpen : rowOpen <= 0.005);
   const reminderTitle = isAdvancerRow
     ? !member.email
       ? "Für die vorstreckende Person ist keine E-Mail hinterlegt"
       : advancerNothingOpen
-        ? "Alles an die Agentur überwiesen, keine Erinnerung nötig"
-        : "Charterübersicht an dich selbst schicken (Σ Creweingänge / Soll Agentur / noch zu überweisen)"
+        ? `Alles an ${vocab.provider === "Vercharterer" ? "den Vercharterer" : "den Anbieter"} überwiesen, keine Erinnerung nötig`
+        : `Charterübersicht an dich selbst schicken (Σ Eingänge der ${vocab.crew} / Soll ${vocab.provider} / noch zu überweisen)`
     : !member.email
       ? "E-Mail fehlt"
       : rowOpen <= 0.005
@@ -779,10 +787,6 @@ function WhatsAppModal({ title, text, onClose }: { title: string; text: string; 
   );
 }
 
-
-// referenced default to silence unused-warning in build pipelines that strip exports
-void DEFAULT_WHATSAPP_TEMPLATE;
-
 // ────────────────────────────────────────────────────────────────────────
 // CharterReminderBanner — Erinnert den Vorstrecker an seine eigenen
 // Überweisungen an die Charteragentur.
@@ -797,11 +801,13 @@ function CharterReminderBanner({
   tranches,
   totalAmount,
   charterPaidByTranche,
+  vocab,
 }: {
   tripId: string;
   tranches: Tranche[];
   totalAmount: number;
   charterPaidByTranche: Record<string, number>;
+  vocab: TripVocab;
 }) {
   if (tranches.length === 0 || totalAmount <= 0) return null;
 
@@ -826,7 +832,7 @@ function CharterReminderBanner({
   if (!anythingOutstanding) {
     return (
       <p className="mb-3 rounded-md border border-success/30 bg-success/5 px-3 py-2 text-xs text-success">
-        <span aria-hidden="true">✓</span> Alle Charteranzahlungen sind vollständig überwiesen.
+        <span aria-hidden="true">✓</span> Alle Anzahlungen sind vollständig überwiesen.
       </p>
     );
   }
@@ -842,10 +848,10 @@ function CharterReminderBanner({
     >
       <summary
         className="flex cursor-pointer flex-wrap items-center justify-between gap-2 p-3 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
-        aria-label="Eigene Überweisungen an die Charteragentur — aufklappen"
+        aria-label="Eigene Überweisungen — aufklappen"
       >
         <span className="text-xs font-semibold uppercase tracking-wide text-primary">
-          Offene Charteranzahlungen
+          {vocab.openPrepayments}
         </span>
         {nextOpen && (
           <span className={`tabular-nums ${summaryTone}`}>
@@ -915,10 +921,12 @@ function PendingBanner({
   pending,
   members,
   tranches,
+  vocab,
 }: {
   pending: PendingPayment[];
   members: Member[];
   tranches: Tranche[];
+  vocab: TripVocab;
 }) {
   const memberById = new Map(members.map((m) => [m.id, m]));
   const trancheById = new Map(tranches.map((t) => [t.id, t]));
@@ -934,7 +942,7 @@ function PendingBanner({
       </p>
       <ul className="space-y-1.5">
         {pending.map((p) => {
-          const name = memberById.get(p.person_id)?.display_name ?? "Crewmitglied";
+          const name = memberById.get(p.person_id)?.display_name ?? vocab.member;
           const tranche = trancheById.get(p.tranche_id);
           return (
             <li

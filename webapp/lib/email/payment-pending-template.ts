@@ -7,6 +7,7 @@
  */
 
 import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
+import { tripVocab } from "@/lib/trip-vocab";
 
 export type PaymentPendingParams = {
   /** Empfänger der Mail — typischerweise der Vorstrecker (Default = Skipper). */
@@ -18,6 +19,8 @@ export type PaymentPendingParams = {
   amount: number;
   note?: string | null;
   appUrl: string;          // Link auf /trips/{id}/prepayments
+  /** Reise-Typ — steuert das Vokabular (Bordkasse/Törn/Crewbilanz vs. Urlaubskasse/Reise/Gruppenbilanz). */
+  tripType: "sailing" | "other";
 };
 
 export function renderPaymentPendingMail(p: PaymentPendingParams): {
@@ -25,7 +28,8 @@ export function renderPaymentPendingMail(p: PaymentPendingParams): {
   text: string;
   subject: string;
 } {
-  const subject = `Bordkasse-Anzahlung gemeldet: ${p.reporterName} (${fmtEuro(p.amount)})`;
+  const vocab = tripVocab(p.tripType);
+  const subject = `${vocab.kitty}-Anzahlung gemeldet: ${p.reporterName} (${fmtEuro(p.amount)})`;
   const noteBlock = p.note
     ? `
             <tr>
@@ -66,9 +70,9 @@ export function renderPaymentPendingMail(p: PaymentPendingParams): {
               </td>
             </tr>
 ${noteBlock}
-${renderActionButton(p.appUrl, "In der Bordkasse bestätigen")}
+${renderActionButton(p.appUrl, `In der ${vocab.kitty} bestätigen`)}
 ${renderHintBlock(
-  "Du bekommst diese Mail, weil du für diesen Törn vorstreckst. Bestätige die Zahlung in der App, sobald sie auf deinem Konto angekommen ist, sonst zählt sie nicht zur Crewbilanz.",
+  `Du bekommst diese Mail, weil du für ${p.tripType === "other" ? "diese Reise" : "diesen Törn"} vorstreckst. Bestätige die Zahlung in der App, sobald sie auf deinem Konto angekommen ist, sonst zählt sie nicht zur ${p.tripType === "other" ? "Bilanz der Reisegruppe" : "Crewbilanz"}.`,
 )}`;
 
   const html = renderMailShell({

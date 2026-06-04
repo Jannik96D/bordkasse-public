@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CalendarDays, ChevronRight, Tag, Users } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
 import { SummaryCard } from "@/components/summary-card";
+import { useTripVocab } from "@/components/trip-vocab-provider";
 import { formatDate, formatEuro } from "@/lib/utils";
 import type { StatsSummary } from "@/lib/queries/stats";
 
@@ -30,6 +31,7 @@ export function StatsView({
   stats: StatsSummary;
   memberCount: number;
 }) {
+  const vocab = useTripVocab();
   const canSplit = memberCount > 0;
   const [mode, setMode] = useState<"trip" | "person">("trip");
   const divider = mode === "person" ? Math.max(memberCount, 1) : 1;
@@ -62,7 +64,7 @@ export function StatsView({
                 : "rounded-[5px] px-4 py-1.5 text-xs font-medium text-ink-soft hover:text-ink"
             }
           >
-            Pro Törn
+            Pro {vocab.trip}
           </button>
           <button
             type="button"
@@ -75,7 +77,7 @@ export function StatsView({
                 ? "rounded-[5px] bg-primary px-4 py-1.5 text-xs font-medium text-paper"
                 : "rounded-[5px] px-4 py-1.5 text-xs font-medium text-ink-soft hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
             }
-            title={canSplit ? undefined : "Keine Crewdaten verfügbar (Törn gepurged?)"}
+            title={canSplit ? undefined : `Keine Daten zur ${vocab.crew} verfügbar (${vocab.trip} gepurged?)`}
           >
             Pro Person
           </button>
@@ -83,7 +85,7 @@ export function StatsView({
         {mode === "person" && canSplit && (
           <p className="mt-1.5 flex items-center gap-1 text-xs text-ink-soft">
             <Users className="h-3.5 w-3.5" aria-hidden />
-            Geteilt durch {memberCount} Crewmitglieder (Durchschnitt)
+            Geteilt durch {memberCount} {vocab.member === "Crewmitglied" ? "Crewmitglieder" : "Mitreisende"} (Durchschnitt)
           </p>
         )}
       </div>

@@ -16,6 +16,7 @@
  */
 
 import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, stripHtml, fmtEuro } from "./mail-shell";
+import { tripVocab } from "@/lib/trip-vocab";
 
 export type DebtItem = {
   counterparty_name: string;
@@ -36,12 +37,15 @@ export type SettlementMailParams = {
   isUpdate?: boolean;
   /** Optionaler Diff-Hinweis ("3 neue Buchungen, 1 geändert"). Nur bei isUpdate. */
   changeSummary?: string;
+  /** Reise-Typ — steuert das Vokabular (Törn/Bordkasse vs. Reise/Urlaubskasse). */
+  tripType: "sailing" | "other";
 };
 
 export function renderSettlementMail(p: SettlementMailParams): { html: string; text: string; subject: string } {
+  const vocab = tripVocab(p.tripType);
   const subject = p.isUpdate
-    ? `Bordkasse-Update: ${p.tripName}`
-    : `Bordkasse-Abrechnung: ${p.tripName}`;
+    ? `${vocab.kitty}-Update: ${p.tripName}`
+    : `${vocab.kitty}-Abrechnung: ${p.tripName}`;
   const headline = p.isUpdate ? "Bilanz aktualisiert" : "Abrechnung steht";
   const isCreditor = p.balance > 0.005;
   const isDebtor = p.balance < -0.005;
@@ -52,8 +56,8 @@ export function renderSettlementMail(p: SettlementMailParams): { html: string; t
       ? `Du zahlst noch ${fmtEuro(Math.abs(p.balance))}.`
       : `Du bist quitt, nichts mehr zu tun.`;
   const introText = p.isUpdate
-    ? `${p.skipperName} hat Buchungen für unseren Törn aktualisiert, die Bilanz hat sich seit der letzten Mail geändert.`
-    : `${p.skipperName} hat die Bordkasse für unseren Törn final abgerechnet.`;
+    ? `${p.skipperName} hat Buchungen für unseren ${vocab.trip} aktualisiert, die Bilanz hat sich seit der letzten Mail geändert.`
+    : `${p.skipperName} hat die ${vocab.kitty} für unseren ${vocab.trip} final abgerechnet.`;
   const changeSummaryBlock = p.isUpdate && p.changeSummary
     ? `
             <tr>
@@ -114,17 +118,17 @@ export function renderSettlementMail(p: SettlementMailParams): { html: string; t
 ${changeSummaryBlock}${debtsBlock}
 ${renderActionButton(p.appUrl, "Zahlungen in der App abhaken")}
 ${renderHintBlock(
-  "Tipp: In der App kannst du deine Zahlung als erledigt abhaken, alle in der Crew sehen den Status live. Sollte sich nachträglich etwas an der Bordkasse ändern, bekommst du eine neue Mail.",
+  `Tipp: In der App kannst du deine Zahlung als erledigt abhaken, alle in der ${vocab.crew} sehen den Status live. Sollte sich nachträglich etwas an der ${vocab.kitty} ändern, bekommst du eine neue Mail.`,
 )}`;
 
   const html = renderMailShell({
     title: subject,
-    preheader: `Die Bordkasse für ${p.tripName} ist abgerechnet — ${stripHtml(balanceText)}`,
+    preheader: `Die ${vocab.kitty} für ${p.tripName} ist abgerechnet — ${stripHtml(balanceText)}`,
     subtitle: `${p.tripName} · ${p.tripDates}`,
     body,
   });
 
-  const text = `${p.isUpdate ? "Bordkasse-Update" : "Bordkasse-Abrechnung"}
+  const text = `${p.isUpdate ? `${vocab.kitty}-Update` : `${vocab.kitty}-Abrechnung`}
 ${p.tripName} · ${p.tripDates}
 
 Hi ${p.recipientName},

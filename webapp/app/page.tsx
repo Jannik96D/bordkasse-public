@@ -19,24 +19,27 @@ export default async function Home({
 
   if (!person) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
+      <main className="flex flex-1 flex-col items-center px-6 pb-12 pt-[14vh] text-center">
         <div className="w-full max-w-md space-y-6">
           {justDeleted && (
             <div className="rounded-md border border-success/30 bg-success/5 p-3 text-sm text-success">
               Konto wurde gelöscht. Bis dann!
             </div>
           )}
-          <Image
-            src="/logo.png"
-            alt="Bordkasse"
-            width={200}
-            height={154}
-            priority
-            className="mx-auto h-auto w-48"
-          />
+          {/* Feste Box reserviert den Platz vor dem Laden → kein Layout-Shift (CLS). */}
+          <div className="mx-auto h-[148px] w-48">
+            <Image
+              src="/logo.png"
+              alt="Bordkasse"
+              width={192}
+              height={148}
+              priority
+              className="h-full w-full"
+            />
+          </div>
           <h1 className="text-4xl font-bold text-primary">Bordkasse</h1>
           <p className="text-lg text-ink-soft">
-            Unsere Bordkasse für gemeinsame Törns
+            Faire Kostenaufteilung auf Segeltörns – auch wenn die Crew wechselt.
           </p>
           <Link
             href="/login"
@@ -45,7 +48,7 @@ export default async function Home({
             Anmelden
           </Link>
           <p className="text-sm text-ink-soft">
-            <Link href="/about" className="underline hover:text-primary">
+            <Link href="/about" className="inline-block py-2 underline hover:text-primary">
               Über die Bordkassen-App
             </Link>
           </p>
@@ -185,14 +188,32 @@ export default async function Home({
       )}
 
       <p className="mt-8 text-center text-xs text-ink-soft">
-        <Link href="/about" className="hover:text-primary">Über die App</Link>
+        <Link href="/about" className="inline-block py-2 hover:text-primary">Über die App</Link>
         <span className="mx-2">·</span>
-        <Link href="/datenschutz" className="hover:text-primary">Datenschutz</Link>
+        <Link href="/datenschutz" className="inline-block py-2 hover:text-primary">Datenschutz</Link>
         <span className="mx-2">·</span>
-        <Link href="/kontakt" className="hover:text-primary">Kontakt</Link>
+        <Link href="/kontakt" className="inline-block py-2 hover:text-primary">Kontakt</Link>
       </p>
     </main>
   );
+}
+
+/**
+ * Törn-Status aus Start-/End-Datum ableiten (Vergleich auf ISO-Datum,
+ * Server-Komponente → `new Date()` unbedenklich). Liefert Label + Stil für
+ * ein kleines Badge, damit man bei mehreren Törns sofort sieht, welcher
+ * läuft / ansteht / vorbei ist (U-3). Farbe ist NIE alleiniger Träger —
+ * das Label trägt die Information.
+ */
+function tripStatus(startDate: string, endDate: string): { label: string; className: string } {
+  const today = new Date().toISOString().slice(0, 10);
+  if (endDate < today) {
+    return { label: "Vorbei", className: "bg-paper-soft text-ink-soft" };
+  }
+  if (startDate > today) {
+    return { label: "Anstehend", className: "bg-navy-light text-primary" };
+  }
+  return { label: "Läuft", className: "bg-success/10 text-success" };
 }
 
 function TripCard({
@@ -204,6 +225,7 @@ function TripCard({
 }) {
   // Rote Markierung nur, wenn der angemeldete User auch handeln kann.
   const flagOverdue = canAct && trip.retention_overdue;
+  const status = tripStatus(trip.start_date, trip.end_date);
   return (
     <li>
       <Link
@@ -216,7 +238,14 @@ function TripCard({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <p className="font-semibold text-primary">{trip.name}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-semibold text-primary">{trip.name}</p>
+              <span
+                className={`inline-block shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${status.className}`}
+              >
+                {status.label}
+              </span>
+            </div>
             <p className="mt-1 text-sm text-ink-soft">
               {formatDate(trip.start_date)} – {formatDate(trip.end_date)}
             </p>
@@ -231,7 +260,7 @@ function TripCard({
             )}
           </div>
           <div className="text-right">
-            <p className="text-sm text-ink-soft">{trip.member_count} Crew</p>
+            <p className="text-sm text-ink-soft">{trip.member_count} {trip.trip_type === "other" ? "Personen" : "Crew"}</p>
             {trip.is_skipper ? (
               <span className="mt-1 inline-block rounded-full bg-navy-light px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
                 Skipper

@@ -4,7 +4,7 @@
  * Zwei Pfade:
  *   1. Crew-Pfad      → persönliche Tranchen-Liste mit Wero-Hinweis
  *                       (Empfänger ≠ Vorstrecker).
- *   2. Vorstrecker-Pfad → Charterübersicht (Soll Agentur / Creweingänge /
+ *   2. Vorstrecker-Pfad → Charterübersicht (Soll Vercharterer / Creweingänge /
  *                         schon überwiesen / noch offen) pro Tranche.
  *                         Wird auch vom Cron benutzt.
  *
@@ -49,7 +49,7 @@ export async function sendPrepaymentReminderMail(params: {
   const supabase = createAdminClient();
 
   const [{ data: trip }, { data: plan }] = await Promise.all([
-    supabase.from("trips").select("name, skipper_id").eq("id", params.tripId).maybeSingle(),
+    supabase.from("trips").select("name, skipper_id, trip_type").eq("id", params.tripId).maybeSingle(),
     supabase
       .from("prepayment_plan")
       .select("wero_id, advancer_person_id, total_amount")
@@ -61,11 +61,13 @@ export async function sendPrepaymentReminderMail(params: {
 
   const advancerPersonId = plan.advancer_person_id ?? trip.skipper_id;
   const isAdvancerRecipient = params.personId === advancerPersonId;
+  const tripType: "sailing" | "other" = trip.trip_type === "other" ? "other" : "sailing";
 
   if (isAdvancerRecipient) {
     return sendCharterReminder(supabase, {
       tripId: params.tripId,
       tripName: trip.name,
+      tripType,
       advancerPersonId,
       totalAmount: Number(plan.total_amount ?? 0),
       isAutomated: params.isAutomated ?? false,
@@ -75,6 +77,7 @@ export async function sendPrepaymentReminderMail(params: {
   return sendCrewReminder(supabase, {
     tripId: params.tripId,
     tripName: trip.name,
+    tripType,
     personId: params.personId,
     weroId: plan.wero_id ?? null,
     advancerPersonId,
@@ -91,6 +94,7 @@ async function sendCrewReminder(
   args: {
     tripId: string;
     tripName: string;
+    tripType: "sailing" | "other";
     personId: string;
     weroId: string | null;
     advancerPersonId: string;
@@ -161,6 +165,7 @@ async function sendCrewReminder(
     weroId: args.weroId,
     advancerName,
     appUrl: `${SITE_URL}/trips/${args.tripId}/prepayments`,
+    tripType: args.tripType,
   });
 
   const result = await sendMail({ to: priv.email, subject: mail.subject, html: mail.html, text: mail.text });
@@ -177,6 +182,7 @@ async function sendCharterReminder(
   args: {
     tripId: string;
     tripName: string;
+    tripType: "sailing" | "other";
     advancerPersonId: string;
     totalAmount: number;
     isAutomated: boolean;
@@ -239,7 +245,7 @@ async function sendCharterReminder(
     .filter((o) => o.person_id !== args.advancerPersonId)
     .reduce((s, o) => s + Number(o.total_amount), 0);
 
-  // Σ schon-an-Agentur-überwiesen pro Tranche (expense mit dieser tranche_id).
+  // Σ schon-an-Vercharterer-überwiesen pro Tranche (expense mit dieser tranche_id).
   const { data: expenseRows } = await supabase
     .from("transactions")
     .select("tranche_id, amount")
@@ -280,6 +286,7 @@ async function sendCharterReminder(
     tranches: trancheItems,
     appUrl: `${SITE_URL}/trips/${args.tripId}/prepayments`,
     isAutomated: args.isAutomated,
+    tripType: args.tripType,
   });
 
   const result = await sendMail({
