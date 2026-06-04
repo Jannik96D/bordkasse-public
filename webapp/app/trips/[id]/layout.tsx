@@ -11,6 +11,7 @@ import { Toast } from "@/components/toast";
 import { TripHeader } from "@/components/trip-header";
 import { OfflineBanner } from "@/components/offline-banner";
 import { PrefetchOfflineForm } from "@/components/prefetch-offline-form";
+import { PrefetchCurrentDoc } from "@/components/prefetch-current-doc";
 
 export default async function TripLayout({
   children,
@@ -65,6 +66,7 @@ export default async function TripLayout({
       <BottomNav tripId={id} showPrepayments={showPrepayments} />
       <RealtimeTrip tripId={id} currentPersonId={person?.id} tripType={trip.trip_type} />
       <PrefetchOfflineForm tripId={id} />
+      <PrefetchCurrentDoc />
     </div>
     </TripVocabProvider>
   );
