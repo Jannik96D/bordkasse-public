@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { readClient } from "@/lib/supabase/read-client";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 
@@ -78,7 +79,7 @@ export async function listMyTrips(): Promise<TripListRow[]> {
   });
 }
 
-export async function getTrip(tripId: string) {
+export const getTrip = cache(async (tripId: string) => {
   const supabase = await readClient();
   const { data, error } = await supabase
     .from("trips")
@@ -94,7 +95,7 @@ export async function getTrip(tripId: string) {
     throw new Error(`[bordkasse:getTrip] ${error.message}`);
   }
   return data;
-}
+});
 
 export interface TripMemberRow {
   id: string;
@@ -112,7 +113,7 @@ export interface TripMemberRow {
   checklist_collapsed_at: string | null;
 }
 
-export async function getTripMembers(tripId: string): Promise<TripMemberRow[]> {
+export const getTripMembers = cache(async (tripId: string): Promise<TripMemberRow[]> => {
   const supabase = await readClient();
   // Members + öffentlicher persons-Teil (RLS: nur Crew-Kollegen sichtbar)
   const { data, error } = await supabase
@@ -175,7 +176,7 @@ export async function getTripMembers(tripId: string): Promise<TripMemberRow[]> {
   }
 
   return rows;
-}
+});
 
 export interface CategoryRow {
   id: string;

@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -26,8 +27,14 @@ export interface CurrentPerson {
  * (Workaround für Auth-Cookie-Propagation in Next.js 16 Server Actions).
  *
  * Returns null wenn nicht eingeloggt.
+ *
+ * Mit React `cache()` pro Request memoisiert: die teure Auth-Auflösung
+ * (`auth.getUser()` = Netz-Call + persons/persons_private-Queries) läuft
+ * pro Server-Render genau EINMAL, egal wie oft sie über readClient/isAdmin/
+ * Seiten-Queries angefragt wird. Nebeneffekt: schließt eine Race beim
+ * Erst-Login aus (mehrfaches paralleles Anlegen derselben persons-Row).
  */
-export async function getCurrentPerson(): Promise<CurrentPerson | null> {
+export const getCurrentPerson = cache(async (): Promise<CurrentPerson | null> => {
   const cookieClient = await createClient();
   const { data: { user } } = await cookieClient.auth.getUser();
   if (!user) return null;
@@ -111,4 +118,4 @@ export async function getCurrentPerson(): Promise<CurrentPerson | null> {
   }
 
   return { ...created, email: user.email ?? null } as CurrentPerson;
-}
+});
