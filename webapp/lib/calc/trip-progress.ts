@@ -166,7 +166,7 @@ export function computeTripProgress(
       manual: true,
     },
   ];
-  phases.push(makePhase("toern", "Während des Törns", toernItems));
+  phases.push(makePhase("toern", `Während ${vocab.trip === "Reise" ? "der Reise" : "des Törns"}`, toernItems));
 
   // ── Phase 4 — Abrechnung ────────────────────────────────────────────
   const abrechnungItems: ProgressItem[] = [

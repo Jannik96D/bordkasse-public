@@ -12,7 +12,7 @@ import {
   confirmSelfPayment,
   rejectSelfPayment,
 } from "@/lib/actions/prepayments";
-import { renderWhatsAppText, renderBulkWhatsAppText, DEFAULT_WHATSAPP_TEMPLATE } from "@/lib/prepayments/whatsapp";
+import { renderWhatsAppText, renderBulkWhatsAppText, defaultWhatsappTemplate } from "@/lib/prepayments/whatsapp";
 import { toCrewDueDate, formatDeDate } from "@/lib/prepayments/dates";
 import { tripVocab, type TripType, type TripVocab } from "@/lib/trip-vocab";
 import type {
@@ -119,7 +119,7 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
       })
       .filter((x): x is { name: string; totalOpen: number; firstOpenTranche: { label: string; due_date: string } } => x !== null);
     const text = renderBulkWhatsAppText({
-      template: plan.whatsapp_template,
+      template: plan.whatsapp_template || defaultWhatsappTemplate(vocab),
       tripName,
       weroId: plan.wero_id,
       persons,
@@ -134,7 +134,7 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
     const firstOpen = cells.find((c) => c.open > 0.005)!;
     const firstTranche = tranches.find((t) => t.id === firstOpen.trancheId)!;
     const text = renderWhatsAppText({
-      template: plan.whatsapp_template,
+      template: plan.whatsapp_template || defaultWhatsappTemplate(vocab),
       name: member.display_name,
       trancheLabel: firstTranche.label,
       tripName,
@@ -786,10 +786,6 @@ function WhatsAppModal({ title, text, onClose }: { title: string; text: string; 
     </Modal>
   );
 }
-
-
-// referenced default to silence unused-warning in build pipelines that strip exports
-void DEFAULT_WHATSAPP_TEMPLATE;
 
 // ────────────────────────────────────────────────────────────────────────
 // CharterReminderBanner — Erinnert den Vorstrecker an seine eigenen
