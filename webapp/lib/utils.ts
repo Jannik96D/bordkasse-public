@@ -65,3 +65,15 @@ export function todayIso(): string {
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
 }
+
+/**
+ * Leitet einen Anzeigenamen aus einer E-Mail ab (Teil vor dem @, getrimmt).
+ * Fallback, wenn der Skipper jemanden nur per E-Mail anlegt — die Person
+ * kann den Namen später selbst korrigieren. Liefert "" bei leerer Eingabe.
+ * Wird in allen Person-Anlage-Pfaden genutzt (inviteMember, createTrip,
+ * replaceMember), damit „nur E-Mail" überall funktioniert.
+ */
+export function displayNameFromEmail(email: string | null | undefined): string {
+  if (!email) return "";
+  return email.split("@")[0]?.trim() ?? "";
+}

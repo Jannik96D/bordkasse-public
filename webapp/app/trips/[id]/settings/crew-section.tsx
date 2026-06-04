@@ -318,7 +318,16 @@ export function CrewSection({
             <p className="text-sm text-danger" role="alert">{state.message}</p>
           )}
           {state.status === "ok" && (
-            <p className="text-sm text-success" role="status">✓ Hinzugefügt.</p>
+            state.warning ? (
+              <p
+                className="rounded-md border border-gold/30 bg-gold-soft px-3 py-2 text-sm text-ink"
+                role="status"
+              >
+                ⚠ {state.warning}
+              </p>
+            ) : (
+              <p className="text-sm text-success" role="status">✓ Hinzugefügt.</p>
+            )
           )}
 
           <button

@@ -22,6 +22,12 @@ export async function sendInvitationMagicLink(
   email: string,
   origin: string,
 ): Promise<{ ok: boolean; message?: string }> {
+  // Defense-in-depth: ohne gültigen Origin würde `emailRedirectTo` auf eine
+  // kaputte URL zeigen — dann lieber sauber abbrechen statt eine unbrauchbare
+  // Mail zu verschicken.
+  if (!origin) {
+    return { ok: false, message: "Kein gültiger App-Origin — Mail nicht verschickt." };
+  }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) {

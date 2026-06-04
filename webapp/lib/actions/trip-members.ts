@@ -8,6 +8,7 @@ import { requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
 import { resolveOrigin } from "@/lib/auth/origin";
+import { displayNameFromEmail } from "@/lib/utils";
 
 const InviteSchema = z.object({
   trip_id: z.string().uuid(),
@@ -28,7 +29,7 @@ const InviteSchema = z.object({
 
 export type MemberState =
   | { status: "idle" }
-  | { status: "ok" }
+  | { status: "ok"; warning?: string }
   | { status: "error"; message: string };
 
 export async function inviteMember(_prev: MemberState, formData: FormData): Promise<MemberState> {
@@ -67,7 +68,7 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
     if (existingPriv) {
       personId = existingPriv.person_id;
     } else {
-      const fallbackName = display_name || email.split("@")[0];
+      const fallbackName = display_name || displayNameFromEmail(email);
       const { data: created, error } = await supabase
         .from("persons")
         .insert({ display_name: fallbackName })
@@ -147,16 +148,30 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
   }
 
   // Einladungs-Mail nur bei NEUER Mitgliedschaft UND vorhandener E-Mail.
-  // Fehler beim Mail-Versand werden geloggt, blocken aber nicht.
+  // Der Versand darf das Anlegen NICHT abbrechen — das Mitglied ist oben
+  // bereits gespeichert. Ein Fehler (z. B. fehlende Origin-Env oder SMTP-
+  // Problem) wird daher als weiche Warnung zurückgegeben statt als Exception
+  // (die früher die Error-Boundary auslöste und so wirkte, als sei nichts
+  // passiert — obwohl das Mitglied längst angelegt war).
+  let warning: string | undefined;
   if (!wasAlreadyMember && email) {
-    const hdrs = await headers();
-    const origin = resolveOrigin(hdrs.get("origin"));
-    await sendInvitationMagicLink(email, origin);
+    try {
+      const hdrs = await headers();
+      const origin = resolveOrigin(hdrs.get("origin"));
+      const res = await sendInvitationMagicLink(email, origin);
+      if (!res.ok) {
+        warning = "Mitglied hinzugefügt, aber die Einladungs-Mail konnte nicht verschickt werden.";
+        console.error("[bordkasse:invite] Versand fehlgeschlagen:", res.message);
+      }
+    } catch (e) {
+      warning = "Mitglied hinzugefügt, aber die Einladungs-Mail konnte nicht verschickt werden.";
+      console.error("[bordkasse:invite]", e);
+    }
   }
 
   revalidatePath(`/trips/${trip_id}/settings`);
   revalidatePath(`/trips/${trip_id}`);
-  return { status: "ok" };
+  return warning ? { status: "ok", warning } : { status: "ok" };
 }
 
 export async function removeMember(
