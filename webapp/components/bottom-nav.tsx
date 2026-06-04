@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, Plus, Euro, ScaleIcon, Wallet, BarChart3, Coins, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/components/toast-provider";
 
 interface Tab {
   href: (id: string) => string;
@@ -65,6 +66,7 @@ export function BottomNav({
   showPrepayments?: boolean;
 }) {
   const path = usePathname();
+  const { show } = useToast();
 
   const visibleTabs = showPrepayments
     ? [tabs[0], prepaymentTab, ...tabs.slice(1)]
@@ -83,6 +85,18 @@ export function BottomNav({
               <Link
                 href={t.href(tripId)}
                 aria-current={active ? "page" : undefined}
+                onClick={(e) => {
+                  // Offline scheitert die Client-RSC-Navigation und würde in der
+                  // Error-Boundary landen ("Etwas ist schiefgelaufen"). Stattdessen
+                  // sanft abfangen und in der aktuellen, funktionierenden Ansicht
+                  // bleiben — Erfassen über den + bleibt offline möglich.
+                  if (!active && typeof navigator !== "undefined" && !navigator.onLine) {
+                    e.preventDefault();
+                    show("Offline kannst du nur über + erfassen — diese Ansicht braucht Empfang.", {
+                      variant: "info",
+                    });
+                  }
+                }}
                 className={cn(
                   // min-h-touch sichert das 44px-Tap-Ziel auch auf reinen <a>
                   // (die globale CSS-Regel greift nur auf a.button) — bei
