@@ -25,13 +25,18 @@ export async function getBordkasseOnlyBalances(tripId: string): Promise<BalanceR
 
 async function getBalancesFromView(tripId: string, view: "v_balances" | "v_balances_bordkasse_only"): Promise<BalanceRow[]> {
   const supabase = await readClient();
-  const { data, error } = await supabase
-    .from(view)
-    .select(`
-      person_id, paid, share, credit_given, credit_received, balance,
-      persons(display_name)
-    `)
-    .eq("trip_id", tripId);
+  // WICHTIG: v_balances_bordkasse_only hat eine COALESCE'te person_id (FULL
+  // OUTER JOIN mehrerer Aggregate, siehe 0026) → PostgREST kann KEINE
+  // persons-Beziehung ableiten. Ein eingebetteter persons(display_name)-Join
+  // lässt die GANZE Query fehlschlagen → return [] → leere Bordkasse-Bilanz,
+  // obwohl die Schulden (simplify_debts, ohne Embedding) die Beträge zeigen.
+  // Daher den Namen NUR bei v_balances einbetten (dort ist person_id =
+  // trip_members.person_id, also ableitbar); für bordkasse_only ohne Namen
+  // lesen — der einzige Aufrufer (balance/page.tsx) füllt display_name ohnehin
+  // aus den v_balances-Rows.
+  const columns = "person_id, paid, share, credit_given, credit_received, balance";
+  const select = view === "v_balances" ? `${columns}, persons(display_name)` : columns;
+  const { data, error } = await supabase.from(view).select(select).eq("trip_id", tripId);
   if (error || !data) return [];
 
   type Raw = {
