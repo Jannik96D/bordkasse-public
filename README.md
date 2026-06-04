@@ -9,14 +9,16 @@ Zwei Varianten parallel im Repo:
 
 ## Web-App auf einen Blick
 
-- **Auth:** Magic-Link per E-Mail, PKCE-Flow (Single-Use-Tokens, 60 Min TTL).
+- **Auth:** Magic-Link per E-Mail, Token-Hash-Flow (Single-Use-Tokens, 60 Min TTL) mit Klick-Bestätigungsseite gegen Link-Scanner (Outlook Safe Links etc.).
 - **Rollen:** Admin (über `ADMIN_EMAILS`-Env), Skipper, Co-Skipper, Crew-Member. Admin kann Törns für Freunde anlegen ohne selbst Crew zu sein.
 - **Aufteilungslogiken:** Gleichmäßig, An Bord, Zeitanteilig, Individuell, **Pro Person** + Alkohol-Modifikator.
 - **Bilanz & Schulden:** Live-View, Greedy-Schulden-Vereinfachung; Bezahlt-Häkchen Crew-weit synchronisiert (nur Schuldner/Gläubiger/Admin dürfen abhaken).
 - **Settlement-Mail-Workflow:** Skipper schließt die Bordkasse mit einem Klick ab — jedes Crew-Mitglied bekommt eine personalisierte Mail mit Saldo + Zahlungsplan + Link zum Häkchen-Setzen. Update-Mail bei nachträglichen Änderungen.
 - **Anzahlungs-Modul:** Yacht-Anzahlungen Monate vor Törn-Start planen (Tranchen + Kojen-Preise + Vorstrecker). Crew kann via „Ich habe gezahlt"-Button selbst melden, Vorstrecker bestätigt. Auto-Reminder-Cron schickt 3 Tage vor jeder Frist eine Erinnerung an offene Crew-Mitglieder bzw. eine Charter-Übersicht an den Vorstrecker.
 - **Statistik:** Live-Aggregation nach Kategorie + Tag pro Trip + Cross-Trip-Gesamtsicht. Bleibt nach Törn-Ende anonymisiert erhalten.
-- **PWA:** App lässt sich zum Home-Bildschirm hinzufügen, Buchungen können offline erfasst und werden bei Reconnect automatisch synchronisiert.
+- **Reise-Typ:** ein Törn kann als „Andere Reise" (Gruppen-Urlaub) laufen — durchgängig neutrales Wording (Reise/Urlaubskasse/Reisegruppe) und Ausschluss aus der Segel-Gesamtstatistik.
+- **PWA & Offline:** App lässt sich zum Home-Bildschirm hinzufügen; Buchungen offline erfassen/bearbeiten, automatische Sync bei Reconnect. Bereits online besuchte Seiten bleiben offline ansehbar; kontrollierter Update-Flow (neue Version erst nach Tippen im „Aktualisieren"-Banner, kein erzwungener Reload).
+- **Push-Benachrichtigungen:** opt-in pro Gerät (Web-Push), **zusätzlich** zur E-Mail — für Abrechnung, Schulden-Häkchen und Anzahlungs-Reminder.
 - **Sicherheit:** RLS auf allen Tabellen, Service-Role-Bypass nur in Server Actions, Security-Header (HSTS/CSP/X-Frame), `noindex`-Meta + `robots.txt` blocken Crawler, Audit-Log für Schreib-Operationen, Soft-Delete für Buchungen.
 - **DSGVO:** Personenbezogene Daten werden 30 Tage nach Törn-Ende automatisch gepurged (Vercel-Cron-Job ruft `purge_expired_trip_data()`). Anonymisiertes Statistik-Aggregat bleibt für die Auswertung erhalten. Self-Service-Kontolöschung unter `/profile`.
 
