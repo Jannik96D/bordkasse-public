@@ -350,12 +350,11 @@ export async function getPrepaymentNavState(
 
   const anyCrewOpen = obligations.some((o) => openFor(o.person_id) > 0.005);
   const anyPending = pending.length > 0;
-  const charterPaid = await getCharterPaymentsPerTranche(tripId);
-  const advancerOwes = tranches.some((t) => {
-    const soll = (plan.total_amount * t.percent) / 100;
-    const paid = charterPaid[t.id] ?? 0;
-    return soll - paid > 0.005;
-  });
+  // Gesamt-basiert: der Vorstrecker schuldet dem Vercharterer nur, solange die
+  // SUMME seiner Überweisungen unter der Plansumme liegt (Überzahlung einer
+  // Tranche deckt eine andere) — konsistent mit der Bilanz (getCharterPaidTotal).
+  const charterPaidTotal = await getCharterPaidTotal(tripId);
+  const advancerOwes = plan.total_amount - charterPaidTotal > 0.005;
   return { show: anyCrewOpen || anyPending || advancerOwes };
 }
 
