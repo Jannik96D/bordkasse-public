@@ -30,22 +30,32 @@ export function PrefetchCurrentDoc() {
   useEffect(() => {
     if (typeof navigator === "undefined" || !navigator.onLine) return;
     if (!("serviceWorker" in navigator)) return;
-    if (warmed.current.has(pathname)) return;
-    warmed.current.add(pathname);
+
+    // Aktuelle Seite UND die Startseite "/" vorwärmen. "/" ist das Ziel des
+    // „Zur Startseite"-Escapes auf der Offline-Seite — ist sie nicht gecacht,
+    // landet ein Offline-Reload dort in einer Sackgasse, aus der der Link nicht
+    // herausführt (genau das gemeldete Symptom).
+    const targets = (pathname === "/" ? ["/"] : [pathname, "/"]).filter(
+      (p) => !warmed.current.has(p),
+    );
+    if (targets.length === 0) return;
+    targets.forEach((p) => warmed.current.add(p));
 
     const controller = new AbortController();
     // Kleiner Verzug, damit das Vorwärmen nicht mit dem Seiten-Render um
     // Bandbreite konkurriert.
     const handle = setTimeout(() => {
-      fetch(pathname, {
-        headers: { Accept: "text/html" },
-        credentials: "include",
-        signal: controller.signal,
-      }).catch(() => {
-        // Offline/abgebrochen/Fehler → Pfad wieder freigeben, beim nächsten
-        // Besuch erneut versuchen.
-        warmed.current.delete(pathname);
-      });
+      for (const p of targets) {
+        fetch(p, {
+          headers: { Accept: "text/html" },
+          credentials: "include",
+          signal: controller.signal,
+        }).catch(() => {
+          // Offline/abgebrochen/Fehler → Pfad wieder freigeben, beim nächsten
+          // Besuch erneut versuchen.
+          warmed.current.delete(p);
+        });
+      }
     }, 1500);
 
     return () => {
