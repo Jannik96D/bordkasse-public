@@ -11,6 +11,8 @@ import { FabAddTransaction } from "@/components/bottom-nav";
 import { OnboardingHint } from "@/components/onboarding-hint";
 import { SettlementStatus } from "@/components/settlement-status";
 import { NotificationNudge } from "@/components/notification-nudge";
+import { InAppBrowserWarning } from "@/components/in-app-browser-warning";
+import { InstallHint } from "@/components/install-hint";
 import { TripProgress } from "@/components/trip-progress";
 import { getTripProgressSignals } from "@/lib/queries/trip-progress";
 import { computeTripProgress } from "@/lib/calc/trip-progress";
@@ -85,6 +87,13 @@ export default async function TripDashboard({
         highlight={justEditedKaution}
         vocab={vocab}
       />
+
+      {/* iOS-Offline-Aufklärung: beide Komponenten gaten sich selbst und sind
+          gegenseitig ausschließend — die Warnung nur im iOS-In-App-Browser
+          (Outlook/Gmail, dort geht Offline nicht), der Install-Hinweis nur im
+          iOS-Safari-Tab (eigener Dismiss-Key, unabhängig vom Startseiten-Hinweis). */}
+      <InAppBrowserWarning />
+      <InstallHint dismissKey="bordkasse:install-hint-trip" />
 
       {/* Geräte-Push genau dort anbieten, wo die Crew ist — der Nudge
           versteckt sich selbst, sobald abonniert/nicht unterstützt/weggeklickt. */}
