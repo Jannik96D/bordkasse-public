@@ -4,6 +4,7 @@ import { isAdmin } from "@/lib/auth/authz";
 import { getTrip, getTripMembers, getCategories } from "@/lib/queries/trips";
 import { getTranches, getPlan } from "@/lib/queries/prepayments";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { round2 } from "@/lib/utils";
 import {
   TransactionForm,
   type ExpenseInitial,
@@ -116,7 +117,12 @@ export default async function EditTransactionPage({
         currentPersonId={person.id}
         members={memberOptions}
         categories={categoryOptions}
-        tranches={tranches.map((t) => ({ id: t.id, label: t.label, due_date: t.due_date }))}
+        tranches={tranches.map((t) => ({
+          id: t.id,
+          label: t.label,
+          due_date: t.due_date,
+          amount: plan ? round2((plan.total_amount * t.percent) / 100) : undefined,
+        }))}
         canEditTranche={admin || isMyTripSkipper || (!!plan && (plan.advancer_person_id ?? trip.skipper_id) === person.id)}
         tripStart={trip.start_date}
         tripEnd={trip.end_date}

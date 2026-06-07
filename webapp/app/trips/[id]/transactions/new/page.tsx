@@ -4,6 +4,7 @@ import { isAdmin } from "@/lib/auth/authz";
 import { getTrip, getTripMembers, getCategories } from "@/lib/queries/trips";
 import { getTranches, getPlan, getPrepaymentNavState } from "@/lib/queries/prepayments";
 import { tripVocab } from "@/lib/trip-vocab";
+import { round2 } from "@/lib/utils";
 import { TransactionForm } from "./transaction-form";
 import { DraftEditor } from "../draft-editor";
 
@@ -65,8 +66,14 @@ export default async function NewTransactionPage({
   const mappedCategories = categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon }));
   // Bei vollständig beglichenem Plan keine Tranchen ans Formular geben →
   // TrancheField rendert dann nichts (zeigt sich nur bei tranches.length ≥ 1).
+  // `amount` = Tranchen-Betrag (Plansumme × Prozent) für die Auto-Vorbelegung.
   const mappedTranches = prepaymentRelevant
-    ? tranches.map((t) => ({ id: t.id, label: t.label, due_date: t.due_date }))
+    ? tranches.map((t) => ({
+        id: t.id,
+        label: t.label,
+        due_date: t.due_date,
+        amount: plan ? round2((plan.total_amount * t.percent) / 100) : undefined,
+      }))
     : [];
 
   return (

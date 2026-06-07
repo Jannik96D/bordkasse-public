@@ -5,7 +5,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
-import { isAdmin, requireMember, requireSkipperOrAdmin } from "@/lib/auth/authz";
+import {
+  isAdmin,
+  requireMember,
+  requireSkipperOrAdmin,
+  requireSkipperAdminOrAdvancer,
+} from "@/lib/auth/authz";
 import {
   trancheBelongsToTrip,
   personsBelongToTrip,
@@ -52,6 +57,13 @@ function zodErrorState(error: z.ZodError): TxState {
 // Postgres-Fehlercode für UNIQUE-Verletzung — siehe
 // https://www.postgresql.org/docs/current/errcodes-appendix.html
 const PG_UNIQUE_VIOLATION = "23505";
+
+// Eine Buchung einer Anzahlungstranche zuzuordnen (= Anzahlungspool) ist
+// dieselbe Rolle vorbehalten, der das UI das Tranche-Feld überhaupt zeigt:
+// Skipper / Admin / Vorstrecker. Da Server Actions mit dem Service-Role-Client
+// schreiben (RLS umgangen), muss dieser Rollen-Check im App-Layer passieren.
+const TRANCHE_AUTHZ_MSG =
+  "Nur Skipper, Admin oder die vorstreckende Person dürfen eine Buchung einer Anzahlungstranche zuordnen.";
 
 /**
  * Validiert, dass der Anteil pro Beteiligter mindestens 1 Cent ergibt.
@@ -259,6 +271,15 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
 
   if (!(await trancheBelongsToTrip(supabase, trancheId, txData.trip_id))) {
     return { status: "error", message: "Ungültige Tranche für diesen Törn." };
+  }
+
+  // Eine Tranche zuzuordnen ist Skipper/Admin/Vorstrecker vorbehalten — das
+  // bloße `requireMember` oben genügt nur für gewöhnliche Bordkasse-Buchungen.
+  // So kann kein normales Crewmitglied (das das UI-Feld gar nicht sieht) per
+  // manipuliertem Request eine Ausgabe in den Anzahlungspool schieben.
+  if (trancheId) {
+    const trancheAuth = await requireSkipperAdminOrAdvancer(txData.trip_id);
+    if (!trancheAuth.ok) return { status: "error", message: TRANCHE_AUTHZ_MSG };
   }
 
   if (
@@ -517,8 +538,22 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   });
   if (!minCheck.ok) return { status: "error", message: minCheck.message, field: minCheck.field };
 
-  if (!(await trancheBelongsToTrip(supabase, trancheId, txData.trip_id))) {
-    return { status: "error", message: "Ungültige Tranche für diesen Törn." };
+  // Tranche-Zuordnung darf nur ändern, wer das Feld auch sieht
+  // (Skipper/Admin/Vorstrecker). Andere Editoren — z.B. der Ersteller einer
+  // gewöhnlichen Ausgabe — bekommen das Feld nicht gerendert; für sie bleibt
+  // die bestehende Zuordnung unverändert, statt sie über das fehlende
+  // Input-Feld (tranche_id = null) versehentlich aus dem Anzahlungspool zu
+  // lösen. Der `tranche_field_present`-Marker unterscheidet „Feld da, bewusst
+  // auf Keine gesetzt" von „Feld gar nicht angezeigt".
+  const trancheFieldPresent = formData.get("tranche_field_present") === "1";
+  let trancheToSave: string | null = existing.tranche_id ?? null;
+  if (trancheFieldPresent && (trancheId ?? null) !== (existing.tranche_id ?? null)) {
+    const trancheAuth = await requireSkipperAdminOrAdvancer(txData.trip_id);
+    if (!trancheAuth.ok) return { status: "error", message: TRANCHE_AUTHZ_MSG };
+    if (!(await trancheBelongsToTrip(supabase, trancheId, txData.trip_id))) {
+      return { status: "error", message: "Ungültige Tranche für diesen Törn." };
+    }
+    trancheToSave = trancheId ?? null;
   }
 
   if (
@@ -543,7 +578,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
       tip_amount: txData.tip_amount,
       tip_distribution: txData.tip_distribution,
       split_type: txData.split_type,
-      tranche_id: trancheId ?? null,
+      tranche_id: trancheToSave,
     })
     .eq("id", transactionId)
     .eq("trip_id", txData.trip_id);
@@ -612,7 +647,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
       tip_amount: txData.tip_amount,
       tip_distribution: txData.tip_distribution,
       split_type: txData.split_type,
-      tranche_id: trancheId ?? null,
+      tranche_id: trancheToSave,
       participants: newExpenseParticipants(txData.split_type, participant_ids, participant_amounts),
     },
   );
