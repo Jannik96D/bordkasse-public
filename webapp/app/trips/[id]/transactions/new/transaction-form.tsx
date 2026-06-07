@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronDown, ChevronUp, Check } from "lucide-react";
 import {
@@ -16,6 +16,10 @@ import { PersonSelect } from "@/components/person-select";
 import { useTripVocab } from "@/components/trip-vocab-provider";
 import { safeMathEval } from "@/lib/utils/math-eval";
 import { calculateShares } from "@/lib/calc/shares";
+import {
+  computeTrancheAutofill,
+  type TrancheAutofillState,
+} from "@/lib/prepayments/tranche-autofill";
 import type { Member as CalcMember, Transaction as CalcTransaction } from "@/lib/calc/types";
 import {
   type Member,
@@ -210,6 +214,27 @@ function ExpenseForm({
       else next.add(id);
       return next;
     });
+
+  // ── Vorbelegung aus der gewählten Anzahlungstranche ─────────────────────
+  // Wählt der Skipper/Vorstrecker eine Tranche, füllt das Formular Betrag
+  // (= Tranchen-Betrag) und Beschreibung (= Tranchen-Name) vor — der typische
+  // Fall „Charter-Überweisung an den Vercharterer erfassen". Datum bleibt wie
+  // sonst auf heute. Wir merken uns die zuletzt auto-gefüllten Werte, damit ein
+  // Tranchen-Wechsel sie aktualisieren darf, manuell Eingegebenes aber in Ruhe
+  // bleibt (und beim Zurücksetzen auf „Keine" nur Auto-Werte wieder geleert
+  // werden).
+  const trancheAutofillRef = useRef<TrancheAutofillState | null>(null);
+  const handleTrancheSelect = (tranche: TrancheOption | null) => {
+    const result = computeTrancheAutofill({
+      tranche,
+      current: { amount, description },
+      previous: trancheAutofillRef.current,
+      formatAmount,
+    });
+    setAmount(result.amount);
+    setDescription(result.description);
+    trancheAutofillRef.current = result.autofill;
+  };
 
   // Per-Person-Beträge als Map<person_id, Eingabe-String>. String, damit der
   // User "3+17" stehen lassen kann; safeMathEval übersetzt zur Anzeige.
@@ -551,7 +576,12 @@ function ExpenseForm({
       {/* Livevorschau: wer zahlt wie viel — eingeklappt per Default. */}
       <SharePreview preview={previewShares} />
 
-      <TrancheField tranches={tranches} initialTrancheId={initial?.trancheId ?? null} canEdit={canEditTranche} />
+      <TrancheField
+        tranches={tranches}
+        initialTrancheId={initial?.trancheId ?? null}
+        canEdit={canEditTranche}
+        onSelect={handleTrancheSelect}
+      />
 
       {/* Sammel-Fehler nur für allgemeine/DB-Fehler — Feld-Fehler stehen schon
           direkt unter dem jeweiligen Feld. */}

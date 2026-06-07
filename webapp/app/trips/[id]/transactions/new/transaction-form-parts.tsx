@@ -14,6 +14,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type ChangeEvent,
   type FormEvent,
   type ReactNode,
 } from "react";
@@ -43,7 +44,17 @@ export type SplitType =
   | "per_person";
 
 /** Anzahlungstranche (Migration 0023) — nur Auswahl-Werte für die Form. */
-export type TrancheOption = { id: string; label: string; due_date: string };
+export type TrancheOption = {
+  id: string;
+  label: string;
+  due_date: string;
+  /**
+   * Tranchen-Betrag (= Plansumme × Prozent / 100). Dient der Auto-Vorbelegung
+   * des Betrag-Felds im Ausgabe-Formular (Charter-Überweisung). Optional, weil
+   * ohne Plan/Summe kein Betrag ableitbar ist.
+   */
+  amount?: number;
+};
 
 /** Initialwerte für den Edit-Modus (Ausgabe). */
 export type ExpenseInitial = {
@@ -176,18 +187,36 @@ export function TrancheField({
   tranches,
   initialTrancheId,
   canEdit,
+  onSelect,
 }: {
   tranches?: TrancheOption[];
   initialTrancheId?: string | null;
   canEdit: boolean;
+  /**
+   * Wird bei einer BENUTZER-Auswahl (nicht beim initialen Render) mit der
+   * gewählten Tranche bzw. `null` („Keine") aufgerufen — das Ausgabe-Formular
+   * nutzt das, um Betrag + Beschreibung vorzubelegen.
+   */
+  onSelect?: (tranche: TrancheOption | null) => void;
 }) {
   const vocab = useTripVocab();
   const [value, setValue] = useState(initialTrancheId ?? "");
   if (!tranches || tranches.length === 0) return null;
   if (!canEdit) return null;
 
+  const handleChange = (e: ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value;
+    setValue(id);
+    onSelect?.(tranches.find((t) => t.id === id) ?? null);
+  };
+
   return (
     <details open={!!initialTrancheId} className="rounded-md border border-rule bg-paper p-3 text-sm">
+      {/* Marker, dass das Feld tatsächlich sichtbar gerendert wurde. Der Server
+          unterscheidet damit „bewusst auf Keine gesetzt" (Feld da, leer) von
+          „Feld gar nicht angezeigt" (nicht berechtigt) und lässt im zweiten
+          Fall die bestehende Tranche-Zuordnung unangetastet. */}
+      <input type="hidden" name="tranche_field_present" value="1" />
       <summary className="cursor-pointer text-ink-soft">
         Anzahlungstranche zuordnen
         {value && <span className="ml-2 text-primary">✓ aktiv</span>}
@@ -197,7 +226,7 @@ export function TrancheField({
         <select
           name="tranche_id"
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onChange={handleChange}
           className="mt-1 w-full rounded-md border border-rule px-3 py-2"
         >
           <option value="">— Keine ({vocab.kitty}-Pool) —</option>

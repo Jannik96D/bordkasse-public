@@ -12,14 +12,84 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/auth/authz", () => ({
   requireMember: vi.fn(),
   requireSkipperOrAdmin: vi.fn(),
+  requireSkipperAdminOrAdvancer: vi.fn(),
   isAdmin: vi.fn(),
 }));
 vi.mock("@/lib/auth/get-current-person", () => ({ getCurrentPerson: vi.fn() }));
 
 import { createExpense, createCredit } from "@/lib/actions/transactions";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
+import {
+  requireMember,
+  requireSkipperAdminOrAdvancer,
+} from "@/lib/auth/authz";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const mockedPerson = vi.mocked(getCurrentPerson);
+const mockedRequireMember = vi.mocked(requireMember);
+const mockedAdvancer = vi.mocked(requireSkipperAdminOrAdvancer);
+const mockedAdminClient = vi.mocked(createAdminClient);
+
+// RFC-4122-valide Seed-UUIDs (Zod v4 .uuid() ist strikt: Version-Nibble 4,
+// Variant-Bits 8) — sonst scheitert die Schema-Validierung vor dem Guard.
+const TRIP_ID = "aaaaaaaa-0000-4000-8000-000000000001";
+const PERSON_ID = "aaaaaaaa-0000-4000-8000-000000000002";
+const TRANCHE_ID = "aaaaaaaa-0000-4000-8000-000000000003";
+
+/**
+ * Minimaler, chainbarer Supabase-Mock für den createExpense-Pfad bis zum
+ * Tranche-Guard. `trip_members` antwortet im Count-Modus (checkMinShare) bzw.
+ * Data-Modus (personsBelongToTrip), `prepayment_tranches` über maybeSingle
+ * (trancheBelongsToTrip). Mehr braucht der Guard-Test nicht — er returnt
+ * vor dem Insert.
+ */
+function makeSupabase(opts: { trancheBelongs?: boolean; foundPersonIds?: string[] } = {}) {
+  const { trancheBelongs = true, foundPersonIds = [] } = opts;
+  const make = (table: string) => {
+    let counting = false;
+    const b: Record<string, unknown> = {};
+    const self = () => b;
+    b.select = (_cols?: unknown, options?: { count?: string }) => {
+      if (options?.count) counting = true;
+      return b;
+    };
+    b.eq = self;
+    b.in = self;
+    b.is = self;
+    b.not = self;
+    b.insert = self;
+    b.maybeSingle = () =>
+      Promise.resolve(
+        table === "prepayment_tranches"
+          ? { data: trancheBelongs ? { id: TRANCHE_ID } : null }
+          : { data: null },
+      );
+    // Thenable: erlaubt `await supabase.from(t).select().eq()` ohne Terminator.
+    b.then = (onFulfilled: (v: unknown) => unknown) => {
+      let value: unknown = { data: [], count: 0 };
+      if (table === "trip_members") {
+        value = counting
+          ? { count: 5, data: null }
+          : { data: foundPersonIds.map((person_id) => ({ person_id })) };
+      }
+      return Promise.resolve(value).then(onFulfilled);
+    };
+    return b;
+  };
+  return { from: (table: string) => make(table) };
+}
+
+function expenseFormData(extra: Record<string, string> = {}): FormData {
+  const fd = new FormData();
+  fd.set("trip_id", TRIP_ID);
+  fd.set("date", "2026-06-07");
+  fd.set("description", "1. Anzahlung");
+  fd.set("paid_by", PERSON_ID);
+  fd.set("amount", "360,00");
+  fd.set("split_type", "equal");
+  for (const [k, v] of Object.entries(extra)) fd.set(k, v);
+  return fd;
+}
 
 describe("createExpense — Auth- & Validierungs-Guards", () => {
   beforeEach(() => mockedPerson.mockReset());
@@ -48,5 +118,43 @@ describe("createCredit — Auth-Guard", () => {
     mockedPerson.mockResolvedValue(null);
     const res = await createCredit({ status: "idle" }, new FormData());
     expect(res).toEqual({ status: "error", message: "Nicht angemeldet." });
+  });
+});
+
+describe("createExpense — Tranche-Zuordnung nur für Skipper/Admin/Vorstrecker", () => {
+  beforeEach(() => {
+    mockedPerson.mockReset();
+    mockedRequireMember.mockReset();
+    mockedAdvancer.mockReset();
+    mockedAdminClient.mockReset();
+    mockedPerson.mockResolvedValue({ id: PERSON_ID, display_name: "Crew", email: "c@x.de" } as never);
+    mockedRequireMember.mockResolvedValue({ ok: true, personId: PERSON_ID });
+  });
+
+  it("weist eine tranche-zugeordnete Ausgabe ab, wenn der Nutzer nicht berechtigt ist", async () => {
+    // Member (darf normale Buchungen), aber NICHT Skipper/Admin/Vorstrecker.
+    mockedAdvancer.mockResolvedValue({ ok: false, message: "egal" });
+    mockedAdminClient.mockReturnValue(makeSupabase({ trancheBelongs: true }) as never);
+
+    const res = await createExpense({ status: "idle" }, expenseFormData({ tranche_id: TRANCHE_ID }));
+
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).toContain("Anzahlungstranche");
+    // Der Rollen-Check muss tatsächlich für diesen Törn gelaufen sein.
+    expect(mockedAdvancer).toHaveBeenCalledWith(TRIP_ID);
+  });
+
+  it("ruft den Tranche-Rollen-Check NICHT auf, wenn keine Tranche zugeordnet ist", async () => {
+    // Normale Bordkasse-Buchung eines Crewmitglieds — der Advancer-Guard darf
+    // sie nicht behindern. Wir lassen sie bewusst erst am Cross-Trip-Check
+    // (leere Personenliste) enden, ohne den Insert-Pfad zu mocken.
+    mockedAdvancer.mockResolvedValue({ ok: false, message: "egal" });
+    mockedAdminClient.mockReturnValue(makeSupabase({ foundPersonIds: [] }) as never);
+
+    const res = await createExpense({ status: "idle" }, expenseFormData());
+
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).not.toContain("Anzahlungstranche");
+    expect(mockedAdvancer).not.toHaveBeenCalled();
   });
 });
