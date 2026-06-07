@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Share, Smartphone, X, Download } from "lucide-react";
-import { isIos, isStandalone } from "@/lib/pwa";
-
-const DISMISS_KEY = "bordkasse:install-hint-dismissed";
+import { isIos, isStandalone, isInAppBrowser } from "@/lib/pwa";
 
 // `BeforeInstallPromptEvent` ist (noch) nicht in den Standard-DOM-Lib-Typen.
 type BeforeInstallPromptEvent = Event & {
@@ -23,9 +21,15 @@ type BeforeInstallPromptEvent = Event & {
  *   - Android ohne (noch) gefeuertes Event: textueller Menü-Hinweis als Fallback.
  *
  * Versteckt sich automatisch, wenn das Gerät weder iOS noch Android ist und
- * kein Install-Event kam, die App schon als PWA läuft, oder weggeklickt wurde.
+ * kein Install-Event kam, die App schon als PWA läuft, in einem iOS-In-App-
+ * Browser läuft (dort lässt sich nichts installieren), oder weggeklickt wurde.
+ *
+ * `dismissKey` ist überschreibbar, damit derselbe Hinweis an verschiedenen
+ * Stellen (Startseite vs. innerhalb eines Törns) unabhängig wegklickbar ist.
  */
-export function InstallHint() {
+export function InstallHint({
+  dismissKey = "bordkasse:install-hint-dismissed",
+}: { dismissKey?: string } = {}) {
   const [show, setShow] = useState(false);
   const [variant, setVariant] = useState<"ios" | "android">("android");
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -35,9 +39,13 @@ export function InstallHint() {
     // Bereits als PWA installiert → nichts zeigen (geteilte Erkennung mit dem
     // Push-Hook, damit iPad-/Standalone-Logik nicht divergiert).
     if (isStandalone()) return;
+    // In einem iOS-In-App-Browser (Outlook/Gmail …) lässt sich gar keine PWA
+    // installieren → die Anleitung wäre irreführend. Dort übernimmt die
+    // InAppBrowserWarning („in Safari öffnen").
+    if (isInAppBrowser()) return;
 
     // Vom User weggeklickt
-    if (localStorage.getItem(DISMISS_KEY) === "1") return;
+    if (localStorage.getItem(dismissKey) === "1") return;
 
     const iosDevice = isIos();
     const isAndroid = /Android/i.test(window.navigator.userAgent);
@@ -56,7 +64,7 @@ export function InstallHint() {
     const onInstalled = () => {
       setShow(false);
       try {
-        localStorage.setItem(DISMISS_KEY, "1");
+        localStorage.setItem(dismissKey, "1");
       } catch {
         // ignorieren
       }
@@ -78,10 +86,10 @@ export function InstallHint() {
       window.removeEventListener("appinstalled", onInstalled);
       if (t) clearTimeout(t);
     };
-  }, []);
+  }, [dismissKey]);
 
   const dismiss = () => {
-    localStorage.setItem(DISMISS_KEY, "1");
+    localStorage.setItem(dismissKey, "1");
     setShow(false);
   };
 

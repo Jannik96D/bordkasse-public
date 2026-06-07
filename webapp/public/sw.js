@@ -20,7 +20,12 @@
 // Bei jeder Version den CACHE_VERSION-String hochzählen, damit alte
 // Caches beim Activate-Event aufgeräumt werden.
 
-const CACHE_VERSION = "bordkasse-v8";
+// v9: iOS-bewusste offline.html (Home-Bildschirm-Tipp + offline-miss-Flag für
+// die Selbsthilfe). Hinweis: ein Bump verwirft auch die gewärmten -pages/-rsc-
+// Caches → der erste Offline-Versuch direkt nach dem Update kann einmalig in
+// /offline.html landen, bis erneut online gewärmt wurde; wegen des bewussten
+// kein-skipWaiting-Flows wird v9 zudem erst nach Tipp auf „Aktualisieren" aktiv.
+const CACHE_VERSION = "bordkasse-v9";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE = `${CACHE_VERSION}-pages`;
 const RSC_CACHE = `${CACHE_VERSION}-rsc`;

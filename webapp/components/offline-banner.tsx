@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { CloudOff, RefreshCw, AlertTriangle } from "lucide-react";
+import { CloudOff, RefreshCw, AlertTriangle, Smartphone } from "lucide-react";
 import { count, remove, subscribeToChanges } from "@/lib/offline/outbox";
 import { syncOutbox } from "@/lib/offline/sync";
+import { readOfflineMiss, clearOfflineMiss } from "@/lib/offline/offline-help";
 
 function subscribeOnline(callback: () => void) {
   window.addEventListener("online", callback);
@@ -30,6 +31,7 @@ export function OfflineBanner() {
   const [pending, setPending] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [failed, setFailed] = useState<{ id: string; message: string }[]>([]);
+  const [showHelp, setShowHelp] = useState(false);
 
   const refreshPending = useCallback(async () => {
     try {
@@ -86,8 +88,46 @@ export function OfflineBanner() {
     return () => clearTimeout(handle);
   }, [online, triggerSync]);
 
+  // Selbsthilfe: fand der letzte Offline-Versuch das Buchungsformular nicht im
+  // Cache (Flag von FAB / offline.html), beim Online-Sein eine kurze Hilfe
+  // zeigen. Auf Mount UND beim Online-Werden prüfen — der Banner bleibt über
+  // Tab-Wechsel montiert, ein reiner Mount-Check verpasste den
+  // Offline→Online-Übergang.
+  useEffect(() => {
+    if (!online) return;
+    Promise.resolve().then(() => {
+      if (readOfflineMiss()) {
+        setShowHelp(true);
+        clearOfflineMiss(); // clear-on-show → kein erneutes Aufpoppen nach Reload
+      }
+    });
+  }, [online]);
+
   const hasFailed = failed.length > 0;
-  if (online && pending === 0 && !hasFailed) return null;
+  // Online, nichts ausstehend/fehlgeschlagen: höchstens die Selbsthilfe nach
+  // einem gescheiterten Offline-Versuch, sonst gar kein Banner.
+  if (online && pending === 0 && !hasFailed) {
+    if (!showHelp) return null;
+    return (
+      <div
+        className="sticky top-0 z-40 flex items-center justify-between gap-2 border-b border-primary/30 bg-navy-light/40 px-4 py-2 text-xs text-ink"
+        role="status"
+      >
+        <span className="flex items-center gap-2">
+          <Smartphone className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+          Offline-Buchen ging zuletzt nicht. Das Formular ist jetzt vorbereitet — für
+          unterwegs am besten die App installieren.
+        </span>
+        <button
+          type="button"
+          onClick={() => setShowHelp(false)}
+          className="shrink-0 rounded border border-primary px-2 py-1 text-primary hover:bg-primary hover:text-paper"
+        >
+          OK
+        </button>
+      </div>
+    );
+  }
 
   // Fehler-Zustand hat Vorrang: dauerhaft fehlgeschlagene Replays.
   if (online && hasFailed) {

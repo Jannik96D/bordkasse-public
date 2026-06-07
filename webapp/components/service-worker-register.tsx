@@ -16,6 +16,23 @@ export function ServiceWorkerRegister() {
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
 
+    // Persistenten Speicher anfragen (best effort, läuft auch im Dev). Verringert
+    // die Gefahr, dass der Browser Cache/IndexedDB räumt — greift v. a. auf
+    // Chromium und der installierten iOS-PWA. Auf iOS-Safari-Tabs liefert WebKit
+    // meist `false` (kein echter Schutz vor der 7-Tage-Eviction → echte Abhilfe
+    // ist die Installation als App, siehe components/install-hint.tsx).
+    const storage = navigator.storage;
+    if (storage && typeof storage.persist === "function") {
+      storage.persist().then(
+        (granted) => {
+          if (process.env.NODE_ENV !== "production") {
+            console.debug("[storage] persist granted:", granted);
+          }
+        },
+        () => {},
+      );
+    }
+
     if (process.env.NODE_ENV !== "production") {
       navigator.serviceWorker.getRegistrations().then((regs) => {
         regs.forEach((r) => r.unregister());

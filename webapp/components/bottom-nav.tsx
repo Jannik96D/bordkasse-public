@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, Plus, Euro, ScaleIcon, Wallet, BarChart3, Coins, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/components/toast-provider";
+import { isFormCached, markOfflineMiss } from "@/lib/offline/offline-help";
 
 interface Tab {
   href: (id: string) => string;
@@ -105,17 +107,44 @@ export function BottomNav({
 /** Floating-Action-Button für "+ Buchung" — primär CTA. */
 export function FabAddTransaction({ tripId }: { tripId: string }) {
   const href = `/trips/${tripId}/transactions/new`;
+  const { show } = useToast();
   return (
     <Link
       href={href}
       onClick={(e) => {
-        // Offline: Hard-Navigation erzwingen. Client-RSC-Navigation scheitert
-        // offline (Service Worker cacht keine RSC-Payloads); ein echter
-        // Navigate-Request liefert dagegen das vorgewärmte Form-Dokument aus.
-        if (typeof navigator !== "undefined" && !navigator.onLine) {
-          e.preventDefault();
-          window.location.assign(href);
-        }
+        // Online: normale Client-RSC-Navigation.
+        if (typeof navigator === "undefined" || navigator.onLine) return;
+        // Offline: NICHT blind in die Sackgasse (/offline.html) navigieren — erst
+        // prüfen, ob das Formular vorgewärmt im Cache liegt.
+        e.preventDefault();
+        void (async () => {
+          // Kein Cache-API (z. B. iOS-In-App-Browser ohne SW) → fail-open: hart
+          // navigieren wie bisher (nicht schlechter als der Status quo).
+          if (typeof caches === "undefined") {
+            window.location.assign(href);
+            return;
+          }
+          let cached = false;
+          try {
+            cached = await isFormCached(href);
+          } catch {
+            window.location.assign(href); // unerwarteter Fehler → fail-open
+            return;
+          }
+          if (cached) {
+            // Hard-Navigation: der SW liefert das vorgewärmte Form-Dokument
+            // (Client-RSC-Navigation cacht der SW nicht).
+            window.location.assign(href);
+            return;
+          }
+          // Formular nicht gewärmt → kein Dead-End, sondern Erklärung + Merker
+          // für die Hilfe beim nächsten Online-Sein (OfflineBanner).
+          markOfflineMiss(href);
+          show(
+            "Offline noch nicht verfügbar. Öffne den Törn einmal mit Empfang — dann klappt das Buchen auch offline.",
+            { variant: "info" },
+          );
+        })();
       }}
       aria-label="Neue Buchung"
       className="fixed bottom-20 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-paper shadow-lg transition-transform hover:bg-navy-dark active:scale-95"

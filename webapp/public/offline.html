@@ -78,11 +78,41 @@
       Keine Sorge: Buchungen, die du offline erfasst hast, sind lokal gesichert
       und werden automatisch übertragen, sobald du wieder online bist.
     </p>
+    <p class="hint" id="ios-tip" hidden>
+      iPhone-Tipp: Damit das Buchen auch unterwegs ohne Empfang klappt, füge
+      Bordkasse über das Teilen-Symbol → „Zum Home-Bildschirm“ als App hinzu und
+      öffne sie künftig über das Icon (nicht aus einer E-Mail heraus).
+    </p>
     <div class="actions">
       <button type="button" onclick="location.reload()">Erneut versuchen</button>
       <a class="secondary" href="/">Zur Startseite</a>
     </div>
     <script>
+      // Diesen Fehlversuch merken — der OfflineBanner zeigt beim nächsten
+      // Online-Sein eine kurze Hilfe. Key identisch zu lib/offline/offline-help.ts
+      // (diese statische Seite kann kein TS importieren).
+      try {
+        localStorage.setItem(
+          "bordkasse:offline-miss",
+          JSON.stringify({ at: Date.now(), path: location.pathname })
+        );
+      } catch (e) {}
+
+      // iOS ohne installierte App → gezielter Home-Bildschirm-Tipp einblenden.
+      try {
+        var ua = navigator.userAgent;
+        var iOS =
+          /iPhone|iPod|iPad/.test(ua) ||
+          (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+        var standalone =
+          (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+          navigator.standalone === true;
+        if (iOS && !standalone) {
+          var tip = document.getElementById("ios-tip");
+          if (tip) tip.hidden = false;
+        }
+      } catch (e) {}
+
       // Automatisch zurückspringen, sobald die Verbindung wieder da ist.
       window.addEventListener("online", function () {
         location.reload();
