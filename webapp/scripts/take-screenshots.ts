@@ -235,13 +235,37 @@ async function main() {
         (el as HTMLElement).style.display = "none";
       }
     });
+    // DSGVO-Überfällig-Markierung ausblenden: der Vorjahres-Törn liegt > 30 Tage
+    // zurück → der rote Retention-Hinweis (Skipper/Admin) würde sonst die
+    // Törn-Liste dominieren. Nur fürs Marketing-Bild raus, nicht aus den Daten:
+    // (1) Top-Alert-Banner, (2) roter Rahmen der betroffenen Törn-Karte,
+    // (3) „DSGVO-Frist abgelaufen: Bitte löschen"-Zeile auf der Karte.
+    document.querySelectorAll('[role="alert"]').forEach((el) => {
+      if (/DSGVO-Frist/i.test(el.textContent ?? "")) {
+        (el as HTMLElement).style.display = "none";
+      }
+    });
+    document.querySelectorAll('a[href^="/trips/"]').forEach((a) => {
+      const el = a as HTMLElement;
+      if (el.className.includes("border-danger")) {
+        el.className =
+          "block rounded-md border border-rule bg-paper p-4 transition-colors hover:border-primary/40 hover:bg-navy-light/20";
+      }
+    });
+    document.querySelectorAll("p").forEach((p) => {
+      if (/DSGVO-Frist abgelaufen/i.test(p.textContent ?? "")) {
+        (p as HTMLElement).style.display = "none";
+      }
+    });
   });
   await page.waitForTimeout(150);
   await shot(page, "03-trips");
 
-  // Aus der Trip-Liste die beiden Demo-Trips per Namen heraussuchen:
-  // - „Pfingst-Törn Ostsee 2026" → Trip 1 für Screenshots 04–14
-  // - „Bareboat-Charter Sommer 2027" → Trip 2 für 15–17 (Anzahlungen)
+  // Aus der Trip-Liste die Demo-Trips per Namen heraussuchen:
+  // - „Ostseetörn {laufendes Jahr}" (aktuell, läuft) → Buchungs-Demo, Screenshots 05–13
+  // - „Korsika {Folgejahr}" (zukünftig, Charter) → Übersicht + Anzahlung + Fortschritt (04, 15–18)
+  // („Kroatien {Vorjahr}" = vergangener Törn, erscheint nur in der Törn-Liste 03)
+  // Namen-Jahre sind dynamisch (seed_demo.sql aus CURRENT_DATE) → Lookup per Präfix.
   const tripsByName = await page.locator('a[href^="/trips/"]').evaluateAll((els) =>
     els
       .map((el) => ({
@@ -259,16 +283,16 @@ async function main() {
     }
     return hit.href.replace("/trips/", "");
   };
-  const tripId = findTripId("Pfingst-Törn");
-  const tripCharterId = findTripId("Bareboat-Charter");
-  console.log(`  ↳ Pfingst-Törn: ${tripId}`);
-  console.log(`  ↳ Bareboat-Charter: ${tripCharterId}`);
+  const tripId = findTripId("Ostseetörn");
+  const tripCharterId = findTripId("Korsika");
+  console.log(`  ↳ Ostseetörn (aktuell): ${tripId}`);
+  console.log(`  ↳ Korsika (Charter): ${tripCharterId}`);
 
   // Hinweis: Screenshot „04-trip-overview" (Startseite des Törns) wird bewusst
   // aus der CREW-Sicht (Clara, reguläres Mitglied) aufgenommen — siehe
   // Clara-Block weiter unten. So zeigt die /about-Seite die Übersicht OHNE die
   // skipper-only Karte „Dein Törn im Überblick" (die separat als Screenshot 18
-  // erscheint). Bewusst der Bareboat-Charter (Zukunft, läuft noch nicht), damit
+  // erscheint). Bewusst der Korsika-Törn (Zukunft, läuft noch nicht), damit
   // kein verfrühter „Törn vorbei — Abrechnung verschicken"-Banner auftaucht;
   // der Settlement-Banner wird stattdessen im Schulden-Screenshot (08) gezeigt.
 
@@ -361,7 +385,7 @@ async function main() {
   await shot(page, "14-dsgvo");
 
   // ────────────────────────────────────────────────────────────────────
-  // Anzahlungs-Modul (Trip 2 — Bareboat-Charter)
+  // Anzahlungs-Modul (Korsika {Folgejahr} — zukünftiger Charter)
   //   15-anzahlung-setup    Wizard Step 2 (Tranchen-Editor)
   //   16-anzahlung-matrix   Matrix mit Charter-Banner + Vorstrecker-Zeile
   //   17-anzahlung-crew-self  Crew-Self-View (als Clara, nicht-Skipper)
