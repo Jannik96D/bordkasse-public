@@ -151,10 +151,10 @@ bold "→ Sanity-Checks"
 TRIPS=$(psql_exec -tAc "SELECT count(*) FROM trips;")
 PLANS=$(psql_exec -tAc "SELECT count(*) FROM prepayment_plan;")
 LINKED=$(psql_exec -tAc "SELECT count(*) FROM persons WHERE auth_user_id IS NOT NULL;")
-echo "  Trips: ${TRIPS} (erwartet 2)"
+echo "  Trips: ${TRIPS} (erwartet 3)"
 echo "  Anzahlungs-Pläne: ${PLANS} (erwartet 1)"
 echo "  Verknüpfte Personen: ${LINKED} (erwartet 2)"
-if [ "$TRIPS" != "2" ] || [ "$PLANS" != "1" ] || [ "$LINKED" != "2" ]; then
+if [ "$TRIPS" != "3" ] || [ "$PLANS" != "1" ] || [ "$LINKED" != "2" ]; then
   red "Sanity-Check fehlgeschlagen — bitte Logs prüfen."
   exit 1
 fi
