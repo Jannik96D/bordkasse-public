@@ -47,7 +47,7 @@ function makeSupabase(
   opts: {
     trancheBelongs?: boolean;
     foundPersonIds?: string[];
-    tripDates?: { start_date: string; end_date: string };
+    tripDates?: { start_date: string; end_date: string; trip_type?: string };
   } = {},
 ) {
   const {
@@ -192,6 +192,26 @@ describe("createExpense — Datum außerhalb des Törns", () => {
     if (res.status === "error") {
       expect(res.field).toBe("date");
       expect(res.message).toContain("niemand an Bord");
+    }
+  });
+
+  it('formuliert die Ablehnung bei „Andere Reise" segelneutral („Anwesend"/Reisezeitraum)', async () => {
+    mockedAdminClient.mockReturnValue(
+      makeSupabase({
+        foundPersonIds: [],
+        tripDates: { start_date: "2026-06-06", end_date: "2026-06-13", trip_type: "other" },
+      }) as never,
+    );
+    const res = await createExpense(
+      { status: "idle" },
+      expenseFormData({ split_type: "on_board", date: "2026-05-01" }),
+    );
+    expect(res.status).toBe("error");
+    if (res.status === "error") {
+      expect(res.message).toContain("niemand anwesend");
+      expect(res.message).toContain("Anwesend");
+      expect(res.message).toContain("Reisezeitraum");
+      expect(res.message).not.toContain("an Bord");
     }
   });
 
