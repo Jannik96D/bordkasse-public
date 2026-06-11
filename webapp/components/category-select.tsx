@@ -14,6 +14,15 @@ interface CategorySelectProps {
   defaultCategoryId?: string;
   placeholder?: string;
   invalid?: boolean;
+  /**
+   * Controlled-Modus: ausgewählte Kategorie-ID (null = „Keine"). Sobald die
+   * Prop gesetzt ist, hält der Parent den Stand — z. B. damit die Tranchen-
+   * Vorbelegung die Kategorie programmatisch setzen kann. `defaultCategoryId`
+   * wird dann ignoriert.
+   */
+  selectedId?: string | null;
+  /** Auswahl-Callback (auch im Uncontrolled-Modus nutzbar). */
+  onSelect?: (id: string | null) => void;
 }
 
 export function CategorySelect({
@@ -22,6 +31,8 @@ export function CategorySelect({
   defaultCategoryId,
   placeholder = "— Keine —",
   invalid = false,
+  selectedId,
+  onSelect,
 }: CategorySelectProps) {
   // Logische Liste: erstes Element = "Keine" (null), dann die Kategorien
   // Damit lassen sich Listbox-Index und Pfeil-Navigation einheitlich behandeln.
@@ -30,10 +41,16 @@ export function CategorySelect({
     [categories],
   );
 
+  const isControlled = selectedId !== undefined;
   const initial = defaultCategoryId
     ? categories.find((c) => c.id === defaultCategoryId) ?? null
     : null;
-  const [selected, setSelected] = useState<Category | null>(initial);
+  const [internalSelected, setInternalSelected] = useState<Category | null>(initial);
+  const selected = isControlled
+    ? selectedId
+      ? categories.find((c) => c.id === selectedId) ?? null
+      : null
+    : internalSelected;
   const [open, setOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState<number>(() => {
     if (!initial) return 0;
@@ -70,7 +87,8 @@ export function CategorySelect({
   }, [open]);
 
   const pick = (c: Category | null) => {
-    setSelected(c);
+    if (!isControlled) setInternalSelected(c);
+    onSelect?.(c?.id ?? null);
     setOpen(false);
     triggerRef.current?.focus();
   };

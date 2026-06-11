@@ -67,6 +67,7 @@ export default async function SettingsPage({
         <PrepaymentPlanSection
           tripId={id}
           planExists={!!plan}
+          declined={!!trip.prepayment_declined_at}
           tripType={trip.trip_type === "other" ? "other" : "sailing"}
         />
       )}

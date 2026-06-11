@@ -195,6 +195,7 @@ function ExpenseForm({
   const [date, setDate] = useState(initial?.date ?? todayIso());
   const [description, setDescription] = useState(initial?.description ?? "");
   const [amount, setAmount] = useState(initial ? formatAmount(initial.amount) : "");
+  const [categoryId, setCategoryId] = useState<string | null>(initial?.categoryId ?? null);
   const [alcoholAmount, setAlcoholAmount] = useState(
     initial && initial.alcoholAmount > 0 ? formatAmount(initial.alcoholAmount) : "",
   );
@@ -217,22 +218,28 @@ function ExpenseForm({
 
   // ── Vorbelegung aus der gewählten Anzahlungstranche ─────────────────────
   // Wählt der Skipper/Vorstrecker eine Tranche, füllt das Formular Betrag
-  // (= Tranchen-Betrag) und Beschreibung (= Tranchen-Name) vor — der typische
-  // Fall „Charter-Überweisung an den Vercharterer erfassen". Datum bleibt wie
+  // (= Tranchen-Betrag), Beschreibung (= Tranchen-Name) und Kategorie
+  // (= Törn-Kategorie „Yacht", sofern vorhanden) vor — der typische Fall
+  // „Charter-Überweisung an den Vercharterer erfassen". Datum bleibt wie
   // sonst auf heute. Wir merken uns die zuletzt auto-gefüllten Werte, damit ein
   // Tranchen-Wechsel sie aktualisieren darf, manuell Eingegebenes aber in Ruhe
   // bleibt (und beim Zurücksetzen auf „Keine" nur Auto-Werte wieder geleert
   // werden).
+  const yachtCategoryId = useMemo(
+    () => categories.find((c) => /yacht/i.test(c.name))?.id ?? null,
+    [categories],
+  );
   const trancheAutofillRef = useRef<TrancheAutofillState | null>(null);
   const handleTrancheSelect = (tranche: TrancheOption | null) => {
     const result = computeTrancheAutofill({
-      tranche,
-      current: { amount, description },
+      tranche: tranche ? { ...tranche, categoryId: yachtCategoryId } : null,
+      current: { amount, description, categoryId },
       previous: trancheAutofillRef.current,
       formatAmount,
     });
     setAmount(result.amount);
     setDescription(result.description);
+    setCategoryId(result.categoryId);
     trancheAutofillRef.current = result.autofill;
   };
 
@@ -272,6 +279,12 @@ function ExpenseForm({
   // das Betrag-Feld zeigt die Summe, ist nicht editierbar.
   const isPerPerson = splitType === "per_person";
   const displayAmount = isPerPerson ? formatAmount(perPersonSum) : amount;
+
+  // Buchungen vor/nach dem Törn sind erlaubt (Anzahlung, Versicherung,
+  // Nachzügler-Rechnung) — nur „An Bord" ergibt dann keinen Sinn, weil am
+  // Buchungstag niemand anwesend ist (Server lehnt das ebenfalls ab).
+  const dateOutsideTrip =
+    !!tripStart && !!tripEnd && (date < tripStart || date > tripEnd);
 
   // ── Livevorschau der Aufteilung ────────────────────────────────────────
   // Spiegelt mit der exakt gleichen Logik wie der Server (lib/calc/shares.ts)
@@ -355,12 +368,19 @@ function ExpenseForm({
       {!isEdit && <input type="hidden" name="idempotency_key" value={isDraft ? draftId : idempotencyKey} />}
       {isEdit && <input type="hidden" name="transaction_id" value={initial!.transactionId} />}
 
-      <FieldGroup label="Datum" htmlFor="date" error={fieldError("date")}>
+      <FieldGroup
+        label="Datum"
+        htmlFor="date"
+        error={fieldError("date")}
+        hint={
+          dateOutsideTrip && splitType !== "on_board"
+            ? `Liegt außerhalb des ${vocab.trip}zeitraums — ok, z. B. für Anzahlung oder Versicherung.`
+            : undefined
+        }
+      >
         <input
           id="date" name="date" type="date" required
           value={date}
-          min={tripStart}
-          max={tripEnd}
           onChange={(e) => setDate(e.target.value)}
           aria-invalid={isInvalid("date") || undefined}
           className={cn(inputCls, isInvalid("date") && "border-danger ring-2 ring-danger/20")}
@@ -382,7 +402,8 @@ function ExpenseForm({
         <CategorySelect
           name="category_id"
           categories={categories}
-          defaultCategoryId={initial?.categoryId ?? undefined}
+          selectedId={categoryId}
+          onSelect={setCategoryId}
           invalid={isInvalid("category_id")}
         />
       </FieldGroup>
@@ -440,6 +461,13 @@ function ExpenseForm({
             </button>
           ))}
         </div>
+        {splitType === "on_board" && dateOutsideTrip && (
+          <p role="status" className="mt-2 rounded-md border border-gold/30 bg-gold-soft px-3 py-2 text-sm text-ink">
+            ⚠ „{SPLIT_LABEL.on_board}“ zählt nur Personen, die am Buchungstag dabei
+            sind — außerhalb des {vocab.trip}zeitraums ist das niemand und die
+            Ausgabe würde niemandem zugeteilt. Bitte Datum oder Aufteilung anpassen.
+          </p>
+        )}
       </div>
 
       {splitType === "individual" && (
@@ -662,11 +690,18 @@ function CreditForm({
       {!isEdit && <input type="hidden" name="idempotency_key" value={isDraft ? draftId : idempotencyKey} />}
       {isEdit && <input type="hidden" name="transaction_id" value={initial!.transactionId} />}
 
-      <FieldGroup label="Datum" htmlFor="date" error={fieldError("date")}>
+      <FieldGroup
+        label="Datum"
+        htmlFor="date"
+        error={fieldError("date")}
+        hint={
+          !!tripStart && !!tripEnd && (date < tripStart || date > tripEnd)
+            ? `Liegt außerhalb des ${vocab.trip}zeitraums — ok, z. B. für eine Anzahlung vorab.`
+            : undefined
+        }
+      >
         <input id="date" name="date" type="date" required
           value={date}
-          min={tripStart}
-          max={tripEnd}
           onChange={(e) => setDate(e.target.value)}
           aria-invalid={isInvalid("date") || undefined}
           className={cn(inputCls, isInvalid("date") && "border-danger ring-2 ring-danger/20")}

@@ -114,8 +114,10 @@ DECLARE
 
   tx UUID;
 BEGIN
-  INSERT INTO trips (id, name, start_date, end_date, ship_name, skipper_id) VALUES
-    (trip_ostsee, 'Ostseetörn ' || to_char(today, 'YYYY'), today - 3, today + 4, 'Sea Spirit', p_anna);
+  -- Ohne Anzahlungsplan unterwegs → explizit abgewählt (prepayment_declined_at),
+  -- sonst zeigt die Törn-Fortschritt-Karte ein ewig offenes „Anzahlungsplan anlegen".
+  INSERT INTO trips (id, name, start_date, end_date, ship_name, skipper_id, prepayment_declined_at) VALUES
+    (trip_ostsee, 'Ostseetörn ' || to_char(today, 'YYYY'), today - 3, today + 4, 'Sea Spirit', p_anna, now());
 
   -- ── Crew ─────────────────────────────────────────────────────────────
   -- Eva kommt erst einen Tag vor „heute" dazu, Rest den ganzen Törn → „An Bord"-Demo
@@ -231,9 +233,11 @@ DECLARE
 
   tx UUID;
 BEGIN
-  INSERT INTO trips (id, name, start_date, end_date, ship_name, skipper_id, settlement_announced_at) VALUES
+  -- Vollständig abgeschlossener Törn ohne Anzahlung → ebenfalls abgewählt,
+  -- damit die Checkliste „alles erledigt" zeigen kann.
+  INSERT INTO trips (id, name, start_date, end_date, ship_name, skipper_id, settlement_announced_at, prepayment_declined_at) VALUES
     (trip_kroatien, 'Kroatien ' || ky::text, k_beg, k_beg + 7, 'Bavaria 46', p_anna,
-     make_timestamptz(ky, 9, 14, 18, 0, 0));
+     make_timestamptz(ky, 9, 14, 18, 0, 0), make_timestamptz(ky, 9, 14, 18, 0, 0));
 
   -- ── Crew (alle den ganzen Törn) ──────────────────────────────────────
   INSERT INTO trip_members (trip_id, person_id, on_board_from, on_board_to, note) VALUES

@@ -15,6 +15,7 @@ function base(overrides: Partial<TripProgressSignals> = {}): TripProgressSignals
     startDate: "2026-06-10",
     endDate: "2026-06-20",
     isCharter: false,
+    prepaymentDeclined: false,
     crewInvited: false,
     charterAdvancePaid: false,
     crewPrepaymentsComplete: false,
@@ -30,15 +31,26 @@ const phaseIds = (p: ReturnType<typeof computeTripProgress>) =>
   p.phases.map((ph) => ph.id);
 
 describe("computeTripProgress — Phasen-Sichtbarkeit", () => {
-  it("Nicht-Charter: keine Anzahlungs-Phase, kein Plan-Item", () => {
+  it("Anzahlung vorgesehen, Plan offen: kein Anzahlungs-Phase, aber offenes Plan-Item", () => {
     const p = computeTripProgress(base(), "2026-06-01");
+    expect(phaseIds(p)).toEqual(["vorbereitung", "toern", "abrechnung"]);
+    const vorbereitung = p.phases.find((ph) => ph.id === "vorbereitung")!;
+    expect(vorbereitung.items.map((i) => i.id)).toEqual(["crew-invited", "prepayment-plan"]);
+    const planItem = vorbereitung.items.find((i) => i.id === "prepayment-plan")!;
+    expect(planItem.status).toBe("open");
+    expect(planItem.href).toBe("prepayments/setup");
+    expect(p.totalCount).toBe(6); // crew + plan + erste-ausgabe + kaution + announce + debts
+  });
+
+  it('explizit „ohne Anzahlung" (declined): weder Plan-Item noch Anzahlungs-Phase', () => {
+    const p = computeTripProgress(base({ prepaymentDeclined: true }), "2026-06-01");
     expect(phaseIds(p)).toEqual(["vorbereitung", "toern", "abrechnung"]);
     const vorbereitung = p.phases.find((ph) => ph.id === "vorbereitung")!;
     expect(vorbereitung.items.map((i) => i.id)).toEqual(["crew-invited"]);
     expect(p.totalCount).toBe(5); // crew + erste-ausgabe + kaution + announce + debts
   });
 
-  it("Charter (Plan existiert): Anzahlungs-Phase erscheint, kein Plan-Item", () => {
+  it("Charter (Plan existiert): Anzahlungs-Phase erscheint, Plan-Item ist erledigt", () => {
     const p = computeTripProgress(base({ isCharter: true }), "2026-06-01");
     expect(phaseIds(p)).toEqual([
       "vorbereitung",
@@ -47,10 +59,10 @@ describe("computeTripProgress — Phasen-Sichtbarkeit", () => {
       "abrechnung",
     ]);
     const vorbereitung = p.phases.find((ph) => ph.id === "vorbereitung")!;
-    // "Anzahlungsplan anlegen" ist bewusst KEIN Item mehr.
-    expect(vorbereitung.items.map((i) => i.id)).toEqual(["crew-invited"]);
-    // 1 Vorbereitung + 2 Anzahlung + 2 Während + 2 Abrechnung
-    expect(p.totalCount).toBe(7);
+    expect(vorbereitung.items.map((i) => i.id)).toEqual(["crew-invited", "prepayment-plan"]);
+    expect(vorbereitung.items.find((i) => i.id === "prepayment-plan")!.status).toBe("done");
+    // 2 Vorbereitung + 2 Anzahlung + 2 Während + 2 Abrechnung
+    expect(p.totalCount).toBe(8);
   });
 });
 
@@ -90,7 +102,7 @@ describe("computeTripProgress — Zeit-/Lock-Logik", () => {
 describe("computeTripProgress — aktuelle Phase + Abschluss", () => {
   it("erste nicht-erledigte Phase ist die aktuelle", () => {
     const p = computeTripProgress(
-      base({ crewInvited: true, firstExpenseRecorded: false }),
+      base({ crewInvited: true, prepaymentDeclined: true, firstExpenseRecorded: false }),
       "2026-06-15",
     );
     expect(p.currentPhaseId).toBe("toern");
@@ -139,6 +151,7 @@ describe("computeTripProgress — aktuelle Phase + Abschluss", () => {
     const p = computeTripProgress(
       base({
         crewInvited: true,
+        prepaymentDeclined: true, // ohne Anzahlung → kein offenes Plan-Item
         firstExpenseRecorded: true,
         depositSettled: true,
         settlementAnnounced: true,
