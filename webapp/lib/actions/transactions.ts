@@ -17,6 +17,7 @@ import {
   CROSS_TRIP_PERSON_MSG,
 } from "@/lib/auth/cross-trip";
 import { logAudit } from "@/lib/db/audit";
+import { tripVocab } from "@/lib/trip-vocab";
 import { round2 } from "@/lib/utils";
 import { ExpenseSchema, CreditSchema } from "@/lib/validation/transaction-schema";
 
@@ -119,18 +120,22 @@ async function checkOnBoardDate(
   if (data.split_type !== "on_board") return { ok: true };
   const { data: trip } = await supabase
     .from("trips")
-    .select("start_date, end_date")
+    .select("start_date, end_date, trip_type")
     .eq("id", tripId)
     .single();
   // Trip-Existenz sichert requireMember ab; ohne Daten lieber durchlassen
   // als eine valide Buchung zu blockieren.
   if (!trip) return { ok: true };
   if (data.date < trip.start_date || data.date > trip.end_date) {
+    // Wording folgt dem Reise-Typ: bei „Andere Reise" heißt die Aufteilung
+    // im UI „Anwesend" statt „An Bord" (tripVocab) — die Fehlermeldung muss
+    // denselben Begriff verwenden, sonst findet die Person den Tab nicht.
+    const vocab = tripVocab(trip.trip_type === "other" ? "other" : "sailing");
+    const nobody = trip.trip_type === "other" ? "niemand anwesend" : "niemand an Bord";
     return {
       ok: false,
       field: "date",
-      message:
-        "Am gewählten Datum ist niemand an Bord — „An Bord“ braucht ein Datum im Reisezeitraum. Bitte Datum anpassen oder eine andere Aufteilung (z. B. Gleichmäßig) wählen.",
+      message: `Am gewählten Datum ist ${nobody} — „${vocab.onBoard}“ braucht ein Datum im ${vocab.trip}zeitraum. Bitte Datum anpassen oder eine andere Aufteilung (z. B. Gleichmäßig) wählen.`,
     };
   }
   return { ok: true };
