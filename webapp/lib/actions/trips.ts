@@ -53,6 +53,10 @@ const TripSchema = z
     // Segeltörn (Default) vs. „Andere Reise" — steuert das Wording und den
     // Ausschluss aus der Gesamtstatistik (siehe lib/trip-vocab.ts).
     trip_type: z.enum(["sailing", "other"]).default("sailing"),
+    // Anzahlung vorgesehen („planned", Default) oder bewusst ohne („none").
+    // „none" setzt trips.prepayment_declined_at → kein Anzahlungs-CTA auf der
+    // Übersicht, kein „Anzahlungsplan anlegen"-Item in der Fortschritt-Karte.
+    prepayment: z.enum(["planned", "none"]).default("planned"),
     // Wenn gesetzt, wird dieser User Skipper statt der Admin selbst —
     // damit der Admin Törns für andere anlegen kann ohne hinterher
     // wieder rausgeworfen werden zu müssen.
@@ -77,6 +81,7 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
     end_date: formData.get("end_date"),
     ship_name: formData.get("ship_name") || "",
     trip_type: formData.get("trip_type") || "sailing",
+    prepayment: formData.get("prepayment") || "planned",
     skipper_email: formData.get("skipper_email") || "",
   });
   if (!parsed.success) {
@@ -126,6 +131,8 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
       end_date: parsed.data.end_date,
       ship_name: parsed.data.ship_name || null,
       trip_type: parsed.data.trip_type,
+      prepayment_declined_at:
+        parsed.data.prepayment === "none" ? new Date().toISOString() : null,
       skipper_id: skipperId,
     })
     .select()
@@ -272,6 +279,33 @@ export async function updateTripType(tripId: string, tripType: "sailing" | "othe
     payload: { trip_type: tripType },
   });
   revalidatePath("/");
+  revalidatePath(`/trips/${tripId}`);
+  revalidatePath(`/trips/${tripId}/settings`);
+}
+
+/**
+ * Entscheidung „Anzahlung vorgesehen / bewusst ohne" nachträglich ändern
+ * (Settings-Sektion „Anzahlungsplan"). `declined=true` blendet den
+ * Anzahlungs-CTA auf der Übersicht und das „Anzahlungsplan anlegen"-Item
+ * der Fortschritt-Karte aus; ein existierender Plan gewinnt immer
+ * (savePrepaymentPlan löscht das Flag beim Speichern).
+ */
+export async function setPrepaymentDeclined(tripId: string, declined: boolean) {
+  const auth = await requireSkipperOrAdmin(tripId);
+  if (!auth.ok) return;
+  const supabase = createAdminClient();
+  await supabase
+    .from("trips")
+    .update({ prepayment_declined_at: declined ? new Date().toISOString() : null })
+    .eq("id", tripId);
+  await logAudit(supabase, {
+    table_name: "trips",
+    operation: "UPDATE",
+    record_id: tripId,
+    trip_id: tripId,
+    actor_person_id: auth.personId,
+    payload: { prepayment_declined: declined },
+  });
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/settings`);
 }

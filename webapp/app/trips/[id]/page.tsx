@@ -46,9 +46,12 @@ export default async function TripDashboard({
   // Anzahlungen sind bewusst aus der Übersicht verbannt — die laufende
   // Verwaltung läuft über den kontextuellen Nav-Eintrag und die
   // Trip-Einstellungen. Einzige Ausnahme: ein Skipper/Admin, der vor
-  // Törnstart noch keinen Plan angelegt hat, sieht einen Einstiegs-CTA.
+  // Törnstart noch keinen Plan angelegt hat, sieht einen Einstiegs-CTA —
+  // außer der Törn ist explizit „ohne Anzahlung" angelegt (declined).
   const tripNotStarted = trip.start_date > todayIso();
-  const showCreatePrepaymentCta = canAnnounce && !plan && tripNotStarted;
+  const prepaymentDeclined = !!trip.prepayment_declined_at;
+  const showCreatePrepaymentCta =
+    canAnnounce && !plan && tripNotStarted && !prepaymentDeclined;
 
   // Onboarding-Hinweis aufs „+"-FAB: nur während des aktiven Törns, mit Crew,
   // und nur solange die eingeloggte Person noch keine EIGENE Buchung erfasst
@@ -71,6 +74,7 @@ export default async function TripDashboard({
       memberCount,
       settlementAnnounced: !!trip.settlement_announced_at,
       depositSettled: !!trip.deposit_settled_at,
+      prepaymentDeclined,
     });
     progress = computeTripProgress(signals, todayIso(), trip.trip_type === "other" ? "other" : "sailing");
   }

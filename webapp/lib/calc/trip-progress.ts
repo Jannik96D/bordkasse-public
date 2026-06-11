@@ -18,6 +18,11 @@ export interface TripProgressSignals {
   endDate: string;
   /** Es existiert ein Anzahlungsplan → Charter-Trip, Anzahlungs-Phase zeigen. */
   isCharter: boolean;
+  /**
+   * Törn explizit „ohne Anzahlung" angelegt/umgestellt
+   * (trips.prepayment_declined_at) → kein „Anzahlungsplan anlegen"-Item.
+   */
+  prepaymentDeclined: boolean;
 
   // Phase 1 — Vorbereitung
   crewInvited: boolean;
@@ -117,10 +122,11 @@ export function computeTripProgress(
   const phases: ProgressPhase[] = [];
 
   // ── Phase 1 — Vorbereitung ──────────────────────────────────────────
-  // "Anzahlungsplan anlegen" ist bewusst KEIN Checklisten-Item: ein Plan wird
-  // über den kontextuellen CTA auf der Übersicht (showCreatePrepaymentCta)
-  // angestoßen, und die Anzahlungs-Phase erscheint erst, wenn der Plan
-  // existiert (isCharter). Ein Item dafür wäre strukturell immer "erledigt".
+  // "Anzahlungsplan anlegen" erscheint nur, wenn der Skipper die Anzahlung
+  // nicht explizit abgewählt hat (prepaymentDeclined, Wahl bei der Anlage
+  // bzw. in den Settings). So spiegelt die Karte die offene Entscheidung:
+  // offen solange kein Plan existiert, erledigt sobald er angelegt ist —
+  // bei „ohne Anzahlung" entfällt das Item (und die Anzahlungs-Phase) ganz.
   const vorbereitungItems: ProgressItem[] = [
     {
       id: "crew-invited",
@@ -129,6 +135,14 @@ export function computeTripProgress(
       href: "settings",
     },
   ];
+  if (!s.prepaymentDeclined) {
+    vorbereitungItems.push({
+      id: "prepayment-plan",
+      label: "Anzahlungsplan anlegen",
+      status: statusFor(s.isCharter, idx("vorbereitung"), unlockedUpTo),
+      href: "prepayments/setup",
+    });
+  }
   phases.push(makePhase("vorbereitung", "Vorbereitung", vorbereitungItems));
 
   // ── Phase 2 — Anzahlung (nur Charter) ───────────────────────────────

@@ -128,6 +128,45 @@ export function NewTripForm() {
           </div>
         </fieldset>
 
+        <fieldset className="rounded-md border border-rule bg-paper-soft p-3">
+          <legend className="px-1 text-sm font-medium">Anzahlung</legend>
+          <div className="mt-1 space-y-2">
+            <label className="flex items-start gap-2.5">
+              <input
+                type="radio"
+                name="prepayment"
+                value="planned"
+                defaultChecked
+                className="mt-1 h-4 w-4"
+              />
+              <span className="text-sm">
+                <span className="font-medium">Mit Anzahlungsplan</span>
+                <span className="block text-xs text-ink-soft">
+                  {selectedType === "other"
+                    ? "Für Unterkunft & Co.: Die Vorauszahlung wird in Tranchen auf die Reisegruppe verteilt."
+                    : "Für Charter & Co.: Die Yachtanzahlung wird in Tranchen auf die Crew verteilt."}{" "}
+                  Den Plan legst du nach der Anlage an — die Übersicht erinnert dich daran.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2.5">
+              <input
+                type="radio"
+                name="prepayment"
+                value="none"
+                className="mt-1 h-4 w-4"
+              />
+              <span className="text-sm">
+                <span className="font-medium">Ohne Anzahlung</span>
+                <span className="block text-xs text-ink-soft">
+                  Keine Vorauszahlung nötig — Anzahlungs-Hinweis und
+                  Checklisten-Punkt entfallen. Später in den Einstellungen änderbar.
+                </span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
         <div className="rounded-md border border-rule bg-paper-soft p-3">
           <label htmlFor="skipper_email" className="block text-sm font-medium">
             {vocab.skipper} <span className="text-ink-soft font-normal">(optional)</span>

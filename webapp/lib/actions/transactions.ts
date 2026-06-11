@@ -101,6 +101,41 @@ async function checkMinShare(
   return { ok: true };
 }
 
+/**
+ * „An Bord" verteilt auf die am Buchungstag Anwesenden — außerhalb des
+ * Törnzeitraums ist das niemand und die Ausgabe bliebe unallokiert beim
+ * Zahler hängen (keine Shares in v_transaction_shares, Bilanz-Summe ≠ 0).
+ * Alle anderen Aufteilungen sind datumsunabhängig; Buchungen vor/nach dem
+ * Törn (Anzahlung, Versicherung, Nachzügler-Rechnung) sind dort erlaubt.
+ */
+async function checkOnBoardDate(
+  supabase: ReturnType<typeof createAdminClient>,
+  tripId: string,
+  data: {
+    date: string;
+    split_type: "equal" | "on_board" | "time_proportional" | "individual" | "per_person";
+  },
+): Promise<{ ok: true } | { ok: false; message: string; field: string }> {
+  if (data.split_type !== "on_board") return { ok: true };
+  const { data: trip } = await supabase
+    .from("trips")
+    .select("start_date, end_date")
+    .eq("id", tripId)
+    .single();
+  // Trip-Existenz sichert requireMember ab; ohne Daten lieber durchlassen
+  // als eine valide Buchung zu blockieren.
+  if (!trip) return { ok: true };
+  if (data.date < trip.start_date || data.date > trip.end_date) {
+    return {
+      ok: false,
+      field: "date",
+      message:
+        "Am gewählten Datum ist niemand an Bord — „An Bord“ braucht ein Datum im Reisezeitraum. Bitte Datum anpassen oder eine andere Aufteilung (z. B. Gleichmäßig) wählen.",
+    };
+  }
+  return { ok: true };
+}
+
 // Cross-Trip-Schutz (trancheBelongsToTrip / personsBelongToTrip /
 // CROSS_TRIP_PERSON_MSG) liegt in @/lib/auth/cross-trip — geteilt mit
 // lib/actions/prepayments.ts, damit beide Schreibpfade dieselbe Invariante
@@ -268,6 +303,9 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     participant_ids,
   });
   if (!minCheck.ok) return { status: "error", message: minCheck.message, field: minCheck.field };
+
+  const dateCheck = await checkOnBoardDate(supabase, txData.trip_id, txData);
+  if (!dateCheck.ok) return { status: "error", message: dateCheck.message, field: dateCheck.field };
 
   if (!(await trancheBelongsToTrip(supabase, trancheId, txData.trip_id))) {
     return { status: "error", message: "Ungültige Tranche für diesen Törn." };
@@ -537,6 +575,9 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     participant_ids,
   });
   if (!minCheck.ok) return { status: "error", message: minCheck.message, field: minCheck.field };
+
+  const dateCheck = await checkOnBoardDate(supabase, txData.trip_id, txData);
+  if (!dateCheck.ok) return { status: "error", message: dateCheck.message, field: dateCheck.field };
 
   // Tranche-Zuordnung darf nur ändern, wer das Feld auch sieht
   // (Skipper/Admin/Vorstrecker). Andere Editoren — z.B. der Ersteller einer

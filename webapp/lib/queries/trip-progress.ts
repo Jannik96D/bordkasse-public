@@ -30,12 +30,14 @@ export interface TripProgressInput {
   settlementAnnounced: boolean;
   /** Manuell vom Skipper gesetzt (trips.deposit_settled_at IS NOT NULL). */
   depositSettled: boolean;
+  /** Törn explizit „ohne Anzahlung" (trips.prepayment_declined_at IS NOT NULL). */
+  prepaymentDeclined: boolean;
 }
 
 export async function getTripProgressSignals(
   input: TripProgressInput,
 ): Promise<TripProgressSignals> {
-  const { tripId, startDate, endDate, memberCount, settlementAnnounced, depositSettled } = input;
+  const { tripId, startDate, endDate, memberCount, settlementAnnounced, depositSettled, prepaymentDeclined } = input;
 
   const supabase = await readClient();
 
@@ -74,6 +76,7 @@ export async function getTripProgressSignals(
     startDate,
     endDate,
     isCharter,
+    prepaymentDeclined,
     crewInvited: memberCount > 1,
     charterAdvancePaid: charterPaid > 0,
     crewPrepaymentsComplete,

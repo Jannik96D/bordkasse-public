@@ -43,8 +43,18 @@ const TRANCHE_ID = "aaaaaaaa-0000-4000-8000-000000000003";
  * (trancheBelongsToTrip). Mehr braucht der Guard-Test nicht — er returnt
  * vor dem Insert.
  */
-function makeSupabase(opts: { trancheBelongs?: boolean; foundPersonIds?: string[] } = {}) {
-  const { trancheBelongs = true, foundPersonIds = [] } = opts;
+function makeSupabase(
+  opts: {
+    trancheBelongs?: boolean;
+    foundPersonIds?: string[];
+    tripDates?: { start_date: string; end_date: string };
+  } = {},
+) {
+  const {
+    trancheBelongs = true,
+    foundPersonIds = [],
+    tripDates = { start_date: "2026-06-06", end_date: "2026-06-13" },
+  } = opts;
   const make = (table: string) => {
     let counting = false;
     const b: Record<string, unknown> = {};
@@ -64,6 +74,9 @@ function makeSupabase(opts: { trancheBelongs?: boolean; foundPersonIds?: string[
           ? { data: trancheBelongs ? { id: TRANCHE_ID } : null }
           : { data: null },
       );
+    // checkOnBoardDate liest die Törn-Grenzen via .single() von `trips`.
+    b.single = () =>
+      Promise.resolve(table === "trips" ? { data: tripDates } : { data: null });
     // Thenable: erlaubt `await supabase.from(t).select().eq()` ohne Terminator.
     b.then = (onFulfilled: (v: unknown) => unknown) => {
       let value: unknown = { data: [], count: 0 };
@@ -156,5 +169,63 @@ describe("createExpense — Tranche-Zuordnung nur für Skipper/Admin/Vorstrecker
     expect(res.status).toBe("error");
     if (res.status === "error") expect(res.message).not.toContain("Anzahlungstranche");
     expect(mockedAdvancer).not.toHaveBeenCalled();
+  });
+});
+
+describe("createExpense — Datum außerhalb des Törns", () => {
+  beforeEach(() => {
+    mockedPerson.mockReset();
+    mockedRequireMember.mockReset();
+    mockedAdvancer.mockReset();
+    mockedAdminClient.mockReset();
+    mockedPerson.mockResolvedValue({ id: PERSON_ID, display_name: "Crew", email: "c@x.de" } as never);
+    mockedRequireMember.mockResolvedValue({ ok: true, personId: PERSON_ID });
+    mockedAdminClient.mockReturnValue(makeSupabase({ foundPersonIds: [] }) as never);
+  });
+
+  it("weist „An Bord“ mit Vor-Törn-Datum ab (sonst bliebe die Ausgabe unallokiert)", async () => {
+    const res = await createExpense(
+      { status: "idle" },
+      expenseFormData({ split_type: "on_board", date: "2026-05-01" }),
+    );
+    expect(res.status).toBe("error");
+    if (res.status === "error") {
+      expect(res.field).toBe("date");
+      expect(res.message).toContain("niemand an Bord");
+    }
+  });
+
+  it("weist „An Bord“ mit Nach-Törn-Datum ebenso ab", async () => {
+    const res = await createExpense(
+      { status: "idle" },
+      expenseFormData({ split_type: "on_board", date: "2026-07-01" }),
+    );
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.field).toBe("date");
+  });
+
+  it("lässt „An Bord“ mit Datum im Törnzeitraum durch den Datums-Guard", async () => {
+    // Endet bewusst erst am Cross-Trip-Check (leere Personenliste) —
+    // der Datums-Guard selbst darf nicht anschlagen.
+    const res = await createExpense(
+      { status: "idle" },
+      expenseFormData({ split_type: "on_board", date: "2026-06-07" }),
+    );
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.field).not.toBe("date");
+  });
+
+  it("erlaubt datumsunabhängige Aufteilungen vor dem Törn (Anzahlung, Versicherung)", async () => {
+    // Gleichmäßig mit Vor-Törn-Datum passiert den Datums-Guard und endet
+    // erst am Cross-Trip-Check — kein Datums-Feldfehler.
+    const res = await createExpense(
+      { status: "idle" },
+      expenseFormData({ split_type: "equal", date: "2026-05-01" }),
+    );
+    expect(res.status).toBe("error");
+    if (res.status === "error") {
+      expect(res.field).not.toBe("date");
+      expect(res.message).toContain("gehört nicht zu diesem Törn");
+    }
   });
 });

@@ -195,6 +195,14 @@ export async function savePrepaymentPlan(
     if (obErr) return { status: "error", message: dbErr(obErr, "Sollbeträge konnten nicht gespeichert werden.") };
   }
 
+  // Ein gespeicherter Plan gewinnt immer über eine frühere „ohne Anzahlung"-
+  // Entscheidung (trips.prepayment_declined_at, Migration 0040) — sonst
+  // blieben CTA + Checklisten-Item trotz existierendem Plan ausgeblendet.
+  await supabase
+    .from("trips")
+    .update({ prepayment_declined_at: null })
+    .eq("id", trip_id);
+
   await logAudit(supabase, {
     table_name: "prepayment_plan",
     operation: "UPDATE",
@@ -207,6 +215,7 @@ export async function savePrepaymentPlan(
   revalidatePath(`/trips/${trip_id}/prepayments`);
   revalidatePath(`/trips/${trip_id}/balance`);
   revalidatePath(`/trips/${trip_id}`);
+  revalidatePath(`/trips/${trip_id}/settings`);
   return { status: "ok" };
 }
 
