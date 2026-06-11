@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState, useTransition } from "react";
+import { useActionState, useCallback, useEffect, useState, useTransition } from "react";
 import { Anchor, Pencil, Plus, Trash2, X } from "lucide-react";
 import {
   inviteMember,
@@ -36,11 +36,11 @@ export function CrewSection({
 }) {
   const vocab = tripVocab(tripType);
   const [showForm, setShowForm] = useState(members.length === 0);
-  const [state, formAction, pending] = useActionState(inviteMember, initial);
   const [, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const { confirm, confirmDialog } = useConfirm();
+  const closeAddForm = useCallback(() => setShowForm(false), []);
 
   const handleRemove = async (m: TripMemberRow) => {
     if (m.person_id === ownerId) return;
@@ -59,18 +59,6 @@ export function CrewSection({
       }
     });
   };
-
-  // Form nach erfolgreichem Submit automatisch zuklappen — aber nur einmal
-  // pro Submit. Vorherige Implementation startete bei jedem Render einen
-  // neuen setTimeout, sodass das Form direkt wieder zuging, wenn der User
-  // es nach „ok" erneut über „Hinzufügen" öffnete.
-  // Lösung: useEffect mit `state`-Dependency (neue Objekt-Referenz bei
-  // jedem Submit) — re-öffnen via Button löst den Effect nicht aus.
-  useEffect(() => {
-    if (state.status !== "ok") return;
-    const t = setTimeout(() => setShowForm(false), 800);
-    return () => clearTimeout(t);
-  }, [state]);
 
   return (
     <section>
@@ -226,130 +214,171 @@ export function CrewSection({
       </ul>
 
       {showForm && canEdit && (
-        <form
-          action={formAction}
-          className="mt-4 space-y-3 rounded-md border border-rule bg-paper-soft p-4"
-        >
-          <div className="flex items-center justify-between">
-            <h3 className="font-medium">{vocab.addMember}</h3>
-            <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              className="text-ink-soft hover:text-ink"
-              aria-label="Abbrechen"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          <input type="hidden" name="trip_id" value={tripId} />
-
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium">
-              E-Mail <span className="text-ink-soft font-normal">(optional)</span>
-              <InfoTooltip
-                label="Was passiert ohne E-Mail?"
-                text="Ohne E-Mail wird die Person als Ghost angelegt: Kein Login, aber Anzahlungssoll und Buchungsbeteiligung funktionieren trotzdem. E-Mail später nachtragbar."
-              />
-            </label>
-            <input id="email" name="email" type="email"
-              placeholder="crew@example.com"
-              className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="display_name" className="block text-sm font-medium">
-              Anzeigename
-            </label>
-            <input id="display_name" name="display_name" type="text"
-              placeholder="Pflicht wenn keine E-Mail angegeben"
-              className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-            />
-          </div>
-
-          <div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label htmlFor="on_board_from" className="block text-xs font-medium">
-                  {vocab.onBoard} ab
-                </label>
-                <input id="on_board_from" name="on_board_from" type="date"
-                  min={startDate} max={endDate}
-                  placeholder={startDate}
-                  className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-              <div>
-                <label htmlFor="on_board_to" className="block text-xs font-medium">
-                  {vocab.onBoard} bis
-                </label>
-                <input id="on_board_to" name="on_board_to" type="date"
-                  min={startDate} max={endDate}
-                  placeholder={endDate}
-                  className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-            </div>
-            <p className="mt-1 text-xs text-ink-soft">
-              Leer lassen für volle {vocab.trip}dauer ({formatDate(startDate)} – {formatDate(endDate)}).
-            </p>
-          </div>
-
-          <div>
-            <label htmlFor="is_alcoholic" className="block text-sm font-medium">
-              Trinkt Alkohol mit?
-              <InfoTooltip
-                label="Was bewirkt das?"
-                text="Legt fest, ob diese Person den Alkoholanteil einer Ausgabe mitträgt. „Default aus Person“ übernimmt die Voreinstellung aus dem Profil der Person."
-              />
-            </label>
-            <select id="is_alcoholic" name="is_alcoholic"
-              defaultValue=""
-              className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-            >
-              <option value="">Default aus Person übernehmen</option>
-              <option value="yes">Ja, bekommt Alkoholanteil</option>
-              <option value="no">Nein, kein Alkoholanteil</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="note" className="block text-sm font-medium">
-              Hinweis <span className="text-ink-soft font-normal">(optional)</span>
-            </label>
-            <input id="note" name="note" type="text" maxLength={200}
-              className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-            />
-          </div>
-
-          {state.status === "error" && (
-            <p className="text-sm text-danger" role="alert">{state.message}</p>
-          )}
-          {state.status === "ok" && (
-            state.warning ? (
-              <p
-                className="rounded-md border border-gold/30 bg-gold-soft px-3 py-2 text-sm text-ink"
-                role="status"
-              >
-                ⚠ {state.warning}
-              </p>
-            ) : (
-              <p className="text-sm text-success" role="status">✓ Hinzugefügt.</p>
-            )
-          )}
-
-          <button
-            type="submit"
-            disabled={pending}
-            className="w-full rounded-md bg-primary px-4 py-2 font-medium text-paper hover:bg-navy-dark disabled:opacity-60"
-          >
-            {pending ? "Speichere …" : "Hinzufügen"}
-          </button>
-        </form>
+        <AddMemberForm
+          tripId={tripId}
+          startDate={startDate}
+          endDate={endDate}
+          vocab={vocab}
+          onClose={closeAddForm}
+        />
       )}
       {confirmDialog}
     </section>
+  );
+}
+
+/**
+ * Hinzufügen-Maske als eigene Komponente, damit ihr useActionState beim
+ * Zuklappen mit unmountet. useActionState hat keinen Reset — lebte der Hook
+ * in CrewSection (immer gemountet), überlebte der „ok"-Status das Zuklappen
+ * und die leere Maske zeigte beim nächsten Öffnen wieder „✓ Hinzugefügt.".
+ */
+function AddMemberForm({
+  tripId,
+  startDate,
+  endDate,
+  vocab,
+  onClose,
+}: {
+  tripId: string;
+  startDate: string;
+  endDate: string;
+  vocab: TripVocab;
+  onClose: () => void;
+}) {
+  const [state, formAction, pending] = useActionState(inviteMember, initial);
+
+  // Nach reinem Erfolg kurz „✓ Hinzugefügt." zeigen, dann zuklappen. Bei einer
+  // Warnung (z.B. Einladungs-Mail fehlgeschlagen) bleibt die Maske offen, bis
+  // der User sie selbst schließt — in 800 ms ist die Warnung nicht lesbar.
+  useEffect(() => {
+    if (state.status !== "ok" || state.warning) return;
+    const t = setTimeout(onClose, 800);
+    return () => clearTimeout(t);
+  }, [state, onClose]);
+
+  return (
+    <form
+      action={formAction}
+      className="mt-4 space-y-3 rounded-md border border-rule bg-paper-soft p-4"
+    >
+      <div className="flex items-center justify-between">
+        <h3 className="font-medium">{vocab.addMember}</h3>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-ink-soft hover:text-ink"
+          aria-label="Abbrechen"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <input type="hidden" name="trip_id" value={tripId} />
+
+      <div>
+        <label htmlFor="email" className="block text-sm font-medium">
+          E-Mail <span className="text-ink-soft font-normal">(optional)</span>
+          <InfoTooltip
+            label="Was passiert ohne E-Mail?"
+            text="Ohne E-Mail wird die Person als Ghost angelegt: Kein Login, aber Anzahlungssoll und Buchungsbeteiligung funktionieren trotzdem. E-Mail später nachtragbar."
+          />
+        </label>
+        <input id="email" name="email" type="email"
+          placeholder="crew@example.com"
+          className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="display_name" className="block text-sm font-medium">
+          Anzeigename
+        </label>
+        <input id="display_name" name="display_name" type="text"
+          placeholder="Pflicht wenn keine E-Mail angegeben"
+          className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+        />
+      </div>
+
+      <div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label htmlFor="on_board_from" className="block text-xs font-medium">
+              {vocab.onBoard} ab
+            </label>
+            <input id="on_board_from" name="on_board_from" type="date"
+              min={startDate} max={endDate}
+              placeholder={startDate}
+              className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+          <div>
+            <label htmlFor="on_board_to" className="block text-xs font-medium">
+              {vocab.onBoard} bis
+            </label>
+            <input id="on_board_to" name="on_board_to" type="date"
+              min={startDate} max={endDate}
+              placeholder={endDate}
+              className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+        </div>
+        <p className="mt-1 text-xs text-ink-soft">
+          Leer lassen für volle {vocab.trip}dauer ({formatDate(startDate)} – {formatDate(endDate)}).
+        </p>
+      </div>
+
+      <div>
+        <label htmlFor="is_alcoholic" className="block text-sm font-medium">
+          Trinkt Alkohol mit?
+          <InfoTooltip
+            label="Was bewirkt das?"
+            text="Legt fest, ob diese Person den Alkoholanteil einer Ausgabe mitträgt. „Default aus Person“ übernimmt die Voreinstellung aus dem Profil der Person."
+          />
+        </label>
+        <select id="is_alcoholic" name="is_alcoholic"
+          defaultValue=""
+          className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+        >
+          <option value="">Default aus Person übernehmen</option>
+          <option value="yes">Ja, bekommt Alkoholanteil</option>
+          <option value="no">Nein, kein Alkoholanteil</option>
+        </select>
+      </div>
+
+      <div>
+        <label htmlFor="note" className="block text-sm font-medium">
+          Hinweis <span className="text-ink-soft font-normal">(optional)</span>
+        </label>
+        <input id="note" name="note" type="text" maxLength={200}
+          className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+        />
+      </div>
+
+      {state.status === "error" && (
+        <p className="text-sm text-danger" role="alert">{state.message}</p>
+      )}
+      {state.status === "ok" && (
+        state.warning ? (
+          <p
+            className="rounded-md border border-gold/30 bg-gold-soft px-3 py-2 text-sm text-ink"
+            role="status"
+          >
+            ⚠ {state.warning}
+          </p>
+        ) : (
+          <p className="text-sm text-success" role="status">✓ Hinzugefügt.</p>
+        )
+      )}
+
+      <button
+        type="submit"
+        disabled={pending}
+        className="w-full rounded-md bg-primary px-4 py-2 font-medium text-paper hover:bg-navy-dark disabled:opacity-60"
+      >
+        {pending ? "Speichere …" : "Hinzufügen"}
+      </button>
+    </form>
   );
 }
 
