@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronDown, ChevronUp, Check } from "lucide-react";
 import {
@@ -11,6 +11,7 @@ import {
 } from "@/lib/actions/transactions";
 import { todayIso, cn, daysBetween } from "@/lib/utils";
 import { foreignToEur } from "@/lib/rates/convert";
+import { cacheRates, getCachedRate } from "@/lib/offline/rate-cache";
 import { CategorySelect } from "@/components/category-select";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { PersonSelect } from "@/components/person-select";
@@ -68,6 +69,7 @@ function evalAmountField(raw: string, setter: (v: string) => void): void {
  * der letzten Buchung); tippt er selbst am Kurs, gilt die Quelle als „manuell".
  */
 function useCurrencyState(
+  tripId: string,
   options: CurrencyChoice[],
   initial?: { originalCurrency?: string | null; exchangeRate?: number | null; rateSource?: "live" | "manual" | "bank" | null },
 ) {
@@ -78,6 +80,14 @@ function useCurrencyState(
   const [rateSource, setRateSource] = useState<"live" | "last_booking" | "manual" | "bank">(
     initial?.rateSource ?? "live",
   );
+  // Online geladene Kurse persistent cachen → erste Offline-Buchung einer
+  // Währung hat auch ohne frühere Buchung einen Kurs (siehe lib/offline/rate-cache).
+  useEffect(() => {
+    cacheRates(
+      tripId,
+      options.filter((o) => o.rate != null).map((o) => ({ code: o.code, rate: o.rate as number })),
+    );
+  }, [tripId, options]);
   const handleCurrencyChange = (code: string) => {
     setCurrency(code);
     if (code === "EUR") {
@@ -85,8 +95,11 @@ function useCurrencyState(
       return;
     }
     const opt = options.find((o) => o.code === code);
-    setRateInput(opt?.rate != null ? formatRate(opt.rate) : "");
-    setRateSource(opt?.source === "last_booking" ? "last_booking" : "live");
+    // Fallback-Kette: Server-Default (live/letzte Buchung) → Cache → leer (manuell).
+    const cached = opt?.rate == null ? getCachedRate(tripId, code) : null;
+    const rate = opt?.rate ?? cached;
+    setRateInput(rate != null ? formatRate(rate) : "");
+    setRateSource(opt?.rate != null && opt.source === "live" ? "live" : "last_booking");
   };
   const onRateChange = (value: string) => {
     setRateInput(value);
@@ -239,7 +252,7 @@ function ExpenseForm({
   const vocab = useTripVocab();
   const SPLIT_LABEL = splitLabel(vocab);
   const { currency, rateInput, rateSource, isForeign, rateNum, handleCurrencyChange, onRateChange } =
-    useCurrencyState(currencyOptions, initial);
+    useCurrencyState(tripId, currencyOptions, initial);
   // Eingegebene Beträge sind bei Fremdwährung der Fremdbetrag → für EUR-basierte
   // Anzeigen (Vorschau, Fat-Finger) umrechnen. Ohne gültigen Kurs 0.
   const toEur = (v: number) => (isForeign ? (rateNum != null ? foreignToEur(v, rateNum) : 0) : v);
@@ -751,7 +764,7 @@ function CreditForm({
   const isDraft = !!draftId;
   const isEdit = !!initial && !isDraft;
   const { currency, rateInput, rateSource, isForeign, rateNum, handleCurrencyChange, onRateChange } =
-    useCurrencyState(currencyOptions, initial);
+    useCurrencyState(tripId, currencyOptions, initial);
   const unit = isForeign ? currency : "€";
   const toEur = (v: number) => (isForeign ? (rateNum != null ? foreignToEur(v, rateNum) : 0) : v);
 
