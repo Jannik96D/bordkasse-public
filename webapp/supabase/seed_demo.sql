@@ -116,8 +116,8 @@ DECLARE
 BEGIN
   -- Ohne Anzahlungsplan unterwegs → explizit abgewählt (prepayment_declined_at),
   -- sonst zeigt die Törn-Fortschritt-Karte ein ewig offenes „Anzahlungsplan anlegen".
-  INSERT INTO trips (id, name, start_date, end_date, ship_name, skipper_id, prepayment_declined_at) VALUES
-    (trip_ostsee, 'Ostseetörn ' || to_char(today, 'YYYY'), today - 3, today + 4, 'Sea Spirit', p_anna, now());
+  INSERT INTO trips (id, name, start_date, end_date, ship_name, skipper_id, prepayment_declined_at, foreign_currencies) VALUES
+    (trip_ostsee, 'Ostseetörn ' || to_char(today, 'YYYY'), today - 3, today + 4, 'Sea Spirit', p_anna, now(), '{NOK,DKK}');
 
   -- ── Crew ─────────────────────────────────────────────────────────────
   -- Eva kommt erst einen Tag vor „heute" dazu, Rest den ganzen Törn → „An Bord"-Demo

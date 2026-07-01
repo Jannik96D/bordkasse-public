@@ -322,6 +322,26 @@ async function main() {
   await page.waitForTimeout(300);
   await shot(page, "06-buchung-neu");
 
+  console.log("→ Buchung in Fremdwährung");
+  await page.goto(`${BASE_URL}/trips/${tripId}/transactions/new`);
+  await waitForLoad(page);
+  // Fremdwährungs-Buchung: Währung wählen, Fremdbetrag + Kurs eintragen — zeigt
+  // Währungswähler, Wechselkurs und die „Ergibt X €"-Umrechnung.
+  await page.locator('input[name="description"]').fill("Restaurant Bergen").catch(() => {});
+  await page.locator("#currency_select").selectOption("NOK").catch(() => {});
+  await page.locator('input[name="amount"]').fill("480,00").catch(() => {});
+  // Kurs deterministisch setzen (unabhängig vom Live-Abruf), damit der Screenshot
+  // immer „Ergibt 40,80 €" zeigt.
+  await page.locator("#exchange_rate_input").fill("0,085").catch(() => {});
+  await page.waitForTimeout(300);
+  // Kurs-Feld zentrieren → „Ergibt X €" darunter bleibt sichtbar, Währung darüber.
+  await page.locator("#exchange_rate_input").scrollIntoViewIfNeeded().catch(() => {});
+  await page.evaluate(() => window.scrollBy(0, 60));
+  // Maus in die Ecke → kein ⓘ-Tooltip bleibt offen und verdeckt den Kurs.
+  await page.mouse.move(5, 5).catch(() => {});
+  await page.waitForTimeout(250);
+  await shot(page, "19-fremdwaehrung");
+
   console.log("→ Bilanz");
   await page.goto(`${BASE_URL}/trips/${tripId}/balance`);
   await waitForLoad(page);
