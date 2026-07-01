@@ -4,14 +4,30 @@
  */
 
 import { z } from "zod";
+import { safeMathEval } from "@/lib/utils/math-eval";
 
 const DateString = z
   .string({ error: "Bitte Datum wählen." })
   .min(1, "Bitte Datum wählen.")
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Datum-Format YYYY-MM-DD.");
 
-const decimalString = (v: unknown) =>
-  typeof v === "string" ? v.replace(",", ".") : v;
+/**
+ * Wandelt eine Betragseingabe für Zod vor: akzeptiert neben "12,50" auch
+ * Rechen-Ausdrücke wie "47,30 - 6,00" (Pfand/Privatkäufe direkt vom Bon
+ * rausrechnen) — ausgewertet via safeMathEval (CSP-sicher, kein eval).
+ * Dient als Sicherheitsnetz für Submits ohne vorheriges onBlur (Enter,
+ * Autofill); im Formular wertet das Feld bereits beim Verlassen aus.
+ * - leere Eingabe → unverändert (coerce/Default greifen wie bisher)
+ * - gültiger Ausdruck/Zahl → berechnete Zahl (safeMathEval normalisiert Komma)
+ * - ungültige nicht-leere Eingabe → unverändert durchgereicht → coerce → NaN
+ *   → bestehende Fehlermeldung (positive/nonnegative)
+ */
+const evalExpr = (v: unknown) => {
+  if (typeof v !== "string") return v;
+  if (v.trim() === "") return v;
+  const result = safeMathEval(v);
+  return result === null ? v : result;
+};
 
 // Plausibilitäts-Obergrenze gegen Tippfehler (z. B. eine Null zu viel),
 // die sonst sofort die ganze Bilanz verzerren. 1 Mio € liegt weit über
@@ -20,11 +36,11 @@ const MAX_AMOUNT = 1_000_000;
 const MAX_AMOUNT_MSG = "Betrag ist unrealistisch hoch, bitte prüfen (max. 1.000.000 €).";
 
 const Amount = z.preprocess(
-  decimalString,
+  evalExpr,
   z.coerce.number().positive("Betrag muss > 0 sein.").max(MAX_AMOUNT, MAX_AMOUNT_MSG),
 );
 const NonNegativeAmount = z.preprocess(
-  decimalString,
+  evalExpr,
   z.coerce.number().nonnegative("Betrag darf nicht negativ sein.").max(MAX_AMOUNT, MAX_AMOUNT_MSG),
 );
 const Uuid = z.string().uuid("Ungültige Auswahl.");

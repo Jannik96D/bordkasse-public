@@ -43,6 +43,18 @@ import {
 // Öffentliche Typen bleiben über diese Datei importierbar (draft-editor, edit-page).
 export type { ExpenseInitial, CreditInitial, TrancheOption } from "./transaction-form-parts";
 
+/**
+ * onBlur-Handler für Betragsfelder: wertet einen Rechen-Ausdruck aus (z. B.
+ * „47,30 − 6,00" → „41,30") und schreibt das formatierte Ergebnis zurück.
+ * Genau wie bei Pro Person (safeMathEval) — praktisch, um Pfand/Privatkäufe
+ * direkt vom Bon rauszurechnen, ohne Taschenrechner. Leere oder ungültige
+ * Eingaben bleiben unangetastet; Vorschau + Server-Schema fangen Ungültiges ab.
+ */
+function evalAmountField(raw: string, setter: (v: string) => void): void {
+  const result = safeMathEval(raw);
+  if (result !== null) setter(formatAmount(result));
+}
+
 interface TransactionFormProps {
   tripId: string;
   isSkipper: boolean;
@@ -356,7 +368,7 @@ function ExpenseForm({
       draftId,
       createAction: createExpense,
       updateAction: updateExpense,
-      getTotal: () => (isPerPerson ? perPersonSum : Number(amount.replace(",", "."))),
+      getTotal: () => (isPerPerson ? perPersonSum : safeMathEval(amount) ?? 0),
       fatFingerNoun: "Buchung",
     });
 
@@ -418,13 +430,14 @@ function ExpenseForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Betrag (€)" htmlFor="amount" error={fieldError("amount")} hint={isPerPerson ? "Wird aus den Einzelbeträgen unten berechnet." : undefined}>
+      <FieldGroup label="Betrag (€)" htmlFor="amount" error={fieldError("amount")} hint={isPerPerson ? "Wird aus den Einzelbeträgen unten berechnet." : "Rechnen erlaubt, z. B. 47,30 − 6,00 (Pfand/Privatkäufe rausrechnen)."}>
         <input
           id="amount" name="amount" type="text" required={!isPerPerson}
-          inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?"
+          inputMode="text" pattern="[0-9.,+*/() -]+"
           autoComplete="off"
           value={displayAmount}
           onChange={(e) => setAmount(e.target.value)}
+          onBlur={() => { if (!isPerPerson) evalAmountField(amount, setAmount); }}
           readOnly={isPerPerson}
           placeholder="0,00"
           aria-invalid={isInvalid("amount") || undefined}
@@ -524,11 +537,12 @@ function ExpenseForm({
           <FieldGroup label="Trinkgeld (€)" htmlFor="tip_amount" error={fieldError("tip_amount")}>
             <input
               id="tip_amount" name="tip_amount" type="text"
-              inputMode="decimal" pattern="([0-9]+([,.][0-9]{1,2})?)?"
+              inputMode="text" pattern="([0-9.,+*/() -]+)?"
               autoComplete="off"
               placeholder="0,00"
               value={tipAmount}
               onChange={(e) => setTipAmount(e.target.value)}
+              onBlur={() => evalAmountField(tipAmount, setTipAmount)}
               aria-invalid={isInvalid("tip_amount") || undefined}
               className={cn(inputCls, isInvalid("tip_amount") && "border-danger ring-2 ring-danger/20")}
             />
@@ -539,7 +553,7 @@ function ExpenseForm({
 
           {/* Verteilungs-Toggle nur sichtbar wenn überhaupt Trinkgeld gesetzt ist. */}
           {(() => {
-            const tip = parseFloat(tipAmount.replace(",", ".")) || 0;
+            const tip = safeMathEval(tipAmount) ?? 0;
             if (tip <= 0) return null;
             return (
               <div>
@@ -588,11 +602,12 @@ function ExpenseForm({
             <FieldGroup label="Alkoholanteil (€)" htmlFor="alcohol_amount" error={fieldError("alcohol_amount")} hint="Wird auf alle verteilt, die Alkohol mittrinken; Rest nach Aufteilung.">
               <input
                 id="alcohol_amount" name="alcohol_amount" type="text"
-                inputMode="decimal" pattern="([0-9]+([,.][0-9]{1,2})?)?"
+                inputMode="text" pattern="([0-9.,+*/() -]+)?"
                 autoComplete="off"
                 placeholder="0,00"
                 value={alcoholAmount}
                 onChange={(e) => setAlcoholAmount(e.target.value)}
+                onBlur={() => evalAmountField(alcoholAmount, setAlcoholAmount)}
                 aria-invalid={isInvalid("alcohol_amount") || undefined}
                 className={cn(inputCls, isInvalid("alcohol_amount") && "border-danger ring-2 ring-danger/20")}
               />
@@ -680,7 +695,7 @@ function CreditForm({
       draftId,
       createAction: createCredit,
       updateAction: updateCredit,
-      getTotal: () => Number(amount.replace(",", ".")),
+      getTotal: () => safeMathEval(amount) ?? 0,
       fatFingerNoun: "Gutschrift",
     });
 
@@ -719,13 +734,14 @@ function CreditForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Betrag (€)" htmlFor="amount" error={fieldError("amount")}>
+      <FieldGroup label="Betrag (€)" htmlFor="amount" error={fieldError("amount")} hint="Rechnen erlaubt, z. B. 240,00 / 4.">
         <input
           id="amount" name="amount" type="text" required
-          inputMode="decimal" pattern="[0-9]+([,.][0-9]{1,2})?"
+          inputMode="text" pattern="[0-9.,+*/() -]+"
           autoComplete="off"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
+          onBlur={() => evalAmountField(amount, setAmount)}
           placeholder="0,00"
           aria-invalid={isInvalid("amount") || undefined}
           className={cn(inputCls, isInvalid("amount") && "border-danger ring-2 ring-danger/20")}
