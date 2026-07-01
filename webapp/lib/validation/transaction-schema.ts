@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import { safeMathEval } from "@/lib/utils/math-eval";
+import { isSupportedCurrency } from "@/lib/rates/currencies";
 
 const DateString = z
   .string({ error: "Bitte Datum wählen." })
@@ -45,6 +46,40 @@ const NonNegativeAmount = z.preprocess(
 );
 const Uuid = z.string().uuid("Ungültige Auswahl.");
 
+// ── Fremdwährung (Migration 0041) ─────────────────────────────────────────
+// `amount` bleibt IMMER der EUR-Wert (Bilanz). Die folgenden Felder sind reine
+// Herkunfts-/Anzeige-Info. original_currency = null → EUR nativ.
+//
+// Normalisierung: leerer String / "EUR" / undefined → null (kein Fremd-Kontext).
+const CurrencyCode = z.preprocess(
+  (v) => (typeof v === "string" && v.trim() !== "" && v !== "EUR" ? v.trim() : null),
+  z.union([z.null(), z.string().refine(isSupportedCurrency, "Nicht unterstützte Währung.")]),
+);
+const ExchangeRate = z.preprocess(
+  (v) => {
+    if (typeof v !== "string") return v == null ? null : v;
+    const s = v.trim();
+    // Kurs NICHT über safeMathEval (das rundet auf 2 Nachkommastellen und
+    // würde kleine Kurse wie 0,0903 zerstören) — nur Komma→Punkt.
+    return s === "" ? null : s.replace(",", ".");
+  },
+  z.union([z.null(), z.coerce.number().positive("Kurs muss > 0 sein.").max(10_000_000)]),
+);
+const RateSource = z.preprocess(
+  (v) => (typeof v === "string" && v.trim() !== "" ? v : null),
+  z.union([z.null(), z.enum(["live", "manual", "bank"])]),
+);
+// Optionaler Euro-Betrag (darf ein Rechen-Ausdruck sein) — z. B. der tatsächlich
+// von der Bank berechnete Betrag laut Kontoauszug. null, wenn leer/nicht gesetzt.
+const OptionalEurAmount = z.preprocess(
+  (v) => {
+    if (v == null) return null;
+    if (typeof v === "string" && v.trim() === "") return null;
+    return evalExpr(v);
+  },
+  z.union([z.null(), z.coerce.number().nonnegative("Betrag darf nicht negativ sein.").max(MAX_AMOUNT)]),
+);
+
 /**
  * UUID-Feld mit feldspezifischer Meldung wenn leer.
  * Leerer String (= Pflichtfeld nicht ausgefüllt) wird klar von „echtem"
@@ -57,7 +92,12 @@ const requiredUuid = (label: string) =>
     .min(1, `${label}: bitte auswählen.`)
     .uuid(`${label}: ungültige Auswahl.`);
 
-/** Eintrag der Pro-Person-Beträge. JSON-Form: [{ person_id, amount }] */
+/**
+ * Eintrag der Pro-Person-Beträge. JSON-Form: [{ person_id, amount }].
+ * `amount` ist der eingegebene Betrag. Bei Fremdwährungs-Buchungen enthält er
+ * den FREMDBETRAG der Person (vom Bon); der Server rechnet ihn zum
+ * Buchungskurs in EUR um und legt den Fremdbetrag als original_amount ab.
+ */
 const ParticipantAmount = z.object({
   person_id: Uuid,
   amount: NonNegativeAmount,
@@ -107,10 +147,27 @@ export const ExpenseSchema = z
      */
     tranche_id: z.string().uuid().optional().nullable(),
     idempotency_key: Uuid.optional(),
+    // Fremdwährung (Migration 0041). Bei Fremdwährung trägt `amount` (bzw. die
+    // Pro-Person-Beträge) den FREMDBETRAG; der Server rechnet in EUR um und legt
+    // die Herkunft ab (original_amount/exchange_rate serverseitig). Bei EUR null.
+    original_currency: CurrencyCode.default(null),
+    exchange_rate: ExchangeRate.default(null),
+    rate_source: RateSource.default(null),
+    // Tatsächlich von der Bank berechneter Euro-Betrag (nachträglich, optional).
+    // Wenn gesetzt (nur bei Fremdwährung sinnvoll), leitet der Server daraus den
+    // effektiven Kurs ab und markiert rate_source='bank'.
+    bank_eur_amount: OptionalEurAmount.default(null),
   })
   .refine(
     (d) => d.split_type === "per_person" || d.amount > 0,
     { message: "Betrag muss > 0 sein.", path: ["amount"] },
+  )
+  .refine(
+    (d) =>
+      d.original_currency == null ||
+      (d.exchange_rate != null && d.exchange_rate > 0) ||
+      (d.bank_eur_amount != null && d.bank_eur_amount > 0),
+    { message: "Für die Fremdwährung fehlt ein gültiger Wechselkurs.", path: ["exchange_rate"] },
   )
   .refine((d) => d.alcohol_amount <= d.amount, {
     message: "Alkoholanteil darf nicht größer als Gesamtbetrag sein.",
@@ -141,11 +198,23 @@ export const CreditSchema = z
     /** Optional, siehe ExpenseSchema. */
     tranche_id: z.string().uuid().optional().nullable(),
     idempotency_key: Uuid.optional(),
+    // Fremdwährung (Migration 0041) — siehe ExpenseSchema.
+    original_currency: CurrencyCode.default(null),
+    exchange_rate: ExchangeRate.default(null),
+    rate_source: RateSource.default(null),
+    bank_eur_amount: OptionalEurAmount.default(null),
   })
   .refine((d) => d.credit_to !== d.credit_from, {
     message: "Von und An können nicht dieselbe Person sein.",
     path: ["credit_to"],
-  });
+  })
+  .refine(
+    (d) =>
+      d.original_currency == null ||
+      (d.exchange_rate != null && d.exchange_rate > 0) ||
+      (d.bank_eur_amount != null && d.bank_eur_amount > 0),
+    { message: "Für die Fremdwährung fehlt ein gültiger Wechselkurs.", path: ["exchange_rate"] },
+  );
 
 export type ExpenseInput = z.infer<typeof ExpenseSchema>;
 export type CreditInput = z.infer<typeof CreditSchema>;

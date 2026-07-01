@@ -56,6 +56,9 @@ export interface TransactionListRow {
   created_by_id: string | null;
   /** Anzahlungstranche, falls die Buchung dem Anzahlungspool zugeordnet ist. */
   tranche_label: string | null;
+  /** Fremdwährung (Migration 0041) — null = EUR nativ. amount bleibt EUR. */
+  original_currency: string | null;
+  original_amount: number | null;
 }
 
 export async function listTransactions(tripId: string): Promise<TransactionListRow[]> {
@@ -64,6 +67,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
     .from("transactions")
     .select(`
       id, type, date, description, amount, alcohol_amount, tip_amount, split_type,
+      original_currency, original_amount,
       paid_by, credit_from, credit_to, created_by,
       paid_person:persons!transactions_paid_by_fkey(display_name),
       from_person:persons!transactions_credit_from_fkey(display_name),
@@ -87,6 +91,8 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
     alcohol_amount: number;
     tip_amount: number;
     split_type: TransactionListRow["split_type"];
+    original_currency: string | null;
+    original_amount: number | null;
     paid_by: string | null;
     credit_from: string | null;
     credit_to: string | null;
@@ -119,6 +125,8 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
       : first(r.to_person)?.display_name ?? null,
     created_by_id: r.created_by,
     tranche_label: first(r.tranche)?.label ?? null,
+    original_currency: r.original_currency ?? null,
+    original_amount: r.original_amount != null ? Number(r.original_amount) : null,
   }));
 }
 

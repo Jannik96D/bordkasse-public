@@ -8,6 +8,7 @@ import {
   type CreditInitial,
   type TrancheOption,
 } from "./new/transaction-form";
+import type { CurrencyChoice } from "./new/transaction-form-parts";
 import { get as getOutboxItem, type OutboxItem } from "@/lib/offline/outbox";
 
 type Member = {
@@ -36,6 +37,22 @@ function num(v: string | string[] | undefined): number {
 function asArray(v: string | string[] | undefined): string[] {
   if (Array.isArray(v)) return v;
   return typeof v === "string" && v !== "" ? [v] : [];
+}
+
+// Fremdwährung (Migration 0041) aus dem Outbox-Entwurf zurücklesen.
+function currencyOrNull(v: string | string[] | undefined): string | null {
+  const s = str(v);
+  return s && s !== "EUR" ? s : null;
+}
+function rateOrNull(v: string | string[] | undefined): number | null {
+  const s = str(v);
+  if (s === "") return null;
+  const n = Number(s.replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+function rateSourceOrNull(v: string | string[] | undefined): "live" | "manual" | "bank" | null {
+  const s = str(v);
+  return s === "manual" || s === "bank" || s === "live" ? s : null;
 }
 
 /**
@@ -72,6 +89,10 @@ function draftToExpenseInitial(d: FormDataObj): ExpenseInitial {
     participantIds: asArray(d.participant_ids),
     participantAmounts,
     trancheId: str(d.tranche_id) || null,
+    originalCurrency: currencyOrNull(d.original_currency),
+    exchangeRate: rateOrNull(d.exchange_rate),
+    rateSource: rateSourceOrNull(d.rate_source),
+    bankAmount: rateOrNull(d.bank_eur_amount),
   };
 }
 
@@ -85,6 +106,10 @@ function draftToCreditInitial(d: FormDataObj): CreditInitial {
     creditFrom: str(d.credit_from),
     creditTo: rawTo === "ALL" ? null : rawTo || null,
     trancheId: str(d.tranche_id) || null,
+    originalCurrency: currencyOrNull(d.original_currency),
+    exchangeRate: rateOrNull(d.exchange_rate),
+    rateSource: rateSourceOrNull(d.rate_source),
+    bankAmount: rateOrNull(d.bank_eur_amount),
   };
 }
 
@@ -103,6 +128,7 @@ export function DraftEditor({
   currentPersonId,
   tranches,
   canEditTranche,
+  currencyOptions,
   tripStart,
   tripEnd,
 }: {
@@ -114,6 +140,7 @@ export function DraftEditor({
   currentPersonId?: string;
   tranches?: TrancheOption[];
   canEditTranche: boolean;
+  currencyOptions?: CurrencyChoice[];
   tripStart?: string;
   tripEnd?: string;
 }) {
@@ -174,6 +201,7 @@ export function DraftEditor({
       categories={categories}
       tranches={tranches}
       canEditTranche={canEditTranche}
+      currencyOptions={currencyOptions}
       expenseInitial={isExpense ? draftToExpenseInitial(item.formData) : undefined}
       creditInitial={!isExpense ? draftToCreditInitial(item.formData) : undefined}
       draftId={draftId}

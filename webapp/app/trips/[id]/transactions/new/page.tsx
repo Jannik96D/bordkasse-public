@@ -5,6 +5,7 @@ import { getTrip, getTripMembers, getCategories } from "@/lib/queries/trips";
 import { getTranches, getPlan, getPrepaymentNavState } from "@/lib/queries/prepayments";
 import { tripVocab } from "@/lib/trip-vocab";
 import { round2 } from "@/lib/utils";
+import { getCurrencyOptions } from "@/lib/rates/currency-options";
 import { TransactionForm } from "./transaction-form";
 import { DraftEditor } from "../draft-editor";
 
@@ -64,6 +65,9 @@ export default async function NewTransactionPage({
     is_alcoholic_effective: m.is_alcoholic_effective,
   }));
   const mappedCategories = categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon }));
+  // Fremdwährungen (Migration 0041): Kurse live/offline vorbefüllen, falls der
+  // Törn welche aktiviert hat. Leer → Formular bleibt Euro-only.
+  const currencyOptions = await getCurrencyOptions(id, trip.foreign_currencies ?? []);
   // Bei vollständig beglichenem Plan keine Tranchen ans Formular geben →
   // TrancheField rendert dann nichts (zeigt sich nur bei tranches.length ≥ 1).
   // `amount` = Tranchen-Betrag (Plansumme × Prozent) für die Auto-Vorbelegung.
@@ -92,6 +96,7 @@ export default async function NewTransactionPage({
           categories={mappedCategories}
           tranches={mappedTranches}
           canEditTranche={canEditTranche}
+          currencyOptions={currencyOptions}
         />
       ) : (
         <TransactionForm
@@ -104,6 +109,7 @@ export default async function NewTransactionPage({
           categories={mappedCategories}
           tranches={mappedTranches}
           canEditTranche={canEditTranche}
+          currencyOptions={currencyOptions}
         />
       )}
     </main>

@@ -19,6 +19,7 @@ import {
 import { logAudit } from "@/lib/db/audit";
 import { tripVocab } from "@/lib/trip-vocab";
 import { round2 } from "@/lib/utils";
+import { resolveExpenseCurrency, resolveCreditCurrency } from "@/lib/rates/resolve";
 import { ExpenseSchema, CreditSchema } from "@/lib/validation/transaction-schema";
 
 const TransactionId = z.string().uuid();
@@ -258,6 +259,17 @@ function newExpenseParticipants(
   return [];
 }
 
+// Fremdwährungs-Umrechnung (resolveExpenseCurrency / resolveCreditCurrency)
+// liegt in @/lib/rates/resolve — pure Funktionen, unit-getestet. EUR bleibt
+// die einzige Bilanz-Wahrheit; die Herkunft (original_*/exchange_rate/
+// rate_source) wird dort abgeleitet, inkl. Bank-Override (rate_source='bank').
+
+/** Zeitstempel der Bankkurs-Bestätigung: gesetzt, sobald der tatsächliche
+ *  Bankbetrag nachgetragen wurde (rate_source='bank'), sonst null. */
+function rateConfirmedAt(source: string | null): string | null {
+  return source === "bank" ? new Date().toISOString() : null;
+}
+
 export async function createExpense(_prev: TxState, formData: FormData): Promise<TxState> {
   const person = await getCurrentPerson();
   if (!person) return { status: "error", message: "Nicht angemeldet." };
@@ -279,22 +291,35 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     participant_amounts: formData.get("participant_amounts"),
     tranche_id: formData.get("tranche_id") || null,
     idempotency_key: formData.get("idempotency_key") || undefined,
+    original_currency: formData.get("original_currency"),
+    exchange_rate: formData.get("exchange_rate"),
+    rate_source: formData.get("rate_source"),
+    bank_eur_amount: formData.get("bank_eur_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
   }
 
-  const { participant_ids, participant_amounts, idempotency_key, tranche_id: trancheId, ...txData } = parsed.data;
+  const { participant_ids, participant_amounts, idempotency_key, tranche_id: trancheId,
+    original_currency, exchange_rate, rate_source, bank_eur_amount, ...txData } = parsed.data;
 
-  // Bei "Pro Person" wird der Gesamtbetrag aus den Einzelbeträgen abgeleitet,
-  // damit Anzeige + DB-State garantiert konsistent sind. Trinkgeld ist nur
-  // hier sinnvoll; bei anderen Aufteilungsarten wird es auf 0 erzwungen.
-  if (txData.split_type === "per_person") {
-    txData.amount = participant_amounts.reduce((s, p) => s + p.amount, 0);
-    txData.alcohol_amount = 0;
-  } else {
-    txData.tip_amount = 0;
-  }
+  // Fremdwährung → EUR umrechnen + Herkunft ableiten. Bei "Pro Person" wird der
+  // Gesamtbetrag aus den Einzelbeträgen abgeleitet (Anzeige/DB konsistent),
+  // Trinkgeld nur dort sinnvoll, sonst 0. EUR ist die Bilanz-Wahrheit.
+  const cur = resolveExpenseCurrency({
+    split_type: txData.split_type,
+    amount: txData.amount,
+    alcohol_amount: txData.alcohol_amount,
+    tip_amount: txData.tip_amount,
+    original_currency,
+    exchange_rate,
+    rate_source,
+    bank_eur_amount,
+    participant_amounts,
+  });
+  txData.amount = cur.amount;
+  txData.alcohol_amount = cur.alcohol_amount;
+  txData.tip_amount = cur.tip_amount;
 
   const memberCheck = await requireMember(txData.trip_id);
   if (!memberCheck.ok) return { status: "error", message: memberCheck.message };
@@ -337,7 +362,18 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
 
   const { data: tx, error } = await supabase
     .from("transactions")
-    .insert({ ...txData, type: "expense", created_by: person.id, idempotency_key, tranche_id: trancheId ?? null })
+    .insert({
+      ...txData,
+      type: "expense",
+      created_by: person.id,
+      idempotency_key,
+      tranche_id: trancheId ?? null,
+      original_currency: cur.original_currency,
+      original_amount: cur.original_amount,
+      exchange_rate: cur.exchange_rate,
+      rate_source: cur.rate_source,
+      rate_confirmed_at: rateConfirmedAt(cur.rate_source),
+    })
     .select("id")
     .single();
 
@@ -355,13 +391,16 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
       ? await supabase
           .from("transaction_participants")
           .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })))
-      : txData.split_type === "per_person" && participant_amounts.length > 0
+      : txData.split_type === "per_person" && cur.perPerson.length > 0
         ? await supabase
             .from("transaction_participants")
             .insert(
-              participant_amounts
-                .filter((p) => p.amount > 0)
-                .map((p) => ({ transaction_id: tx.id, person_id: p.person_id, amount: p.amount })),
+              cur.perPerson.map((p) => ({
+                transaction_id: tx.id,
+                person_id: p.person_id,
+                amount: p.amount,
+                original_amount: p.original_amount,
+              })),
             )
         : null;
   if (partRes?.error) {
@@ -408,6 +447,10 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     credit_to: creditTo,
     tranche_id: formData.get("tranche_id") || null,
     idempotency_key: formData.get("idempotency_key") || undefined,
+    original_currency: formData.get("original_currency"),
+    exchange_rate: formData.get("exchange_rate"),
+    rate_source: formData.get("rate_source"),
+    bank_eur_amount: formData.get("bank_eur_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
@@ -449,6 +492,14 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     return { status: "error", message: CROSS_TRIP_PERSON_MSG };
   }
 
+  const creditCur = resolveCreditCurrency({
+    amount: parsed.data.amount,
+    original_currency: parsed.data.original_currency,
+    exchange_rate: parsed.data.exchange_rate,
+    rate_source: parsed.data.rate_source,
+    bank_eur_amount: parsed.data.bank_eur_amount,
+  });
+
   const { data: tx, error } = await supabase
     .from("transactions")
     .insert({
@@ -456,12 +507,17 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
       type: "credit",
       date: parsed.data.date,
       description: parsed.data.description || "Gutschrift",
-      amount: parsed.data.amount,
+      amount: creditCur.amount,
       credit_from: parsed.data.credit_from,
       credit_to: parsed.data.credit_to,
       tranche_id: parsed.data.tranche_id ?? null,
       created_by: person.id,
       idempotency_key: parsed.data.idempotency_key,
+      original_currency: creditCur.original_currency,
+      original_amount: creditCur.original_amount,
+      exchange_rate: creditCur.exchange_rate,
+      rate_source: creditCur.rate_source,
+      rate_confirmed_at: rateConfirmedAt(creditCur.rate_source),
     })
     .select("id")
     .single();
@@ -525,19 +581,32 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     participant_ids: participantIds,
     participant_amounts: formData.get("participant_amounts"),
     tranche_id: formData.get("tranche_id") || null,
+    original_currency: formData.get("original_currency"),
+    exchange_rate: formData.get("exchange_rate"),
+    rate_source: formData.get("rate_source"),
+    bank_eur_amount: formData.get("bank_eur_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
   }
-  const { participant_ids, participant_amounts, idempotency_key: _ignored, tranche_id: trancheId, ...txData } = parsed.data;
+  const { participant_ids, participant_amounts, idempotency_key: _ignored, tranche_id: trancheId,
+    original_currency, exchange_rate, rate_source, bank_eur_amount, ...txData } = parsed.data;
   void _ignored;
 
-  if (txData.split_type === "per_person") {
-    txData.amount = participant_amounts.reduce((s, p) => s + p.amount, 0);
-    txData.alcohol_amount = 0;
-  } else {
-    txData.tip_amount = 0;
-  }
+  const cur = resolveExpenseCurrency({
+    split_type: txData.split_type,
+    amount: txData.amount,
+    alcohol_amount: txData.alcohol_amount,
+    tip_amount: txData.tip_amount,
+    original_currency,
+    exchange_rate,
+    rate_source,
+    bank_eur_amount,
+    participant_amounts,
+  });
+  txData.amount = cur.amount;
+  txData.alcohol_amount = cur.alcohol_amount;
+  txData.tip_amount = cur.tip_amount;
 
   const supabase = createAdminClient();
   const { data: existing } = await supabase
@@ -625,6 +694,11 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
       tip_distribution: txData.tip_distribution,
       split_type: txData.split_type,
       tranche_id: trancheToSave,
+      original_currency: cur.original_currency,
+      original_amount: cur.original_amount,
+      exchange_rate: cur.exchange_rate,
+      rate_source: cur.rate_source,
+      rate_confirmed_at: rateConfirmedAt(cur.rate_source),
     })
     .eq("id", transactionId)
     .eq("trip_id", txData.trip_id);
@@ -646,13 +720,16 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
       ? await supabase
           .from("transaction_participants")
           .insert(participant_ids.map((pid) => ({ transaction_id: transactionId, person_id: pid })))
-      : txData.split_type === "per_person" && participant_amounts.length > 0
+      : txData.split_type === "per_person" && cur.perPerson.length > 0
         ? await supabase
             .from("transaction_participants")
             .insert(
-              participant_amounts
-                .filter((p) => p.amount > 0)
-                .map((p) => ({ transaction_id: transactionId, person_id: p.person_id, amount: p.amount })),
+              cur.perPerson.map((p) => ({
+                transaction_id: transactionId,
+                person_id: p.person_id,
+                amount: p.amount,
+                original_amount: p.original_amount,
+              })),
             )
         : null;
   if (partRes?.error) {
@@ -694,7 +771,9 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
       tip_distribution: txData.tip_distribution,
       split_type: txData.split_type,
       tranche_id: trancheToSave,
-      participants: newExpenseParticipants(txData.split_type, participant_ids, participant_amounts),
+      // EUR-Anteile (nicht die Fremdbeträge) vergleichen — sonst gälte eine
+      // Fremdwährungs-Buchung immer als „geändert".
+      participants: newExpenseParticipants(txData.split_type, participant_ids, cur.perPerson),
     },
   );
   if (balanceChanged) await markPostSettlementChange(supabase, txData.trip_id);
@@ -751,6 +830,10 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     credit_from: formData.get("credit_from"),
     credit_to: creditTo,
     tranche_id: formData.get("tranche_id") || null,
+    original_currency: formData.get("original_currency"),
+    exchange_rate: formData.get("exchange_rate"),
+    rate_source: formData.get("rate_source"),
+    bank_eur_amount: formData.get("bank_eur_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
@@ -805,15 +888,28 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     return { status: "error", message: CROSS_TRIP_PERSON_MSG };
   }
 
+  const creditCur = resolveCreditCurrency({
+    amount: parsed.data.amount,
+    original_currency: parsed.data.original_currency,
+    exchange_rate: parsed.data.exchange_rate,
+    rate_source: parsed.data.rate_source,
+    bank_eur_amount: parsed.data.bank_eur_amount,
+  });
+
   const { error } = await supabase
     .from("transactions")
     .update({
       date: parsed.data.date,
       description: parsed.data.description || "Gutschrift",
-      amount: parsed.data.amount,
+      amount: creditCur.amount,
       credit_from: parsed.data.credit_from,
       credit_to: parsed.data.credit_to,
       tranche_id: parsed.data.tranche_id ?? null,
+      original_currency: creditCur.original_currency,
+      original_amount: creditCur.original_amount,
+      exchange_rate: creditCur.exchange_rate,
+      rate_source: creditCur.rate_source,
+      rate_confirmed_at: rateConfirmedAt(creditCur.rate_source),
     })
     .eq("id", transactionId)
     .eq("trip_id", parsed.data.trip_id);
@@ -838,7 +934,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
       tranche_id: existing.tranche_id,
     },
     {
-      amount: parsed.data.amount,
+      amount: creditCur.amount,
       credit_from: parsed.data.credit_from,
       credit_to: parsed.data.credit_to,
       tranche_id: parsed.data.tranche_id ?? null,
@@ -937,22 +1033,45 @@ export async function replayPendingTransaction(
       participant_ids: participantIds,
       participant_amounts: formObject.participant_amounts,
       idempotency_key: formObject.idempotency_key || undefined,
+      original_currency: formObject.original_currency,
+      exchange_rate: formObject.exchange_rate,
+      rate_source: formObject.rate_source,
+      bank_eur_amount: formObject.bank_eur_amount,
     });
     if (!parsed.success) {
       return { ok: false, message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
     }
-    const { participant_ids, participant_amounts, idempotency_key, ...txData } = parsed.data;
+    const { participant_ids, participant_amounts, idempotency_key,
+      original_currency, exchange_rate, rate_source, bank_eur_amount, ...txData } = parsed.data;
 
-    if (txData.split_type === "per_person") {
-      txData.amount = participant_amounts.reduce((s, p) => s + p.amount, 0);
-      txData.alcohol_amount = 0;
-    } else {
-      txData.tip_amount = 0;
-    }
+    const cur = resolveExpenseCurrency({
+      split_type: txData.split_type,
+      amount: txData.amount,
+      alcohol_amount: txData.alcohol_amount,
+      tip_amount: txData.tip_amount,
+      original_currency,
+      exchange_rate,
+      rate_source,
+      bank_eur_amount,
+      participant_amounts,
+    });
+    txData.amount = cur.amount;
+    txData.alcohol_amount = cur.alcohol_amount;
+    txData.tip_amount = cur.tip_amount;
 
     const { data: tx, error } = await supabase
       .from("transactions")
-      .insert({ ...txData, type: "expense", created_by: person.id, idempotency_key })
+      .insert({
+        ...txData,
+        type: "expense",
+        created_by: person.id,
+        idempotency_key,
+        original_currency: cur.original_currency,
+        original_amount: cur.original_amount,
+        exchange_rate: cur.exchange_rate,
+        rate_source: cur.rate_source,
+        rate_confirmed_at: rateConfirmedAt(cur.rate_source),
+      })
       .select("id")
       .single();
     if (error?.code === PG_UNIQUE_VIOLATION && idempotency_key) {
@@ -967,13 +1086,16 @@ export async function replayPendingTransaction(
         ? await supabase
             .from("transaction_participants")
             .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })))
-        : txData.split_type === "per_person" && participant_amounts.length > 0
+        : txData.split_type === "per_person" && cur.perPerson.length > 0
           ? await supabase
               .from("transaction_participants")
               .insert(
-                participant_amounts
-                  .filter((p) => p.amount > 0)
-                  .map((p) => ({ transaction_id: tx.id, person_id: p.person_id, amount: p.amount })),
+                cur.perPerson.map((p) => ({
+                  transaction_id: tx.id,
+                  person_id: p.person_id,
+                  amount: p.amount,
+                  original_amount: p.original_amount,
+                })),
               )
           : null;
     if (partRes?.error) {
@@ -1008,6 +1130,10 @@ export async function replayPendingTransaction(
     credit_from: formObject.credit_from,
     credit_to: creditTo,
     idempotency_key: formObject.idempotency_key || undefined,
+    original_currency: formObject.original_currency,
+    exchange_rate: formObject.exchange_rate,
+    rate_source: formObject.rate_source,
+    bank_eur_amount: formObject.bank_eur_amount,
   });
   if (!parsed.success) {
     return { ok: false, message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
@@ -1027,6 +1153,13 @@ export async function replayPendingTransaction(
     }
   }
 
+  const creditCur = resolveCreditCurrency({
+    amount: parsed.data.amount,
+    original_currency: parsed.data.original_currency,
+    exchange_rate: parsed.data.exchange_rate,
+    rate_source: parsed.data.rate_source,
+    bank_eur_amount: parsed.data.bank_eur_amount,
+  });
   const { data: tx, error } = await supabase
     .from("transactions")
     .insert({
@@ -1034,11 +1167,16 @@ export async function replayPendingTransaction(
       type: "credit",
       date: parsed.data.date,
       description: parsed.data.description || "Gutschrift",
-      amount: parsed.data.amount,
+      amount: creditCur.amount,
       credit_from: parsed.data.credit_from,
       credit_to: parsed.data.credit_to,
       created_by: person.id,
       idempotency_key: parsed.data.idempotency_key,
+      original_currency: creditCur.original_currency,
+      original_amount: creditCur.original_amount,
+      exchange_rate: creditCur.exchange_rate,
+      rate_source: creditCur.rate_source,
+      rate_confirmed_at: rateConfirmedAt(creditCur.rate_source),
     })
     .select("id")
     .single();
