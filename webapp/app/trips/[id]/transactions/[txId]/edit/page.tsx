@@ -115,6 +115,9 @@ export default async function EditTransactionPage({
       originalCurrency: foreignCur,
       exchangeRate: rate,
       rateSource,
+      // Bei bereits bestätigtem Bankkurs den echten Euro-Betrag (= tx.amount)
+      // ins Bank-Feld vorbelegen, damit der Kurs beim erneuten Speichern hält.
+      bankAmount: rateSource === "bank" ? Number(tx.amount) : null,
     };
   } else {
     creditInitial = {
@@ -128,6 +131,9 @@ export default async function EditTransactionPage({
       originalCurrency: foreignCur,
       exchangeRate: rate,
       rateSource,
+      // Bei bereits bestätigtem Bankkurs den echten Euro-Betrag (= tx.amount)
+      // ins Bank-Feld vorbelegen, damit der Kurs beim erneuten Speichern hält.
+      bankAmount: rateSource === "bank" ? Number(tx.amount) : null,
     };
   }
 

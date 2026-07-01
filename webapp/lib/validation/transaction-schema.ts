@@ -69,6 +69,16 @@ const RateSource = z.preprocess(
   (v) => (typeof v === "string" && v.trim() !== "" ? v : null),
   z.union([z.null(), z.enum(["live", "manual", "bank"])]),
 );
+// Optionaler Euro-Betrag (darf ein Rechen-Ausdruck sein) — z. B. der tatsächlich
+// von der Bank berechnete Betrag laut Kontoauszug. null, wenn leer/nicht gesetzt.
+const OptionalEurAmount = z.preprocess(
+  (v) => {
+    if (v == null) return null;
+    if (typeof v === "string" && v.trim() === "") return null;
+    return evalExpr(v);
+  },
+  z.union([z.null(), z.coerce.number().nonnegative("Betrag darf nicht negativ sein.").max(MAX_AMOUNT)]),
+);
 
 /**
  * UUID-Feld mit feldspezifischer Meldung wenn leer.
@@ -143,6 +153,10 @@ export const ExpenseSchema = z
     original_currency: CurrencyCode.default(null),
     exchange_rate: ExchangeRate.default(null),
     rate_source: RateSource.default(null),
+    // Tatsächlich von der Bank berechneter Euro-Betrag (nachträglich, optional).
+    // Wenn gesetzt (nur bei Fremdwährung sinnvoll), leitet der Server daraus den
+    // effektiven Kurs ab und markiert rate_source='bank'.
+    bank_eur_amount: OptionalEurAmount.default(null),
   })
   .refine(
     (d) => d.split_type === "per_person" || d.amount > 0,
@@ -185,6 +199,7 @@ export const CreditSchema = z
     original_currency: CurrencyCode.default(null),
     exchange_rate: ExchangeRate.default(null),
     rate_source: RateSource.default(null),
+    bank_eur_amount: OptionalEurAmount.default(null),
   })
   .refine((d) => d.credit_to !== d.credit_from, {
     message: "Von und An können nicht dieselbe Person sein.",

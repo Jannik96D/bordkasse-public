@@ -71,7 +71,12 @@ function evalAmountField(raw: string, setter: (v: string) => void): void {
 function useCurrencyState(
   tripId: string,
   options: CurrencyChoice[],
-  initial?: { originalCurrency?: string | null; exchangeRate?: number | null; rateSource?: "live" | "manual" | "bank" | null },
+  initial?: {
+    originalCurrency?: string | null;
+    exchangeRate?: number | null;
+    rateSource?: "live" | "manual" | "bank" | null;
+    bankAmount?: number | null;
+  },
 ) {
   const [currency, setCurrency] = useState<string>(initial?.originalCurrency ?? "EUR");
   const [rateInput, setRateInput] = useState<string>(
@@ -80,6 +85,11 @@ function useCurrencyState(
   const [rateSource, setRateSource] = useState<"live" | "last_booking" | "manual" | "bank">(
     initial?.rateSource ?? "live",
   );
+  // Tatsächlich von der Bank berechneter Euro-Betrag (nur bei rate_source='bank').
+  const [bankInput, setBankInput] = useState<string>(
+    initial?.rateSource === "bank" && initial?.bankAmount != null ? formatAmount(initial.bankAmount) : "",
+  );
+  const onBankChange = (value: string) => setBankInput(value);
   // Online geladene Kurse persistent cachen → erste Offline-Buchung einer
   // Währung hat auch ohne frühere Buchung einen Kurs (siehe lib/offline/rate-cache).
   useEffect(() => {
@@ -90,6 +100,8 @@ function useCurrencyState(
   }, [tripId, options]);
   const handleCurrencyChange = (code: string) => {
     setCurrency(code);
+    // Bankbetrag gilt je Währung → bei Wechsel zurücksetzen.
+    setBankInput("");
     if (code === "EUR") {
       setRateInput("");
       return;
@@ -107,7 +119,7 @@ function useCurrencyState(
   };
   const isForeign = currency !== "EUR";
   const rateNum = parseRate(rateInput);
-  return { currency, rateInput, rateSource, isForeign, rateNum, handleCurrencyChange, onRateChange };
+  return { currency, rateInput, rateSource, isForeign, rateNum, bankInput, onBankChange, handleCurrencyChange, onRateChange };
 }
 
 interface TransactionFormProps {
@@ -251,11 +263,8 @@ function ExpenseForm({
 }) {
   const vocab = useTripVocab();
   const SPLIT_LABEL = splitLabel(vocab);
-  const { currency, rateInput, rateSource, isForeign, rateNum, handleCurrencyChange, onRateChange } =
+  const { currency, rateInput, rateSource, isForeign, rateNum, bankInput, onBankChange, handleCurrencyChange, onRateChange } =
     useCurrencyState(tripId, currencyOptions, initial);
-  // Eingegebene Beträge sind bei Fremdwährung der Fremdbetrag → für EUR-basierte
-  // Anzeigen (Vorschau, Fat-Finger) umrechnen. Ohne gültigen Kurs 0.
-  const toEur = (v: number) => (isForeign ? (rateNum != null ? foreignToEur(v, rateNum) : 0) : v);
   const unit = isForeign ? currency : "€";
   // Eingeloggten User im "Bezahlt von"-Dropdown nach oben sortieren.
   const paidByOptions = (() => {
@@ -360,6 +369,19 @@ function ExpenseForm({
   const isPerPerson = splitType === "per_person";
   const displayAmount = isPerPerson ? formatAmount(perPersonSum) : amount;
 
+  // Fremdwährung: eingegebene Beträge sind der Fremdbetrag. Der effektive Kurs
+  // ist der geschätzte Kurs — ODER, wenn der tatsächliche Bankbetrag eingetragen
+  // wurde, Bank/Fremdbetrag. Damit rechnen EUR-Anzeigen (Vorschau, Fat-Finger)
+  // und die EUR-Vorschau im CurrencyField. Ohne gültigen Kurs → 0.
+  const foreignTotal = isPerPerson ? perPersonSum : safeMathEval(amount) ?? 0;
+  const bankEur = isForeign ? safeMathEval(bankInput) : null;
+  const effRate = isForeign
+    ? bankEur != null && bankEur > 0 && foreignTotal > 0
+      ? bankEur / foreignTotal
+      : rateNum
+    : null;
+  const toEur = (v: number) => (isForeign ? (effRate != null ? foreignToEur(v, effRate) : 0) : v);
+
   // Buchungen vor/nach dem Törn sind erlaubt (Anzahlung, Versicherung,
   // Nachzügler-Rechnung) — nur „An Bord" ergibt dann keinen Sinn, weil am
   // Buchungstag niemand anwesend ist (Server lehnt das ebenfalls ab).
@@ -372,7 +394,7 @@ function ExpenseForm({
   const previewShares = useMemo(() => {
     // Vorschau rechnet in EUR (Bilanz-Währung) — bei Fremdwährung die
     // eingegebenen Fremdbeträge zum aktuellen Kurs umrechnen.
-    const conv = (v: number) => (isForeign ? (rateNum != null ? foreignToEur(v, rateNum) : 0) : v);
+    const conv = (v: number) => (isForeign ? (effRate != null ? foreignToEur(v, effRate) : 0) : v);
     const baseAmount = isPerPerson ? conv(perPersonSum) : conv(safeMathEval(amount) ?? 0);
     const alc = !isPerPerson ? conv(safeMathEval(alcoholAmount) ?? 0) : 0;
     const tip = isPerPerson ? conv(safeMathEval(tipAmount) ?? 0) : 0;
@@ -429,7 +451,7 @@ function ExpenseForm({
     tripStart,
     tripEnd,
     isForeign,
-    rateNum,
+    effRate,
   ]);
 
   const { state, formAction, pending, formRef, handleSubmit, fieldError, isInvalid, idempotencyKey } =
@@ -530,7 +552,9 @@ function ExpenseForm({
           rateInput={rateInput}
           onRateChange={onRateChange}
           rateSource={rateSource}
-          foreignAmount={isPerPerson ? perPersonSum : safeMathEval(amount) ?? 0}
+          bankInput={bankInput}
+          onBankChange={onBankChange}
+          eurPreview={effRate != null && foreignTotal > 0 ? toEur(foreignTotal) : null}
           error={fieldError("exchange_rate")}
         />
       )}
@@ -763,15 +787,24 @@ function CreditForm({
   const vocab = useTripVocab();
   const isDraft = !!draftId;
   const isEdit = !!initial && !isDraft;
-  const { currency, rateInput, rateSource, isForeign, rateNum, handleCurrencyChange, onRateChange } =
+  const { currency, rateInput, rateSource, isForeign, rateNum, bankInput, onBankChange, handleCurrencyChange, onRateChange } =
     useCurrencyState(tripId, currencyOptions, initial);
   const unit = isForeign ? currency : "€";
-  const toEur = (v: number) => (isForeign ? (rateNum != null ? foreignToEur(v, rateNum) : 0) : v);
 
   // Controlled-State, damit React-19's Form-Reset Eingaben bei Fehlern nicht löscht.
   const [date, setDate] = useState(initial?.date ?? todayIso());
   const [description, setDescription] = useState(initial?.description ?? "");
   const [amount, setAmount] = useState(initial ? formatAmount(initial.amount) : "");
+
+  // Effektiver Kurs (Bankbetrag gewinnt über geschätzten Kurs) → EUR-Anzeigen.
+  const foreignTotal = safeMathEval(amount) ?? 0;
+  const bankEur = isForeign ? safeMathEval(bankInput) : null;
+  const effRate = isForeign
+    ? bankEur != null && bankEur > 0 && foreignTotal > 0
+      ? bankEur / foreignTotal
+      : rateNum
+    : null;
+  const toEur = (v: number) => (isForeign ? (effRate != null ? foreignToEur(v, effRate) : 0) : v);
 
   const initialCreditTo: string = initial
     ? initial.creditTo == null
@@ -849,7 +882,9 @@ function CreditForm({
           rateInput={rateInput}
           onRateChange={onRateChange}
           rateSource={rateSource}
-          foreignAmount={safeMathEval(amount) ?? 0}
+          bankInput={bankInput}
+          onBankChange={onBankChange}
+          eurPreview={effRate != null && foreignTotal > 0 ? toEur(foreignTotal) : null}
           error={fieldError("exchange_rate")}
         />
       )}

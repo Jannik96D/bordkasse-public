@@ -21,7 +21,6 @@ import {
 import { useRouter } from "next/navigation";
 import { enqueue, get as getOutboxItem } from "@/lib/offline/outbox";
 import { cn, formatEuro, nowMs } from "@/lib/utils";
-import { foreignToEur } from "@/lib/rates/convert";
 import { useTripVocab } from "@/components/trip-vocab-provider";
 import type { TripVocab } from "@/lib/trip-vocab";
 import type { TxState } from "@/lib/actions/transactions";
@@ -81,6 +80,8 @@ export type ExpenseInitial = {
   /** 1 Einheit Fremdwährung = X EUR (der beim Buchen verwendete Kurs). */
   exchangeRate?: number | null;
   rateSource?: "live" | "manual" | "bank" | null;
+  /** Tatsächlich von der Bank berechneter Euro-Betrag (nur wenn rate_source='bank'). */
+  bankAmount?: number | null;
 };
 
 export type CreditInitial = {
@@ -98,6 +99,7 @@ export type CreditInitial = {
   originalAmount?: number | null;
   exchangeRate?: number | null;
   rateSource?: "live" | "manual" | "bank" | null;
+  bankAmount?: number | null;
 };
 
 /**
@@ -521,7 +523,9 @@ export function CurrencyField({
   rateInput,
   onRateChange,
   rateSource,
-  foreignAmount,
+  bankInput,
+  onBankChange,
+  eurPreview,
   error,
 }: {
   options: CurrencyChoice[];
@@ -530,26 +534,31 @@ export function CurrencyField({
   rateInput: string;
   onRateChange: (value: string) => void;
   rateSource: "live" | "last_booking" | "manual" | "bank";
-  /** Aktuell eingegebener Fremdbetrag (für die EUR-Vorschau). */
-  foreignAmount: number;
+  /** Tatsächlich von der Bank berechneter Euro-Betrag (Eingabe-String). */
+  bankInput: string;
+  onBankChange: (value: string) => void;
+  /** Resultierender Euro-Betrag (Bank falls gesetzt, sonst Fremd × Kurs). Vom Formular berechnet. */
+  eurPreview: number | null;
   error?: string;
 }) {
   const isForeign = currency !== "EUR";
-  const rate = parseRate(rateInput);
-  const eur = isForeign && rate != null ? foreignToEur(foreignAmount, rate) : null;
+  const bankActive = isForeign && parseRate(bankInput) != null;
 
-  const sourceHint =
-    rateSource === "manual"
+  const sourceHint = bankActive
+    ? "Effektiver Kurs aus dem tatsächlichen Bankbetrag."
+    : rateSource === "manual"
       ? "Kurs manuell angepasst."
-      : rateSource === "bank"
-        ? "Tatsächlicher Bankkurs."
-        : rateSource === "last_booking"
-          ? "Offline — Kurs der letzten Buchung dieser Währung. Bitte prüfen."
-          : "Tageskurs, automatisch geladen. Du kannst ihn anpassen.";
+      : rateSource === "last_booking"
+        ? "Offline — Kurs der letzten Buchung dieser Währung. Bitte prüfen."
+        : "Tageskurs, automatisch geladen. Du kannst ihn anpassen.";
 
-  // Server-Enum kennt nur live|manual|bank; „last_booking" ist ein
-  // Client-Zustand (Offline-Fallback) und wird als „live" (Auto-Kurs) abgelegt.
-  const submittedSource = rateSource === "manual" ? "manual" : rateSource === "bank" ? "bank" : "live";
+  // Server-Enum kennt nur live|manual|bank; „last_booking" (Offline-Fallback)
+  // wird als „live" abgelegt. Ein eingetragener Bankbetrag gewinnt → 'bank'.
+  const submittedSource = bankActive
+    ? "bank"
+    : rateSource === "manual"
+      ? "manual"
+      : "live";
 
   return (
     <div className="space-y-2 rounded-md border border-rule bg-paper p-3">
@@ -585,23 +594,51 @@ export function CurrencyField({
               value={rateInput}
               onChange={(e) => onRateChange(e.target.value)}
               placeholder="z. B. 0,0903"
-              className={inputCls}
+              readOnly={bankActive}
+              className={cn(inputCls, bankActive && "bg-paper-soft text-ink-soft")}
             />
           </FieldGroup>
           <p className="text-sm" aria-live="polite">
-            {eur != null ? (
+            {eurPreview != null ? (
               <>
                 Ergibt{" "}
-                <span className="font-semibold text-primary">{formatEuro(eur)}</span>{" "}
+                <span className="font-semibold text-primary">{formatEuro(eurPreview)}</span>{" "}
                 — dieser Euro-Betrag zählt in die Bilanz.
               </>
             ) : (
               <span className="text-ink-soft">Bitte einen gültigen Wechselkurs eingeben.</span>
             )}
           </p>
+
+          {/* Bankkurs nachtragen: was die Bank laut Kontoauszug wirklich abgebucht
+              hat (inkl. Gebühren/Spread). Überschreibt den geschätzten Kurs. */}
+          <details open={bankActive} className="rounded-md border border-rule bg-paper-soft p-2 text-sm">
+            <summary className="cursor-pointer text-ink-soft">
+              Tatsächlich von der Bank berechnet?
+              {bankActive && <span className="ml-2 text-primary">✓ gesetzt</span>}
+            </summary>
+            <FieldGroup
+              label="Betrag laut Kontoauszug (€)"
+              htmlFor="bank_eur_amount_input"
+              hint="Der real abgebuchte Euro-Betrag inkl. Gebühren/Spread. Ersetzt den geschätzten Kurs oben; leer lassen, solange der Auszug noch nicht da ist."
+            >
+              <input
+                id="bank_eur_amount_input"
+                type="text"
+                inputMode="text"
+                autoComplete="off"
+                value={bankInput}
+                onChange={(e) => onBankChange(e.target.value)}
+                placeholder="z. B. 45,80"
+                className={inputCls}
+              />
+            </FieldGroup>
+          </details>
+
           <input type="hidden" name="original_currency" value={currency} />
           <input type="hidden" name="exchange_rate" value={rateInput} />
           <input type="hidden" name="rate_source" value={submittedSource} />
+          <input type="hidden" name="bank_eur_amount" value={bankInput} />
         </>
       )}
     </div>

@@ -18,6 +18,7 @@ import {
   currencyLabel,
 } from "@/lib/rates/currencies";
 import { getLiveRates } from "@/lib/rates/get-rate";
+import { resolveExpenseCurrency, resolveCreditCurrency } from "@/lib/rates/resolve";
 import { ExpenseSchema, CreditSchema } from "@/lib/validation/transaction-schema";
 
 const baseExpense = {
@@ -127,6 +128,85 @@ describe("ExpenseSchema – Fremdwährung", () => {
       exchange_rate: "0,5",
     });
     expect(r.success).toBe(false);
+  });
+});
+
+describe("resolveExpenseCurrency", () => {
+  const base = {
+    split_type: "equal",
+    alcohol_amount: 0,
+    tip_amount: 0,
+    rate_source: "live" as string | null,
+    bank_eur_amount: null as number | null,
+    participant_amounts: [] as { person_id: string; amount: number }[],
+  };
+
+  it("EUR-Buchung: Betrag unverändert, Herkunft null", () => {
+    const r = resolveExpenseCurrency({ ...base, amount: 20, original_currency: null, exchange_rate: null });
+    expect(r.amount).toBe(20);
+    expect(r.original_currency).toBeNull();
+    expect(r.exchange_rate).toBeNull();
+    expect(r.rate_source).toBeNull();
+  });
+
+  it("Fremdwährung: Fremdbetrag → EUR, Herkunft gesetzt", () => {
+    const r = resolveExpenseCurrency({ ...base, amount: 500, original_currency: "SEK", exchange_rate: 0.0903 });
+    expect(r.amount).toBe(45.15);
+    expect(r.original_amount).toBe(500);
+    expect(r.original_currency).toBe("SEK");
+    expect(r.rate_source).toBe("live");
+  });
+
+  it("Bankbetrag überschreibt Kurs → rate_source='bank', effektiver Kurs", () => {
+    const r = resolveExpenseCurrency({
+      ...base, amount: 500, original_currency: "SEK", exchange_rate: 0.0903, bank_eur_amount: 45.8,
+    });
+    expect(r.rate_source).toBe("bank");
+    expect(r.exchange_rate).toBeCloseTo(45.8 / 500, 6);
+    expect(r.amount).toBe(45.8);
+  });
+
+  it("Pro Person Fremdwährung: je Person Fremd→EUR, Summe als Betrag", () => {
+    const r = resolveExpenseCurrency({
+      ...base,
+      split_type: "per_person",
+      amount: 0,
+      original_currency: "SEK",
+      exchange_rate: 0.1,
+      participant_amounts: [{ person_id: "a", amount: 100 }, { person_id: "b", amount: 150 }],
+    });
+    expect(r.amount).toBe(25);
+    expect(r.original_amount).toBe(250);
+    expect(r.perPerson).toEqual([
+      { person_id: "a", amount: 10, original_amount: 100 },
+      { person_id: "b", amount: 15, original_amount: 150 },
+    ]);
+  });
+
+  it("Pro Person + Bankbetrag: effektiver Kurs auf alle Anteile", () => {
+    const r = resolveExpenseCurrency({
+      ...base,
+      split_type: "per_person",
+      amount: 0,
+      original_currency: "SEK",
+      exchange_rate: 0.09,
+      bank_eur_amount: 25,
+      participant_amounts: [{ person_id: "a", amount: 100 }, { person_id: "b", amount: 150 }],
+    });
+    expect(r.rate_source).toBe("bank");
+    expect(r.amount).toBe(25);
+    expect(r.perPerson.map((p) => p.amount)).toEqual([10, 15]);
+  });
+});
+
+describe("resolveCreditCurrency", () => {
+  it("Fremdwährung + Bankbetrag → bank-Kurs", () => {
+    const r = resolveCreditCurrency({
+      amount: 1000, original_currency: "DKK", exchange_rate: 0.134, rate_source: "manual", bank_eur_amount: 130,
+    });
+    expect(r.rate_source).toBe("bank");
+    expect(r.exchange_rate).toBeCloseTo(0.13, 6);
+    expect(r.amount).toBe(130);
   });
 });
 

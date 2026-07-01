@@ -19,7 +19,7 @@ import {
 import { logAudit } from "@/lib/db/audit";
 import { tripVocab } from "@/lib/trip-vocab";
 import { round2 } from "@/lib/utils";
-import { foreignToEur } from "@/lib/rates/convert";
+import { resolveExpenseCurrency, resolveCreditCurrency } from "@/lib/rates/resolve";
 import { ExpenseSchema, CreditSchema } from "@/lib/validation/transaction-schema";
 
 const TransactionId = z.string().uuid();
@@ -259,103 +259,15 @@ function newExpenseParticipants(
   return [];
 }
 
-// ── Fremdwährung (Migration 0041) ─────────────────────────────────────────
-// Bei einer Fremdwährungs-Buchung tragen die eingegebenen Beträge (amount,
-// alcohol_amount, tip_amount, Pro-Person-Beträge) den FREMDBETRAG. Diese Helfer
-// rechnen zum Buchungskurs in EUR um (das, womit die Bilanz rechnet) und legen
-// die Herkunft ab (original_currency/original_amount/exchange_rate/rate_source).
-// EUR ist die einzige Wahrheit für v_balances & Co. — daher wird die Umrechnung
-// zentral serverseitig gemacht, nicht dem Client-Betrag vertraut.
+// Fremdwährungs-Umrechnung (resolveExpenseCurrency / resolveCreditCurrency)
+// liegt in @/lib/rates/resolve — pure Funktionen, unit-getestet. EUR bleibt
+// die einzige Bilanz-Wahrheit; die Herkunft (original_*/exchange_rate/
+// rate_source) wird dort abgeleitet, inkl. Bank-Override (rate_source='bank').
 
-interface ExpenseCurrencyFields {
-  original_currency: string | null;
-  original_amount: number | null;
-  exchange_rate: number | null;
-  rate_source: string | null;
-}
-interface ResolvedExpenseCurrency extends ExpenseCurrencyFields {
-  amount: number;
-  alcohol_amount: number;
-  tip_amount: number;
-  /** Pro-Person-Zeilen in EUR (+ Fremdbetrag als original_amount). */
-  perPerson: { person_id: string; amount: number; original_amount: number | null }[];
-}
-
-function resolveExpenseCurrency(input: {
-  split_type: string;
-  amount: number;
-  alcohol_amount: number;
-  tip_amount: number;
-  original_currency: string | null;
-  exchange_rate: number | null;
-  rate_source: string | null;
-  participant_amounts: { person_id: string; amount: number }[];
-}): ResolvedExpenseCurrency {
-  const isPerPerson = input.split_type === "per_person";
-  const foreign = input.original_currency != null && input.exchange_rate != null;
-  const ppSubmitted = input.participant_amounts.filter((p) => p.amount > 0);
-
-  if (!foreign) {
-    const perPerson = ppSubmitted.map((p) => ({ person_id: p.person_id, amount: p.amount, original_amount: null }));
-    return {
-      amount: isPerPerson ? round2(perPerson.reduce((s, p) => s + p.amount, 0)) : input.amount,
-      alcohol_amount: isPerPerson ? 0 : input.alcohol_amount,
-      tip_amount: isPerPerson ? input.tip_amount : 0,
-      original_currency: null,
-      original_amount: null,
-      exchange_rate: null,
-      rate_source: null,
-      perPerson,
-    };
-  }
-
-  const rate = input.exchange_rate as number;
-  const source = input.rate_source ?? "live";
-  if (isPerPerson) {
-    const perPerson = ppSubmitted.map((p) => ({
-      person_id: p.person_id,
-      amount: foreignToEur(p.amount, rate),
-      original_amount: p.amount,
-    }));
-    return {
-      amount: round2(perPerson.reduce((s, p) => s + p.amount, 0)),
-      alcohol_amount: 0,
-      tip_amount: foreignToEur(input.tip_amount, rate),
-      original_currency: input.original_currency,
-      original_amount: round2(ppSubmitted.reduce((s, p) => s + p.amount, 0)),
-      exchange_rate: rate,
-      rate_source: source,
-      perPerson,
-    };
-  }
-  return {
-    amount: foreignToEur(input.amount, rate),
-    alcohol_amount: foreignToEur(input.alcohol_amount, rate),
-    tip_amount: 0,
-    original_currency: input.original_currency,
-    original_amount: round2(input.amount),
-    exchange_rate: rate,
-    rate_source: source,
-    perPerson: [],
-  };
-}
-
-function resolveCreditCurrency(input: {
-  amount: number;
-  original_currency: string | null;
-  exchange_rate: number | null;
-  rate_source: string | null;
-}): ExpenseCurrencyFields & { amount: number } {
-  if (input.original_currency == null || input.exchange_rate == null) {
-    return { amount: input.amount, original_currency: null, original_amount: null, exchange_rate: null, rate_source: null };
-  }
-  return {
-    amount: foreignToEur(input.amount, input.exchange_rate),
-    original_currency: input.original_currency,
-    original_amount: round2(input.amount),
-    exchange_rate: input.exchange_rate,
-    rate_source: input.rate_source ?? "live",
-  };
+/** Zeitstempel der Bankkurs-Bestätigung: gesetzt, sobald der tatsächliche
+ *  Bankbetrag nachgetragen wurde (rate_source='bank'), sonst null. */
+function rateConfirmedAt(source: string | null): string | null {
+  return source === "bank" ? new Date().toISOString() : null;
 }
 
 export async function createExpense(_prev: TxState, formData: FormData): Promise<TxState> {
@@ -382,13 +294,14 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     original_currency: formData.get("original_currency"),
     exchange_rate: formData.get("exchange_rate"),
     rate_source: formData.get("rate_source"),
+    bank_eur_amount: formData.get("bank_eur_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
   }
 
   const { participant_ids, participant_amounts, idempotency_key, tranche_id: trancheId,
-    original_currency, exchange_rate, rate_source, ...txData } = parsed.data;
+    original_currency, exchange_rate, rate_source, bank_eur_amount, ...txData } = parsed.data;
 
   // Fremdwährung → EUR umrechnen + Herkunft ableiten. Bei "Pro Person" wird der
   // Gesamtbetrag aus den Einzelbeträgen abgeleitet (Anzeige/DB konsistent),
@@ -401,6 +314,7 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     original_currency,
     exchange_rate,
     rate_source,
+    bank_eur_amount,
     participant_amounts,
   });
   txData.amount = cur.amount;
@@ -458,6 +372,7 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
       original_amount: cur.original_amount,
       exchange_rate: cur.exchange_rate,
       rate_source: cur.rate_source,
+      rate_confirmed_at: rateConfirmedAt(cur.rate_source),
     })
     .select("id")
     .single();
@@ -535,6 +450,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     original_currency: formData.get("original_currency"),
     exchange_rate: formData.get("exchange_rate"),
     rate_source: formData.get("rate_source"),
+    bank_eur_amount: formData.get("bank_eur_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
@@ -581,6 +497,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     original_currency: parsed.data.original_currency,
     exchange_rate: parsed.data.exchange_rate,
     rate_source: parsed.data.rate_source,
+    bank_eur_amount: parsed.data.bank_eur_amount,
   });
 
   const { data: tx, error } = await supabase
@@ -600,6 +517,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
       original_amount: creditCur.original_amount,
       exchange_rate: creditCur.exchange_rate,
       rate_source: creditCur.rate_source,
+      rate_confirmed_at: rateConfirmedAt(creditCur.rate_source),
     })
     .select("id")
     .single();
@@ -666,12 +584,13 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     original_currency: formData.get("original_currency"),
     exchange_rate: formData.get("exchange_rate"),
     rate_source: formData.get("rate_source"),
+    bank_eur_amount: formData.get("bank_eur_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
   }
   const { participant_ids, participant_amounts, idempotency_key: _ignored, tranche_id: trancheId,
-    original_currency, exchange_rate, rate_source, ...txData } = parsed.data;
+    original_currency, exchange_rate, rate_source, bank_eur_amount, ...txData } = parsed.data;
   void _ignored;
 
   const cur = resolveExpenseCurrency({
@@ -682,6 +601,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     original_currency,
     exchange_rate,
     rate_source,
+    bank_eur_amount,
     participant_amounts,
   });
   txData.amount = cur.amount;
@@ -778,6 +698,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
       original_amount: cur.original_amount,
       exchange_rate: cur.exchange_rate,
       rate_source: cur.rate_source,
+      rate_confirmed_at: rateConfirmedAt(cur.rate_source),
     })
     .eq("id", transactionId)
     .eq("trip_id", txData.trip_id);
@@ -912,6 +833,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     original_currency: formData.get("original_currency"),
     exchange_rate: formData.get("exchange_rate"),
     rate_source: formData.get("rate_source"),
+    bank_eur_amount: formData.get("bank_eur_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
@@ -971,6 +893,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     original_currency: parsed.data.original_currency,
     exchange_rate: parsed.data.exchange_rate,
     rate_source: parsed.data.rate_source,
+    bank_eur_amount: parsed.data.bank_eur_amount,
   });
 
   const { error } = await supabase
@@ -986,6 +909,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
       original_amount: creditCur.original_amount,
       exchange_rate: creditCur.exchange_rate,
       rate_source: creditCur.rate_source,
+      rate_confirmed_at: rateConfirmedAt(creditCur.rate_source),
     })
     .eq("id", transactionId)
     .eq("trip_id", parsed.data.trip_id);
@@ -1112,12 +1036,13 @@ export async function replayPendingTransaction(
       original_currency: formObject.original_currency,
       exchange_rate: formObject.exchange_rate,
       rate_source: formObject.rate_source,
+      bank_eur_amount: formObject.bank_eur_amount,
     });
     if (!parsed.success) {
       return { ok: false, message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
     }
     const { participant_ids, participant_amounts, idempotency_key,
-      original_currency, exchange_rate, rate_source, ...txData } = parsed.data;
+      original_currency, exchange_rate, rate_source, bank_eur_amount, ...txData } = parsed.data;
 
     const cur = resolveExpenseCurrency({
       split_type: txData.split_type,
@@ -1127,6 +1052,7 @@ export async function replayPendingTransaction(
       original_currency,
       exchange_rate,
       rate_source,
+      bank_eur_amount,
       participant_amounts,
     });
     txData.amount = cur.amount;
@@ -1144,6 +1070,7 @@ export async function replayPendingTransaction(
         original_amount: cur.original_amount,
         exchange_rate: cur.exchange_rate,
         rate_source: cur.rate_source,
+        rate_confirmed_at: rateConfirmedAt(cur.rate_source),
       })
       .select("id")
       .single();
@@ -1206,6 +1133,7 @@ export async function replayPendingTransaction(
     original_currency: formObject.original_currency,
     exchange_rate: formObject.exchange_rate,
     rate_source: formObject.rate_source,
+    bank_eur_amount: formObject.bank_eur_amount,
   });
   if (!parsed.success) {
     return { ok: false, message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
@@ -1230,6 +1158,7 @@ export async function replayPendingTransaction(
     original_currency: parsed.data.original_currency,
     exchange_rate: parsed.data.exchange_rate,
     rate_source: parsed.data.rate_source,
+    bank_eur_amount: parsed.data.bank_eur_amount,
   });
   const { data: tx, error } = await supabase
     .from("transactions")
@@ -1247,6 +1176,7 @@ export async function replayPendingTransaction(
       original_amount: creditCur.original_amount,
       exchange_rate: creditCur.exchange_rate,
       rate_source: creditCur.rate_source,
+      rate_confirmed_at: rateConfirmedAt(creditCur.rate_source),
     })
     .select("id")
     .single();

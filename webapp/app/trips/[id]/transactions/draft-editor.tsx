@@ -92,6 +92,7 @@ function draftToExpenseInitial(d: FormDataObj): ExpenseInitial {
     originalCurrency: currencyOrNull(d.original_currency),
     exchangeRate: rateOrNull(d.exchange_rate),
     rateSource: rateSourceOrNull(d.rate_source),
+    bankAmount: rateOrNull(d.bank_eur_amount),
   };
 }
 
@@ -108,6 +109,7 @@ function draftToCreditInitial(d: FormDataObj): CreditInitial {
     originalCurrency: currencyOrNull(d.original_currency),
     exchangeRate: rateOrNull(d.exchange_rate),
     rateSource: rateSourceOrNull(d.rate_source),
+    bankAmount: rateOrNull(d.bank_eur_amount),
   };
 }
 
