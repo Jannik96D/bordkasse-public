@@ -14,6 +14,8 @@ Vollständige Spezifikation aller Aufteilungs- und Berechnungsregeln. Als Refere
 Wenn "An Bord ab" leer ist, gilt der Törn-Start (Sheets: `Besatzung!B5`; Web-App: `trips.start_date` via `COALESCE` in `v_trip_members_with_days`).
 Wenn "An Bord bis" leer ist, gilt das Törn-Ende (Sheets: `Besatzung!B6`; Web-App: `trips.end_date` analog).
 
+**Eingabe vor der Berechnung (nur Web-App):** Betragsfelder akzeptieren Rechen-Ausdrücke (`47,30 - 6,00`, `240,00 / 4`) — ausgewertet via `safeMathEval`. Bei Fremdwährungs-Buchungen wird der eingegebene **Fremdbetrag serverseitig in Euro umgerechnet, bevor** irgendeine Aufteilung greift; alle folgenden Regeln rechnen also unverändert in Euro. Details: [`foreign-currency.md`](foreign-currency.md).
+
 ## Die fünf Aufteilungsarten
 
 ### 1. Gleichmäßig
