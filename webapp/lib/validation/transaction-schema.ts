@@ -14,7 +14,7 @@ const DateString = z
 
 /**
  * Wandelt eine Betragseingabe für Zod vor: akzeptiert neben "12,50" auch
- * Rechen-Ausdrücke wie "47,30 - 6,00" (Pfand/Privatkäufe direkt vom Bon
+ * Rechen-Ausdrücke wie "47,30 - 6,00" (Privatkäufe direkt vom Bon
  * rausrechnen) — ausgewertet via safeMathEval (CSP-sicher, kein eval).
  * Dient als Sicherheitsnetz für Submits ohne vorheriges onBlur (Enter,
  * Autofill); im Formular wertet das Feld bereits beim Verlassen aus.

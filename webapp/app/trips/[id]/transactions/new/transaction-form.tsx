@@ -53,7 +53,7 @@ export type { ExpenseInitial, CreditInitial, TrancheOption } from "./transaction
 /**
  * onBlur-Handler für Betragsfelder: wertet einen Rechen-Ausdruck aus (z. B.
  * „47,30 − 6,00" → „41,30") und schreibt das formatierte Ergebnis zurück.
- * Genau wie bei Pro Person (safeMathEval) — praktisch, um Pfand/Privatkäufe
+ * Genau wie bei Pro Person (safeMathEval) — praktisch, um Privatkäufe
  * direkt vom Bon rauszurechnen, ohne Taschenrechner. Leere oder ungültige
  * Eingaben bleiben unangetastet; Vorschau + Server-Schema fangen Ungültiges ab.
  */
@@ -564,7 +564,7 @@ function ExpenseForm({
         />
       </FieldGroup>
 
-      <FieldGroup label={`Betrag (${unit})`} htmlFor="amount" error={fieldError("amount")} hint={isPerPerson ? "Wird aus den Einzelbeträgen unten berechnet." : "Rechnen erlaubt, z. B. 47,30 − 6,00 (Pfand/Privatkäufe rausrechnen)."}>
+      <FieldGroup label={`Betrag (${unit})`} htmlFor="amount" error={fieldError("amount")} hint={isPerPerson ? "Wird aus den Einzelbeträgen unten berechnet." : "Rechnen erlaubt, z. B. 47,30 − 6,00 (Privatkäufe rausrechnen)."}>
         <input
           id="amount" name="amount" type="text" required={!isPerPerson}
           inputMode="text" pattern="[0-9.,+*/() -]+"
