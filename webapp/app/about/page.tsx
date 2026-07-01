@@ -216,7 +216,7 @@ const features: Feature[] = [
         </p>
         <p className="mt-2">
           Ohne Empfang nimmt die App den zuletzt bekannten Kurs, damit du auch auf
-          See weiterbuchen kannst. Bei „Pro Person" trägt jede Person ihren Betrag
+          See weiterbuchen kannst. Bei „Pro Person“ trägt jede Person ihren Betrag
           vom Bon ein.
         </p>
         <p className="mt-2">
