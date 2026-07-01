@@ -24,6 +24,7 @@ import { cn, formatEuro, nowMs } from "@/lib/utils";
 import { useTripVocab } from "@/components/trip-vocab-provider";
 import type { TripVocab } from "@/lib/trip-vocab";
 import type { TxState } from "@/lib/actions/transactions";
+import { type CurrencyChoice } from "@/lib/rates/options";
 
 // ── Typen ───────────────────────────────────────────────────────────────
 export type Member = {
@@ -102,17 +103,9 @@ export type CreditInitial = {
   bankAmount?: number | null;
 };
 
-/**
- * Eine auf dem Törn aktivierte Fremdwährung + Default-Kurs für die
- * Buchungsmaske (client-sichere Spiegelung von lib/rates/currency-options).
- */
-export type CurrencyChoice = {
-  code: string;
-  label: string;
-  /** EUR pro 1 Einheit Fremdwährung. null = kein Kurs verfügbar. */
-  rate: number | null;
-  source: "live" | "last_booking" | null;
-};
+// CurrencyChoice ist in @/lib/rates/options definiert (reines Modul, testbar) —
+// hier für externe Importeure (draft-editor, edit-page) re-exportiert.
+export type { CurrencyChoice };
 
 /** Kurs → deutsches Komma (volle Präzision, kein Runden — kleine Kurse!). */
 export function formatRate(n: number): string {

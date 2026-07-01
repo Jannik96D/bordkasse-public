@@ -11,6 +11,7 @@ import {
 } from "@/lib/actions/transactions";
 import { todayIso, cn, daysBetween } from "@/lib/utils";
 import { foreignToEur } from "@/lib/rates/convert";
+import { withBookingCurrency } from "@/lib/rates/options";
 import { cacheRates, getCachedRate } from "@/lib/offline/rate-cache";
 import { CategorySelect } from "@/components/category-select";
 import { InfoTooltip } from "@/components/info-tooltip";
@@ -263,8 +264,12 @@ function ExpenseForm({
 }) {
   const vocab = useTripVocab();
   const SPLIT_LABEL = splitLabel(vocab);
+  // Die eigene Währung einer geladenen (Edit/Draft) Buchung muss immer wählbar
+  // sein, auch wenn der Törn sie inzwischen deaktiviert hat — sonst würde das
+  // Speichern sie als Euro verbuchen.
+  const effectiveCurrencyOptions = withBookingCurrency(currencyOptions, initial?.originalCurrency, initial?.exchangeRate);
   const { currency, rateInput, rateSource, isForeign, rateNum, bankInput, onBankChange, handleCurrencyChange, onRateChange } =
-    useCurrencyState(tripId, currencyOptions, initial);
+    useCurrencyState(tripId, effectiveCurrencyOptions, initial);
   const unit = isForeign ? currency : "€";
   // Eingeloggten User im "Bezahlt von"-Dropdown nach oben sortieren.
   const paidByOptions = (() => {
@@ -544,9 +549,9 @@ function ExpenseForm({
         />
       </FieldGroup>
 
-      {currencyOptions.length > 0 && (
+      {effectiveCurrencyOptions.length > 0 && (
         <CurrencyField
-          options={currencyOptions}
+          options={effectiveCurrencyOptions}
           currency={currency}
           onCurrencyChange={handleCurrencyChange}
           rateInput={rateInput}
@@ -787,8 +792,9 @@ function CreditForm({
   const vocab = useTripVocab();
   const isDraft = !!draftId;
   const isEdit = !!initial && !isDraft;
+  const effectiveCurrencyOptions = withBookingCurrency(currencyOptions, initial?.originalCurrency, initial?.exchangeRate);
   const { currency, rateInput, rateSource, isForeign, rateNum, bankInput, onBankChange, handleCurrencyChange, onRateChange } =
-    useCurrencyState(tripId, currencyOptions, initial);
+    useCurrencyState(tripId, effectiveCurrencyOptions, initial);
   const unit = isForeign ? currency : "€";
 
   // Controlled-State, damit React-19's Form-Reset Eingaben bei Fehlern nicht löscht.
@@ -874,9 +880,9 @@ function CreditForm({
         />
       </FieldGroup>
 
-      {currencyOptions.length > 0 && (
+      {effectiveCurrencyOptions.length > 0 && (
         <CurrencyField
-          options={currencyOptions}
+          options={effectiveCurrencyOptions}
           currency={currency}
           onCurrencyChange={handleCurrencyChange}
           rateInput={rateInput}

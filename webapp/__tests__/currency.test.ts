@@ -19,6 +19,7 @@ import {
 } from "@/lib/rates/currencies";
 import { getLiveRates } from "@/lib/rates/get-rate";
 import { resolveExpenseCurrency, resolveCreditCurrency } from "@/lib/rates/resolve";
+import { withBookingCurrency, type CurrencyChoice } from "@/lib/rates/options";
 import { ExpenseSchema, CreditSchema } from "@/lib/validation/transaction-schema";
 
 const baseExpense = {
@@ -131,6 +132,25 @@ describe("ExpenseSchema – Fremdwährung", () => {
   });
 });
 
+describe("withBookingCurrency", () => {
+  const opts: CurrencyChoice[] = [{ code: "NOK", label: "Norwegische Krone", rate: 0.085, source: "live" }];
+
+  it("ergänzt die Buchungswährung, wenn der Törn sie nicht (mehr) führt", () => {
+    const r = withBookingCurrency(opts, "SEK", 0.0903);
+    expect(r.map((o) => o.code)).toEqual(["NOK", "SEK"]);
+    expect(r.find((o) => o.code === "SEK")).toMatchObject({ rate: 0.0903, source: "last_booking" });
+  });
+
+  it("lässt die Optionen unverändert, wenn die Währung schon dabei ist", () => {
+    expect(withBookingCurrency(opts, "NOK", 0.085)).toBe(opts);
+  });
+
+  it("ignoriert EUR / keine Währung (reine Euro-Buchung)", () => {
+    expect(withBookingCurrency(opts, "EUR", null)).toBe(opts);
+    expect(withBookingCurrency(opts, null, null)).toBe(opts);
+  });
+});
+
 describe("resolveExpenseCurrency", () => {
   const base = {
     split_type: "equal",
@@ -164,6 +184,16 @@ describe("resolveExpenseCurrency", () => {
     expect(r.rate_source).toBe("bank");
     expect(r.exchange_rate).toBeCloseTo(45.8 / 500, 6);
     expect(r.amount).toBe(45.8);
+  });
+
+  it("nur Bankbetrag (ohne Kurs): gilt trotzdem als Fremdwährung, nicht als EUR", () => {
+    const r = resolveExpenseCurrency({
+      ...base, amount: 500, original_currency: "SEK", exchange_rate: null, bank_eur_amount: 45.8,
+    });
+    expect(r.original_currency).toBe("SEK");
+    expect(r.rate_source).toBe("bank");
+    expect(r.amount).toBe(45.8);
+    expect(r.exchange_rate).toBeCloseTo(45.8 / 500, 6);
   });
 
   it("Pro Person Fremdwährung: je Person Fremd→EUR, Summe als Betrag", () => {

@@ -163,7 +163,10 @@ export const ExpenseSchema = z
     { message: "Betrag muss > 0 sein.", path: ["amount"] },
   )
   .refine(
-    (d) => d.original_currency == null || (d.exchange_rate != null && d.exchange_rate > 0),
+    (d) =>
+      d.original_currency == null ||
+      (d.exchange_rate != null && d.exchange_rate > 0) ||
+      (d.bank_eur_amount != null && d.bank_eur_amount > 0),
     { message: "Für die Fremdwährung fehlt ein gültiger Wechselkurs.", path: ["exchange_rate"] },
   )
   .refine((d) => d.alcohol_amount <= d.amount, {
@@ -206,7 +209,10 @@ export const CreditSchema = z
     path: ["credit_to"],
   })
   .refine(
-    (d) => d.original_currency == null || (d.exchange_rate != null && d.exchange_rate > 0),
+    (d) =>
+      d.original_currency == null ||
+      (d.exchange_rate != null && d.exchange_rate > 0) ||
+      (d.bank_eur_amount != null && d.bank_eur_amount > 0),
     { message: "Für die Fremdwährung fehlt ein gültiger Wechselkurs.", path: ["exchange_rate"] },
   );
 

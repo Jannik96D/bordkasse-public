@@ -25,9 +25,10 @@ export interface ResolvedExpenseCurrency extends ExpenseCurrencyFields {
 }
 
 /** Effektiver Kurs: der eingegebene Kurs — ODER, wenn der tatsächliche
- *  Bankbetrag nachgetragen wurde, Bank/Fremdbetrag (6 Nachkommastellen). */
+ *  Bankbetrag nachgetragen wurde, Bank/Fremdbetrag (6 Nachkommastellen).
+ *  `exchangeRate` darf null sein, wenn NUR ein Bankbetrag vorliegt. */
 function effectiveRate(
-  exchangeRate: number,
+  exchangeRate: number | null,
   rateSource: string | null,
   bankEurAmount: number | null,
   originalTotal: number,
@@ -35,7 +36,7 @@ function effectiveRate(
   if (bankEurAmount != null && bankEurAmount > 0 && originalTotal > 0) {
     return { rate: Math.round((bankEurAmount / originalTotal) * 1_000_000) / 1_000_000, source: "bank" };
   }
-  return { rate: exchangeRate, source: rateSource ?? "live" };
+  return { rate: exchangeRate ?? 0, source: rateSource ?? "live" };
 }
 
 export function resolveExpenseCurrency(input: {
@@ -51,7 +52,10 @@ export function resolveExpenseCurrency(input: {
   participant_amounts: { person_id: string; amount: number }[];
 }): ResolvedExpenseCurrency {
   const isPerPerson = input.split_type === "per_person";
-  const foreign = input.original_currency != null && input.exchange_rate != null;
+  const hasBank = input.bank_eur_amount != null && input.bank_eur_amount > 0;
+  // Fremdwährung, sobald eine Währung + (Kurs ODER nachgetragener Bankbetrag)
+  // vorliegt. Ohne beides würde ein Fremdbetrag sonst still als EUR verbucht.
+  const foreign = input.original_currency != null && (input.exchange_rate != null || hasBank);
   const ppSubmitted = input.participant_amounts.filter((p) => p.amount > 0);
 
   if (!foreign) {
@@ -72,7 +76,7 @@ export function resolveExpenseCurrency(input: {
     ? round2(ppSubmitted.reduce((s, p) => s + p.amount, 0))
     : round2(input.amount);
   const { rate, source } = effectiveRate(
-    input.exchange_rate as number,
+    input.exchange_rate,
     input.rate_source,
     input.bank_eur_amount,
     originalTotal,
@@ -114,7 +118,8 @@ export function resolveCreditCurrency(input: {
   rate_source: string | null;
   bank_eur_amount: number | null;
 }): ExpenseCurrencyFields & { amount: number } {
-  if (input.original_currency == null || input.exchange_rate == null) {
+  const hasBank = input.bank_eur_amount != null && input.bank_eur_amount > 0;
+  if (input.original_currency == null || (input.exchange_rate == null && !hasBank)) {
     return { amount: input.amount, original_currency: null, original_amount: null, exchange_rate: null, rate_source: null };
   }
   const originalTotal = round2(input.amount);
