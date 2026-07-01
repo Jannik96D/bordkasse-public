@@ -8,6 +8,7 @@ import { CategorySection } from "./category-section";
 import { ArchiveBlock } from "./archive-block";
 import { DatesSection } from "./dates-section";
 import { TripTypeSection } from "./trip-type-section";
+import { CurrencySection } from "./currency-section";
 import { PrepaymentPlanSection } from "./prepayment-plan-section";
 import { RetentionBlock } from "./retention-block";
 
@@ -63,6 +64,9 @@ export default async function SettingsPage({
         endDate={trip.end_date}
         tripType={trip.trip_type === "other" ? "other" : "sailing"}
       />
+      {canEdit && (
+        <CurrencySection tripId={id} selected={trip.foreign_currencies ?? []} />
+      )}
       {canEdit && (
         <PrepaymentPlanSection
           tripId={id}

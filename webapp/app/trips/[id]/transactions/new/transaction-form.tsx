@@ -10,6 +10,7 @@ import {
   updateCredit,
 } from "@/lib/actions/transactions";
 import { todayIso, cn, daysBetween } from "@/lib/utils";
+import { foreignToEur } from "@/lib/rates/convert";
 import { CategorySelect } from "@/components/category-select";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { PersonSelect } from "@/components/person-select";
@@ -28,16 +29,20 @@ import {
   type TrancheOption,
   type ExpenseInitial,
   type CreditInitial,
+  type CurrencyChoice,
   SPLIT_KEYS,
   splitLabel,
   splitTooltip,
   inputCls,
   formatAmount,
+  formatRate,
+  parseRate,
   FieldGroup,
   TrancheField,
   useBookingSubmit,
   SharePreview,
   PerPersonAmounts,
+  CurrencyField,
 } from "./transaction-form-parts";
 
 // Öffentliche Typen bleiben über diese Datei importierbar (draft-editor, edit-page).
@@ -55,6 +60,43 @@ function evalAmountField(raw: string, setter: (v: string) => void): void {
   if (result !== null) setter(formatAmount(result));
 }
 
+/**
+ * Geteilter Währungs-State für Ausgabe- und Gutschrift-Formular (Migration
+ * 0041). Verwaltet die gewählte Währung, den (editierbaren) Kurs und die
+ * Kursquelle. Wechselt der User die Währung, wird der Kurs aus den vom Server
+ * mitgegebenen currencyOptions vorbefüllt (Live-Tageskurs bzw. offline der Kurs
+ * der letzten Buchung); tippt er selbst am Kurs, gilt die Quelle als „manuell".
+ */
+function useCurrencyState(
+  options: CurrencyChoice[],
+  initial?: { originalCurrency?: string | null; exchangeRate?: number | null; rateSource?: "live" | "manual" | "bank" | null },
+) {
+  const [currency, setCurrency] = useState<string>(initial?.originalCurrency ?? "EUR");
+  const [rateInput, setRateInput] = useState<string>(
+    initial?.originalCurrency && initial?.exchangeRate ? formatRate(initial.exchangeRate) : "",
+  );
+  const [rateSource, setRateSource] = useState<"live" | "last_booking" | "manual" | "bank">(
+    initial?.rateSource ?? "live",
+  );
+  const handleCurrencyChange = (code: string) => {
+    setCurrency(code);
+    if (code === "EUR") {
+      setRateInput("");
+      return;
+    }
+    const opt = options.find((o) => o.code === code);
+    setRateInput(opt?.rate != null ? formatRate(opt.rate) : "");
+    setRateSource(opt?.source === "last_booking" ? "last_booking" : "live");
+  };
+  const onRateChange = (value: string) => {
+    setRateInput(value);
+    setRateSource("manual");
+  };
+  const isForeign = currency !== "EUR";
+  const rateNum = parseRate(rateInput);
+  return { currency, rateInput, rateSource, isForeign, rateNum, handleCurrencyChange, onRateChange };
+}
+
 interface TransactionFormProps {
   tripId: string;
   isSkipper: boolean;
@@ -69,6 +111,8 @@ interface TransactionFormProps {
   tranches?: TrancheOption[];
   /** Darf der User die Tranche-Zuordnung ändern? (Skipper/Admin/Vorstrecker) */
   canEditTranche?: boolean;
+  /** Auf dem Törn aktivierte Fremdwährungen inkl. Default-Kurs (Migration 0041). */
+  currencyOptions?: CurrencyChoice[];
   /** Wenn gesetzt, Edit-Mode für eine Ausgabe. */
   expenseInitial?: ExpenseInitial;
   /** Wenn gesetzt, Edit-Mode für eine Gutschrift. */
@@ -88,6 +132,7 @@ export function TransactionForm({
   currentPersonId,
   tranches,
   canEditTranche = false,
+  currencyOptions = [],
   tripStart,
   tripEnd,
   expenseInitial,
@@ -142,6 +187,7 @@ export function TransactionForm({
           currentPersonId={currentPersonId}
           tranches={tranches}
           canEditTranche={canEditTranche}
+          currencyOptions={currencyOptions}
           tripStart={tripStart}
           tripEnd={tripEnd}
           initial={expenseInitial}
@@ -154,6 +200,7 @@ export function TransactionForm({
           currentPersonId={currentPersonId}
           tranches={tranches}
           canEditTranche={canEditTranche}
+          currencyOptions={currencyOptions}
           tripStart={tripStart}
           tripEnd={tripEnd}
           initial={creditInitial}
@@ -171,6 +218,7 @@ function ExpenseForm({
   currentPersonId,
   tranches,
   canEditTranche,
+  currencyOptions,
   tripStart,
   tripEnd,
   initial,
@@ -182,6 +230,7 @@ function ExpenseForm({
   currentPersonId?: string;
   tranches?: TrancheOption[];
   canEditTranche: boolean;
+  currencyOptions: CurrencyChoice[];
   tripStart?: string;
   tripEnd?: string;
   initial?: ExpenseInitial;
@@ -189,6 +238,12 @@ function ExpenseForm({
 }) {
   const vocab = useTripVocab();
   const SPLIT_LABEL = splitLabel(vocab);
+  const { currency, rateInput, rateSource, isForeign, rateNum, handleCurrencyChange, onRateChange } =
+    useCurrencyState(currencyOptions, initial);
+  // Eingegebene Beträge sind bei Fremdwährung der Fremdbetrag → für EUR-basierte
+  // Anzeigen (Vorschau, Fat-Finger) umrechnen. Ohne gültigen Kurs 0.
+  const toEur = (v: number) => (isForeign ? (rateNum != null ? foreignToEur(v, rateNum) : 0) : v);
+  const unit = isForeign ? currency : "€";
   // Eingeloggten User im "Bezahlt von"-Dropdown nach oben sortieren.
   const paidByOptions = (() => {
     const opts = members.map((m) => ({ id: m.person_id, name: m.display_name }));
@@ -302,9 +357,12 @@ function ExpenseForm({
   // Spiegelt mit der exakt gleichen Logik wie der Server (lib/calc/shares.ts)
   // pro Person den Anteil, damit der User VOR dem Speichern sieht, wer wie viel zahlt.
   const previewShares = useMemo(() => {
-    const baseAmount = isPerPerson ? perPersonSum : safeMathEval(amount) ?? 0;
-    const alc = !isPerPerson ? safeMathEval(alcoholAmount) ?? 0 : 0;
-    const tip = isPerPerson ? safeMathEval(tipAmount) ?? 0 : 0;
+    // Vorschau rechnet in EUR (Bilanz-Währung) — bei Fremdwährung die
+    // eingegebenen Fremdbeträge zum aktuellen Kurs umrechnen.
+    const conv = (v: number) => (isForeign ? (rateNum != null ? foreignToEur(v, rateNum) : 0) : v);
+    const baseAmount = isPerPerson ? conv(perPersonSum) : conv(safeMathEval(amount) ?? 0);
+    const alc = !isPerPerson ? conv(safeMathEval(alcoholAmount) ?? 0) : 0;
+    const tip = isPerPerson ? conv(safeMathEval(tipAmount) ?? 0) : 0;
     if (baseAmount <= 0) return null;
 
     const calcMembers: CalcMember[] = members.map((m) => {
@@ -332,7 +390,7 @@ function ExpenseForm({
       participants: Array.from(participantIds),
       participantAmounts: perPersonAmounts
         .filter((p) => p.amount > 0)
-        .map((p) => ({ personId: p.personId, amount: p.amount })),
+        .map((p) => ({ personId: p.personId, amount: conv(p.amount) })),
     };
 
     const shareByPerson = new Map(
@@ -357,6 +415,8 @@ function ExpenseForm({
     date,
     tripStart,
     tripEnd,
+    isForeign,
+    rateNum,
   ]);
 
   const { state, formAction, pending, formRef, handleSubmit, fieldError, isInvalid, idempotencyKey } =
@@ -368,7 +428,7 @@ function ExpenseForm({
       draftId,
       createAction: createExpense,
       updateAction: updateExpense,
-      getTotal: () => (isPerPerson ? perPersonSum : safeMathEval(amount) ?? 0),
+      getTotal: () => toEur(isPerPerson ? perPersonSum : safeMathEval(amount) ?? 0),
       fatFingerNoun: "Buchung",
     });
 
@@ -430,7 +490,7 @@ function ExpenseForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Betrag (€)" htmlFor="amount" error={fieldError("amount")} hint={isPerPerson ? "Wird aus den Einzelbeträgen unten berechnet." : "Rechnen erlaubt, z. B. 47,30 − 6,00 (Pfand/Privatkäufe rausrechnen)."}>
+      <FieldGroup label={`Betrag (${unit})`} htmlFor="amount" error={fieldError("amount")} hint={isPerPerson ? "Wird aus den Einzelbeträgen unten berechnet." : "Rechnen erlaubt, z. B. 47,30 − 6,00 (Pfand/Privatkäufe rausrechnen)."}>
         <input
           id="amount" name="amount" type="text" required={!isPerPerson}
           inputMode="text" pattern="[0-9.,+*/() -]+"
@@ -448,6 +508,19 @@ function ExpenseForm({
           )}
         />
       </FieldGroup>
+
+      {currencyOptions.length > 0 && (
+        <CurrencyField
+          options={currencyOptions}
+          currency={currency}
+          onCurrencyChange={handleCurrencyChange}
+          rateInput={rateInput}
+          onRateChange={onRateChange}
+          rateSource={rateSource}
+          foreignAmount={isPerPerson ? perPersonSum : safeMathEval(amount) ?? 0}
+          error={fieldError("exchange_rate")}
+        />
+      )}
 
       {/* Aufteilung als Tab-Row; die Modi erklärt der ⓘ-Tooltip neben der Überschrift. */}
       <div>
@@ -528,13 +601,14 @@ function ExpenseForm({
           onChange={setPerPerson}
           error={fieldError("participant_amounts")}
           invalid={isInvalid("participant_amounts")}
+          unit={unit}
         />
       )}
 
       {/* Trinkgeld ist semantisch nur bei "Pro Person" sinnvoll (Restaurant-Szenario). */}
       {isPerPerson && (
         <>
-          <FieldGroup label="Trinkgeld (€)" htmlFor="tip_amount" error={fieldError("tip_amount")}>
+          <FieldGroup label={`Trinkgeld (${unit})`} htmlFor="tip_amount" error={fieldError("tip_amount")}>
             <input
               id="tip_amount" name="tip_amount" type="text"
               inputMode="text" pattern="([0-9.,+*/() -]+)?"
@@ -599,7 +673,7 @@ function ExpenseForm({
             Erweitert (Alkoholanteil)
           </button>
           {showAdvanced && (
-            <FieldGroup label="Alkoholanteil (€)" htmlFor="alcohol_amount" error={fieldError("alcohol_amount")} hint="Wird auf alle verteilt, die Alkohol mittrinken; Rest nach Aufteilung.">
+            <FieldGroup label={`Alkoholanteil (${unit})`} htmlFor="alcohol_amount" error={fieldError("alcohol_amount")} hint="Wird auf alle verteilt, die Alkohol mittrinken; Rest nach Aufteilung.">
               <input
                 id="alcohol_amount" name="alcohol_amount" type="text"
                 inputMode="text" pattern="([0-9.,+*/() -]+)?"
@@ -656,6 +730,7 @@ function CreditForm({
   currentPersonId,
   tranches,
   canEditTranche,
+  currencyOptions,
   tripStart,
   tripEnd,
   initial,
@@ -666,6 +741,7 @@ function CreditForm({
   currentPersonId?: string;
   tranches?: TrancheOption[];
   canEditTranche: boolean;
+  currencyOptions: CurrencyChoice[];
   tripStart?: string;
   tripEnd?: string;
   initial?: CreditInitial;
@@ -674,6 +750,10 @@ function CreditForm({
   const vocab = useTripVocab();
   const isDraft = !!draftId;
   const isEdit = !!initial && !isDraft;
+  const { currency, rateInput, rateSource, isForeign, rateNum, handleCurrencyChange, onRateChange } =
+    useCurrencyState(currencyOptions, initial);
+  const unit = isForeign ? currency : "€";
+  const toEur = (v: number) => (isForeign ? (rateNum != null ? foreignToEur(v, rateNum) : 0) : v);
 
   // Controlled-State, damit React-19's Form-Reset Eingaben bei Fehlern nicht löscht.
   const [date, setDate] = useState(initial?.date ?? todayIso());
@@ -695,7 +775,7 @@ function CreditForm({
       draftId,
       createAction: createCredit,
       updateAction: updateCredit,
-      getTotal: () => safeMathEval(amount) ?? 0,
+      getTotal: () => toEur(safeMathEval(amount) ?? 0),
       fatFingerNoun: "Gutschrift",
     });
 
@@ -734,7 +814,7 @@ function CreditForm({
         />
       </FieldGroup>
 
-      <FieldGroup label="Betrag (€)" htmlFor="amount" error={fieldError("amount")} hint="Rechnen erlaubt, z. B. 240,00 / 4.">
+      <FieldGroup label={`Betrag (${unit})`} htmlFor="amount" error={fieldError("amount")} hint="Rechnen erlaubt, z. B. 240,00 / 4.">
         <input
           id="amount" name="amount" type="text" required
           inputMode="text" pattern="[0-9.,+*/() -]+"
@@ -747,6 +827,19 @@ function CreditForm({
           className={cn(inputCls, isInvalid("amount") && "border-danger ring-2 ring-danger/20")}
         />
       </FieldGroup>
+
+      {currencyOptions.length > 0 && (
+        <CurrencyField
+          options={currencyOptions}
+          currency={currency}
+          onCurrencyChange={handleCurrencyChange}
+          rateInput={rateInput}
+          onRateChange={onRateChange}
+          rateSource={rateSource}
+          foreignAmount={safeMathEval(amount) ?? 0}
+          error={fieldError("exchange_rate")}
+        />
+      )}
 
       <FieldGroup label="Zahlt (Von)" error={fieldError("credit_from")}>
         <PersonSelect

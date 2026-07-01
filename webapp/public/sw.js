@@ -25,7 +25,7 @@
 // Caches → der erste Offline-Versuch direkt nach dem Update kann einmalig in
 // /offline.html landen, bis erneut online gewärmt wurde; wegen des bewussten
 // kein-skipWaiting-Flows wird v9 zudem erst nach Tipp auf „Aktualisieren" aktiv.
-const CACHE_VERSION = "bordkasse-v10";
+const CACHE_VERSION = "bordkasse-v11";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE = `${CACHE_VERSION}-pages`;
 const RSC_CACHE = `${CACHE_VERSION}-rsc`;

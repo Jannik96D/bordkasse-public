@@ -8,6 +8,7 @@ import { requireAdmin, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { iconForCategoryName } from "@/lib/categories/icons";
 import { displayNameFromEmail } from "@/lib/utils";
+import { isSupportedCurrency } from "@/lib/rates/currencies";
 
 // Reihenfolge bewusst gewählt — siehe `docs/categories.md` bzw. README.
 // Crew-User-Feedback: zuerst die im Alltag häufigen (Lebensmittel, Restaurant),
@@ -308,6 +309,32 @@ export async function setPrepaymentDeclined(tripId: string, declined: boolean) {
   });
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/settings`);
+}
+
+/**
+ * Fremdwährungen des Törns festlegen (Migration 0041). Leere Liste = reiner
+ * Euro-Törn → in der Buchungsmaske erscheint kein Währungswähler. Nur die
+ * kuratierten, vom Kurs-Anbieter abgedeckten Codes sind erlaubt. Nur
+ * Skipper/Admin.
+ */
+export async function updateTripCurrencies(tripId: string, codes: string[]) {
+  const auth = await requireSkipperOrAdmin(tripId);
+  if (!auth.ok) return;
+  // Nur unterstützte Codes, dedupliziert, stabile Reihenfolge egal.
+  const clean = Array.from(new Set(codes.filter(isSupportedCurrency)));
+  const supabase = createAdminClient();
+  await supabase.from("trips").update({ foreign_currencies: clean }).eq("id", tripId);
+  await logAudit(supabase, {
+    table_name: "trips",
+    operation: "UPDATE",
+    record_id: tripId,
+    trip_id: tripId,
+    actor_person_id: auth.personId,
+    payload: { foreign_currencies: clean },
+  });
+  revalidatePath(`/trips/${tripId}`);
+  revalidatePath(`/trips/${tripId}/settings`);
+  revalidatePath(`/trips/${tripId}/transactions/new`);
 }
 
 /**

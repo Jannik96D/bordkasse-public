@@ -21,6 +21,7 @@ import {
 import { useRouter } from "next/navigation";
 import { enqueue, get as getOutboxItem } from "@/lib/offline/outbox";
 import { cn, formatEuro, nowMs } from "@/lib/utils";
+import { foreignToEur } from "@/lib/rates/convert";
 import { useTripVocab } from "@/components/trip-vocab-provider";
 import type { TripVocab } from "@/lib/trip-vocab";
 import type { TxState } from "@/lib/actions/transactions";
@@ -69,9 +70,17 @@ export type ExpenseInitial = {
   tipDistribution: "proportional" | "equal";
   splitType: SplitType;
   participantIds: string[];
+  /** amount = eingegebener Betrag (Fremdbetrag bei Fremdwährung). */
   participantAmounts: Array<{ personId: string; amount: number }>;
   /** Optional, Migration 0023 — Anzahlungstranche, falls die Buchung zugeordnet ist. */
   trancheId?: string | null;
+  /** Fremdwährung (Migration 0041) — null/EUR = Euro nativ. */
+  originalCurrency?: string | null;
+  /** Fremdbetrag (wie auf dem Bon) — bei Fremdwährung das Eingabe-Ausgangsformat. */
+  originalAmount?: number | null;
+  /** 1 Einheit Fremdwährung = X EUR (der beim Buchen verwendete Kurs). */
+  exchangeRate?: number | null;
+  rateSource?: "live" | "manual" | "bank" | null;
 };
 
 export type CreditInitial = {
@@ -84,7 +93,34 @@ export type CreditInitial = {
   creditTo: string | null;
   /** Optional, Migration 0023 — Anzahlungstranche, falls zugeordnet. */
   trancheId?: string | null;
+  /** Fremdwährung (Migration 0041). */
+  originalCurrency?: string | null;
+  originalAmount?: number | null;
+  exchangeRate?: number | null;
+  rateSource?: "live" | "manual" | "bank" | null;
 };
+
+/**
+ * Eine auf dem Törn aktivierte Fremdwährung + Default-Kurs für die
+ * Buchungsmaske (client-sichere Spiegelung von lib/rates/currency-options).
+ */
+export type CurrencyChoice = {
+  code: string;
+  label: string;
+  /** EUR pro 1 Einheit Fremdwährung. null = kein Kurs verfügbar. */
+  rate: number | null;
+  source: "live" | "last_booking" | null;
+};
+
+/** Kurs → deutsches Komma (volle Präzision, kein Runden — kleine Kurse!). */
+export function formatRate(n: number): string {
+  return String(n).replace(".", ",");
+}
+/** Kurs-Eingabe → Zahl. Ungültig/≤0 → null. */
+export function parseRate(s: string): number | null {
+  const n = Number(s.replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 
 // ── Konstanten ──────────────────────────────────────────────────────────
 // Reise-typ-abhängige Labels: nur „An Bord"/„Anwesend" hängt am Vokabular,
@@ -388,13 +424,17 @@ export function PerPersonAmounts({
   onChange,
   error,
   invalid,
+  unit = "€",
 }: {
   rows: PerPersonRow[];
   sum: number;
   onChange: (personId: string, value: string) => void;
   error?: string;
   invalid: boolean;
+  /** Anzeige-Einheit — bei Fremdwährung der ISO-Code (z. B. „SEK"), sonst „€". */
+  unit?: string;
 }) {
+  const fmtSum = unit === "€" ? formatEuro(sum) : `${formatAmount(sum)} ${unit}`;
   return (
     <FieldGroup
       label="Wer zahlt was?"
@@ -439,11 +479,11 @@ export function PerPersonAmounts({
                       p.valid ? "border-rule" : "border-danger ring-2 ring-danger/20",
                     )}
                   />
-                  <span className="w-4 shrink-0 text-sm text-ink-soft">€</span>
+                  <span className="w-8 shrink-0 text-right text-sm text-ink-soft">{unit}</span>
                 </div>
                 {showEval && (
-                  <span id={`pp-eval-${p.personId}`} className="pr-6 text-xs text-ink-soft" aria-live="polite">
-                    = {formatAmount(p.amount)} €
+                  <span id={`pp-eval-${p.personId}`} className="pr-8 text-xs text-ink-soft" aria-live="polite">
+                    = {formatAmount(p.amount)} {unit}
                   </span>
                 )}
               </div>
@@ -452,7 +492,7 @@ export function PerPersonAmounts({
         })}
         <div className="flex items-center justify-between border-t border-rule pt-2 text-sm font-medium">
           <span>Summe</span>
-          <span className="text-primary">{formatEuro(sum)}</span>
+          <span className="text-primary">{fmtSum}</span>
         </div>
         {/* JSON-Bundle für FormData. Nur Einträge mit amount > 0. */}
         <input
@@ -464,5 +504,106 @@ export function PerPersonAmounts({
         />
       </div>
     </FieldGroup>
+  );
+}
+
+// ── CurrencyField: Währungswahl + Wechselkurs (Migration 0041) ─────────────
+// Nur sichtbar, wenn der Törn Fremdwährungen erlaubt. Bei EUR (Default) rendert
+// es nur den Währungs-Umschalter, keine Hidden-Inputs → der Server behandelt
+// die Buchung als reine Euro-Buchung. Bei Fremdwährung: Kurs-Feld (vorbefüllt,
+// editierbar), EUR-Vorschau und die Hidden-Inputs original_currency /
+// exchange_rate / rate_source. Der eingegebene Betrag bleibt in Fremdwährung;
+// der Server rechnet in EUR um.
+export function CurrencyField({
+  options,
+  currency,
+  onCurrencyChange,
+  rateInput,
+  onRateChange,
+  rateSource,
+  foreignAmount,
+  error,
+}: {
+  options: CurrencyChoice[];
+  currency: string;
+  onCurrencyChange: (code: string) => void;
+  rateInput: string;
+  onRateChange: (value: string) => void;
+  rateSource: "live" | "last_booking" | "manual" | "bank";
+  /** Aktuell eingegebener Fremdbetrag (für die EUR-Vorschau). */
+  foreignAmount: number;
+  error?: string;
+}) {
+  const isForeign = currency !== "EUR";
+  const rate = parseRate(rateInput);
+  const eur = isForeign && rate != null ? foreignToEur(foreignAmount, rate) : null;
+
+  const sourceHint =
+    rateSource === "manual"
+      ? "Kurs manuell angepasst."
+      : rateSource === "bank"
+        ? "Tatsächlicher Bankkurs."
+        : rateSource === "last_booking"
+          ? "Offline — Kurs der letzten Buchung dieser Währung. Bitte prüfen."
+          : "Tageskurs, automatisch geladen. Du kannst ihn anpassen.";
+
+  // Server-Enum kennt nur live|manual|bank; „last_booking" ist ein
+  // Client-Zustand (Offline-Fallback) und wird als „live" (Auto-Kurs) abgelegt.
+  const submittedSource = rateSource === "manual" ? "manual" : rateSource === "bank" ? "bank" : "live";
+
+  return (
+    <div className="space-y-2 rounded-md border border-rule bg-paper p-3">
+      <FieldGroup label="Währung" htmlFor="currency_select">
+        <select
+          id="currency_select"
+          value={currency}
+          onChange={(e) => onCurrencyChange(e.target.value)}
+          className={cn(inputCls, "py-2")}
+        >
+          <option value="EUR">Euro (€)</option>
+          {options.map((o) => (
+            <option key={o.code} value={o.code}>
+              {o.code} — {o.label}
+            </option>
+          ))}
+        </select>
+      </FieldGroup>
+
+      {isForeign && (
+        <>
+          <FieldGroup
+            label={`Wechselkurs (1 ${currency} = € )`}
+            htmlFor="exchange_rate_input"
+            error={error}
+            hint={sourceHint}
+          >
+            <input
+              id="exchange_rate_input"
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              value={rateInput}
+              onChange={(e) => onRateChange(e.target.value)}
+              placeholder="z. B. 0,0903"
+              className={inputCls}
+            />
+          </FieldGroup>
+          <p className="text-sm" aria-live="polite">
+            {eur != null ? (
+              <>
+                Ergibt{" "}
+                <span className="font-semibold text-primary">{formatEuro(eur)}</span>{" "}
+                — dieser Euro-Betrag zählt in die Bilanz.
+              </>
+            ) : (
+              <span className="text-ink-soft">Bitte einen gültigen Wechselkurs eingeben.</span>
+            )}
+          </p>
+          <input type="hidden" name="original_currency" value={currency} />
+          <input type="hidden" name="exchange_rate" value={rateInput} />
+          <input type="hidden" name="rate_source" value={submittedSource} />
+        </>
+      )}
+    </div>
   );
 }

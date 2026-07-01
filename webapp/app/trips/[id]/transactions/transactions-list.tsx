@@ -177,6 +177,11 @@ export function TransactionsList({
                         <p className={`font-semibold ${t.type === "credit" ? "text-gold-dark" : "text-primary"}`}>
                           {formatEuro(total)}
                         </p>
+                        {t.original_currency && t.original_amount != null && (
+                          <p className="text-[10px] text-ink-soft tabular-nums" title="Originalbetrag in Fremdwährung">
+                            {t.original_amount.toFixed(2).replace(".", ",")} {t.original_currency}
+                          </p>
+                        )}
                         {t.tip_amount > 0 && (
                           <p className="text-[10px] text-ink-soft">
                             inkl. {formatEuro(t.tip_amount)} Trinkgeld
