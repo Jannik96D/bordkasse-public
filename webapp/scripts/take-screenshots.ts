@@ -334,8 +334,12 @@ async function main() {
   // immer „Ergibt 40,80 €" zeigt.
   await page.locator("#exchange_rate_input").fill("0,085").catch(() => {});
   await page.waitForTimeout(300);
-  await page.locator("#currency_select").scrollIntoViewIfNeeded().catch(() => {});
-  await page.waitForTimeout(200);
+  // Kurs-Feld zentrieren → „Ergibt X €" darunter bleibt sichtbar, Währung darüber.
+  await page.locator("#exchange_rate_input").scrollIntoViewIfNeeded().catch(() => {});
+  await page.evaluate(() => window.scrollBy(0, 60));
+  // Maus in die Ecke → kein ⓘ-Tooltip bleibt offen und verdeckt den Kurs.
+  await page.mouse.move(5, 5).catch(() => {});
+  await page.waitForTimeout(250);
   await shot(page, "19-fremdwaehrung");
 
   console.log("→ Bilanz");
