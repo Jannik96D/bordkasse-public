@@ -295,13 +295,14 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     exchange_rate: formData.get("exchange_rate"),
     rate_source: formData.get("rate_source"),
     bank_eur_amount: formData.get("bank_eur_amount"),
+    bank_foreign_amount: formData.get("bank_foreign_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
   }
 
   const { participant_ids, participant_amounts, idempotency_key, tranche_id: trancheId,
-    original_currency, exchange_rate, rate_source, bank_eur_amount, ...txData } = parsed.data;
+    original_currency, exchange_rate, rate_source, bank_eur_amount, bank_foreign_amount, ...txData } = parsed.data;
 
   // Fremdwährung → EUR umrechnen + Herkunft ableiten. Bei "Pro Person" wird der
   // Gesamtbetrag aus den Einzelbeträgen abgeleitet (Anzeige/DB konsistent),
@@ -315,6 +316,7 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     exchange_rate,
     rate_source,
     bank_eur_amount,
+    bank_foreign_amount,
     participant_amounts,
   });
   txData.amount = cur.amount;
@@ -451,6 +453,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     exchange_rate: formData.get("exchange_rate"),
     rate_source: formData.get("rate_source"),
     bank_eur_amount: formData.get("bank_eur_amount"),
+    bank_foreign_amount: formData.get("bank_foreign_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
@@ -498,6 +501,7 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
     exchange_rate: parsed.data.exchange_rate,
     rate_source: parsed.data.rate_source,
     bank_eur_amount: parsed.data.bank_eur_amount,
+    bank_foreign_amount: parsed.data.bank_foreign_amount,
   });
 
   const { data: tx, error } = await supabase
@@ -585,12 +589,13 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     exchange_rate: formData.get("exchange_rate"),
     rate_source: formData.get("rate_source"),
     bank_eur_amount: formData.get("bank_eur_amount"),
+    bank_foreign_amount: formData.get("bank_foreign_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
   }
   const { participant_ids, participant_amounts, idempotency_key: _ignored, tranche_id: trancheId,
-    original_currency, exchange_rate, rate_source, bank_eur_amount, ...txData } = parsed.data;
+    original_currency, exchange_rate, rate_source, bank_eur_amount, bank_foreign_amount, ...txData } = parsed.data;
   void _ignored;
 
   const cur = resolveExpenseCurrency({
@@ -602,6 +607,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     exchange_rate,
     rate_source,
     bank_eur_amount,
+    bank_foreign_amount,
     participant_amounts,
   });
   txData.amount = cur.amount;
@@ -834,6 +840,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     exchange_rate: formData.get("exchange_rate"),
     rate_source: formData.get("rate_source"),
     bank_eur_amount: formData.get("bank_eur_amount"),
+    bank_foreign_amount: formData.get("bank_foreign_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
@@ -894,6 +901,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     exchange_rate: parsed.data.exchange_rate,
     rate_source: parsed.data.rate_source,
     bank_eur_amount: parsed.data.bank_eur_amount,
+    bank_foreign_amount: parsed.data.bank_foreign_amount,
   });
 
   const { error } = await supabase
@@ -1037,12 +1045,13 @@ export async function replayPendingTransaction(
       exchange_rate: formObject.exchange_rate,
       rate_source: formObject.rate_source,
       bank_eur_amount: formObject.bank_eur_amount,
+      bank_foreign_amount: formObject.bank_foreign_amount,
     });
     if (!parsed.success) {
       return { ok: false, message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
     }
     const { participant_ids, participant_amounts, idempotency_key,
-      original_currency, exchange_rate, rate_source, bank_eur_amount, ...txData } = parsed.data;
+      original_currency, exchange_rate, rate_source, bank_eur_amount, bank_foreign_amount, ...txData } = parsed.data;
 
     const cur = resolveExpenseCurrency({
       split_type: txData.split_type,
@@ -1053,6 +1062,7 @@ export async function replayPendingTransaction(
       exchange_rate,
       rate_source,
       bank_eur_amount,
+      bank_foreign_amount,
       participant_amounts,
     });
     txData.amount = cur.amount;
@@ -1134,6 +1144,7 @@ export async function replayPendingTransaction(
     exchange_rate: formObject.exchange_rate,
     rate_source: formObject.rate_source,
     bank_eur_amount: formObject.bank_eur_amount,
+    bank_foreign_amount: formObject.bank_foreign_amount,
   });
   if (!parsed.success) {
     return { ok: false, message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
@@ -1159,6 +1170,7 @@ export async function replayPendingTransaction(
     exchange_rate: parsed.data.exchange_rate,
     rate_source: parsed.data.rate_source,
     bank_eur_amount: parsed.data.bank_eur_amount,
+    bank_foreign_amount: parsed.data.bank_foreign_amount,
   });
   const { data: tx, error } = await supabase
     .from("transactions")

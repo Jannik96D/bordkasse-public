@@ -25,16 +25,23 @@ export interface ResolvedExpenseCurrency extends ExpenseCurrencyFields {
 }
 
 /** Effektiver Kurs: der eingegebene Kurs — ODER, wenn der tatsächliche
- *  Bankbetrag nachgetragen wurde, Bank/Fremdbetrag (6 Nachkommastellen).
+ *  Bankbetrag nachgetragen wurde, Bankbetrag ÷ Fremdbetrag (6 Nachkommastellen).
+ *  Divisor ist der VOLLE Fremdbetrag der Kartenzahlung (`bankForeignAmount`),
+ *  falls angegeben — so bleibt der Kurs korrekt, wenn im Buchungsbetrag etwas
+ *  rausgerechnet wurde (z. B. ein Privatkauf). Sonst der Buchungsbetrag selbst.
  *  `exchangeRate` darf null sein, wenn NUR ein Bankbetrag vorliegt. */
 function effectiveRate(
   exchangeRate: number | null,
   rateSource: string | null,
   bankEurAmount: number | null,
+  bankForeignAmount: number | null,
   originalTotal: number,
 ): { rate: number; source: string } {
-  if (bankEurAmount != null && bankEurAmount > 0 && originalTotal > 0) {
-    return { rate: Math.round((bankEurAmount / originalTotal) * 1_000_000) / 1_000_000, source: "bank" };
+  if (bankEurAmount != null && bankEurAmount > 0) {
+    const divisor = bankForeignAmount != null && bankForeignAmount > 0 ? bankForeignAmount : originalTotal;
+    if (divisor > 0) {
+      return { rate: Math.round((bankEurAmount / divisor) * 1_000_000) / 1_000_000, source: "bank" };
+    }
   }
   return { rate: exchangeRate ?? 0, source: rateSource ?? "live" };
 }
@@ -47,8 +54,10 @@ export function resolveExpenseCurrency(input: {
   original_currency: string | null;
   exchange_rate: number | null;
   rate_source: string | null;
-  /** Tatsächlich von der Bank berechneter Euro-Betrag (optional, nachträglich). */
+  /** Tatsächlich abgebuchter Euro-Betrag laut Kontoauszug (optional, nachträglich). */
   bank_eur_amount: number | null;
+  /** Voller Fremdbetrag der Kartenzahlung — nur nötig, wenn er vom Buchungsbetrag abweicht. */
+  bank_foreign_amount: number | null;
   participant_amounts: { person_id: string; amount: number }[];
 }): ResolvedExpenseCurrency {
   const isPerPerson = input.split_type === "per_person";
@@ -79,6 +88,7 @@ export function resolveExpenseCurrency(input: {
     input.exchange_rate,
     input.rate_source,
     input.bank_eur_amount,
+    input.bank_foreign_amount,
     originalTotal,
   );
 
@@ -117,13 +127,20 @@ export function resolveCreditCurrency(input: {
   exchange_rate: number | null;
   rate_source: string | null;
   bank_eur_amount: number | null;
+  bank_foreign_amount: number | null;
 }): ExpenseCurrencyFields & { amount: number } {
   const hasBank = input.bank_eur_amount != null && input.bank_eur_amount > 0;
   if (input.original_currency == null || (input.exchange_rate == null && !hasBank)) {
     return { amount: input.amount, original_currency: null, original_amount: null, exchange_rate: null, rate_source: null };
   }
   const originalTotal = round2(input.amount);
-  const { rate, source } = effectiveRate(input.exchange_rate, input.rate_source, input.bank_eur_amount, originalTotal);
+  const { rate, source } = effectiveRate(
+    input.exchange_rate,
+    input.rate_source,
+    input.bank_eur_amount,
+    input.bank_foreign_amount,
+    originalTotal,
+  );
   return {
     amount: foreignToEur(input.amount, rate),
     original_currency: input.original_currency,
