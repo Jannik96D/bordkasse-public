@@ -210,9 +210,16 @@ const features: Feature[] = [
     body: (
       <>
         <p>
-          Du gibst den Betrag so ein, wie er auf dem Bon steht, und wählst die
-          Währung. Die Bordkasse zieht den Tageskurs automatisch aus dem Netz und
-          rechnet in Euro um. Der Kurs ist immer sichtbar und lässt sich anpassen.
+          Standardmäßig ist alles in Euro — vom Fremdwährungsmodul siehst du
+          nichts. Erst wenn du in den Törneinstellungen eine Währung freischaltest,
+          erscheint bei den Buchungen ein Währungswähler. So bleibt die App für
+          normale Euro-Törns aufgeräumt.
+        </p>
+        <p className="mt-2">
+          Ist eine Währung aktiv, gibst du den Betrag so ein, wie er auf dem Bon
+          steht, und wählst sie aus. Die Bordkasse zieht den Tageskurs automatisch
+          aus dem Netz und rechnet in Euro um. Der Kurs ist immer sichtbar und
+          lässt sich anpassen.
         </p>
         <p className="mt-2">
           Ohne Empfang nimmt die App den zuletzt bekannten Kurs, damit du auch auf
