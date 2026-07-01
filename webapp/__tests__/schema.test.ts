@@ -103,3 +103,49 @@ describe("CreditSchema – Komma vs. Punkt", () => {
     expect(r.success).toBe(false);
   });
 });
+
+describe("Beträge als Rechen-Ausdruck (Pfand/Privatkäufe rausrechnen)", () => {
+  it("wertet Subtraktion im Betragsfeld aus (Bon minus Pfand)", () => {
+    const r = ExpenseSchema.safeParse({ ...baseExpense, amount: "47,30 - 6,00" });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.amount).toBe(41.3);
+  });
+
+  it("wertet Addition mit Komma aus", () => {
+    const r = ExpenseSchema.safeParse({ ...baseExpense, amount: "9,80+1,50" });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.amount).toBe(11.3);
+  });
+
+  it("wertet Klammern + Multiplikation aus", () => {
+    const r = ExpenseSchema.safeParse({ ...baseExpense, amount: "(2*4,50)" });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.amount).toBe(9);
+  });
+
+  it("wertet Ausdruck im Alkohol-Anteil aus", () => {
+    const r = ExpenseSchema.safeParse({
+      ...baseExpense,
+      amount: "100",
+      alcohol_amount: "10+5",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.alcohol_amount).toBe(15);
+  });
+
+  it("wertet Division im Gutschrift-Betrag aus", () => {
+    const r = CreditSchema.safeParse({ ...baseCredit, amount: "240 / 4" });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.amount).toBe(60);
+  });
+
+  it("lehnt unsinnige Eingabe ab (kein stiller 0-Fallback)", () => {
+    const r = ExpenseSchema.safeParse({ ...baseExpense, amount: "abc" });
+    expect(r.success).toBe(false);
+  });
+
+  it("lehnt negatives Ergebnis ab", () => {
+    const r = ExpenseSchema.safeParse({ ...baseExpense, amount: "5-10" });
+    expect(r.success).toBe(false);
+  });
+});
