@@ -21,6 +21,7 @@ import {
 import { useRouter } from "next/navigation";
 import { enqueue, get as getOutboxItem } from "@/lib/offline/outbox";
 import { cn, formatEuro, nowMs } from "@/lib/utils";
+import { InfoTooltip } from "@/components/info-tooltip";
 import { useTripVocab } from "@/components/trip-vocab-provider";
 import type { TripVocab } from "@/lib/trip-vocab";
 import type { TxState } from "@/lib/actions/transactions";
@@ -560,7 +561,18 @@ export function CurrencyField({
 
   return (
     <div className="space-y-2 rounded-md border border-rule bg-paper p-3">
-      <FieldGroup label="Währung" htmlFor="currency_select">
+      <FieldGroup
+        label={
+          <>
+            Währung
+            <InfoTooltip
+              label="Fremdwährung erklärt"
+              text="Gib den Betrag in der Fremdwährung ein — er wird zum Kurs unten automatisch in Euro umgerechnet. Die Abrechnung bleibt in Euro."
+            />
+          </>
+        }
+        htmlFor="currency_select"
+      >
         <select
           id="currency_select"
           value={currency}
@@ -579,10 +591,14 @@ export function CurrencyField({
       {isForeign && (
         <>
           <FieldGroup
-            label={`Wechselkurs (1 ${currency} = € )`}
+            label={
+              <>
+                {`Wechselkurs (1 ${currency} = € )`}
+                <InfoTooltip label="Zum Wechselkurs" text={sourceHint} />
+              </>
+            }
             htmlFor="exchange_rate_input"
             error={error}
-            hint={sourceHint}
           >
             <input
               id="exchange_rate_input"
@@ -599,9 +615,7 @@ export function CurrencyField({
           <p className="text-sm" aria-live="polite">
             {eurPreview != null ? (
               <>
-                Ergibt{" "}
-                <span className="font-semibold text-primary">{formatEuro(eurPreview)}</span>{" "}
-                — dieser Euro-Betrag zählt in die Bilanz.
+                Ergibt <span className="font-semibold text-primary">{formatEuro(eurPreview)}</span>
               </>
             ) : (
               <span className="text-ink-soft">Bitte einen gültigen Wechselkurs eingeben.</span>
@@ -618,9 +632,16 @@ export function CurrencyField({
               {bankActive && <span className="ml-2 text-primary">✓ Bankbetrag eingetragen</span>}
             </summary>
             <FieldGroup
-              label="Betrag laut Kontoauszug (€)"
+              label={
+                <>
+                  Betrag laut Kontoauszug (€)
+                  <InfoTooltip
+                    label="Zum Kontoauszug-Betrag"
+                    text="Was die Bank laut Kontoauszug wirklich abgebucht hat, inklusive Gebühren. Ersetzt den geschätzten Kurs oben."
+                  />
+                </>
+              }
               htmlFor="bank_eur_amount_input"
-              hint="Der Betrag, den deine Bank wirklich abgebucht hat (inklusive Gebühren). Ersetzt den geschätzten Kurs oben. Leer lassen, solange der Auszug noch nicht da ist."
             >
               <input
                 id="bank_eur_amount_input"
@@ -634,9 +655,16 @@ export function CurrencyField({
               />
             </FieldGroup>
             <FieldGroup
-              label={`Voller Fremdbetrag der Kartenzahlung (${currency})`}
+              label={
+                <>
+                  {`Voller Fremdbetrag der Kartenzahlung (${currency})`}
+                  <InfoTooltip
+                    label="Wann ausfüllen?"
+                    text="Nur nötig, wenn du oben etwas rausgerechnet hast (z. B. einen Privatkauf) — dann hier der ganze Betrag der Kartenzahlung. Sonst leer lassen."
+                  />
+                </>
+              }
               htmlFor="bank_foreign_amount_input"
-              hint="Nur ausfüllen, wenn du oben etwas rausgerechnet hast (z. B. einen Privatkauf). Dann hier der ganze Betrag der Kartenzahlung. Sonst leer lassen."
             >
               <input
                 id="bank_foreign_amount_input"
