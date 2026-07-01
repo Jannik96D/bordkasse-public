@@ -204,6 +204,33 @@ const features: Feature[] = [
     alt: "Neue Buchung anlegen mit Aufteilungsauswahl",
   },
   {
+    id: "fremdwaehrung",
+    title: "In Fremdwährung buchen",
+    lead: "Restaurant in Kroatien, Sprit in Norwegen: Kommt auf dem Törn eine andere Währung als Euro dazu, schaltest du sie einmal in den Einstellungen frei und buchst danach pro Ausgabe direkt in dieser Währung.",
+    body: (
+      <>
+        <p>
+          Du gibst den Betrag so ein, wie er auf dem Bon steht, und wählst die
+          Währung. Die Bordkasse zieht den Tageskurs automatisch aus dem Netz und
+          rechnet in Euro um. Der Kurs ist immer sichtbar und lässt sich anpassen.
+        </p>
+        <p className="mt-2">
+          Ohne Empfang nimmt die App den zuletzt bekannten Kurs, damit du auch auf
+          See weiterbuchen kannst. Bei „Pro Person" trägt jede Person ihren Betrag
+          vom Bon ein.
+        </p>
+        <p className="mt-2">
+          Kommt später der Kontoauszug, kannst du den tatsächlich abgebuchten
+          Eurobetrag nachtragen. Dann rechnet die Bordkasse mit dem echten
+          Bankkurs inklusive Gebühren. Die Abrechnung bleibt am Ende in Euro,
+          egal wie viele Währungen unterwegs zusammenkamen.
+        </p>
+      </>
+    ),
+    screenshot: "/about/19-fremdwaehrung.webp",
+    alt: "Buchungsmaske mit Währungswähler, Wechselkurs und Umrechnung in Euro",
+  },
+  {
     id: "bilanz",
     title: "Bilanz",
     lead: "Wer hat insgesamt mehr gezahlt als verbraucht, wer weniger? Der Saldo wird laufend aus allen Buchungen berechnet.",
@@ -497,7 +524,7 @@ const PHASES: Phase[] = [
     Icon: Sailboat,
     title: "Während des Törns",
     lead: "Ausgaben und Gutschriften erfassen, auch ohne Internet.",
-    featureIds: ["buchungen", "buchung-neu", "gutschrift", "offline"],
+    featureIds: ["buchungen", "buchung-neu", "fremdwaehrung", "gutschrift", "offline"],
   },
   {
     id: "abrechnung",
