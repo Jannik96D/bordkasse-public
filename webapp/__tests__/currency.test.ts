@@ -158,6 +158,7 @@ describe("resolveExpenseCurrency", () => {
     tip_amount: 0,
     rate_source: "live" as string | null,
     bank_eur_amount: null as number | null,
+    bank_foreign_amount: null as number | null,
     participant_amounts: [] as { person_id: string; amount: number }[],
   };
 
@@ -184,6 +185,23 @@ describe("resolveExpenseCurrency", () => {
     expect(r.rate_source).toBe("bank");
     expect(r.exchange_rate).toBeCloseTo(45.8 / 500, 6);
     expect(r.amount).toBe(45.8);
+  });
+
+  it("Privatkauf rausgerechnet: voller Fremdbetrag als Divisor, Kurs auf geteilten Betrag", () => {
+    // Bon 480 NOK, davon 80 privat → geteilt 400. Bank bucht 480 NOK = 41,50 € ab.
+    // Effektiver Kurs = 41,50 / 480; angewandt auf die geteilten 400 NOK.
+    const r = resolveExpenseCurrency({
+      ...base,
+      amount: 400,
+      original_currency: "NOK",
+      exchange_rate: 0.085,
+      bank_eur_amount: 41.5,
+      bank_foreign_amount: 480,
+    });
+    expect(r.rate_source).toBe("bank");
+    expect(r.exchange_rate).toBeCloseTo(41.5 / 480, 6);
+    expect(r.amount).toBe(34.58);
+    expect(r.original_amount).toBe(400);
   });
 
   it("nur Bankbetrag (ohne Kurs): gilt trotzdem als Fremdwährung, nicht als EUR", () => {
@@ -232,7 +250,7 @@ describe("resolveExpenseCurrency", () => {
 describe("resolveCreditCurrency", () => {
   it("Fremdwährung + Bankbetrag → bank-Kurs", () => {
     const r = resolveCreditCurrency({
-      amount: 1000, original_currency: "DKK", exchange_rate: 0.134, rate_source: "manual", bank_eur_amount: 130,
+      amount: 1000, original_currency: "DKK", exchange_rate: 0.134, rate_source: "manual", bank_eur_amount: 130, bank_foreign_amount: null,
     });
     expect(r.rate_source).toBe("bank");
     expect(r.exchange_rate).toBeCloseTo(0.13, 6);

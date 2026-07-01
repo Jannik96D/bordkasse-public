@@ -14,7 +14,7 @@ const DateString = z
 
 /**
  * Wandelt eine Betragseingabe für Zod vor: akzeptiert neben "12,50" auch
- * Rechen-Ausdrücke wie "47,30 - 6,00" (Pfand/Privatkäufe direkt vom Bon
+ * Rechen-Ausdrücke wie "47,30 - 6,00" (Privatkäufe direkt vom Bon
  * rausrechnen) — ausgewertet via safeMathEval (CSP-sicher, kein eval).
  * Dient als Sicherheitsnetz für Submits ohne vorheriges onBlur (Enter,
  * Autofill); im Formular wertet das Feld bereits beim Verlassen aus.
@@ -69,9 +69,10 @@ const RateSource = z.preprocess(
   (v) => (typeof v === "string" && v.trim() !== "" ? v : null),
   z.union([z.null(), z.enum(["live", "manual", "bank"])]),
 );
-// Optionaler Euro-Betrag (darf ein Rechen-Ausdruck sein) — z. B. der tatsächlich
-// von der Bank berechnete Betrag laut Kontoauszug. null, wenn leer/nicht gesetzt.
-const OptionalEurAmount = z.preprocess(
+// Optionaler Geldbetrag (darf ein Rechen-Ausdruck sein) — genutzt für den
+// tatsächlich abgebuchten Euro-Betrag laut Kontoauszug UND den vollen
+// Fremdbetrag der Kartenzahlung. null, wenn leer/nicht gesetzt.
+const OptionalMoney = z.preprocess(
   (v) => {
     if (v == null) return null;
     if (typeof v === "string" && v.trim() === "") return null;
@@ -153,10 +154,14 @@ export const ExpenseSchema = z
     original_currency: CurrencyCode.default(null),
     exchange_rate: ExchangeRate.default(null),
     rate_source: RateSource.default(null),
-    // Tatsächlich von der Bank berechneter Euro-Betrag (nachträglich, optional).
+    // Tatsächlich abgebuchter Euro-Betrag laut Kontoauszug (nachträglich, optional).
     // Wenn gesetzt (nur bei Fremdwährung sinnvoll), leitet der Server daraus den
-    // effektiven Kurs ab und markiert rate_source='bank'.
-    bank_eur_amount: OptionalEurAmount.default(null),
+    // effektiven Kurs ab und markiert rate_source='bank'. `bank_foreign_amount` =
+    // voller Fremdbetrag der Kartenzahlung; nur nötig, wenn er vom Buchungsbetrag
+    // abweicht (z. B. Privatkauf wurde rausgerechnet), sonst fällt der Server auf
+    // den Buchungsbetrag zurück.
+    bank_eur_amount: OptionalMoney.default(null),
+    bank_foreign_amount: OptionalMoney.default(null),
   })
   .refine(
     (d) => d.split_type === "per_person" || d.amount > 0,
@@ -202,7 +207,8 @@ export const CreditSchema = z
     original_currency: CurrencyCode.default(null),
     exchange_rate: ExchangeRate.default(null),
     rate_source: RateSource.default(null),
-    bank_eur_amount: OptionalEurAmount.default(null),
+    bank_eur_amount: OptionalMoney.default(null),
+    bank_foreign_amount: OptionalMoney.default(null),
   })
   .refine((d) => d.credit_to !== d.credit_from, {
     message: "Von und An können nicht dieselbe Person sein.",

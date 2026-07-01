@@ -21,6 +21,7 @@ import {
 import { useRouter } from "next/navigation";
 import { enqueue, get as getOutboxItem } from "@/lib/offline/outbox";
 import { cn, formatEuro, nowMs } from "@/lib/utils";
+import { InfoTooltip } from "@/components/info-tooltip";
 import { useTripVocab } from "@/components/trip-vocab-provider";
 import type { TripVocab } from "@/lib/trip-vocab";
 import type { TxState } from "@/lib/actions/transactions";
@@ -518,6 +519,8 @@ export function CurrencyField({
   rateSource,
   bankInput,
   onBankChange,
+  bankForeignInput,
+  onBankForeignChange,
   eurPreview,
   error,
 }: {
@@ -527,9 +530,12 @@ export function CurrencyField({
   rateInput: string;
   onRateChange: (value: string) => void;
   rateSource: "live" | "last_booking" | "manual" | "bank";
-  /** Tatsächlich von der Bank berechneter Euro-Betrag (Eingabe-String). */
+  /** Tatsächlich abgebuchter Euro-Betrag laut Kontoauszug (Eingabe-String). */
   bankInput: string;
   onBankChange: (value: string) => void;
+  /** Voller Fremdbetrag der Kartenzahlung — nur nötig, wenn vom Buchungsbetrag abweichend. */
+  bankForeignInput: string;
+  onBankForeignChange: (value: string) => void;
   /** Resultierender Euro-Betrag (Bank falls gesetzt, sonst Fremd × Kurs). Vom Formular berechnet. */
   eurPreview: number | null;
   error?: string;
@@ -555,7 +561,18 @@ export function CurrencyField({
 
   return (
     <div className="space-y-2 rounded-md border border-rule bg-paper p-3">
-      <FieldGroup label="Währung" htmlFor="currency_select">
+      <FieldGroup
+        label={
+          <>
+            Währung
+            <InfoTooltip
+              label="Fremdwährung erklärt"
+              text="Gib den Betrag in der Fremdwährung ein — er wird zum Kurs unten automatisch in Euro umgerechnet. Die Abrechnung bleibt in Euro."
+            />
+          </>
+        }
+        htmlFor="currency_select"
+      >
         <select
           id="currency_select"
           value={currency}
@@ -574,10 +591,14 @@ export function CurrencyField({
       {isForeign && (
         <>
           <FieldGroup
-            label={`Wechselkurs (1 ${currency} = € )`}
+            label={
+              <>
+                {`Wechselkurs (1 ${currency} = € )`}
+                <InfoTooltip label="Zum Wechselkurs" text={sourceHint} />
+              </>
+            }
             htmlFor="exchange_rate_input"
             error={error}
-            hint={sourceHint}
           >
             <input
               id="exchange_rate_input"
@@ -594,26 +615,33 @@ export function CurrencyField({
           <p className="text-sm" aria-live="polite">
             {eurPreview != null ? (
               <>
-                Ergibt{" "}
-                <span className="font-semibold text-primary">{formatEuro(eurPreview)}</span>{" "}
-                — dieser Euro-Betrag zählt in die Bilanz.
+                Ergibt <span className="font-semibold text-primary">{formatEuro(eurPreview)}</span>
               </>
             ) : (
               <span className="text-ink-soft">Bitte einen gültigen Wechselkurs eingeben.</span>
             )}
           </p>
 
-          {/* Bankkurs nachtragen: was die Bank laut Kontoauszug wirklich abgebucht
-              hat (inkl. Gebühren/Spread). Überschreibt den geschätzten Kurs. */}
+          {/* Echten Bankbetrag nachtragen: was die Bank laut Kontoauszug wirklich
+              abgebucht hat (inkl. Gebühren). Überschreibt den geschätzten Kurs.
+              Der volle Fremdbetrag ist nur nötig, wenn oben etwas rausgerechnet
+              wurde (z. B. Privatkauf) — sonst = Buchungsbetrag. */}
           <details open={bankActive} className="rounded-md border border-rule bg-paper-soft p-2 text-sm">
             <summary className="cursor-pointer text-ink-soft">
-              Tatsächlich von der Bank berechnet?
-              {bankActive && <span className="ml-2 text-primary">✓ gesetzt</span>}
+              Echten Bankbetrag nachtragen (optional)
+              {bankActive && <span className="ml-2 text-primary">✓ Bankbetrag eingetragen</span>}
             </summary>
             <FieldGroup
-              label="Betrag laut Kontoauszug (€)"
+              label={
+                <>
+                  Betrag laut Kontoauszug (€)
+                  <InfoTooltip
+                    label="Zum Kontoauszug-Betrag"
+                    text="Was die Bank laut Kontoauszug wirklich abgebucht hat, inklusive Gebühren. Ersetzt den geschätzten Kurs oben."
+                  />
+                </>
+              }
               htmlFor="bank_eur_amount_input"
-              hint="Der real abgebuchte Euro-Betrag inkl. Gebühren/Spread. Ersetzt den geschätzten Kurs oben; leer lassen, solange der Auszug noch nicht da ist."
             >
               <input
                 id="bank_eur_amount_input"
@@ -626,12 +654,36 @@ export function CurrencyField({
                 className={inputCls}
               />
             </FieldGroup>
+            <FieldGroup
+              label={
+                <>
+                  {`Voller Fremdbetrag der Kartenzahlung (${currency})`}
+                  <InfoTooltip
+                    label="Wann ausfüllen?"
+                    text="Nur nötig, wenn du oben etwas rausgerechnet hast (z. B. einen Privatkauf) — dann hier der ganze Betrag der Kartenzahlung. Sonst leer lassen."
+                  />
+                </>
+              }
+              htmlFor="bank_foreign_amount_input"
+            >
+              <input
+                id="bank_foreign_amount_input"
+                type="text"
+                inputMode="text"
+                autoComplete="off"
+                value={bankForeignInput}
+                onChange={(e) => onBankForeignChange(e.target.value)}
+                placeholder="ganzer Bon-Betrag"
+                className={inputCls}
+              />
+            </FieldGroup>
           </details>
 
           <input type="hidden" name="original_currency" value={currency} />
           <input type="hidden" name="exchange_rate" value={rateInput} />
           <input type="hidden" name="rate_source" value={submittedSource} />
           <input type="hidden" name="bank_eur_amount" value={bankInput} />
+          <input type="hidden" name="bank_foreign_amount" value={bankForeignInput} />
         </>
       )}
     </div>
