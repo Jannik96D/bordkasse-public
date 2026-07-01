@@ -206,11 +206,11 @@ const features: Feature[] = [
   {
     id: "fremdwaehrung",
     title: "In Fremdwährung buchen",
-    lead: "Restaurant in Kroatien, Sprit in Norwegen: Kommt auf dem Törn eine andere Währung als Euro dazu, schaltest du sie einmal in den Einstellungen frei und buchst danach pro Ausgabe direkt in dieser Währung.",
+    lead: "Hafengebühr in Dänemark, Sprit in Deutschland: Kommt auf dem Törn eine andere Währung als Euro dazu, schaltest du sie einmal in den Einstellungen frei und buchst danach pro Ausgabe direkt in dieser Währung.",
     body: (
       <>
         <p>
-          Standardmäßig ist alles in Euro — vom Fremdwährungsmodul siehst du
+          Standardmäßig ist alles in Euro, vom Fremdwährungsmodul siehst du
           nichts. Erst wenn du in den Törneinstellungen eine Währung freischaltest,
           erscheint bei den Buchungen ein Währungswähler. So bleibt die App für
           normale Euro-Törns aufgeräumt.
@@ -227,8 +227,8 @@ const features: Feature[] = [
           vom Bon ein.
         </p>
         <p className="mt-2">
-          Kommt später der Kontoauszug, kannst du den tatsächlich abgebuchten
-          Eurobetrag nachtragen. Dann rechnet die Bordkasse mit dem echten
+          Kommt später die Abbuchung auf deinem Konto an, kannst du den tatsächlich
+          abgebuchten Eurobetrag nachtragen. Dann rechnet die Bordkasse mit dem echten
           Bankkurs inklusive Gebühren. Die Abrechnung bleibt am Ende in Euro,
           egal wie viele Währungen unterwegs zusammenkamen.
         </p>
