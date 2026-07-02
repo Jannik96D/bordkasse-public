@@ -72,16 +72,6 @@ export function PrepaymentPlanSection({
               </button>
             </form>
           )}
-          {!planExists && declined && (
-            <form action={setPrepaymentDeclined.bind(null, tripId, false)}>
-              <button
-                type="submit"
-                className="inline-flex min-h-[44px] items-center rounded-md border border-rule bg-paper px-4 py-2 text-sm font-medium text-ink-soft hover:border-primary/40 hover:text-primary"
-              >
-                Anzahlung doch vorsehen
-              </button>
-            </form>
-          )}
         </div>
       </div>
     </section>
