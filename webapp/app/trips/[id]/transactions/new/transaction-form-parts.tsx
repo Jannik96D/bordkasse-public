@@ -11,6 +11,7 @@
 
 import {
   useActionState,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -20,6 +21,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { enqueue, get as getOutboxItem } from "@/lib/offline/outbox";
+import { isSyncing } from "@/lib/offline/sync";
 import { cn, formatEuro, nowMs } from "@/lib/utils";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { useTripVocab } from "@/components/trip-vocab-provider";
@@ -84,6 +86,10 @@ export type ExpenseInitial = {
   rateSource?: "live" | "manual" | "bank" | null;
   /** Tatsächlich von der Bank berechneter Euro-Betrag (nur wenn rate_source='bank'). */
   bankAmount?: number | null;
+  /** Voller Fremdbetrag der Kartenzahlung (Privatabzug-Fall). Nur aus einem
+   *  Outbox-ENTWURF wiederherstellbar (dort in formData), NICHT aus einer
+   *  gespeicherten Server-Buchung (transient) — siehe Fund O-3. */
+  bankForeignAmount?: number | null;
 };
 
 export type CreditInitial = {
@@ -102,6 +108,8 @@ export type CreditInitial = {
   exchangeRate?: number | null;
   rateSource?: "live" | "manual" | "bank" | null;
   bankAmount?: number | null;
+  /** Siehe ExpenseInitial.bankForeignAmount (Fund O-3, nur aus Entwurf). */
+  bankForeignAmount?: number | null;
 };
 
 // CurrencyChoice ist in @/lib/rates/options definiert (reines Modul, testbar) —
@@ -299,9 +307,34 @@ export function useBookingSubmit(opts: {
 }) {
   const { tripId, kind, isEdit, isDraft, draftId, createAction, updateAction, getTotal, fatFingerNoun } = opts;
   const router = useRouter();
-  const [state, formAction, pending] = useActionState(isEdit ? updateAction : createAction, idleState);
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const formRef = useRef<HTMLFormElement>(null);
+
+  // Rettet eine neue Buchung in die Outbox, wenn die Server-Action mit einem
+  // Netzwerkfehler ABLEHNT (Fund O-5): totes Uplink-WLAN (Router verbunden,
+  // Internet weg) lässt navigator.onLine auf true und feuert KEIN offline-Event
+  // — der offline-Listener oben und der Pre-Submit-Gate greifen dann nicht, und
+  // die Eingabe fiele sonst in die Error-Boundary. Dedup-sicher über den
+  // idempotency_key (ein bereits serverseitig angelegter Insert läuft beim
+  // Replay in die Unique-Violation und gilt als Erfolg → kein Duplikat).
+  const createWithRescue = useCallback<Action>(
+    async (prev, fd) => {
+      try {
+        return await createAction(prev, fd);
+      } catch (err) {
+        try {
+          await enqueue({ id: idempotencyKey, tripId, kind, formData: formDataToObject(fd), createdAt: nowMs() });
+        } catch {
+          throw err; // Outbox selbst kaputt → ursprünglichen Fehler zeigen
+        }
+        router.push(`/trips/${tripId}/transactions`);
+        return idleState;
+      }
+    },
+    [createAction, idempotencyKey, tripId, kind, router],
+  );
+
+  const [state, formAction, pending] = useActionState(isEdit ? updateAction : createWithRescue, idleState);
 
   // Bei Validierungs-Fehler: zum betroffenen Feld scrollen + fokussieren.
   useEffect(() => {
@@ -348,6 +381,13 @@ export function useBookingSubmit(opts: {
     // Race-Schutz: ist der Eintrag inzwischen weggesynct, nicht neu einreihen.
     if (isDraft && draftId) {
       e.preventDefault();
+      // Race-Schutz (Fund O-1): Wird der Eintrag GERADE synchronisiert, darf er
+      // nicht überschrieben werden — der Server-Insert mit gleichem
+      // idempotency_key gewinnt sonst und die Bearbeitung ginge verloren.
+      if (isSyncing(draftId)) {
+        router.push(`/trips/${tripId}/transactions?toast=draft-syncing`);
+        return;
+      }
       const obj = formDataToObject(new FormData(e.currentTarget));
       getOutboxItem(draftId)
         .then((existing) => {

@@ -102,6 +102,7 @@ function useCurrencyState(
     exchangeRate?: number | null;
     rateSource?: "live" | "manual" | "bank" | null;
     bankAmount?: number | null;
+    bankForeignAmount?: number | null;
   },
 ) {
   const [currency, setCurrency] = useState<string>(initial?.originalCurrency ?? "EUR");
@@ -117,9 +118,16 @@ function useCurrencyState(
   );
   const onBankChange = (value: string) => setBankInput(value);
   // Voller Fremdbetrag der Kartenzahlung (nur nötig bei rausgerechnetem Privatkauf).
-  // Nicht aus initial vorbefüllt — der volle Fremdbetrag wird nicht gespeichert;
-  // beim Edit leer = Buchungsbetrag als Divisor, was den gespeicherten Kurs reproduziert.
-  const [bankForeignInput, setBankForeignInput] = useState<string>("");
+  // Aus einem Outbox-ENTWURF wiederhergestellt (Fund O-3): dessen exchange_rate
+  // ist der rohe Schätzkurs, nicht der effektive — ohne den vollen Fremdbetrag
+  // als Divisor rechnete der Replay den Kurs falsch. Bei einer gespeicherten
+  // Server-Buchung ist das Feld transient (nicht gespeichert) → bleibt leer,
+  // dort trägt der bereits effektive exchange_rate den Betrag (siehe Fund C-2).
+  const [bankForeignInput, setBankForeignInput] = useState<string>(
+    initial?.rateSource === "bank" && initial?.bankForeignAmount != null
+      ? formatAmount(initial.bankForeignAmount)
+      : "",
+  );
   const onBankForeignChange = (value: string) => setBankForeignInput(value);
   // Online geladene Kurse persistent cachen → erste Offline-Buchung einer
   // Währung hat auch ohne frühere Buchung einen Kurs (siehe lib/offline/rate-cache).

@@ -25,7 +25,11 @@
 // Caches → der erste Offline-Versuch direkt nach dem Update kann einmalig in
 // /offline.html landen, bis erneut online gewärmt wurde; wegen des bewussten
 // kein-skipWaiting-Flows wird v9 zudem erst nach Tipp auf „Aktualisieren" aktiv.
-const CACHE_VERSION = "bordkasse-v12";
+// v13: networkFirst cacht keine gefolgten Auth-Redirects mehr (eine
+// abgelaufene Session hätte sonst die Login-Seite unter dem Buchungsformular-
+// Key abgelegt → Offline-Sackgasse); rscNetworkFirst awaitet cache.put nicht
+// mehr (QuotaExceededError machte eine erfolgreiche Online-Navigation kaputt).
+const CACHE_VERSION = "bordkasse-v13";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE = `${CACHE_VERSION}-pages`;
 const RSC_CACHE = `${CACHE_VERSION}-rsc`;
@@ -128,7 +132,12 @@ async function networkFirst(request, cacheName) {
   const cache = await caches.open(cacheName);
   try {
     const response = await fetch(request);
-    if (response.ok) cache.put(request, response.clone());
+    // NICHT cachen, wenn der Fetch einem Redirect gefolgt ist (Fund O-2): bei
+    // abgelaufener Session leitet der Proxy /trips/…/new → /login um; die
+    // gefolgte 200-Login-HTML (response.ok true, response.redirected true)
+    // würde sonst unter dem Formular-Key landen → Offline-FAB liefert eine tote
+    // Login-Seite trotz Preflight. Nur direkte, nicht-umgeleitete Antworten cachen.
+    if (response.ok && !response.redirected) cache.put(request, response.clone());
     return response;
   } catch (err) {
     const cached = await cache.match(request);
@@ -161,7 +170,13 @@ async function rscNetworkFirst(request) {
   const keyUrl = url.toString();
   try {
     const response = await fetch(request);
-    if (response.ok) await cache.put(keyUrl, response.clone());
+    // Fire-and-forget statt await (Fund O-4): ein QuotaExceededError beim
+    // cache.put (iOS-Speicherdruck) darf eine bereits erfolgreiche 200-Antwort
+    // NICHT in den catch-Zweig kippen (der sonst stale RSC liefert oder wirft,
+    // obwohl das Netz einwandfrei war). Redirect-Guard wie in networkFirst.
+    if (response.ok && !response.redirected) {
+      cache.put(keyUrl, response.clone()).catch(() => {});
+    }
     return response;
   } catch (err) {
     const cached = await cache.match(keyUrl, { ignoreVary: true });

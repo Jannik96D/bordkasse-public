@@ -115,9 +115,14 @@ export default async function EditTransactionPage({
       originalCurrency: foreignCur,
       exchangeRate: rate,
       rateSource,
-      // Bei bereits bestätigtem Bankkurs den echten Euro-Betrag (= tx.amount)
-      // ins Bank-Feld vorbelegen, damit der Kurs beim erneuten Speichern hält.
-      bankAmount: rateSource === "bank" ? Number(tx.amount) : null,
+      // Bank-Feld NICHT vorbelegen (Fund C-2): tx.amount ist der geteilte
+      // EUR-Betrag, nicht der real abgebuchte — als Divisor gesetzt hätte er den
+      // EUR-Betrag beim Ändern des Fremdbetrags falsch fixiert. Der gespeicherte
+      // exchange_rate IST bei rate_source='bank' bereits der effektive Kurs;
+      // ohne Bankbetrag rechnet resolve direkt damit und repreist korrekt.
+      // Der echte Bankbetrag ist nicht gespeichert und daher nicht reproduzierbar
+      // — wer ihn korrigieren will, trägt ihn im Bank-Block neu ein.
+      bankAmount: null,
     };
   } else {
     creditInitial = {
@@ -131,9 +136,14 @@ export default async function EditTransactionPage({
       originalCurrency: foreignCur,
       exchangeRate: rate,
       rateSource,
-      // Bei bereits bestätigtem Bankkurs den echten Euro-Betrag (= tx.amount)
-      // ins Bank-Feld vorbelegen, damit der Kurs beim erneuten Speichern hält.
-      bankAmount: rateSource === "bank" ? Number(tx.amount) : null,
+      // Bank-Feld NICHT vorbelegen (Fund C-2): tx.amount ist der geteilte
+      // EUR-Betrag, nicht der real abgebuchte — als Divisor gesetzt hätte er den
+      // EUR-Betrag beim Ändern des Fremdbetrags falsch fixiert. Der gespeicherte
+      // exchange_rate IST bei rate_source='bank' bereits der effektive Kurs;
+      // ohne Bankbetrag rechnet resolve direkt damit und repreist korrekt.
+      // Der echte Bankbetrag ist nicht gespeichert und daher nicht reproduzierbar
+      // — wer ihn korrigieren will, trägt ihn im Bank-Block neu ein.
+      bankAmount: null,
     };
   }
 

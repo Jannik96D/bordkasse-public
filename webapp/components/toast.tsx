@@ -20,6 +20,7 @@ const MESSAGES: Record<string, string> = {
   "credit-updated": "Gutschrift aktualisiert.",
   "draft-updated": "Entwurf geändert — wird beim nächsten Online-Gehen übertragen.",
   "draft-synced": "Buchung wurde schon übertragen — bitte über die Liste bearbeiten.",
+  "draft-syncing": "Buchung wird gerade übertragen — sie erscheint gleich in der Liste und ist dort bearbeitbar.",
   "draft-deleted": "Entwurf verworfen.",
 };
 
