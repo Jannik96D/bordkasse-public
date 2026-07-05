@@ -93,6 +93,10 @@ function draftToExpenseInitial(d: FormDataObj): ExpenseInitial {
     exchangeRate: rateOrNull(d.exchange_rate),
     rateSource: rateSourceOrNull(d.rate_source),
     bankAmount: rateOrNull(d.bank_eur_amount),
+    // Fund O-3: den vollen Fremdbetrag der Kartenzahlung mit-wiederherstellen,
+    // sonst rechnete der Replay beim erneuten Speichern den effektiven Kurs
+    // mit dem Buchungsbetrag als Divisor (statt dem vollen Kartenbetrag) falsch.
+    bankForeignAmount: rateOrNull(d.bank_foreign_amount),
   };
 }
 
@@ -110,6 +114,7 @@ function draftToCreditInitial(d: FormDataObj): CreditInitial {
     exchangeRate: rateOrNull(d.exchange_rate),
     rateSource: rateSourceOrNull(d.rate_source),
     bankAmount: rateOrNull(d.bank_eur_amount),
+    bankForeignAmount: rateOrNull(d.bank_foreign_amount), // Fund O-3, s. o.
   };
 }
 
