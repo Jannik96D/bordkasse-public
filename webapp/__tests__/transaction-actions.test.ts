@@ -17,16 +17,25 @@ vi.mock("@/lib/auth/authz", () => ({
 }));
 vi.mock("@/lib/auth/get-current-person", () => ({ getCurrentPerson: vi.fn() }));
 
-import { createExpense, createCredit } from "@/lib/actions/transactions";
+import {
+  createExpense,
+  createCredit,
+  deleteTransaction,
+  replayPendingTransaction,
+} from "@/lib/actions/transactions";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import {
   requireMember,
+  requireSkipperOrAdmin,
   requireSkipperAdminOrAdvancer,
+  isAdmin,
 } from "@/lib/auth/authz";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const mockedPerson = vi.mocked(getCurrentPerson);
 const mockedRequireMember = vi.mocked(requireMember);
+const mockedRequireSkipperOrAdmin = vi.mocked(requireSkipperOrAdmin);
+const mockedIsAdmin = vi.mocked(isAdmin);
 const mockedAdvancer = vi.mocked(requireSkipperAdminOrAdvancer);
 const mockedAdminClient = vi.mocked(createAdminClient);
 
@@ -47,12 +56,14 @@ function makeSupabase(
   opts: {
     trancheBelongs?: boolean;
     foundPersonIds?: string[];
+    memberWindows?: Array<{ person_id: string; on_board_from: string | null; on_board_to: string | null }>;
     tripDates?: { start_date: string; end_date: string; trip_type?: string };
   } = {},
 ) {
   const {
     trancheBelongs = true,
     foundPersonIds = [],
+    memberWindows,
     tripDates = { start_date: "2026-06-06", end_date: "2026-06-13" },
   } = opts;
   const make = (table: string) => {
@@ -83,7 +94,7 @@ function makeSupabase(
       if (table === "trip_members") {
         value = counting
           ? { count: 5, data: null }
-          : { data: foundPersonIds.map((person_id) => ({ person_id })) };
+          : { data: memberWindows ?? foundPersonIds.map((person_id) => ({ person_id })) };
       }
       return Promise.resolve(value).then(onFulfilled);
     };
@@ -224,7 +235,27 @@ describe("createExpense — Datum außerhalb des Törns", () => {
     if (res.status === "error") expect(res.field).toBe("date");
   });
 
-  it("lässt „An Bord“ mit Datum im Törnzeitraum durch den Datums-Guard", async () => {
+  it("weist „An Bord“ mit In-Törn-Datum ab, wenn an dem Tag niemand an Bord ist (Fund C-1)", async () => {
+    // Datum liegt im Törnzeitraum (06.–13.06.), aber die ganze Crew kommt erst
+    // ab dem 09.06. an Bord → am 07.06. ist niemand da → Ausgabe bliebe
+    // unallokiert (Bilanz-Summe ≠ 0). Muss abgelehnt werden.
+    mockedAdminClient.mockReturnValue(
+      makeSupabase({
+        memberWindows: [{ person_id: PERSON_ID, on_board_from: "2026-06-09", on_board_to: "2026-06-13" }],
+      }) as never,
+    );
+    const res = await createExpense(
+      { status: "idle" },
+      expenseFormData({ split_type: "on_board", date: "2026-06-07" }),
+    );
+    expect(res.status).toBe("error");
+    if (res.status === "error") {
+      expect(res.field).toBe("date");
+      expect(res.message).toContain("niemand an Bord");
+    }
+  });
+
+  it("lässt „An Bord“ mit Datum im Törnzeitraum und Anwesenden durch den Datums-Guard", async () => {
     // Endet bewusst erst am Cross-Trip-Check (leere Personenliste) —
     // der Datums-Guard selbst darf nicht anschlagen.
     const res = await createExpense(
@@ -247,5 +278,81 @@ describe("createExpense — Datum außerhalb des Törns", () => {
       expect(res.field).not.toBe("date");
       expect(res.message).toContain("gehört nicht zu diesem Törn");
     }
+  });
+});
+
+describe("replayPendingTransaction — dieselben Guards wie createExpense (Fund S-1)", () => {
+  beforeEach(() => {
+    mockedPerson.mockReset();
+    mockedRequireMember.mockReset();
+    mockedAdminClient.mockReset();
+    mockedPerson.mockResolvedValue({ id: PERSON_ID, display_name: "Crew", email: "c@x.de" } as never);
+    mockedRequireMember.mockResolvedValue({ ok: true, personId: PERSON_ID });
+  });
+
+  it("weist eine Replay-Ausgabe mit trip-fremdem paid_by ab (Cross-Trip-Schutz)", async () => {
+    // foundPersonIds leer → personsBelongToTrip schlägt fehl. Vor dem Fix lief
+    // der Replay-Pfad ganz ohne diese Prüfung und hätte die fremde Person
+    // in die Bilanz geschrieben.
+    mockedAdminClient.mockReturnValue(makeSupabase({ foundPersonIds: [] }) as never);
+    const res = await replayPendingTransaction("expense", {
+      trip_id: TRIP_ID,
+      date: "2026-06-07",
+      description: "Offline-Ausgabe",
+      paid_by: PERSON_ID,
+      amount: "360,00",
+      split_type: "equal",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.message).toContain("gehört nicht zu diesem Törn");
+  });
+
+  it('weist eine Replay-„An Bord"-Ausgabe außerhalb des Törnzeitraums ab', async () => {
+    mockedAdminClient.mockReturnValue(makeSupabase({ foundPersonIds: [PERSON_ID] }) as never);
+    const res = await replayPendingTransaction("expense", {
+      trip_id: TRIP_ID,
+      date: "2026-05-01",
+      description: "Offline vor Törn",
+      paid_by: PERSON_ID,
+      amount: "360,00",
+      split_type: "on_board",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.message).toContain("niemand an Bord");
+  });
+});
+
+describe("deleteTransaction — nur Ersteller/Skipper/Admin (Fund S-2)", () => {
+  const OTHER_CREATOR = "aaaaaaaa-0000-4000-8000-00000000000c";
+  function makeDeleteSupabase(existing: Record<string, unknown> | null) {
+    const make = () => {
+      const b: Record<string, unknown> = {};
+      const self = () => b;
+      b.select = self;
+      b.eq = self;
+      b.update = self;
+      b.maybeSingle = () => Promise.resolve({ data: existing });
+      return b;
+    };
+    return { from: () => make() };
+  }
+
+  beforeEach(() => {
+    mockedRequireMember.mockReset();
+    mockedRequireSkipperOrAdmin.mockReset();
+    mockedIsAdmin.mockReset();
+    mockedAdminClient.mockReset();
+    mockedRequireMember.mockResolvedValue({ ok: true, personId: PERSON_ID });
+    mockedAdminClient.mockReturnValue(
+      makeDeleteSupabase({ category_id: null, trip_id: TRIP_ID, created_by: OTHER_CREATOR }) as never,
+    );
+  });
+
+  it("verweigert das Löschen für ein einfaches Mitglied, das weder Ersteller noch Skipper/Admin ist", async () => {
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: false, message: "nein" });
+    mockedIsAdmin.mockResolvedValue(false);
+    const res = await deleteTransaction("aaaaaaaa-0000-4000-8000-00000000000d", TRIP_ID);
+    // Vor dem Fix reichte bloße Mitgliedschaft → Löschen fremder Buchungen möglich.
+    expect(res.ok).toBe(false);
   });
 });

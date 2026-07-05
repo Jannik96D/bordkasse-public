@@ -10,7 +10,7 @@ import { requireSkipperOrAdmin, requireMember, requireSkipperAdminOrAdvancer } f
 import { sendPushToPersons } from "@/lib/notify/web-push";
 import { pushRecipients } from "@/lib/notify/recipients";
 import { paymentPendingPush, paymentConfirmedPush, paymentRejectedPush } from "@/lib/notify/payloads";
-import { personsBelongToTrip, CROSS_TRIP_PERSON_MSG } from "@/lib/auth/cross-trip";
+import { personsBelongToTrip, trancheBelongsToTrip, CROSS_TRIP_PERSON_MSG } from "@/lib/auth/cross-trip";
 import { logAudit } from "@/lib/db/audit";
 import {
   PlanSchema,
@@ -336,6 +336,14 @@ export async function recordPayment(
     return { status: "error", message: CROSS_TRIP_PERSON_MSG };
   }
 
+  // Cross-Trip-Schutz auch für die Overflow-Tranche (Fund S-3): die primäre
+  // tranche_id wird unten per `.eq("trip_id", trip_id)` geprüft, overflow_tranche_id
+  // ging bisher ungeprüft in die zweite Gutschrift und konnte zu einem FREMDEN
+  // Törn gehören (kein Composite-FK auf transactions.tranche_id).
+  if (overflow_tranche_id && !(await trancheBelongsToTrip(supabase, overflow_tranche_id, trip_id))) {
+    return { status: "error", message: "Ungültige Tranche für diesen Törn." };
+  }
+
   // Vorstrecker ermitteln: aus prepayment_plan.advancer_person_id, sonst
   // Trip-Skipper als Fallback. Crewanzahlungen werden gegen diese Person
   // verbucht. Self-Credit (Vorstrecker zahlt seinen eigenen Anteil) ist seit
@@ -419,7 +427,12 @@ export async function recordPayment(
         bookedCredits.push({ trancheId: tranche_id, amount: part1 });
       }
       if (part2 > 0) {
-        await insertCredit(overflow_tranche_id!, part2);
+        // Fund S-5: part2 braucht einen EIGENEN idempotency_key. Ohne ihn
+        // schluckt ein Retry zwar part1 (Unique-Violation), fügt part2 aber
+        // erneut ein → doppelter Overflow-Betrag auf der zweiten Tranche.
+        // Aus dem Basis-Key abgeleitet, damit derselbe Retry auch part2 dedupt.
+        const part2Key = idempotency_key ? `${idempotency_key}:overflow` : undefined;
+        await insertCredit(overflow_tranche_id!, part2, part2Key);
         bookedCredits.push({ trancheId: overflow_tranche_id!, amount: part2 });
       }
     } else {

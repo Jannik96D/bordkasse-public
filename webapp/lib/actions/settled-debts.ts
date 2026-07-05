@@ -74,6 +74,31 @@ export async function toggleDebtSettled(input: {
   }
 
   if (settled) {
+    // Fund S-6: from/to_person_id + amount kommen aus dem Formular und waren
+    // bisher NUR als UUID/positive Zahl validiert — ein Mitglied konnte die
+    // Gegenseite auf eine BELIEBIGE Person (auch aus einem fremden Törn) und
+    // einen frei erfundenen Betrag setzen, woraufhin sendDebtSettledMails/Push
+    // dieser Person eine „Zahlung abgehakt"-Mail schickte. Wir prüfen das
+    // Tripel jetzt gegen den echten simplify_debts-Output dieses Törns; das
+    // bindet die Gegenseite an eine reale Schuld (nur Trip-Crew) UND den
+    // Betrag. Gespeichert wird der KANONISCHE Betrag, damit all_debts_settled
+    // (exakter Vergleich) matcht und der Purge nicht blockiert.
+    const { data: debtRows } = await supabase.rpc("simplify_debts", { p_trip_id: trip_id });
+    const match = ((debtRows ?? []) as Array<{ from_person_id: string; to_person_id: string; amount: number | string }>)
+      .find(
+        (d) =>
+          d.from_person_id === from_person_id &&
+          d.to_person_id === to_person_id &&
+          Math.abs(Number(d.amount) - amount) < 0.005,
+      );
+    if (!match) {
+      return {
+        ok: false,
+        message: "Diese Schuld gibt es nicht (mehr). Lade die Seite neu und versuche es erneut.",
+      };
+    }
+    const settledAmount = Number(match.amount);
+
     const { data: row, error } = await supabase
       .from("settled_debts")
       .upsert(
@@ -81,7 +106,7 @@ export async function toggleDebtSettled(input: {
           trip_id,
           from_person_id,
           to_person_id,
-          amount,
+          amount: settledAmount,
           settled_by_person_id: auth.personId,
           settled_at: new Date().toISOString(),
         },
@@ -99,7 +124,7 @@ export async function toggleDebtSettled(input: {
       record_id: row.id,
       trip_id,
       actor_person_id: auth.personId,
-      payload: { from_person_id, to_person_id, amount },
+      payload: { from_person_id, to_person_id, amount: settledAmount },
     });
 
     // Beide Seiten per Mail benachrichtigen: Schuldner bekommt eine
@@ -114,7 +139,7 @@ export async function toggleDebtSettled(input: {
         tripId: trip_id,
         fromPersonId: from_person_id,
         toPersonId: to_person_id,
-        amount,
+        amount: settledAmount,
         actorPersonId: auth.personId,
       });
       mailsSent = res.sent;
