@@ -104,11 +104,15 @@ async function checkMinShare(
 }
 
 /**
- * „An Bord" verteilt auf die am Buchungstag Anwesenden — außerhalb des
- * Törnzeitraums ist das niemand und die Ausgabe bliebe unallokiert beim
- * Zahler hängen (keine Shares in v_transaction_shares, Bilanz-Summe ≠ 0).
- * Alle anderen Aufteilungen sind datumsunabhängig; Buchungen vor/nach dem
- * Törn (Anzahlung, Versicherung, Nachzügler-Rechnung) sind dort erlaubt.
+ * „An Bord" verteilt auf die am Buchungstag Anwesenden — ist an diesem Tag
+ * NIEMAND an Bord, bliebe die Ausgabe unallokiert beim Zahler hängen (keine
+ * Shares in v_transaction_shares, Bilanz-Summe ≠ 0). Das trifft zwei Fälle:
+ *   1. Datum außerhalb des Törnzeitraums (Anzahlung/Versicherung/Nachzügler).
+ *   2. Datum INNERHALB des Zeitraums, aber vor dem ersten bzw. nach dem
+ *      letzten Anwesenheitsfenster der Crew (z. B. Charter-Übergabetag, an
+ *      dem noch niemand `on_board_from` erreicht hat) — Fund C-1.
+ * Alle anderen Aufteilungen sind datumsunabhängig und dürfen vor/nach dem Törn
+ * gebucht werden.
  */
 async function checkOnBoardDate(
   supabase: ReturnType<typeof createAdminClient>,
@@ -127,16 +131,40 @@ async function checkOnBoardDate(
   // Trip-Existenz sichert requireMember ab; ohne Daten lieber durchlassen
   // als eine valide Buchung zu blockieren.
   if (!trip) return { ok: true };
-  if (data.date < trip.start_date || data.date > trip.end_date) {
+
+  const outOfRange = data.date < trip.start_date || data.date > trip.end_date;
+
+  // Innerhalb des Zeitraums prüfen, ob am Buchungstag überhaupt jemand an Bord
+  // ist — dieselbe Fensterlogik wie v_transaction_shares:
+  // COALESCE(on_board_from, start_date) ≤ date ≤ COALESCE(on_board_to, end_date).
+  let nobodyAboard = outOfRange;
+  if (!outOfRange) {
+    const { data: members } = await supabase
+      .from("trip_members")
+      .select("on_board_from, on_board_to")
+      .eq("trip_id", tripId);
+    const anyPresent = (members ?? []).some((m) => {
+      const from = m.on_board_from ?? trip.start_date;
+      const to = m.on_board_to ?? trip.end_date;
+      return data.date >= from && data.date <= to;
+    });
+    // Keine Crew erfasst → andere Validierungen fangen das ab; nicht hier blocken.
+    nobodyAboard = (members?.length ?? 0) > 0 && !anyPresent;
+  }
+
+  if (nobodyAboard) {
     // Wording folgt dem Reise-Typ: bei „Andere Reise" heißt die Aufteilung
     // im UI „Anwesend" statt „An Bord" (tripVocab) — die Fehlermeldung muss
     // denselben Begriff verwenden, sonst findet die Person den Tab nicht.
     const vocab = tripVocab(trip.trip_type === "other" ? "other" : "sailing");
     const nobody = trip.trip_type === "other" ? "niemand anwesend" : "niemand an Bord";
+    const hint = outOfRange
+      ? `braucht ein Datum im ${vocab.trip}zeitraum`
+      : `an diesem Tag ist noch niemand ${vocab.onBoard.toLowerCase()}`;
     return {
       ok: false,
       field: "date",
-      message: `Am gewählten Datum ist ${nobody} — „${vocab.onBoard}“ braucht ein Datum im ${vocab.trip}zeitraum. Bitte Datum anpassen oder eine andere Aufteilung (z. B. Gleichmäßig) wählen.`,
+      message: `Am gewählten Datum ist ${nobody} — „${vocab.onBoard}“ ${hint}. Bitte Datum anpassen oder eine andere Aufteilung (z. B. Gleichmäßig) wählen.`,
     };
   }
   return { ok: true };
@@ -618,7 +646,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   const { data: existing } = await supabase
     .from("transactions")
     .select(
-      "created_by, type, trip_id, deleted_at, category_id, date, paid_by, amount, alcohol_amount, tip_amount, tip_distribution, split_type, tranche_id",
+      "created_by, type, trip_id, deleted_at, description, category_id, date, paid_by, amount, alcohol_amount, tip_amount, tip_distribution, split_type, tranche_id, original_currency, original_amount, exchange_rate, rate_source, rate_confirmed_at",
     )
     .eq("id", transactionId)
     .maybeSingle();
@@ -630,10 +658,11 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     return { status: "error", message: "Diese Buchung ist keine Ausgabe." };
   }
 
-  // Beteiligte VOR dem Neuschreiben laden — für den Bilanz-Diff (s. u.).
+  // Beteiligte VOR dem Neuschreiben laden — für den Bilanz-Diff (s. u.) UND
+  // als Snapshot für den Rollback (Fund S-4), falls das Neusetzen scheitert.
   const { data: existingParts } = await supabase
     .from("transaction_participants")
-    .select("person_id, amount")
+    .select("person_id, amount, original_amount")
     .eq("transaction_id", transactionId);
   if (!(await canEditTransaction(txData.trip_id, existing.created_by, person.id))) {
     return { status: "error", message: "Nur Skipper, Admin oder die Person, die gebucht hat, dürfen ändern." };
@@ -710,12 +739,44 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     .eq("trip_id", txData.trip_id);
   if (error) return { status: "error", message: dbErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
 
+  // Rollback-Helfer (Fund S-4): stellt die Buchungszeile auf ihren Vorzustand
+  // zurück. Es gibt über den Service-Role-Client keine echte Transaktion um
+  // Row-Update + Participants-Rewrite; scheitert einer der Participants-
+  // Schritte, hätte die Buchung sonst NEUEN Betrag/Split, aber falsche/keine
+  // Anteile → Bilanz-Summe ≠ 0.
+  const restoreRow = async () => {
+    await supabase
+      .from("transactions")
+      .update({
+        date: existing.date,
+        description: existing.description,
+        category_id: existing.category_id,
+        paid_by: existing.paid_by,
+        amount: existing.amount,
+        alcohol_amount: existing.alcohol_amount,
+        tip_amount: existing.tip_amount,
+        tip_distribution: existing.tip_distribution,
+        split_type: existing.split_type,
+        tranche_id: existing.tranche_id,
+        original_currency: existing.original_currency,
+        original_amount: existing.original_amount,
+        exchange_rate: existing.exchange_rate,
+        rate_source: existing.rate_source,
+        rate_confirmed_at: existing.rate_confirmed_at,
+      })
+      .eq("id", transactionId)
+      .eq("trip_id", txData.trip_id);
+  };
+
   // Participants neu setzen — bei Wechsel der Aufteilung müssen alte raus.
   const delRes = await supabase
     .from("transaction_participants")
     .delete()
     .eq("transaction_id", transactionId);
   if (delRes.error) {
+    // Zeile war schon aktualisiert, Anteile aber noch unangetastet → nur die
+    // Zeile zurückrollen, damit sie wieder zu den (unveränderten) Anteilen passt.
+    await restoreRow();
     return {
       status: "error",
       message: dbErrorMessage(delRes.error, "Speichern fehlgeschlagen. Bitte erneut versuchen."),
@@ -739,6 +800,21 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
             )
         : null;
   if (partRes?.error) {
+    // Anteile sind jetzt gelöscht und der Neu-Insert scheiterte → Zeile UND
+    // alte Anteile wiederherstellen, damit die Buchung konsistent bleibt.
+    await restoreRow();
+    if (existingParts && existingParts.length > 0) {
+      await supabase
+        .from("transaction_participants")
+        .insert(
+          existingParts.map((p) => ({
+            transaction_id: transactionId,
+            person_id: p.person_id,
+            amount: p.amount,
+            original_amount: p.original_amount,
+          })),
+        );
+    }
     return {
       status: "error",
       message: dbErrorMessage(partRes.error, "Speichern fehlgeschlagen — die Aufteilung konnte nicht aktualisiert werden. Bitte erneut versuchen."),
@@ -973,13 +1049,19 @@ export async function deleteTransaction(
   const supabase = createAdminClient();
   const { data: existing } = await supabase
     .from("transactions")
-    .select("category_id, trip_id")
+    .select("category_id, trip_id, created_by")
     .eq("id", transactionId)
     .maybeSingle();
   // IDOR-Schutz: requireMember(tripId) prüft nur die Mitgliedschaft im
   // übergebenen Törn. Ohne diese Zugehörigkeits-Prüfung könnte ein Mitglied
   // von Törn A eine beliebige fremde transactionId (Törn B) löschen.
   if (!existing || existing.trip_id !== tripId) {
+    return { ok: false, wasKaution: false };
+  }
+  // Löschen darf nur, wer auch editieren darf: Ersteller, Skipper oder Admin.
+  // Vorher reichte bloße Mitgliedschaft — die destruktive Aktion war damit
+  // schwächer geschützt als das Editieren derselben Buchung (Fund S-2).
+  if (!(await canEditTransaction(tripId, existing.created_by, auth.personId))) {
     return { ok: false, wasKaution: false };
   }
   const wasKaution = await isKautionCategory(supabase, tripId, existing.category_id);
@@ -1069,6 +1151,30 @@ export async function replayPendingTransaction(
     txData.alcohol_amount = cur.alcohol_amount;
     txData.tip_amount = cur.tip_amount;
 
+    // Dieselben Server-Guards wie in createExpense — der Replay-Pfad ist eine
+    // exportierte Server-Action mit beliebigem JSON und darf nicht schwächer
+    // validieren (Fund S-1). tranche_id wird hier bewusst NICHT geparst, daher
+    // keine Anzahlungspool-Injektion möglich und kein Tranche-Authz nötig.
+    const minCheck = await checkMinShare(supabase, txData.trip_id, {
+      amount: txData.amount,
+      split_type: txData.split_type,
+      participant_ids,
+    });
+    if (!minCheck.ok) return { ok: false, message: minCheck.message };
+
+    const dateCheck = await checkOnBoardDate(supabase, txData.trip_id, txData);
+    if (!dateCheck.ok) return { ok: false, message: dateCheck.message };
+
+    if (
+      !(await personsBelongToTrip(
+        supabase,
+        [txData.paid_by, ...participant_ids, ...participant_amounts.map((p) => p.person_id)],
+        txData.trip_id,
+      ))
+    ) {
+      return { ok: false, message: CROSS_TRIP_PERSON_MSG };
+    }
+
     const { data: tx, error } = await supabase
       .from("transactions")
       .insert({
@@ -1123,6 +1229,7 @@ export async function replayPendingTransaction(
       actor_person_id: person.id,
       payload: { type: "expense", source: "outbox-replay", ...txData, participant_ids, participant_amounts },
     });
+    await markPostSettlementChange(supabase, txData.trip_id);
     revalidatePath(`/trips/${txData.trip_id}/transactions`);
     revalidatePath(`/trips/${txData.trip_id}/balance`);
     revalidatePath(`/trips/${txData.trip_id}/debts`);
@@ -1159,9 +1266,20 @@ export async function replayPendingTransaction(
     if ((count ?? 0) <= 1) {
       return {
         ok: false,
-        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crewmitglieder.',
+        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crewmitglieder. Wähle, wer das Geld bekommt.',
       };
     }
+  }
+
+  // Cross-Trip-Personen-Schutz wie in createCredit (Fund S-1).
+  if (
+    !(await personsBelongToTrip(
+      supabase,
+      [parsed.data.credit_from, parsed.data.credit_to],
+      parsed.data.trip_id,
+    ))
+  ) {
+    return { ok: false, message: CROSS_TRIP_PERSON_MSG };
   }
 
   const creditCur = resolveCreditCurrency({
@@ -1205,6 +1323,7 @@ export async function replayPendingTransaction(
     actor_person_id: person.id,
     payload: { type: "credit", source: "outbox-replay", ...parsed.data },
   });
+  await markPostSettlementChange(supabase, parsed.data.trip_id);
   revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
   revalidatePath(`/trips/${parsed.data.trip_id}/balance`);
   revalidatePath(`/trips/${parsed.data.trip_id}/debts`);
