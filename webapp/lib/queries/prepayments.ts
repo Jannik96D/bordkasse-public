@@ -316,7 +316,19 @@ export async function getPrepaymentNavState(
 ): Promise<{ show: boolean }> {
   const plan = await getPlan(tripId);
   if (!plan) return { show: false };
-  const tranches = await getTranches(tripId);
+
+  // Nach dem Plan-Gate hängen tranches/obligations/payments/pending nur noch
+  // von tripId ab → in EINER Welle laden statt hintereinander (Fund E-3). Ist
+  // ein Plan da (der Regelfall hier), hat er praktisch immer Tranchen; die
+  // seltenen „Plan ohne Tranchen"-Trips kosten dann ein paar günstige,
+  // ungenutzte Queries — der Gegenwert ist eine gesparte Round-Trip-Welle bei
+  // jedem Charter-Törn-Render. getCharterPaidTotal bleibt manager-only (unten).
+  const [tranches, obligations, payments, pending] = await Promise.all([
+    getTranches(tripId),
+    getObligations(tripId),
+    getPaymentAggregates(tripId),
+    getPendingPayments(tripId),
+  ]);
   if (tranches.length === 0) return { show: false };
 
   const advancerId = plan.advancer_person_id ?? viewer.tripSkipperId;
@@ -324,12 +336,6 @@ export async function getPrepaymentNavState(
     viewer.isAdmin ||
     viewer.isTripSkipper ||
     (!!viewer.personId && advancerId === viewer.personId);
-
-  const [obligations, payments, pending] = await Promise.all([
-    getObligations(tripId),
-    getPaymentAggregates(tripId),
-    getPendingPayments(tripId),
-  ]);
 
   const paidByKey = new Map<string, number>();
   for (const p of payments) paidByKey.set(`${p.tranche_id}::${p.person_id}`, p.paid_amount);

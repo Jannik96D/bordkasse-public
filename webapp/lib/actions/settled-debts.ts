@@ -5,7 +5,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdmin, requireMember } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
-import { sendMail } from "@/lib/email/send";
+import { sendMails, type MailMessage } from "@/lib/email/send";
 import { renderDebtSettledMail } from "@/lib/email/debt-settled-template";
 import { renderDebtObserverMail } from "@/lib/email/debt-observer-template";
 import { sendPushToPersons } from "@/lib/notify/web-push";
@@ -285,16 +285,17 @@ async function sendDebtSettledMails(
 
   // Dedup: pro Person-ID nur EINE Mail (falls jemand sowohl Skipper als
   // auch Vorstrecker und gleichzeitig Schuldner ist → erste Rolle gewinnt).
+  // Erst alle Mails aufbauen (Observer- bzw. debt-settled-Template), dann in
+  // EINEM gepoolten Batch nebenläufig verschicken (Fund E-5).
   const seen = new Set<string>();
-  let sent = 0;
-  let failed = 0;
+  const jobs: { personId: string; message: MailMessage }[] = [];
 
   for (const r of recipients) {
     if (seen.has(r.personId)) continue;
     seen.add(r.personId);
     const email = emailById.get(r.personId);
-    // Kein Empfänger ohne Mail-Adresse zählt als Fehler — er wird einfach
-    // übersprungen (z. B. Ghost-Crew). Nur echte Zustell-Fehler zählen.
+    // Empfänger ohne Mail-Adresse (z. B. Ghost-Crew) wird still übersprungen,
+    // zählt NICHT als Fehler. Nur echte Zustell-Fehler zählen.
     if (!email) continue;
 
     const recipientName = nameById.get(r.personId) ?? "Crewmitglied";
@@ -304,79 +305,74 @@ async function sendDebtSettledMails(
     // „Schuld zwischen A und B abgehakt"-Wortlaut. Die normale
     // debt-settled-Mail würde sie sonst irreführend als „Gläubiger" /
     // „Schuldner" adressieren.
-    if (r.role === "observer") {
-      // Jeder Observer ist garantiert Skipper oder Vorstrecker (die Liste wird
-      // nur aus diesen beiden IDs gebaut). Bei Personalunion gewinnt „skipper".
-      const recipientReason: "skipper" | "advancer" =
-        r.personId === trip.skipper_id ? "skipper" : "advancer";
-      const { html, text, subject } = renderDebtObserverMail({
-        recipientName,
-        recipientReason,
-        actorName,
-        debtorName,
-        creditorName,
-        amount: args.amount,
-        tripName: trip.name,
-        tripDates,
-        appUrl,
-        tripType,
-      });
-      const res = await sendMail({ to: email, subject, html, text });
-      if (res.ok) {
-        sent += 1;
-      } else {
-        failed += 1;
-        console.error("[bordkasse:debt-settled-mail] observer failed", {
-          person_id: r.personId,
-          error: res.error,
-        });
-      }
-      continue;
-    }
-
-    const { html, text, subject } = renderDebtSettledMail({
-      recipientName,
-      recipientRole: r.role,
-      actorRole,
-      actorName,
-      debtorName,
-      creditorName,
-      amount: args.amount,
-      tripName: trip.name,
-      tripDates,
-      appUrl,
-      tripType,
+    const rendered =
+      r.role === "observer"
+        ? renderDebtObserverMail({
+            recipientName,
+            // Jeder Observer ist garantiert Skipper oder Vorstrecker; bei
+            // Personalunion gewinnt „skipper".
+            recipientReason: r.personId === trip.skipper_id ? "skipper" : "advancer",
+            actorName,
+            debtorName,
+            creditorName,
+            amount: args.amount,
+            tripName: trip.name,
+            tripDates,
+            appUrl,
+            tripType,
+          })
+        : renderDebtSettledMail({
+            recipientName,
+            recipientRole: r.role,
+            actorRole,
+            actorName,
+            debtorName,
+            creditorName,
+            amount: args.amount,
+            tripName: trip.name,
+            tripDates,
+            appUrl,
+            tripType,
+          });
+    jobs.push({
+      personId: r.personId,
+      message: { to: email, subject: rendered.subject, html: rendered.html, text: rendered.text },
     });
-    const res = await sendMail({ to: email, subject, html, text });
-    if (res.ok) {
-      sent += 1;
-    } else {
+  }
+
+  const results = await sendMails(jobs.map((j) => j.message));
+  let sent = 0;
+  let failed = 0;
+  results.forEach((res, i) => {
+    if (res.ok) sent += 1;
+    else {
       failed += 1;
       // PII (Mail-Adresse) bewusst NICHT loggen.
-      console.error("[bordkasse:debt-settled-mail] failed", { person_id: r.personId, error: res.error });
+      console.error("[bordkasse:debt-settled-mail] failed", { person_id: jobs[i].personId, error: res.error });
     }
-  }
+  });
 
   // Push (additiv zur Mail) — nur an die direkt Beteiligten (Schuldner /
   // Gläubiger), NIE an Observer und nie an den Auslöser selbst. Schuldner und
-  // Gläubiger bekommen unterschiedlichen Text, daher pro Empfänger ein Push.
-  for (const pid of pushRecipients([args.fromPersonId, args.toPersonId], {
-    excludeActorId: args.actorPersonId,
-  })) {
-    await sendPushToPersons(
-      supabase,
-      [pid],
-      debtSettledPush({
-        recipientRole: pid === args.fromPersonId ? "debtor" : "creditor",
-        actorRole,
-        actorName,
-        amount: args.amount,
-        tripId: args.tripId,
-        fromPersonId: args.fromPersonId,
-        toPersonId: args.toPersonId,
-      }),
-    );
-  }
+  // Gläubiger bekommen unterschiedlichen Text, daher pro Empfänger ein Push —
+  // die (max. 2) Calls laufen nebenläufig (Fund E-5).
+  await Promise.all(
+    pushRecipients([args.fromPersonId, args.toPersonId], { excludeActorId: args.actorPersonId }).map((pid) =>
+      sendPushToPersons(
+        supabase,
+        [pid],
+        debtSettledPush({
+          recipientRole: pid === args.fromPersonId ? "debtor" : "creditor",
+          actorRole,
+          actorName,
+          amount: args.amount,
+          tripId: args.tripId,
+          fromPersonId: args.fromPersonId,
+          toPersonId: args.toPersonId,
+        }),
+      ),
+    ),
+  );
 
   return { sent, failed };
 }
