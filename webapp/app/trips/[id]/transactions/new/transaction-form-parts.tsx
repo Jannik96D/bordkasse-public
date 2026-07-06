@@ -19,7 +19,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, unstable_rethrow } from "next/navigation";
 import { enqueue, get as getOutboxItem } from "@/lib/offline/outbox";
 import { isSyncing } from "@/lib/offline/sync";
 import { cn, formatEuro, nowMs } from "@/lib/utils";
@@ -322,6 +322,13 @@ export function useBookingSubmit(opts: {
       try {
         return await createAction(prev, fd);
       } catch (err) {
+        // WICHTIG: Ein erfolgreicher createExpense/-Credit ruft redirect() auf,
+        // das per NEXT_REDIRECT-Error „wirft". unstable_rethrow lässt genau diese
+        // Framework-Kontrollfluss-Fehler (redirect/notFound) durch — sonst würde
+        // jede ERFOLGREICHE Online-Buchung fälschlich als Netzwerkfehler behandelt,
+        // in die Outbox gerettet (Phantom-„wartet"-Karte) und der Redirect samt
+        // Erfolgs-Toast verschluckt. Nur ECHTE Fehler (Netzwerk) fallen durch.
+        unstable_rethrow(err);
         try {
           await enqueue({ id: idempotencyKey, tripId, kind, formData: formDataToObject(fd), createdAt: nowMs() });
         } catch {
