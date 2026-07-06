@@ -194,7 +194,7 @@ export function TransactionsList({
                         <>
                           <Link
                             href={`/trips/${tripId}/transactions/${t.id}/edit`}
-                            className="rounded-md p-1.5 text-ink-soft hover:bg-paper-soft hover:text-primary"
+                            className="inline-flex min-h-touch min-w-touch items-center justify-center rounded-md text-ink-soft hover:bg-paper-soft hover:text-primary"
                             aria-label="Buchung bearbeiten"
                             title="Bearbeiten"
                           >
@@ -205,7 +205,7 @@ export function TransactionsList({
                       ) : (
                         <Link
                           href={`/trips/${tripId}/transactions/${t.id}`}
-                          className="rounded-md p-1.5 text-ink-soft hover:bg-paper-soft hover:text-primary"
+                          className="inline-flex min-h-touch min-w-touch items-center justify-center rounded-md text-ink-soft hover:bg-paper-soft hover:text-primary"
                           aria-label="Buchungsdetails ansehen"
                           title="Details ansehen"
                         >
