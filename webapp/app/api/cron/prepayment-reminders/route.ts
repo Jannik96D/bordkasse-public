@@ -190,7 +190,7 @@ export async function GET(request: NextRequest) {
     const advancerId = plan.advancer_person_id ?? trip.skipper_id;
 
     // Wie viele Tage sind es noch bis zur Charterfrist?
-    const daysToCharter = daysBetween(todayIso, t.due_date);
+    const daysToCharter = signedDaysUntil(todayIso, t.due_date);
 
     // advancer_3d: ab 3 Tage vor Charterfrist UND nur wenn er dem Vercharterer noch was schuldet
     if (daysToCharter <= REMINDER_DAYS_BEFORE) {
@@ -313,8 +313,16 @@ export async function GET(request: NextRequest) {
   });
 }
 
-/** Anzahl Tage zwischen zwei ISO-Dates, beide UTC-anchored. */
-function daysBetween(fromIso: string, toIso: string): number {
+/**
+ * Vorzeichenbehaftete, EXKLUSIVE Tagesdifferenz zwischen zwei ISO-Dates (beide
+ * UTC-anchored): gleiches Datum → 0, Vergangenheit → negativ.
+ *
+ * ⚠️ BEWUSST NICHT `lib/utils.ts:daysBetween` — jenes ist INKLUSIV (`+1`) und
+ * auf ≥0 geclampt (Anwesenheitstage). Ein naives „Dedup" würde jedes Reminder-
+ * Fenster um einen Tag verschieben und überfällige (negative) Fristen verlieren.
+ * Daher ein eigener, klar benannter Helfer statt des kollidierenden Namens.
+ */
+function signedDaysUntil(fromIso: string, toIso: string): number {
   const from = new Date(`${fromIso}T00:00:00Z`).getTime();
   const to = new Date(`${toIso}T00:00:00Z`).getTime();
   return Math.round((to - from) / 86_400_000);

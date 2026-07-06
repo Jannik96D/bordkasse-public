@@ -59,25 +59,31 @@ export default async function TripDashboard({
   const today = todayIso();
   const tripActive = trip.start_date <= today && trip.end_date >= today;
   const onboardingPossible = tripActive && hasMembers && !!person;
-  const myBookingCount = onboardingPossible
-    ? await countMyTransactions(id, person!.id)
-    : 1;
+
+  // Beide Reads sind unabhängig + je bedingt → parallel statt hintereinander
+  // (spart eine Round-Trip-Welle auf der Übersicht; Fund E-4). getTripProgressSignals
+  // fächert selbst in mehrere Queries auf, daher lohnt die Parallelität besonders.
+  const [myBookingCount, signals] = await Promise.all([
+    onboardingPossible ? countMyTransactions(id, person!.id) : Promise.resolve(1),
+    canAnnounce
+      ? getTripProgressSignals({
+          tripId: id,
+          startDate: trip.start_date,
+          endDate: trip.end_date,
+          memberCount,
+          settlementAnnounced: !!trip.settlement_announced_at,
+          depositSettled: !!trip.deposit_settled_at,
+          prepaymentDeclined,
+        })
+      : Promise.resolve(null),
+  ]);
   const onboardingEligible = onboardingPossible && myBookingCount === 0;
 
   // Törn-Fortschritt-Karte nur für Skipper/Co-Skipper/Admin (wie der Banner).
-  let progress = null;
-  if (canAnnounce) {
-    const signals = await getTripProgressSignals({
-      tripId: id,
-      startDate: trip.start_date,
-      endDate: trip.end_date,
-      memberCount,
-      settlementAnnounced: !!trip.settlement_announced_at,
-      depositSettled: !!trip.deposit_settled_at,
-      prepaymentDeclined,
-    });
-    progress = computeTripProgress(signals, todayIso(), trip.trip_type === "other" ? "other" : "sailing");
-  }
+  const progress =
+    canAnnounce && signals
+      ? computeTripProgress(signals, todayIso(), trip.trip_type === "other" ? "other" : "sailing")
+      : null;
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-6">

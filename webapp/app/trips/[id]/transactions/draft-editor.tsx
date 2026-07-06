@@ -8,8 +8,8 @@ import {
   type CreditInitial,
   type TrancheOption,
 } from "./new/transaction-form";
-import type { CurrencyChoice } from "./new/transaction-form-parts";
-import { get as getOutboxItem, type OutboxItem } from "@/lib/offline/outbox";
+import { parseRate, type CurrencyChoice } from "./new/transaction-form-parts";
+import { get as getOutboxItem, fieldStr as str, fieldNum as num, type OutboxItem } from "@/lib/offline/outbox";
 
 type Member = {
   person_id: string;
@@ -22,18 +22,6 @@ type Category = { id: string; name: string; icon: string | null };
 
 type FormDataObj = Record<string, string | string[]>;
 
-function str(v: string | string[] | undefined): string {
-  return typeof v === "string" ? v : "";
-}
-
-/** Deutsches Komma-Format → Number. Leer/ungültig → 0. */
-function num(v: string | string[] | undefined): number {
-  const s = str(v);
-  if (s === "") return 0;
-  const n = Number(s.replace(",", "."));
-  return Number.isFinite(n) ? n : 0;
-}
-
 function asArray(v: string | string[] | undefined): string[] {
   if (Array.isArray(v)) return v;
   return typeof v === "string" && v !== "" ? [v] : [];
@@ -44,11 +32,10 @@ function currencyOrNull(v: string | string[] | undefined): string | null {
   const s = str(v);
   return s && s !== "EUR" ? s : null;
 }
+// Kurs/Bankbetrag: parseRate (aus transaction-form-parts) macht die
+// „Komma→Punkt, >0, sonst null"-Logik — hier auf das rohe formData-Feld angewandt.
 function rateOrNull(v: string | string[] | undefined): number | null {
-  const s = str(v);
-  if (s === "") return null;
-  const n = Number(s.replace(",", "."));
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return parseRate(str(v));
 }
 function rateSourceOrNull(v: string | string[] | undefined): "live" | "manual" | "bank" | null {
   const s = str(v);

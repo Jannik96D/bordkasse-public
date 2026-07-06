@@ -6,7 +6,7 @@ import { Plus, Trash2, UserPlus } from "lucide-react";
 import { savePrepaymentPlan, saveTranches } from "@/lib/actions/prepayments";
 import { inviteMember } from "@/lib/actions/trip-members";
 import { defaultWhatsappTemplate } from "@/lib/prepayments/whatsapp";
-import { formatEuro, todayIso } from "@/lib/utils";
+import { formatEuro, formatAmount, todayIso } from "@/lib/utils";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { tripVocab, type TripType, type TripVocab } from "@/lib/trip-vocab";
 import type {
@@ -41,7 +41,6 @@ interface CabinDraft {
 interface TrancheDraft {
   id?: string;
   due_date: string;
-  label: string;
   percent: string;
 }
 
@@ -53,7 +52,7 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
   const [pending, startTransition] = useTransition();
 
   const [splitMethod, setSplitMethod] = useState<PrepaymentSplitMethod>(plan?.split_method ?? "kojen");
-  const [totalAmount, setTotalAmount] = useState(plan?.total_amount.toFixed(2).replace(".", ",") ?? "");
+  const [totalAmount, setTotalAmount] = useState(plan ? formatAmount(plan.total_amount) : "");
   const [advancerId, setAdvancerId] = useState<string>(plan?.advancer_person_id ?? "");
   const [weroId, setWeroId] = useState(plan?.wero_id ?? "");
   const [whatsappTemplate, setWhatsappTemplate] = useState(plan?.whatsapp_template ?? defaultWhatsappTemplate(vocab));
@@ -64,7 +63,7 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
   // ID per UPSERT, neue Rows werden mit dieser ID eingefügt.
   const [cabinDrafts, setCabinDrafts] = useState<CabinDraft[]>(
     cabins.length > 0
-      ? cabins.map((c) => ({ id: c.id, label: c.label, price_per_person: c.price_per_person.toFixed(2).replace(".", ","), capacity: String(c.capacity) }))
+      ? cabins.map((c) => ({ id: c.id, label: c.label, price_per_person: formatAmount(c.price_per_person), capacity: String(c.capacity) }))
       : [{ id: crypto.randomUUID(), label: vocab.cabinDefaultLabel, price_per_person: "", capacity: "2" }],
   );
 
@@ -76,7 +75,7 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
   });
   const [memberManual, setMemberManual] = useState<Record<string, string>>(() => {
     const m: Record<string, string> = {};
-    for (const o of obligations) m[o.person_id] = o.total_amount.toFixed(2).replace(".", ",");
+    for (const o of obligations) m[o.person_id] = formatAmount(o.total_amount);
     return m;
   });
 
@@ -86,14 +85,13 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
       ? tranches.map((t) => ({
           id: t.id,
           due_date: t.due_date,
-          label: t.label,
           percent: t.percent.toString().replace(".", ","),
         }))
       : [
           // Labels werden beim Speichern automatisch aus der Position abgeleitet
-          // (siehe trancheLabel) — hier nur Platzhalter.
-          { due_date: todayIso(), label: "1. Anzahlung", percent: "30" },
-          { due_date: todayIso(), label: "Endzahlung", percent: "70" },
+          // (siehe trancheLabel) — kein eigenes Draft-Feld nötig.
+          { due_date: todayIso(), percent: "30" },
+          { due_date: todayIso(), percent: "70" },
         ],
   );
 
@@ -161,7 +159,7 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
 
   function saveTranchesAndFinish() {
     setError(null);
-    if (Math.abs(percentSum - 100) > 0.01) {
+    if (!percentValid) {
       setError(`Summe aller Tranchenprozente muss 100 % ergeben (aktuell: ${percentSum.toFixed(1)} %).`);
       return;
     }
@@ -491,7 +489,7 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
           ))}
           <button
             type="button"
-            onClick={() => setTrancheDrafts([...trancheDrafts, { due_date: todayIso(), label: "", percent: "0" }])}
+            onClick={() => setTrancheDrafts([...trancheDrafts, { due_date: todayIso(), percent: "0" }])}
             className="inline-flex items-center gap-1 rounded-md border border-rule px-3 py-1.5 text-sm hover:border-primary/40"
           >
             <Plus className="h-4 w-4" /> Tranche hinzufügen
@@ -533,7 +531,6 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
 // ────────────────────────────────────────────────────────────────────────
 function CrewQuickAdd({ tripId, memberCount, vocab }: { tripId: string; memberCount: number; vocab: TripVocab }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -570,11 +567,8 @@ function CrewQuickAdd({ tripId, memberCount, vocab }: { tripId: string; memberCo
   }
 
   return (
-    <details
-      open={open}
-      onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
-      className="rounded-md border border-dashed border-primary/30 bg-navy-light/20 p-3 text-sm"
-    >
+    <details className="rounded-md border border-dashed border-primary/30 bg-navy-light/20 p-3 text-sm">
+
       <summary className="cursor-pointer text-primary">
         <UserPlus className="mr-1 inline h-4 w-4" />
         {vocab.addMember}

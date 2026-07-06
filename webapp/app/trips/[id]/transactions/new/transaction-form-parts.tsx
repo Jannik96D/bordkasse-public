@@ -22,7 +22,8 @@ import {
 import { useRouter } from "next/navigation";
 import { enqueue, get as getOutboxItem } from "@/lib/offline/outbox";
 import { isSyncing } from "@/lib/offline/sync";
-import { cn, formatEuro, nowMs } from "@/lib/utils";
+import { cn, formatEuro, formatAmount, nowMs } from "@/lib/utils";
+import { formatDeDate } from "@/lib/prepayments/dates";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { useTripVocab } from "@/components/trip-vocab-provider";
 import type { TripVocab } from "@/lib/trip-vocab";
@@ -183,16 +184,11 @@ export function formDataToObject(fd: FormData): Record<string, string | string[]
   return obj;
 }
 
-/** Number → deutsches Komma-Format für das Input-Feld. */
-export function formatAmount(n: number): string {
-  return n.toFixed(2).replace(".", ",");
-}
-
-export function formatDeDate(iso: string): string {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-");
-  return `${Number(d)}.${Number(m)}.${y}`;
-}
+// formatAmount + formatDeDate leben in geteilten lib-Modulen (@/lib/utils bzw.
+// @/lib/prepayments/dates); hier re-exportiert, damit bestehende Importe aus
+// dieser Datei unverändert bleiben.
+export { formatAmount };
+export { formatDeDate };
 
 // ── FieldGroup ──────────────────────────────────────────────────────────
 export function FieldGroup({

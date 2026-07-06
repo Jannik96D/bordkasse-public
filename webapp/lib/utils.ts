@@ -16,6 +16,16 @@ export function formatEuro(amount: number): string {
   }).format(amount);
 }
 
+/**
+ * Betrag mit deutschem Dezimalkomma, 2 Nachkommastellen, OHNE Währungszeichen:
+ * `47.3` → "47,30". Für Eingabefelder + Beträge, die ihre Einheit separat
+ * anzeigen (z. B. "500,00 SEK"). Geteilte Quelle statt vieler Inline-
+ * `toFixed(2).replace(".", ",")`-Kopien.
+ */
+export function formatAmount(n: number): string {
+  return n.toFixed(2).replace(".", ",");
+}
+
 /** Datum-Format DE: ISO "2026-04-05" → "5. Apr. 2026" */
 export function formatDate(iso: string): string {
   const d = new Date(iso);
