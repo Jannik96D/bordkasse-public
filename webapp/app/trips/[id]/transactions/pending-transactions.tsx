@@ -186,7 +186,7 @@ export function PendingTransactions({
                       window.location.assign(editHref);
                     }
                   }}
-                  className="rounded-md p-1.5 text-ink-soft hover:bg-paper-soft hover:text-primary"
+                  className="inline-flex min-h-touch min-w-touch items-center justify-center rounded-md text-ink-soft hover:bg-paper-soft hover:text-primary"
                   aria-label={`Entwurf „${info.title}" bearbeiten`}
                   title="Bearbeiten"
                 >
@@ -195,7 +195,7 @@ export function PendingTransactions({
                 <button
                   type="button"
                   onClick={() => handleDelete(item)}
-                  className="rounded-md p-1.5 text-ink-soft hover:bg-paper-soft hover:text-danger"
+                  className="inline-flex min-h-touch min-w-touch items-center justify-center rounded-md text-ink-soft hover:bg-paper-soft hover:text-danger"
                   aria-label={`Entwurf „${info.title}" verwerfen`}
                   title="Verwerfen"
                 >
