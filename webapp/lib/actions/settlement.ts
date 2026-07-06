@@ -6,7 +6,7 @@ import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireMember, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { getBalances, getSimplifiedDebts } from "@/lib/queries/balances";
-import { sendMail } from "@/lib/email/send";
+import { sendMails, type MailMessage } from "@/lib/email/send";
 import { renderSettlementMail, type DebtItem } from "@/lib/email/settlement-template";
 import { sendPushToPersons } from "@/lib/notify/web-push";
 import { pushRecipients } from "@/lib/notify/recipients";
@@ -95,10 +95,12 @@ export async function announceSettlement(tripId: string): Promise<Result> {
   // ist der Bilanz-Tab nur einen Tap entfernt.
   const appUrl = `${process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.example"}/trips/${tripId}/debts`;
 
-  let sent = 0;
   let skipped = 0;
-  let failed = 0;
 
+  // Erst alle personalisierten Mails aufbauen (rein in-memory), dann in EINEM
+  // gepoolten Batch nebenläufig verschicken (Fund E-1) statt N sequenzieller
+  // SMTP-Handshakes. `skipped` = Member ohne Mail-Adresse.
+  const jobs: { personId: string; message: MailMessage }[] = [];
   for (const m of members) {
     const email = emailById.get(m.person_id);
     if (!email) {
@@ -106,28 +108,19 @@ export async function announceSettlement(tripId: string): Promise<Result> {
       continue;
     }
     const balanceRow = balances.find((b) => b.person_id === m.person_id);
-    const recipientName = displayName(m);
 
     // Zahlungsanweisungen aus dem Schulden-Plan
     const myDebts: DebtItem[] = [];
     for (const d of debts) {
       if (d.from_person_id === m.person_id) {
-        myDebts.push({
-          counterparty_name: d.to_name,
-          amount: d.amount,
-          direction: "owes",
-        });
+        myDebts.push({ counterparty_name: d.to_name, amount: d.amount, direction: "owes" });
       } else if (d.to_person_id === m.person_id) {
-        myDebts.push({
-          counterparty_name: d.from_name,
-          amount: d.amount,
-          direction: "receives",
-        });
+        myDebts.push({ counterparty_name: d.from_name, amount: d.amount, direction: "receives" });
       }
     }
 
     const { html, text, subject } = renderSettlementMail({
-      recipientName,
+      recipientName: displayName(m),
       tripName: trip.name,
       tripDates,
       balance: balanceRow?.balance ?? 0,
@@ -136,15 +129,20 @@ export async function announceSettlement(tripId: string): Promise<Result> {
       skipperName,
       tripType,
     });
+    jobs.push({ personId: m.person_id, message: { to: email, subject, html, text } });
+  }
 
-    const res = await sendMail({ to: email, subject, html, text });
+  const results = await sendMails(jobs.map((j) => j.message));
+  let sent = 0;
+  let failed = 0;
+  results.forEach((res, i) => {
     if (res.ok) sent += 1;
     else {
       failed += 1;
       // PII (Mail-Adresse) bewusst NICHT loggen — Person-ID reicht für Diagnose.
-      console.error("[bordkasse:settlement] mail failed", { person_id: m.person_id, error: res.error });
+      console.error("[bordkasse:settlement] mail failed", { person_id: jobs[i].personId, error: res.error });
     }
-  }
+  });
 
   // Flag setzen — auch wenn manche Mails fehlschlugen (UI kann's später
   // re-triggern, aber der Schulden-Toggle soll jetzt freigeschaltet sein).
@@ -293,10 +291,11 @@ export async function resendSettlement(tripId: string): Promise<Result> {
   const tripType: "sailing" | "other" = trip.trip_type === "other" ? "other" : "sailing";
   const appUrl = `${process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.example"}/trips/${tripId}/debts`;
 
-  let sent = 0;
   let skipped = 0;
-  let failed = 0;
 
+  // Wie announce (Fund E-1): personalisierte Mails sammeln, dann in EINEM
+  // gepoolten Batch nebenläufig verschicken.
+  const jobs: { personId: string; message: MailMessage }[] = [];
   for (const m of members) {
     const email = emailById.get(m.person_id);
     if (!email) {
@@ -304,27 +303,18 @@ export async function resendSettlement(tripId: string): Promise<Result> {
       continue;
     }
     const balanceRow = balances.find((b) => b.person_id === m.person_id);
-    const recipientName = displayName(m);
 
     const myDebts: DebtItem[] = [];
     for (const d of debts) {
       if (d.from_person_id === m.person_id) {
-        myDebts.push({
-          counterparty_name: d.to_name,
-          amount: d.amount,
-          direction: "owes",
-        });
+        myDebts.push({ counterparty_name: d.to_name, amount: d.amount, direction: "owes" });
       } else if (d.to_person_id === m.person_id) {
-        myDebts.push({
-          counterparty_name: d.from_name,
-          amount: d.amount,
-          direction: "receives",
-        });
+        myDebts.push({ counterparty_name: d.from_name, amount: d.amount, direction: "receives" });
       }
     }
 
     const { html, text, subject } = renderSettlementMail({
-      recipientName,
+      recipientName: displayName(m),
       tripName: trip.name,
       tripDates,
       balance: balanceRow?.balance ?? 0,
@@ -335,14 +325,19 @@ export async function resendSettlement(tripId: string): Promise<Result> {
       changeSummary,
       tripType,
     });
+    jobs.push({ personId: m.person_id, message: { to: email, subject, html, text } });
+  }
 
-    const res = await sendMail({ to: email, subject, html, text });
+  const results = await sendMails(jobs.map((j) => j.message));
+  let sent = 0;
+  let failed = 0;
+  results.forEach((res, i) => {
     if (res.ok) sent += 1;
     else {
       failed += 1;
-      console.error("[bordkasse:settlement-resend] mail failed", { person_id: m.person_id, error: res.error });
+      console.error("[bordkasse:settlement-resend] mail failed", { person_id: jobs[i].personId, error: res.error });
     }
-  }
+  });
 
   // Marker zurücksetzen + Audit. Bei Mail-Fehlern bleibt der Marker bestehen,
   // damit der Skipper es erneut versuchen kann.
