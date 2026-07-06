@@ -23,6 +23,20 @@ describe("calculateObligations — gleichmaessig", () => {
     const out = calculateObligations("gleichmaessig", 1000, members);
     expect(out.every((o) => o.totalAmount === 250)).toBe(true);
   });
+
+  it("verteilt Rest-Cents so, dass die Summe EXAKT dem Plan entspricht (Fund C-3)", () => {
+    const members: PrepaymentMember[] = [
+      { personId: "a", days: 7 },
+      { personId: "b", days: 7 },
+      { personId: "c", days: 7 },
+    ];
+    const out = calculateObligations("gleichmaessig", 1000, members);
+    const sum = out.reduce((s, o) => s + o.totalAmount, 0);
+    expect(Math.round(sum * 100) / 100).toBe(1000); // vor Fix: 999,99
+    // Zwei zahlen 333,33, einer bekommt den Rest-Cent (333,34).
+    expect(out.filter((o) => o.totalAmount === 333.34)).toHaveLength(1);
+    expect(out.filter((o) => o.totalAmount === 333.33)).toHaveLength(2);
+  });
 });
 
 describe("calculateObligations — zeitanteilig", () => {
@@ -34,6 +48,17 @@ describe("calculateObligations — zeitanteilig", () => {
     ];
     const out = calculateObligations("zeitanteilig", 900, members);
     expect(out.find((o) => o.personId === "a")?.totalAmount).toBe(300);
+  });
+
+  it("verteilt zeitanteilige Rest-Cents exakt auf den Plan (Fund C-3)", () => {
+    const members: PrepaymentMember[] = [
+      { personId: "a", days: 3 },
+      { personId: "b", days: 3 },
+      { personId: "c", days: 1 },
+    ];
+    const out = calculateObligations("zeitanteilig", 100, members);
+    const sum = out.reduce((s, o) => s + o.totalAmount, 0);
+    expect(Math.round(sum * 100) / 100).toBe(100); // vor Fix: 100,01
   });
 
   it("Fallback auf gleichmäßig wenn niemand Tage hat", () => {

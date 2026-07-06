@@ -9,7 +9,7 @@ import {
   updateExpense,
   updateCredit,
 } from "@/lib/actions/transactions";
-import { todayIso, cn, daysBetween } from "@/lib/utils";
+import { todayIso, cn, daysBetween, round2 } from "@/lib/utils";
 import { foreignToEur } from "@/lib/rates/convert";
 import { withBookingCurrency } from "@/lib/rates/options";
 import { cacheRates, getCachedRate } from "@/lib/offline/rate-cache";
@@ -429,6 +429,14 @@ function ExpenseForm({
   );
   const toEur = (v: number) => (isForeign ? (effRate != null ? foreignToEur(v, effRate) : 0) : v);
 
+  // EUR-Gesamtbetrag für Anzeige/Fat-Finger. Bei „Pro Person" konvertiert der
+  // Server JEDEN Teilnehmer einzeln und summiert dann (lib/rates/resolve.ts) —
+  // die Vorschau muss das spiegeln, sonst weicht die angezeigte €-Summe um Cents
+  // vom tatsächlich gebuchten Betrag ab (Fund C-5). Sonst der einzelne Betrag.
+  const eurTotal = isPerPerson
+    ? round2(perPersonAmounts.filter((p) => p.amount > 0).reduce((s, p) => s + toEur(p.amount), 0))
+    : toEur(foreignTotal);
+
   // Buchungen vor/nach dem Törn sind erlaubt (Anzahlung, Versicherung,
   // Nachzügler-Rechnung) — nur „An Bord" ergibt dann keinen Sinn, weil am
   // Buchungstag niemand anwesend ist (Server lehnt das ebenfalls ab).
@@ -510,7 +518,7 @@ function ExpenseForm({
       draftId,
       createAction: createExpense,
       updateAction: updateExpense,
-      getTotal: () => toEur(isPerPerson ? perPersonSum : safeMathEval(amount) ?? 0),
+      getTotal: () => eurTotal,
       fatFingerNoun: "Buchung",
     });
 
@@ -603,7 +611,7 @@ function ExpenseForm({
           onBankChange={onBankChange}
           bankForeignInput={bankForeignInput}
           onBankForeignChange={onBankForeignChange}
-          eurPreview={effRate != null && foreignTotal > 0 ? toEur(foreignTotal) : null}
+          eurPreview={effRate != null && foreignTotal > 0 ? eurTotal : null}
           error={fieldError("exchange_rate")}
         />
       )}

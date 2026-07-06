@@ -48,19 +48,17 @@ export function calculateObligations(
 
   switch (splitMethod) {
     case "gleichmaessig": {
-      const share = round2(totalAmount / members.length);
-      return members.map((m) => ({ personId: m.personId, totalAmount: share }));
+      // Largest-Remainder statt round2 pro Kopf (Fund C-3): sonst wäre
+      // Σ ≠ total_amount (z. B. 1000/3 → 3×333,33 = 999,99) und der Vorstrecker
+      // sammelte einen Cent zu wenig ein, obwohl die Matrix „voll bezahlt" zeigt.
+      const shares = allocateByWeights(totalAmount, members.map(() => 1));
+      return members.map((m, i) => ({ personId: m.personId, totalAmount: shares[i] }));
     }
     case "zeitanteilig": {
       const totalDays = members.reduce((s, m) => s + Math.max(0, m.days), 0);
-      if (totalDays === 0) {
-        const share = round2(totalAmount / members.length);
-        return members.map((m) => ({ personId: m.personId, totalAmount: share }));
-      }
-      return members.map((m) => ({
-        personId: m.personId,
-        totalAmount: round2((totalAmount * Math.max(0, m.days)) / totalDays),
-      }));
+      const weights = totalDays === 0 ? members.map(() => 1) : members.map((m) => Math.max(0, m.days));
+      const shares = allocateByWeights(totalAmount, weights);
+      return members.map((m, i) => ({ personId: m.personId, totalAmount: shares[i] }));
     }
     case "individuell": {
       return members.map((m) => ({
@@ -103,4 +101,31 @@ export function validateCabinCapacity(
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * Verteilt `total` gewichtet auf N Positionen, sodass die Summe der (auf Cent
+ * gerundeten) Anteile EXAKT `total` ergibt (Hamilton / Largest-Remainder).
+ * In Cent gerechnet: erst abrunden, dann die übrigen Cents an die größten
+ * Nachkomma-Reste vergeben. Verhindert die Cent-Drift der Pro-Position-Rundung.
+ */
+function allocateByWeights(total: number, weights: number[]): number[] {
+  const n = weights.length;
+  if (n === 0) return [];
+  const totalCents = Math.round(total * 100);
+  const weightSum = weights.reduce((s, w) => s + w, 0);
+  // Kein sinnvolles Gewicht → gleichmäßig verteilen.
+  const raw =
+    weightSum > 0
+      ? weights.map((w) => (totalCents * w) / weightSum)
+      : weights.map(() => totalCents / n);
+  const cents = raw.map((r) => Math.floor(r));
+  const remainder = totalCents - cents.reduce((s, c) => s + c, 0);
+  // Übrige Cents (0 ≤ remainder < n) an die größten Nachkomma-Reste, stabil
+  // nach Index bei Gleichstand → deterministisch.
+  const order = raw
+    .map((r, i) => ({ i, frac: r - Math.floor(r) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (let k = 0; k < remainder && k < n; k++) cents[order[k].i] += 1;
+  return cents.map((c) => c / 100);
 }

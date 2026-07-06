@@ -33,15 +33,27 @@ function num(v: string | string[] | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * Betrag für die Karte formatieren. Bei Fremdwährung (Migration 0041) trägt die
+ * Outbox-formData den FREMDbetrag (z. B. 500 SEK) — er darf NICHT als „500,00 €"
+ * angezeigt werden (Fund O-6), sonst wirkt der Entwurf um Größenordnungen
+ * falsch. EUR bleibt bei formatEuro.
+ */
+function formatPendingAmount(amount: number, currency: string): string {
+  if (currency === "" || currency === "EUR") return formatEuro(amount);
+  return `${amount.toFixed(2).replace(".", ",")} ${currency}`;
+}
+
 /** Anzeige-Daten aus der rohen Outbox-formData ableiten. */
 function describe(item: OutboxItem, names: Record<string, string>) {
   const d = item.formData;
+  const currency = str(d.original_currency);
   if (item.kind === "expense") {
     const total = num(d.amount) + num(d.tip_amount);
     return {
       title: str(d.description) || "(ohne Beschreibung)",
       sub: names[str(d.paid_by)] ?? "?",
-      amount: total,
+      amountLabel: formatPendingAmount(total, currency),
       isCredit: false,
     };
   }
@@ -49,7 +61,7 @@ function describe(item: OutboxItem, names: Record<string, string>) {
   return {
     title: str(d.description) || "Gutschrift",
     sub: `${names[str(d.credit_from)] ?? "?"} → ${to === "ALL" || to === "" ? "Alle" : names[to] ?? "?"}`,
-    amount: num(d.amount),
+    amountLabel: formatPendingAmount(num(d.amount), currency),
     isCredit: true,
   };
 }
@@ -159,7 +171,7 @@ export function PendingTransactions({
                 </div>
                 <div className="shrink-0 text-right">
                   <p className={`font-semibold ${info.isCredit ? "text-gold-dark" : "text-primary"}`}>
-                    {formatEuro(info.amount)}
+                    {info.amountLabel}
                   </p>
                 </div>
               </div>
