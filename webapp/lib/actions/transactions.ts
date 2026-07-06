@@ -298,6 +298,102 @@ function rateConfirmedAt(source: string | null): string | null {
   return source === "bank" ? new Date().toISOString() : null;
 }
 
+// ── Geteilte Bausteine für die drei Buchungs-Schreibpfade ────────────────
+// createExpense/updateExpense/replayPendingTransaction (bzw. die Credit-
+// Pendants) teilten vorher wortgleiche Blöcke. Hier einmal die gemeinsamen
+// Teile; die pro Aufrufer UNTERSCHIEDLICHEN, sicherheitsrelevanten Felder
+// (idempotency_key, tranche_id) bleiben BEWUSST am Call-Site explizit — so ist
+// sofort sichtbar, dass der Replay-Pfad tranche_id NICHT übernimmt (S-1) und
+// der Update-Pfad keinen idempotency_key trägt.
+
+/** Roher Feld-Zugriff: FormData.get(key) bzw. formObject[key]. Zod preprocesst. */
+type FieldGet = (key: string) => string | string[] | File | null | undefined;
+
+/** Gemeinsame Ausgabe-Felder für ExpenseSchema (ohne idempotency_key/tranche_id). */
+function expenseCommonInput(get: FieldGet, participantIds: string[]) {
+  return {
+    trip_id: get("trip_id"),
+    date: get("date"),
+    description: get("description"),
+    category_id: get("category_id") || null,
+    paid_by: get("paid_by"),
+    amount: get("amount"),
+    alcohol_amount: get("alcohol_amount") || 0,
+    tip_amount: get("tip_amount") || 0,
+    tip_distribution: get("tip_distribution") || "proportional",
+    split_type: get("split_type"),
+    participant_ids: participantIds,
+    participant_amounts: get("participant_amounts"),
+    original_currency: get("original_currency"),
+    exchange_rate: get("exchange_rate"),
+    rate_source: get("rate_source"),
+    bank_eur_amount: get("bank_eur_amount"),
+    bank_foreign_amount: get("bank_foreign_amount"),
+  };
+}
+
+/** Gemeinsame Gutschrift-Felder für CreditSchema (ohne idempotency_key/tranche_id).
+ *  `creditTo` ist bereits aufgelöst ("ALL" → null). */
+function creditCommonInput(get: FieldGet, creditTo: string | null) {
+  return {
+    trip_id: get("trip_id"),
+    date: get("date"),
+    description: get("description") || "",
+    amount: get("amount"),
+    credit_from: get("credit_from"),
+    credit_to: creditTo,
+    original_currency: get("original_currency"),
+    exchange_rate: get("exchange_rate"),
+    rate_source: get("rate_source"),
+    bank_eur_amount: get("bank_eur_amount"),
+    bank_foreign_amount: get("bank_foreign_amount"),
+  };
+}
+
+type ParticipantResult = { error: { message: string } | null } | null;
+
+/** Schreibt die Beteiligten-Zeilen einer Ausgabe (individual → nur person_id,
+ *  per_person → + amount/original_amount). Gibt das Insert-Ergebnis zurück
+ *  (`null`, wenn kein Insert nötig). Identisch in create/update/replay. */
+async function insertParticipants(
+  supabase: ReturnType<typeof createAdminClient>,
+  transactionId: string,
+  splitType: string,
+  participantIds: string[],
+  perPerson: { person_id: string; amount: number; original_amount: number | null }[],
+): Promise<ParticipantResult> {
+  if (splitType === "individual" && participantIds.length > 0) {
+    return await supabase
+      .from("transaction_participants")
+      .insert(participantIds.map((pid) => ({ transaction_id: transactionId, person_id: pid })));
+  }
+  if (splitType === "per_person" && perPerson.length > 0) {
+    return await supabase.from("transaction_participants").insert(
+      perPerson.map((p) => ({
+        transaction_id: transactionId,
+        person_id: p.person_id,
+        amount: p.amount,
+        original_amount: p.original_amount,
+      })),
+    );
+  }
+  return null;
+}
+
+/** „An Alle"-Gutschrift (credit_to = null) braucht ≥ 2 Crewmitglieder, sonst
+ *  bliebe die Bilanz unausgeglichen. Nur die Prüfung — die (pro Aufrufer leicht
+ *  unterschiedliche) Fehlermeldung bleibt am Call-Site. */
+async function crewCountAtLeastTwo(
+  supabase: ReturnType<typeof createAdminClient>,
+  tripId: string,
+): Promise<boolean> {
+  const { count } = await supabase
+    .from("trip_members")
+    .select("*", { count: "exact", head: true })
+    .eq("trip_id", tripId);
+  return (count ?? 0) > 1;
+}
+
 export async function createExpense(_prev: TxState, formData: FormData): Promise<TxState> {
   const person = await getCurrentPerson();
   if (!person) return { status: "error", message: "Nicht angemeldet." };
@@ -305,25 +401,9 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
   const participantIds = formData.getAll("participant_ids").map(String).filter(Boolean);
 
   const parsed = ExpenseSchema.safeParse({
-    trip_id: formData.get("trip_id"),
-    date: formData.get("date"),
-    description: formData.get("description"),
-    category_id: formData.get("category_id") || null,
-    paid_by: formData.get("paid_by"),
-    amount: formData.get("amount"),
-    alcohol_amount: formData.get("alcohol_amount") || 0,
-    tip_amount: formData.get("tip_amount") || 0,
-    tip_distribution: formData.get("tip_distribution") || "proportional",
-    split_type: formData.get("split_type"),
-    participant_ids: participantIds,
-    participant_amounts: formData.get("participant_amounts"),
+    ...expenseCommonInput((k) => formData.get(k), participantIds),
     tranche_id: formData.get("tranche_id") || null,
     idempotency_key: formData.get("idempotency_key") || undefined,
-    original_currency: formData.get("original_currency"),
-    exchange_rate: formData.get("exchange_rate"),
-    rate_source: formData.get("rate_source"),
-    bank_eur_amount: formData.get("bank_eur_amount"),
-    bank_foreign_amount: formData.get("bank_foreign_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
@@ -416,23 +496,7 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     return { status: "error", message: dbErrorMessage(error, "Buchung konnte nicht angelegt werden. Bitte erneut versuchen.") };
   }
 
-  const partRes =
-    txData.split_type === "individual" && participant_ids.length > 0
-      ? await supabase
-          .from("transaction_participants")
-          .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })))
-      : txData.split_type === "per_person" && cur.perPerson.length > 0
-        ? await supabase
-            .from("transaction_participants")
-            .insert(
-              cur.perPerson.map((p) => ({
-                transaction_id: tx.id,
-                person_id: p.person_id,
-                amount: p.amount,
-                original_amount: p.original_amount,
-              })),
-            )
-        : null;
+  const partRes = await insertParticipants(supabase, tx.id, txData.split_type, participant_ids, cur.perPerson);
   if (partRes?.error) {
     // Anteile konnten nicht geschrieben werden → die Buchung wäre falsch
     // aufgeteilt. Rollback der gerade erzeugten Buchung (gibt den
@@ -469,19 +533,9 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
   const creditTo = creditToRaw === "ALL" ? null : creditToRaw;
 
   const parsed = CreditSchema.safeParse({
-    trip_id: formData.get("trip_id"),
-    date: formData.get("date"),
-    description: formData.get("description") || "",
-    amount: formData.get("amount"),
-    credit_from: formData.get("credit_from"),
-    credit_to: creditTo,
+    ...creditCommonInput((k) => formData.get(k), creditTo),
     tranche_id: formData.get("tranche_id") || null,
     idempotency_key: formData.get("idempotency_key") || undefined,
-    original_currency: formData.get("original_currency"),
-    exchange_rate: formData.get("exchange_rate"),
-    rate_source: formData.get("rate_source"),
-    bank_eur_amount: formData.get("bank_eur_amount"),
-    bank_foreign_amount: formData.get("bank_foreign_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
@@ -495,18 +549,12 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
   // „An Alle" (credit_to IS NULL) braucht ≥ 2 Crewmitglieder, sonst kann
   // die Bilanz nicht ausgeglichen werden (creditFrom bekommt +amount, aber
   // niemand bekommt es gegengebucht).
-  if (parsed.data.credit_to == null) {
-    const { count } = await supabase
-      .from("trip_members")
-      .select("*", { count: "exact", head: true })
-      .eq("trip_id", parsed.data.trip_id);
-    if ((count ?? 0) <= 1) {
-      return {
-        status: "error",
-        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crewmitglieder. Wähle, wer das Geld bekommt.',
-        field: "credit_to",
-      };
-    }
+  if (parsed.data.credit_to == null && !(await crewCountAtLeastTwo(supabase, parsed.data.trip_id))) {
+    return {
+      status: "error",
+      message: '„An Alle"-Gutschriften brauchen mindestens 2 Crewmitglieder. Wähle, wer das Geld bekommt.',
+      field: "credit_to",
+    };
   }
 
   if (!(await trancheBelongsToTrip(supabase, parsed.data.tranche_id, parsed.data.trip_id))) {
@@ -600,24 +648,10 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
 
   const participantIds = formData.getAll("participant_ids").map(String).filter(Boolean);
   const parsed = ExpenseSchema.safeParse({
-    trip_id: formData.get("trip_id"),
-    date: formData.get("date"),
-    description: formData.get("description"),
-    category_id: formData.get("category_id") || null,
-    paid_by: formData.get("paid_by"),
-    amount: formData.get("amount"),
-    alcohol_amount: formData.get("alcohol_amount") || 0,
-    tip_amount: formData.get("tip_amount") || 0,
-    tip_distribution: formData.get("tip_distribution") || "proportional",
-    split_type: formData.get("split_type"),
-    participant_ids: participantIds,
-    participant_amounts: formData.get("participant_amounts"),
+    ...expenseCommonInput((k) => formData.get(k), participantIds),
+    // KEIN idempotency_key beim Edit (kein Doppel-Submit-Schutz nötig);
+    // tranche_id nur, weil das Edit-Feld die Anzahlungspool-Zuordnung ändern darf.
     tranche_id: formData.get("tranche_id") || null,
-    original_currency: formData.get("original_currency"),
-    exchange_rate: formData.get("exchange_rate"),
-    rate_source: formData.get("rate_source"),
-    bank_eur_amount: formData.get("bank_eur_amount"),
-    bank_foreign_amount: formData.get("bank_foreign_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
@@ -782,23 +816,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
       message: dbErrorMessage(delRes.error, "Speichern fehlgeschlagen. Bitte erneut versuchen."),
     };
   }
-  const partRes =
-    txData.split_type === "individual" && participant_ids.length > 0
-      ? await supabase
-          .from("transaction_participants")
-          .insert(participant_ids.map((pid) => ({ transaction_id: transactionId, person_id: pid })))
-      : txData.split_type === "per_person" && cur.perPerson.length > 0
-        ? await supabase
-            .from("transaction_participants")
-            .insert(
-              cur.perPerson.map((p) => ({
-                transaction_id: transactionId,
-                person_id: p.person_id,
-                amount: p.amount,
-                original_amount: p.original_amount,
-              })),
-            )
-        : null;
+  const partRes = await insertParticipants(supabase, transactionId, txData.split_type, participant_ids, cur.perPerson);
   if (partRes?.error) {
     // Anteile sind jetzt gelöscht und der Neu-Insert scheiterte → Zeile UND
     // alte Anteile wiederherstellen, damit die Buchung konsistent bleibt.
@@ -905,18 +923,9 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
   const creditTo = creditToRaw === "ALL" ? null : creditToRaw;
 
   const parsed = CreditSchema.safeParse({
-    trip_id: formData.get("trip_id"),
-    date: formData.get("date"),
-    description: formData.get("description") || "",
-    amount: formData.get("amount"),
-    credit_from: formData.get("credit_from"),
-    credit_to: creditTo,
+    ...creditCommonInput((k) => formData.get(k), creditTo),
+    // KEIN idempotency_key beim Edit; tranche_id änderbar (Pool-Zuordnung).
     tranche_id: formData.get("tranche_id") || null,
-    original_currency: formData.get("original_currency"),
-    exchange_rate: formData.get("exchange_rate"),
-    rate_source: formData.get("rate_source"),
-    bank_eur_amount: formData.get("bank_eur_amount"),
-    bank_foreign_amount: formData.get("bank_foreign_amount"),
   });
   if (!parsed.success) {
     return zodErrorState(parsed.error);
@@ -943,18 +952,12 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
   }
 
   // „An Alle"-Validierung wie bei createCredit
-  if (parsed.data.credit_to == null) {
-    const { count } = await supabase
-      .from("trip_members")
-      .select("*", { count: "exact", head: true })
-      .eq("trip_id", parsed.data.trip_id);
-    if ((count ?? 0) <= 1) {
-      return {
-        status: "error",
-        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crewmitglieder. Wähle, wer das Geld bekommt.',
-        field: "credit_to",
-      };
-    }
+  if (parsed.data.credit_to == null && !(await crewCountAtLeastTwo(supabase, parsed.data.trip_id))) {
+    return {
+      status: "error",
+      message: '„An Alle"-Gutschriften brauchen mindestens 2 Crewmitglieder. Wähle, wer das Geld bekommt.',
+      field: "credit_to",
+    };
   }
 
   if (!(await trancheBelongsToTrip(supabase, parsed.data.tranche_id, parsed.data.trip_id))) {
@@ -1109,25 +1112,11 @@ export async function replayPendingTransaction(
 
   if (kind === "expense") {
     const participantIds = (formObject.participant_ids as string[] | undefined) ?? [];
+    // KEIN tranche_id im Replay (S-1): eine offline erfasste Ausgabe darf nicht
+    // in den Anzahlungspool geschoben werden — die Auslassung ist hier bewusst.
     const parsed = ExpenseSchema.safeParse({
-      trip_id: formObject.trip_id,
-      date: formObject.date,
-      description: formObject.description,
-      category_id: formObject.category_id || null,
-      paid_by: formObject.paid_by,
-      amount: formObject.amount,
-      alcohol_amount: formObject.alcohol_amount || 0,
-      tip_amount: formObject.tip_amount || 0,
-      tip_distribution: formObject.tip_distribution || "proportional",
-      split_type: formObject.split_type,
-      participant_ids: participantIds,
-      participant_amounts: formObject.participant_amounts,
+      ...expenseCommonInput((k) => formObject[k], participantIds),
       idempotency_key: formObject.idempotency_key || undefined,
-      original_currency: formObject.original_currency,
-      exchange_rate: formObject.exchange_rate,
-      rate_source: formObject.rate_source,
-      bank_eur_amount: formObject.bank_eur_amount,
-      bank_foreign_amount: formObject.bank_foreign_amount,
     });
     if (!parsed.success) {
       return { ok: false, message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
@@ -1197,23 +1186,7 @@ export async function replayPendingTransaction(
     if (error || !tx) {
       return { ok: false, message: dbErrorMessage(error, "Serverfehler") };
     }
-    const partRes =
-      txData.split_type === "individual" && participant_ids.length > 0
-        ? await supabase
-            .from("transaction_participants")
-            .insert(participant_ids.map((pid) => ({ transaction_id: tx.id, person_id: pid })))
-        : txData.split_type === "per_person" && cur.perPerson.length > 0
-          ? await supabase
-              .from("transaction_participants")
-              .insert(
-                cur.perPerson.map((p) => ({
-                  transaction_id: tx.id,
-                  person_id: p.person_id,
-                  amount: p.amount,
-                  original_amount: p.original_amount,
-                })),
-              )
-          : null;
+    const partRes = await insertParticipants(supabase, tx.id, txData.split_type, participant_ids, cur.perPerson);
     if (partRes?.error) {
       // Rollback: Buchung löschen, damit der idempotency_key frei wird und der
       // nächste Replay einen sauberen Versuch macht. Sonst griffe oben der
@@ -1239,36 +1212,21 @@ export async function replayPendingTransaction(
   // credit
   const creditToRaw = String(formObject.credit_to ?? "");
   const creditTo = creditToRaw === "ALL" || creditToRaw === "" ? null : creditToRaw;
+  // KEIN tranche_id im Replay (S-1), wie beim Ausgabe-Zweig.
   const parsed = CreditSchema.safeParse({
-    trip_id: formObject.trip_id,
-    date: formObject.date,
-    description: formObject.description || "",
-    amount: formObject.amount,
-    credit_from: formObject.credit_from,
-    credit_to: creditTo,
+    ...creditCommonInput((k) => formObject[k], creditTo),
     idempotency_key: formObject.idempotency_key || undefined,
-    original_currency: formObject.original_currency,
-    exchange_rate: formObject.exchange_rate,
-    rate_source: formObject.rate_source,
-    bank_eur_amount: formObject.bank_eur_amount,
-    bank_foreign_amount: formObject.bank_foreign_amount,
   });
   if (!parsed.success) {
     return { ok: false, message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
 
   // „An Alle"-Validierung wie in createCredit (siehe oben).
-  if (parsed.data.credit_to == null) {
-    const { count } = await supabase
-      .from("trip_members")
-      .select("*", { count: "exact", head: true })
-      .eq("trip_id", parsed.data.trip_id);
-    if ((count ?? 0) <= 1) {
-      return {
-        ok: false,
-        message: '„An Alle"-Gutschriften brauchen mindestens 2 Crewmitglieder. Wähle, wer das Geld bekommt.',
-      };
-    }
+  if (parsed.data.credit_to == null && !(await crewCountAtLeastTwo(supabase, parsed.data.trip_id))) {
+    return {
+      ok: false,
+      message: '„An Alle"-Gutschriften brauchen mindestens 2 Crewmitglieder. Wähle, wer das Geld bekommt.',
+    };
   }
 
   // Cross-Trip-Personen-Schutz wie in createCredit (Fund S-1).
