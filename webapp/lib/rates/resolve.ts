@@ -46,6 +46,25 @@ function effectiveRate(
   return { rate: exchangeRate ?? 0, source: rateSource ?? "live" };
 }
 
+/**
+ * Exakter EUR-Betrag für einen Fremdbetrag bei nachgetragenem Bankbetrag —
+ * OHNE Umweg über den auf 6 Stellen gerundeten Kurs (Fund C-4): `bankEur ×
+ * Ziel-Fremdbetrag / Divisor`. Ohne Privatabzug (Divisor = voller Fremdbetrag)
+ * trifft das den abgebuchten Euro-Betrag centgenau statt ±1 ct daneben.
+ * Gibt null zurück, wenn kein Bankbetrag vorliegt (dann gilt der Kurs).
+ */
+function bankExactEur(
+  targetForeign: number,
+  bankEurAmount: number | null,
+  bankForeignAmount: number | null,
+  originalTotal: number,
+): number | null {
+  if (bankEurAmount == null || bankEurAmount <= 0) return null;
+  const divisor = bankForeignAmount != null && bankForeignAmount > 0 ? bankForeignAmount : originalTotal;
+  if (divisor <= 0) return null;
+  return round2((bankEurAmount * targetForeign) / divisor);
+}
+
 export function resolveExpenseCurrency(input: {
   split_type: string;
   amount: number;
@@ -109,8 +128,14 @@ export function resolveExpenseCurrency(input: {
       perPerson,
     };
   }
+  // Bei Bankkurs den Buchungsbetrag centgenau aus dem Bankbetrag ableiten
+  // (Fund C-4) statt über den gerundeten Kurs; Alkohol-Teil bleibt kursbasiert
+  // (Sub-Split innerhalb des Betrags). Ohne Bankbetrag → Kurs-Umrechnung.
+  const bankAmount = source === "bank"
+    ? bankExactEur(input.amount, input.bank_eur_amount, input.bank_foreign_amount, originalTotal)
+    : null;
   return {
-    amount: foreignToEur(input.amount, rate),
+    amount: bankAmount ?? foreignToEur(input.amount, rate),
     alcohol_amount: foreignToEur(input.alcohol_amount, rate),
     tip_amount: 0,
     original_currency: input.original_currency,
@@ -141,8 +166,11 @@ export function resolveCreditCurrency(input: {
     input.bank_foreign_amount,
     originalTotal,
   );
+  const bankAmount = source === "bank"
+    ? bankExactEur(input.amount, input.bank_eur_amount, input.bank_foreign_amount, originalTotal)
+    : null;
   return {
-    amount: foreignToEur(input.amount, rate),
+    amount: bankAmount ?? foreignToEur(input.amount, rate),
     original_currency: input.original_currency,
     original_amount: originalTotal,
     exchange_rate: rate,

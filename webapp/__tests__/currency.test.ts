@@ -204,6 +204,17 @@ describe("resolveExpenseCurrency", () => {
     expect(r.original_amount).toBe(400);
   });
 
+  it("Bankbetrag trifft den abgebuchten Euro centgenau bei großem Fremdbetrag (Fund C-4)", () => {
+    // 38.333 THB, abgebucht 1.000,00 €. Über den auf 6 Stellen gerundeten Kurs
+    // ergäbe die Rückrechnung 999,99/1.000,01 € — der exakte Bankpfad muss
+    // centgenau 1.000,00 € liefern (Divisor = voller Fremdbetrag, kein Abzug).
+    const r = resolveExpenseCurrency({
+      ...base, amount: 38333, original_currency: "THB", exchange_rate: 0.026, bank_eur_amount: 1000,
+    });
+    expect(r.rate_source).toBe("bank");
+    expect(r.amount).toBe(1000);
+  });
+
   it("nur Bankbetrag (ohne Kurs): gilt trotzdem als Fremdwährung, nicht als EUR", () => {
     const r = resolveExpenseCurrency({
       ...base, amount: 500, original_currency: "SEK", exchange_rate: null, bank_eur_amount: 45.8,
