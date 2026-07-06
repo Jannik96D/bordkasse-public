@@ -7,12 +7,14 @@ import {
   listAll,
   remove,
   subscribeToChanges,
+  fieldStr as str,
+  fieldNum as num,
   type OutboxItem,
 } from "@/lib/offline/outbox";
 import { useConfirm } from "@/components/confirm-dialog";
 import { useToast } from "@/components/toast-provider";
 import { useTripVocab } from "@/components/trip-vocab-provider";
-import { formatEuro } from "@/lib/utils";
+import { formatEuro, formatAmount } from "@/lib/utils";
 
 function subscribeOnline(callback: () => void) {
   window.addEventListener("online", callback);
@@ -23,16 +25,6 @@ function subscribeOnline(callback: () => void) {
   };
 }
 
-function str(v: string | string[] | undefined): string {
-  return typeof v === "string" ? v : "";
-}
-function num(v: string | string[] | undefined): number {
-  const s = str(v);
-  if (s === "") return 0;
-  const n = Number(s.replace(",", "."));
-  return Number.isFinite(n) ? n : 0;
-}
-
 /**
  * Betrag für die Karte formatieren. Bei Fremdwährung (Migration 0041) trägt die
  * Outbox-formData den FREMDbetrag (z. B. 500 SEK) — er darf NICHT als „500,00 €"
@@ -41,7 +33,7 @@ function num(v: string | string[] | undefined): number {
  */
 function formatPendingAmount(amount: number, currency: string): string {
   if (currency === "" || currency === "EUR") return formatEuro(amount);
-  return `${amount.toFixed(2).replace(".", ",")} ${currency}`;
+  return `${formatAmount(amount)} ${currency}`;
 }
 
 /** Anzeige-Daten aus der rohen Outbox-formData ableiten. */

@@ -20,6 +20,8 @@
  *   #7A8DA1 footer        Footer-Text
  */
 
+import { formatEuro } from "@/lib/utils";
+
 const SITE_URL = process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.dieter.ms";
 
 export interface MailShellParams {
@@ -167,12 +169,6 @@ export function stripHtml(s: string): string {
   return s.replace(/<[^>]+>/g, "");
 }
 
-/** Einheitliches EUR-Format für alle Mail-Templates. */
-export function fmtEuro(n: number): string {
-  return new Intl.NumberFormat("de-DE", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
-}
+/** Einheitliches EUR-Format für alle Mail-Templates. Delegiert an die geteilte
+ *  `formatEuro` (eine Quelle für das €-Format — vorher byte-gleiche Kopie). */
+export const fmtEuro = formatEuro;

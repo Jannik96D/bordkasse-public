@@ -6,7 +6,7 @@ import { Anchor, Info, Pencil, Search, X } from "lucide-react";
 import type { TransactionListRow } from "@/lib/queries/transactions";
 import { CategoryIcon } from "@/components/category-icon";
 import { useTripVocab } from "@/components/trip-vocab-provider";
-import { formatDate, formatEuro } from "@/lib/utils";
+import { formatDate, formatEuro, formatAmount } from "@/lib/utils";
 import { DeleteButton } from "./delete-button";
 
 export function TransactionsList({
@@ -179,7 +179,7 @@ export function TransactionsList({
                         </p>
                         {t.original_currency && t.original_amount != null && (
                           <p className="text-[10px] text-ink-soft tabular-nums" title="Originalbetrag in Fremdwährung">
-                            {t.original_amount.toFixed(2).replace(".", ",")} {t.original_currency}
+                            {formatAmount(t.original_amount)} {t.original_currency}
                           </p>
                         )}
                         {t.tip_amount > 0 && (

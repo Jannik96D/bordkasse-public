@@ -3,7 +3,6 @@
 import { z } from "zod";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireSkipperOrAdmin, requireMember, requireSkipperAdminOrAdvancer } from "@/lib/auth/authz";
@@ -712,12 +711,6 @@ export async function sendPrepaymentReminder(
   revalidatePath(`/trips/${parsed.data.trip_id}/prepayments`);
   return { status: "ok" };
 }
-
-// ────────────────────────────────────────────────────────────────────────
-// Helpers
-// ────────────────────────────────────────────────────────────────────────
-
-void redirect; // import-Side-Effect, im File benutzt
 
 // ════════════════════════════════════════════════════════════════════════
 // PHASE 2 — Crew-Selbstmeldung

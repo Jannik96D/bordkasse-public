@@ -14,6 +14,8 @@
  */
 
 import type { TripVocab } from "@/lib/trip-vocab";
+import { formatAmount } from "@/lib/utils";
+import { formatDeDate } from "@/lib/prepayments/dates";
 
 export const DEFAULT_WHATSAPP_TEMPLATE = `Hi {{name}}, kurze Erinnerung an die {{tranche_label}}
 für unseren Törn {{trip_name}}:
@@ -57,7 +59,7 @@ export interface WhatsAppRenderInput {
 export function renderWhatsAppText(input: WhatsAppRenderInput): string {
   const tmpl = input.template?.trim() || DEFAULT_WHATSAPP_TEMPLATE;
   const wero = input.weroLink || input.weroId || "—";
-  const amount = input.amount.toFixed(2).replace(".", ",");
+  const amount = formatAmount(input.amount);
   return tmpl
     .replaceAll("{{name}}", input.name)
     .replaceAll("{{tranche_label}}", input.trancheLabel)
@@ -97,10 +99,4 @@ export function renderBulkWhatsAppText(params: {
     }),
   );
   return blocks.join("\n\n———\n\n");
-}
-
-function formatDeDate(iso: string): string {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-");
-  return `${Number(d)}.${Number(m)}.${y}`;
 }

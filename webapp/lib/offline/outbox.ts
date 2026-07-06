@@ -24,6 +24,21 @@ export type OutboxItem = {
   createdAt: number;
 };
 
+/** Ein formData-Feld als String (leer bei Array/undefined). Geteilt von den
+ *  Komponenten, die `OutboxItem.formData` dekodieren (Pending-Karten + Draft-
+ *  Editor), damit ihre Dekodierung nicht auseinanderdriftet. */
+export function fieldStr(v: string | string[] | undefined): string {
+  return typeof v === "string" ? v : "";
+}
+
+/** Ein formData-Feld als Number (deutsches Komma → Punkt). Leer/ungültig → 0. */
+export function fieldNum(v: string | string[] | undefined): number {
+  const s = fieldStr(v);
+  if (s === "") return 0;
+  const n = Number(s.replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);

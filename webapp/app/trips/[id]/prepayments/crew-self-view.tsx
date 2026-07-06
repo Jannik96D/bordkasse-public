@@ -6,7 +6,7 @@ import { CheckCircle2, RefreshCw } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { useTripVocab } from "@/components/trip-vocab-provider";
-import { formatEuro, todayIso } from "@/lib/utils";
+import { formatEuro, formatAmount, todayIso } from "@/lib/utils";
 import { submitSelfPayment } from "@/lib/actions/prepayments";
 import { toCrewDueDate, formatDeDate } from "@/lib/prepayments/dates";
 import type {
@@ -190,7 +190,7 @@ function SelfPaymentModal({
 }) {
   const router = useRouter();
   const vocab = useTripVocab();
-  const [amount, setAmount] = useState(defaultAmount.toFixed(2).replace(".", ","));
+  const [amount, setAmount] = useState(formatAmount(defaultAmount));
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);

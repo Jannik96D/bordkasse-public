@@ -3,6 +3,7 @@
  * Spec: docs/prepayments.md
  */
 
+import { cache } from "react";
 import { readClient } from "@/lib/supabase/read-client";
 import type { PrepaymentSplitMethod } from "@/lib/validation/prepayment-schema";
 
@@ -42,7 +43,11 @@ export interface Obligation {
   total_amount: number;
 }
 
-export async function getPlan(tripId: string): Promise<PrepaymentPlan | null> {
+// cache(): pro Request dedupliziert — getPlan wird beim Öffnen eines Charter-
+// Törns mehrfach aufgerufen (Layout-NavState + Übersichts-Page + Trip-Progress),
+// getCharterPaidTotal doppelt. Wie getTrip/getTripMembers in trips.ts; kein
+// Cross-Request-Cache → keine Stale-Gefahr (Fund E-2).
+export const getPlan = cache(async (tripId: string): Promise<PrepaymentPlan | null> => {
   const supabase = await readClient();
   const { data } = await supabase
     .from("prepayment_plan")
@@ -54,7 +59,7 @@ export async function getPlan(tripId: string): Promise<PrepaymentPlan | null> {
     ...data,
     total_amount: Number(data.total_amount),
   } as PrepaymentPlan;
-}
+});
 
 export async function getCabinTypes(tripId: string): Promise<CabinType[]> {
   const supabase = await readClient();
@@ -214,7 +219,7 @@ export async function getPrepaymentPoolBalances(tripId: string): Promise<Prepaym
  * Eine Charter-Überweisung ist `transactions.type='expense'` mit
  * `tranche_id` ≠ NULL — wird separat von den Crew-Pool-Beiträgen angezeigt.
  */
-export async function getCharterPaidTotal(tripId: string): Promise<number> {
+export const getCharterPaidTotal = cache(async (tripId: string): Promise<number> => {
   const supabase = await readClient();
   const { data } = await supabase
     .from("transactions")
@@ -224,7 +229,7 @@ export async function getCharterPaidTotal(tripId: string): Promise<number> {
     .not("tranche_id", "is", null)
     .is("deleted_at", null);
   return (data ?? []).reduce((s, r) => s + Number(r.amount), 0);
-}
+});
 
 /**
  * Pro Tranche: was hat der Vorstrecker schon als Ausgabe (an die

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Bell, MessageCircle, RefreshCw, Check, X } from "lucide-react";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { Modal } from "@/components/modal";
-import { formatEuro, todayIso, round2 } from "@/lib/utils";
+import { formatEuro, formatAmount, todayIso, round2 } from "@/lib/utils";
 import {
   recordPayment,
   sendPrepaymentReminder,
@@ -577,7 +577,7 @@ function PaymentModal({
   personName: string;
   onClose: () => void;
 }) {
-  const [amount, setAmount] = useState(() => Math.max(0, cell.open).toFixed(2).replace(".", ","));
+  const [amount, setAmount] = useState(() => formatAmount(Math.max(0, cell.open)));
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState("");
   const [overflowTrancheId, setOverflowTrancheId] = useState<string>("");
