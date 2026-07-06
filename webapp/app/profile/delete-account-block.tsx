@@ -71,7 +71,7 @@ export function DeleteAccountBlock() {
         </form>
 
         {state.status === "error" && (
-          <p className="text-xs text-danger">{state.message}</p>
+          <p className="text-xs text-danger" role="alert">{state.message}</p>
         )}
       </div>
     </details>

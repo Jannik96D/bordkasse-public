@@ -26,9 +26,16 @@ export function formatDate(iso: string): string {
   }).format(d);
 }
 
-/** Kaufmännisch auf 2 Nachkommastellen runden. */
+/**
+ * Auf 2 Nachkommastellen runden — halbe Cents VON NULL WEG, exakt wie Postgres
+ * `ROUND(numeric, 2)`. `Math.round` rundet halbe Werte Richtung +∞
+ * (−10,125 → −10,12), Postgres von Null weg (−10,125 → −10,13); ohne Angleich
+ * wich der TS-Mirror (`lib/calc`) bei .xx5-Salden vom SQL ab (Fund C-6). Für
+ * positive Beträge identisch zu `Math.round`.
+ */
 export function round2(n: number): number {
-  return Math.round(n * 100) / 100;
+  const cents = n * 100;
+  return (Math.sign(cents) * Math.round(Math.abs(cents))) / 100;
 }
 
 /**

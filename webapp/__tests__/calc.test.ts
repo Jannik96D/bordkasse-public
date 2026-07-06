@@ -16,6 +16,24 @@ import {
   type Transaction,
   type BalanceRow,
 } from "@/lib/calc";
+import { round2 as libRound2 } from "@/lib/utils";
+
+// ── round2: halbe Cents von Null weg, wie Postgres ROUND (Fund C-6) ─────────
+describe("round2 — Rundungsparität mit Postgres ROUND", () => {
+  it("rundet positive halbe Cents auf (wie bisher)", () => {
+    // 10.125 = 10 + 1/8 → exakt darstellbar, 1012.5 rundet auf 1013.
+    expect(libRound2(10.125)).toBe(10.13);
+  });
+  it("rundet negative halbe Cents VON NULL WEG (nicht Richtung +∞)", () => {
+    // Math.round(-10.125*100)/100 gäbe -10.12 — Postgres ROUND gibt -10.13.
+    expect(libRound2(-10.125)).toBe(-10.13);
+  });
+  it("lässt Nicht-Halb-Cent-Werte unverändert korrekt runden", () => {
+    expect(libRound2(-10.124)).toBe(-10.12);
+    expect(libRound2(-10.126)).toBe(-10.13);
+    expect(libRound2(0)).toBe(0);
+  });
+});
 
 // ── Test-Crew (10 Personen, 11-Tage-Törn 5.–15. April) ──────────────────
 const baseMember = (

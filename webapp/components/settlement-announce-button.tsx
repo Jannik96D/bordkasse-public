@@ -38,7 +38,7 @@ export function SettlementAnnounceButton({ tripId }: { tripId: string }) {
 
   if (status.kind === "ok") {
     return (
-      <p className={`mt-2 text-xs ${status.failed > 0 ? "text-danger" : "text-success"}`}>
+      <p className={`mt-2 text-xs ${status.failed > 0 ? "text-danger" : "text-success"}`} role="status">
         {status.failed > 0 ? "⚠" : "✓"} Abrechnung verschickt — {status.sent} Mail{status.sent === 1 ? "" : "s"} raus
         {status.failed > 0 && `, ${status.failed} fehlgeschlagen`}
         {status.skipped > 0 && `, ${status.skipped} ohne Email-Adresse übersprungen`}.
@@ -58,7 +58,7 @@ export function SettlementAnnounceButton({ tripId }: { tripId: string }) {
         {pending ? "Versende …" : "Abrechnung verschicken"}
       </button>
       {status.kind === "error" && (
-        <p className="mt-1 text-xs text-danger">{status.message}</p>
+        <p className="mt-1 text-xs text-danger" role="alert">{status.message}</p>
       )}
       {confirmDialog}
     </div>

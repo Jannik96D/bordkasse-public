@@ -8,8 +8,10 @@
  */
 
 import type { BalanceRow, DebtTransfer } from "./types";
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
+import { round2 } from "@/lib/utils";
+// round2 rundet halbe Cents von Null weg (wie Postgres ROUND) — geteilt mit
+// lib/utils, damit der Mirror bei negativen .xx5-Salden nicht vom SQL abweicht
+// (Fund C-6). Früher lokale Kopie mit Math.round (Richtung +∞).
 
 export function simplifyDebts(balances: BalanceRow[]): DebtTransfer[] {
   // Salden EINMAL auf 2 NK runden — exakt wie die SQL-Quelle

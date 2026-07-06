@@ -36,7 +36,7 @@ export function DeleteButton({ transactionId, tripId }: { transactionId: string;
       <button
         onClick={handleClick}
         disabled={pending}
-        className="text-ink-soft hover:text-danger disabled:opacity-50"
+        className="inline-flex min-h-touch min-w-touch items-center justify-center rounded-md text-ink-soft hover:bg-paper-soft hover:text-danger disabled:opacity-50"
         aria-label="Buchung löschen"
       >
         <Trash2 className="h-4 w-4" />
