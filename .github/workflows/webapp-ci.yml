@@ -114,9 +114,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Version PINNEN statt `latest`: `latest` löst bei jedem Lauf die neueste
+      # Release über die GitHub-API auf → unauthentifiziert 60 Calls/h → Rate-
+      # Limit-Flake ("Failed to resolve latest Supabase CLI release", exit 127
+      # im folgenden `supabase`-Schritt). Eine gepinnte Version braucht keinen
+      # "latest"-Lookup und macht CI reproduzierbar. Token zusätzlich als Netz
+      # (hebt das API-Limit auf 5000/h), falls die Action doch die API anfasst.
       - uses: supabase/setup-cli@v2
         with:
-          version: latest
+          version: 2.109.0
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Das Legacy-seed.sql referenziert persons.email (vor Migration 0013) und
       # bricht sonst `supabase start`. Die pgTAP-Tests erzeugen ihre eigenen
