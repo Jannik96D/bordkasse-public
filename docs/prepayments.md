@@ -98,6 +98,14 @@ prepayment_reminder_log
 ### 2. Zeitanteilig
 Verteilung nach Bord-Tagen (siehe `calculation-rules.md` → „Zeitanteilig").
 
+> **Cent-genaue Verteilung (Fix C-3):** `gleichmaessig` und `zeitanteilig`
+> verteilen per Largest-Remainder (`allocateByWeights` in `lib/calc/
+> prepayment-shares.ts`, in Cent gerechnet) — die Summe der Personen-Soll
+> ergibt EXAKT `total_amount` (vorher rundete jede Person einzeln, z. B.
+> 1000/3 → 3×333,33 = 999,99, und der Vorstrecker sammelte 1 ct zu wenig ein).
+> `individuell`/`kojen` sind Pass-through (Beträge kommen direkt vom Skipper
+> bzw. Kojenpreis).
+
 ### 3. Individuell
 Skipper tippt pro Person einen Betrag.
 

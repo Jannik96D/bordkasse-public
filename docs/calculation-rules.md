@@ -50,6 +50,13 @@ Anteil = Betrag / Anzahl_anwesender_Personen
 
 **Mit Alkohol:** wie Gleichmäßig, aber nur unter den anwesenden Personen.
 
+> **Web-App-Guard (Fix C-1):** Ist am gewählten Datum **niemand** an Bord —
+> Datum außerhalb des Törns ODER innerhalb, aber vor dem ersten / nach dem
+> letzten Anwesenheitsfenster der Crew (z. B. Charter-Übergabetag) — bliebe die
+> Ausgabe unallokiert (0 Anteile, Bilanz-Summe ≠ 0). Der Server (`checkOnBoardDate`)
+> lehnt „An Bord" dann ab und verweist auf ein Datum im Zeitraum bzw. eine andere
+> Aufteilung. Gilt für Anlegen, Bearbeiten und Offline-Replay.
+
 ### 3. Zeitanteilig
 
 Proportional zu den Bord-Tagen der Person — auch wenn die Person am Tag der Ausgabe nicht da war (z.B. Yacht-Miete wird über alle Tage des Törns aller Personen verteilt).

@@ -55,7 +55,7 @@ in der `"use server"`-Datei, wo nur async-Exports erlaubt sind), Umrechnung via
 | `transactions.amount` | EUR-Wert (Bilanz) |
 | `original_currency` | ISO-Code, `NULL` = EUR nativ |
 | `original_amount` | Fremdbetrag (Bon) |
-| `exchange_rate` | 1 Einheit Fremd = X EUR (`amount = original_amount × rate`) |
+| `exchange_rate` | 1 Einheit Fremd = X EUR. Bei `live`/`manual`: `amount = original_amount × rate`. Bei `bank`: `exchange_rate` ist nur die Herkunfts-Spur (auf 6 Stellen gerundet), der `amount` wird **centgenau aus dem Bankbetrag** abgeleitet (s. Paket F) |
 | `rate_source` | `live` \| `manual` \| `bank` |
 | `rate_confirmed_at` | gesetzt, sobald der Bankkurs nachgetragen wurde |
 | `transaction_participants.original_amount` | Fremdbetrag je Person (Pro Person) |
@@ -87,9 +87,22 @@ Buchungsbetrag an. Leer → Divisor = Buchungsbetrag.
 
 ```
 Bon 480 NOK, davon 80 privat → geteilt 400 NOK. Bank bucht 480 NOK = 41,50 € ab.
-  effektiver Kurs = 41,50 / 480 = 0,086458
-  geteilter EUR-Betrag = 400 × 0,086458 = 34,58 €   (NICHT 41,50 €)
+  geteilter EUR-Betrag = 41,50 × 400 / 480 = 34,58 €   (NICHT 41,50 €)
+  gespeicherter exchange_rate (Herkunft) = round6(41,50 / 480) = 0,086458
 ```
+
+**Centgenauigkeit (Fix C-4):** der `amount` wird direkt als
+`bankEur × Ziel-Fremdbetrag ÷ Divisor` gerechnet (`bankExactEur` in
+`resolve.ts`), NICHT über den auf 6 Stellen gerundeten Kurs zurück-multipliziert.
+Ohne Privatabzug (Divisor = voller Fremdbetrag) trifft der gespeicherte EUR-Betrag
+den Kontoauszug centgenau; die Rückrechnung über den gerundeten Kurs wich bei
+großen Fremdbeträgen um bis zu 1 ct ab.
+
+**Beim Edit (Fix C-2):** das Bank-Feld wird NICHT mit `tx.amount` vorbelegt (das
+ist der geteilte EUR-Betrag, nicht der abgebuchte). Der gespeicherte
+`exchange_rate` ist bei `rate_source='bank'` bereits der effektive Kurs und
+repreist beim Ändern des Fremdbetrags korrekt; der echte Bankbetrag ist nicht
+gespeichert und wird bei Bedarf neu im Bank-Block eingetragen.
 
 `bank_foreign_amount` ist transient (keine DB-Spalte). Client-Spiegel
 `computeEffRate` in `transaction-form.tsx` == `effectiveRate` in `resolve.ts`.
