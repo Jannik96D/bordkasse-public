@@ -46,6 +46,23 @@ CREATE POLICY "tc_select_audience"
     )
   );
 
+-- ── CHECK-Constraints lockern: paid_by/credit_from dürfen nach dem Purge
+-- NULL sein ─────────────────────────────────────────────────────────
+-- tx_expense_fields verlangte bisher `paid_by IS NOT NULL` für JEDE
+-- Ausgabe, tx_credit_fields `credit_from IS NOT NULL` für JEDE Gutschrift
+-- — beides würde die anonymisierende UPDATE unten für JEDEN echten Törn
+-- mit Ausgaben/Gutschriften mit einer Constraint-Violation scheitern
+-- lassen. Die Pflichtfelder bleiben bei der Neuanlage weiterhin über
+-- ExpenseSchema/CreditSchema (Zod) erzwungen — die DB-Constraints sichern
+-- nur zusätzlich ab, dass sie bei ERSTELLUNG nicht leer sind; das ist nach
+-- dem gewollten Purge-Zustand nicht mehr der Fall. split_type bleibt
+-- erzwungen (wird vom Purge nicht angerührt).
+ALTER TABLE transactions DROP CONSTRAINT IF EXISTS tx_expense_fields;
+ALTER TABLE transactions ADD CONSTRAINT tx_expense_fields
+  CHECK (type <> 'expense'::transaction_type OR split_type IS NOT NULL);
+
+ALTER TABLE transactions DROP CONSTRAINT IF EXISTS tx_credit_fields;
+
 -- ── purge_trip_data: transactions anonymisieren statt löschen ────────
 CREATE OR REPLACE FUNCTION purge_trip_data(p_trip_id UUID, p_force BOOLEAN DEFAULT FALSE)
 RETURNS TEXT

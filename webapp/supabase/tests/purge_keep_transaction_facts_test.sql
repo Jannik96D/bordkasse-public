@@ -17,6 +17,16 @@ SELECT plan(11);
 -- also über die Audience-Spur im Purge. "Fremder" hat ebenfalls einen
 -- Login, aber KEINE Mitgliedschaft/Audience-Spur zu diesem Törn — er dient
 -- dem negativen RLS-Test (analog view_security_invoker_test.sql).
+--
+-- persons.auth_user_id trägt einen ECHTEN FK auf auth.users(id) — anders
+-- als in view_security_invoker_test.sql (die dort nur den "kein JWT"-Fall
+-- prüft) brauchen wir hier zwei echte auth.users-Zeilen, um konkrete
+-- Personen per request.jwt.claims zu impersonieren. Minimal-Insert: von
+-- allen Spalten ist nur `id` NOT NULL.
+INSERT INTO auth.users(id) VALUES
+  ('44440000-0000-4000-8000-0000000000f1'),
+  ('44440000-0000-4000-8000-0000000000f3');
+
 INSERT INTO persons(id, display_name, auth_user_id) VALUES
   ('44440000-0000-4000-8000-000000000001', 'Purge P1', '44440000-0000-4000-8000-0000000000f1'),
   ('44440000-0000-4000-8000-000000000002', 'Purge P2', NULL),
@@ -45,29 +55,27 @@ INSERT INTO transactions(
   '44440000-0000-4000-8000-000000000001', '44440000-0000-4000-8000-000000000001',
   '44440000-0000-4000-8000-0000000000c1', 'equal'
 );
-INSERT INTO transaction_participants(transaction_id, person_id, share)
-  SELECT '44440000-0000-4000-8000-0000000000e1', person_id, 15
+INSERT INTO transaction_participants(transaction_id, person_id)
+  SELECT '44440000-0000-4000-8000-0000000000e1', person_id
     FROM trip_members WHERE trip_id = '44440000-0000-4000-8000-0000000000aa';
 
--- DIREKTE Gutschrift P1 → P2 (KEIN "An Alle") — der eigentliche Bug-Trigger:
+-- DIREKTE Gutschrift P2 → P1 (KEIN "An Alle") — der eigentliche Bug-Trigger:
 -- credit_to wird beim Purge genullt, credit_to_all muss trotzdem FALSE
 -- bleiben, sonst zeigt die UI hinterher fälschlich "An Alle" an.
+-- Aus der Ausgabe oben schuldet P2 (share 15, nichts bezahlt) P1 (bezahlt
+-- 30, share 15) 15€. Diese Gutschrift zahlt genau das direkt zurück
+-- (credit_from = P2 "gibt", credit_to = P1 "empfängt" — siehe CLAUDE.md
+-- Gutschrift-Logik) → Saldo beider Personen wird exakt 0, all_debts_settled
+-- ist damit ohne zusätzlichen settled_debts-Eintrag erfüllt.
 INSERT INTO transactions(
   id, trip_id, type, date, description, amount,
   credit_from, credit_to, credit_to_all, created_by
 ) VALUES (
   '44440000-0000-4000-8000-0000000000e2', '44440000-0000-4000-8000-0000000000aa',
   'credit', '2020-01-03', 'Direkte Rückzahlung', 15,
-  '44440000-0000-4000-8000-000000000001', '44440000-0000-4000-8000-000000000002', FALSE,
+  '44440000-0000-4000-8000-000000000002', '44440000-0000-4000-8000-000000000001', FALSE,
   '44440000-0000-4000-8000-000000000001'
 );
-
--- Resultierende Schuld (P2 schuldet P1 15€ aus der direkten Gutschrift;
--- die Ausgabe ist durch die 1:1-Teilung bereits ausgeglichen) als beglichen
--- markieren, damit all_debts_settled true ist.
-INSERT INTO settled_debts(trip_id, from_person_id, to_person_id, amount)
-VALUES ('44440000-0000-4000-8000-0000000000aa',
-        '44440000-0000-4000-8000-000000000002', '44440000-0000-4000-8000-000000000001', 15);
 
 -- ── Purge ausführen (force=true, um die 30-Tage/Settlement-Gates zu
 -- überspringen — Törn liegt hier ohnehin schon in der Vergangenheit) ──
