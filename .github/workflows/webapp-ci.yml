@@ -73,7 +73,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -120,7 +120,7 @@ jobs:
       # im folgenden `supabase`-Schritt). Eine gepinnte Version braucht keinen
       # "latest"-Lookup und macht CI reproduzierbar. Token zusätzlich als Netz
       # (hebt das API-Limit auf 5000/h), falls die Action doch die API anfasst.
-      - uses: supabase/setup-cli@v2
+      - uses: supabase/setup-cli@v3
         with:
           version: 2.109.0
         env:
