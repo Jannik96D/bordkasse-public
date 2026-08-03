@@ -418,6 +418,8 @@ Schriften: Campton Bold (Display) → Arial Bold (H2) → Arial Regular (Body).
 
 Vor dem Mergen einer neuen Komponente kurz prüfen: kann ich nur mit Tab + Pfeiltasten alles bedienen? Sieht der Fokus-Ring sichtbar aus? Liest VoiceOver/TalkBack sinnvolle Texte?
 
+**Grill-Pflicht vor Fertigmeldung.** Bevor eine nicht-triviale Code-Änderung (neues Feature, Bugfix, Migration, Refactor) als abgeschlossen gemeldet oder gemerged wird, muss sie zusätzlich zur eigenen Prüfung durch einen **unabhängigen Subagenten ohne Konversationskontext** adversarisch gegengelesen werden („Grillen") — nicht nur die eigene Selbstprüfung. Der Review-Agent bekommt ausschließlich den Diff/die betroffenen Dateipfade + genug Hintergrund, um kalt zu urteilen, und den Auftrag, aktiv nach Bugs, Security-Lücken und Edge Cases zu suchen statt Korrektheit anzunehmen. Trivial-Änderungen (Typo, Umbenennung, reine Doku) sind ausgenommen. Gefundene Probleme werden gefixt und wo sinnvoll durch einen Test abgesichert, bevor der Punkt als erledigt gilt. Hintergrund: ein solcher Grill-Durchlauf hat bereits einen Bug gefunden, den die Erstimplementierung UND ein `pnpm test`-Grünlicht übersehen hatten (fehlende Unterscheidung zwischen „anonymisiert" und „An Alle" bei Gutschriften nach dem DSGVO-Purge, siehe Migration 0046).
+
 ## Anweisungen für Claude Code
 
 Wenn du in diesem Projekt arbeitest:
