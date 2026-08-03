@@ -11,6 +11,8 @@ export interface CurrentPerson {
   created_at: string;
   /** Eigene E-Mail aus persons_private. Self-Read via RLS. */
   email: string | null;
+  /** Von einem Admin freigeschaltet: darf eigene Törns anlegen (Migration 0045). */
+  can_create_trips: boolean;
 }
 
 /**

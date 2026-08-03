@@ -173,11 +173,23 @@ export default function DatenschutzPage() {
           </p>
           <ul className="ml-5 mt-2 list-disc">
             <li>Crewliste (wer war wann an Bord, Alkohol-Flag, Notizen)</li>
-            <li>Buchungen mit Personenbezug (wer hat bezahlt, wer ist beteiligt)</li>
-            <li>Gutschriften und „Bezahlt“-Markierungen</li>
+            <li>
+              Personenbezug einzelner Buchungen (wer hat bezahlt, wer hat eine Gutschrift
+              gegeben/erhalten, wer hat die Buchung erfasst, wie war sie auf einzelne
+              Personen aufgeteilt)
+            </li>
+            <li>„Bezahlt“-Markierungen der Schulden</li>
             <li>Audit-Log-Einträge dieses Törns</li>
             <li>Ghost-Personen, die nirgends mehr Mitglied sind</li>
           </ul>
+          <p className="mt-2">
+            <strong>Was bei den Buchungen selbst erhalten bleibt:</strong> Betrag,
+            Beschreibung/Titel, Alkohol- und Trinkgeld-Anteil, Datum, Kategorie und
+            Aufteilungsart jeder Buchung bleiben bestehen — ganz ohne Personenbezug. So
+            lassen sich frühere Törns weiterhin als Erfahrungswert für künftige Törns
+            heranziehen (z. B. „was hat der Hafen letztes Jahr gekostet“), ohne dass
+            erkennbar ist, wer bezahlt hat oder beteiligt war.
+          </p>
           <p className="mt-2">
             Solange noch offene Schulden in der App stehen, bleiben die Daten bewusst
             erhalten, sonst gingen die laufenden Zahlungen verloren.

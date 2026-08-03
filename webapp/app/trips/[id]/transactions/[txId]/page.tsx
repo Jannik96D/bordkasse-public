@@ -141,8 +141,10 @@ export default async function TransactionDetailPage({
           {!isExpense && (
             <Field label="Geht an">
               <p className="font-medium">
-                {detail.credit_to_name ?? `Alle ${vocab.member === "Crewmitglied" ? "Crewmitglieder" : "Mitreisenden"} anteilig`}
-                {detail.credit_to_id == null && (
+                {detail.credit_to_all
+                  ? `Alle ${vocab.member === "Crewmitglied" ? "Crewmitglieder" : "Mitreisenden"} anteilig`
+                  : (detail.credit_to_name ?? "Empfänger nicht mehr verfügbar")}
+                {detail.credit_to_all && (
                   <InfoTooltip
                     label="Was bedeutet „An Alle“?"
                     text={`Der Betrag wird gleichmäßig auf alle ${vocab.member === "Crewmitglied" ? "Crewmitglieder" : "Mitreisenden"} außer die zahlende Person verteilt.`}

@@ -28,7 +28,9 @@ export interface TransactionDetail {
   credit_from_id: string | null;
   credit_from_name: string | null;
   credit_to_id: string | null;
-  credit_to_name: string | null; // null = "Alle" wenn type=credit
+  credit_to_name: string | null;
+  /** true = "An Alle" (unabhängig von credit_to, das nach DSGVO-Purge genullt sein kann). */
+  credit_to_all: boolean;
   category_id: string | null;
   category_name: string | null;
   category_icon: string | null;
@@ -51,7 +53,9 @@ export interface TransactionListRow {
   category_name: string | null;
   category_icon: string | null;
   credit_from_name: string | null;
-  credit_to_name: string | null;  // null = "Alle" wenn type=credit
+  credit_to_name: string | null;
+  /** true = "An Alle" (unabhängig von credit_to, das nach DSGVO-Purge genullt sein kann). */
+  credit_to_all: boolean;
   /** Ersteller — gebraucht für Edit-Permission-Check in der Liste. */
   created_by_id: string | null;
   /** Anzahlungstranche, falls die Buchung dem Anzahlungspool zugeordnet ist. */
@@ -68,7 +72,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
     .select(`
       id, type, date, description, amount, alcohol_amount, tip_amount, split_type,
       original_currency, original_amount,
-      paid_by, credit_from, credit_to, created_by,
+      paid_by, credit_from, credit_to, credit_to_all, created_by,
       paid_person:persons!transactions_paid_by_fkey(display_name),
       from_person:persons!transactions_credit_from_fkey(display_name),
       to_person:persons!transactions_credit_to_fkey(display_name),
@@ -96,6 +100,7 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
     paid_by: string | null;
     credit_from: string | null;
     credit_to: string | null;
+    credit_to_all: boolean;
     created_by: string | null;
     paid_person: { display_name: string } | { display_name: string }[] | null;
     from_person: { display_name: string } | { display_name: string }[] | null;
@@ -120,9 +125,8 @@ export async function listTransactions(tripId: string): Promise<TransactionListR
     category_name: first(r.category)?.name ?? null,
     category_icon: first(r.category)?.icon ?? null,
     credit_from_name: first(r.from_person)?.display_name ?? null,
-    credit_to_name: r.type === "credit" && r.credit_to == null
-      ? null  // → "Alle"
-      : first(r.to_person)?.display_name ?? null,
+    credit_to_name: first(r.to_person)?.display_name ?? null,
+    credit_to_all: r.credit_to_all,
     created_by_id: r.created_by,
     tranche_label: first(r.tranche)?.label ?? null,
     original_currency: r.original_currency ?? null,
@@ -150,7 +154,7 @@ export async function getTransactionDetail(
     .from("transactions")
     .select(`
       id, trip_id, type, date, description, amount, alcohol_amount, tip_amount, tip_distribution, split_type,
-      paid_by, category_id, credit_from, credit_to, created_by, deleted_at,
+      paid_by, category_id, credit_from, credit_to, credit_to_all, created_by, deleted_at,
       paid_person:persons!transactions_paid_by_fkey(display_name),
       from_person:persons!transactions_credit_from_fkey(display_name),
       to_person:persons!transactions_credit_to_fkey(display_name),
@@ -177,6 +181,7 @@ export async function getTransactionDetail(
     category_id: string | null;
     credit_from: string | null;
     credit_to: string | null;
+    credit_to_all: boolean;
     created_by: string | null;
     deleted_at: string | null;
     paid_person: { display_name: string } | { display_name: string }[] | null;
@@ -256,7 +261,8 @@ export async function getTransactionDetail(
     credit_from_id: t.credit_from,
     credit_from_name: first(t.from_person)?.display_name ?? null,
     credit_to_id: t.credit_to,
-    credit_to_name: t.credit_to == null ? null : first(t.to_person)?.display_name ?? null,
+    credit_to_name: first(t.to_person)?.display_name ?? null,
+    credit_to_all: t.credit_to_all,
     category_id: t.category_id,
     category_name: first(t.category)?.name ?? null,
     category_icon: first(t.category)?.icon ?? null,

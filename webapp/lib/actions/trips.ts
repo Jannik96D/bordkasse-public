@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdmin, requireSkipperOrAdmin } from "@/lib/auth/authz";
+import { requireAdmin, requireAdminOrTripCreator, requireSkipperOrAdmin, isAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { iconForCategoryName } from "@/lib/categories/icons";
 import { displayNameFromEmail } from "@/lib/utils";
@@ -73,8 +73,9 @@ export type TripState =
   | { status: "error"; message: string };
 
 export async function createTrip(_prev: TripState, formData: FormData): Promise<TripState> {
-  const auth = await requireAdmin();
+  const auth = await requireAdminOrTripCreator();
   if (!auth.ok) return { status: "error", message: auth.message };
+  const callerIsAdmin = await isAdmin();
 
   const parsed = TripSchema.safeParse({
     name: formData.get("name"),
@@ -83,7 +84,10 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
     ship_name: formData.get("ship_name") || "",
     trip_type: formData.get("trip_type") || "sailing",
     prepayment: formData.get("prepayment") || "planned",
-    skipper_email: formData.get("skipper_email") || "",
+    // Das Feld "für jemand anderen anlegen" ist nur Admins vorbehalten
+    // (siehe new-trip-form.tsx) — nicht-Admin-Ersteller werden unten
+    // unabhängig vom Formularinhalt immer selbst Skipper.
+    skipper_email: callerIsAdmin ? formData.get("skipper_email") || "" : "",
   });
   if (!parsed.success) {
     return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
@@ -91,9 +95,10 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
 
   const supabase = createAdminClient();
 
-  // Skipper bestimmen: wenn skipper_email angegeben ist, dort eine Person
-  // finden oder als Ghost anlegen — sonst wird der Admin selbst Skipper.
-  // E-Mail-Lookup geht seit Migration 0013 über persons_private.
+  // Skipper bestimmen: wenn skipper_email angegeben ist (nur für Admins
+  // möglich, s.o.), dort eine Person finden oder als Ghost anlegen —
+  // sonst wird der Ersteller selbst Skipper. E-Mail-Lookup geht seit
+  // Migration 0013 über persons_private.
   let skipperId = auth.personId;
   if (parsed.data.skipper_email) {
     const email = parsed.data.skipper_email;
@@ -383,15 +388,43 @@ export async function purgeTripNow(tripId: string, force: boolean): Promise<Purg
       return { ok: false, message: "Törn nicht gefunden." };
     case "already_purged":
       return { ok: false, message: "Daten dieses Törns wurden bereits gelöscht." };
-    case "retention_not_reached":
+    case "too_young":
       return { ok: false, message: 'Die 30-Tage-Frist nach Törnende ist noch nicht erreicht. Mit „Sofort löschen“ überspringst du die Frist.' };
-    case "settlement_not_announced":
+    case "no_settlement":
       return { ok: false, message: "Bitte zuerst die Abrechnung verschicken. Danach kann gelöscht werden." };
     case "debts_open":
       return { ok: false, message: "Es gibt noch offene Schulden: Alle Bezahlt-Häkchen müssen gesetzt sein, bevor gelöscht werden kann." };
     default:
       return { ok: false, message: `Unerwartete Antwort der Datenbank: ${result}` };
   }
+}
+
+/**
+ * Admin schaltet für eine einzelne Person frei/aus, ob sie eigene Törns
+ * anlegen darf (Migration 0045). Nur Admin — siehe app/admin/page.tsx.
+ */
+export async function setCanCreateTrips(
+  personId: string,
+  value: boolean,
+): Promise<{ ok: boolean; message?: string }> {
+  const auth = await requireAdmin();
+  if (!auth.ok) return { ok: false, message: auth.message };
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("persons").update({ can_create_trips: value }).eq("id", personId);
+  if (error) {
+    console.error("[bordkasse:db]", error.message);
+    return { ok: false, message: "Speichern fehlgeschlagen. Bitte erneut versuchen." };
+  }
+  await logAudit(supabase, {
+    table_name: "persons",
+    operation: "UPDATE",
+    record_id: personId,
+    trip_id: null,
+    actor_person_id: auth.personId,
+    payload: { can_create_trips: value },
+  });
+  revalidatePath("/admin");
+  return { ok: true };
 }
 
 export async function deleteTrip(tripId: string) {
