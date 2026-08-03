@@ -8,7 +8,7 @@ import { tripVocab, type TripType } from "@/lib/trip-vocab";
 
 const initial: TripState = { status: "idle" };
 
-export function NewTripForm() {
+export function NewTripForm({ isAdmin }: { isAdmin: boolean }) {
   const [state, formAction, pending] = useActionState(createTrip, initial);
   const today = todayIso();
   // Kein Tripkontext auf /trips/new → das Vokabular wird vom gewählten
@@ -167,24 +167,26 @@ export function NewTripForm() {
           </div>
         </fieldset>
 
-        <div className="rounded-md border border-rule bg-paper-soft p-3">
-          <label htmlFor="skipper_email" className="block text-sm font-medium">
-            {vocab.skipper} <span className="text-ink-soft font-normal">(optional)</span>
-          </label>
-          <input
-            id="skipper_email"
-            name="skipper_email"
-            type="email"
-            placeholder="leer = du selbst"
-            className="mt-1 w-full rounded-md border border-rule bg-paper px-4 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-          />
-          <p className="mt-2 text-xs text-ink-soft">
-            E-Mail {vocab.skipper === "Skipper" ? "des zukünftigen Skippers" : "der zukünftigen Reiseleitung"}. Lass das Feld leer, wenn du
-            selbst {vocab.skipper === "Skipper" ? "Skipper" : "die Reiseleitung"} sein möchtest. Wenn du {vocab.trip === "Reise" ? "die Reise" : "den Törn"} für jemand
-            anderen anlegst, {vocab.skipper === "Skipper" ? "wird er Skipper" : "übernimmt diese Person die Reiseleitung"}, du selbst landest nicht
-            in der {vocab.crew}, hast aber als Admin trotzdem vollen Zugriff.
-          </p>
-        </div>
+        {isAdmin && (
+          <div className="rounded-md border border-rule bg-paper-soft p-3">
+            <label htmlFor="skipper_email" className="block text-sm font-medium">
+              {vocab.skipper} <span className="text-ink-soft font-normal">(optional)</span>
+            </label>
+            <input
+              id="skipper_email"
+              name="skipper_email"
+              type="email"
+              placeholder="leer = du selbst"
+              className="mt-1 w-full rounded-md border border-rule bg-paper px-4 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+            <p className="mt-2 text-xs text-ink-soft">
+              E-Mail {vocab.skipper === "Skipper" ? "des zukünftigen Skippers" : "der zukünftigen Reiseleitung"}. Lass das Feld leer, wenn du
+              selbst {vocab.skipper === "Skipper" ? "Skipper" : "die Reiseleitung"} sein möchtest. Wenn du {vocab.trip === "Reise" ? "die Reise" : "den Törn"} für jemand
+              anderen anlegst, {vocab.skipper === "Skipper" ? "wird er Skipper" : "übernimmt diese Person die Reiseleitung"}, du selbst landest nicht
+              in der {vocab.crew}, hast aber als Admin trotzdem vollen Zugriff.
+            </p>
+          </div>
+        )}
 
         {state.status === "error" && (
           <p className="text-sm text-danger" role="alert">{state.message}</p>

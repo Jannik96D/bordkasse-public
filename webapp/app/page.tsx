@@ -113,13 +113,22 @@ export default async function Home({
         </div>
       )}
 
-      {admin && (
+      {(admin || person.can_create_trips) && (
         <Link
           href="/trips/new"
           className="mb-6 flex items-center justify-center gap-2 rounded-md border-2 border-dashed border-primary/30 bg-navy-light/30 px-4 py-4 font-medium text-primary transition-colors hover:bg-navy-light/50"
         >
           <Plus className="h-5 w-5" />
           Neuen Törn anlegen
+        </Link>
+      )}
+
+      {admin && (
+        <Link
+          href="/admin"
+          className="mb-6 flex items-center justify-center gap-2 rounded-md border border-rule px-4 py-2 text-sm text-ink-soft transition-colors hover:bg-paper-soft"
+        >
+          Berechtigungen verwalten
         </Link>
       )}
 

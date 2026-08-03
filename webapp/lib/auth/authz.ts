@@ -81,6 +81,22 @@ export async function requireAdmin(): Promise<AuthzResult> {
 }
 
 /**
+ * Eingeloggt UND (globaler Admin ODER von einem Admin per
+ * `persons.can_create_trips` freigeschaltet, siehe Migration 0045).
+ *
+ * Anders als `requireAdmin` erlaubt das einzelnen Skippern, eigene Törns
+ * anzulegen, ohne sie zum globalen Admin zu machen (kein ADMIN_EMAILS-
+ * Zugriff, kein Read-Bypass auf fremde Törns).
+ */
+export async function requireAdminOrTripCreator(): Promise<AuthzResult> {
+  const person = await getCurrentPerson();
+  if (!person) return { ok: false, message: "Nicht angemeldet." };
+  if (await isAdmin()) return { ok: true, personId: person.id };
+  if (person.can_create_trips) return { ok: true, personId: person.id };
+  return { ok: false, message: "Du darfst keine Törns anlegen." };
+}
+
+/**
  * Eingeloggt UND Skipper (oder Co-Skipper) dieses Trips.
  *
  * Skipper-Status kommt aus trip_members.is_skipper — der Original-Owner

@@ -167,7 +167,7 @@ export function TransactionsList({
                               </span>
                               {" → "}
                               <span className="font-medium text-ink">
-                                {t.credit_to_name ?? "Alle"}
+                                {t.credit_to_all ? "Alle" : (t.credit_to_name ?? "Empfänger nicht mehr verfügbar")}
                               </span>
                             </>
                           )}
