@@ -22,7 +22,9 @@
     "overrides": {
       "postcss": ">=8.5.10",
       "vite": "^8.1.5",
-      "js-yaml": "^4.2.0"
+      "js-yaml": "^4.2.0",
+      "sharp": "^0.35.3",
+      "minimatch@3.1.5>brace-expansion": "^1.1.16"
     }
   },
   "dependencies": {
