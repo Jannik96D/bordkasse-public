@@ -82,6 +82,18 @@ export const config = {
     // Crawler lesen robots.txt nicht, PWA-Manifest + Service Worker laden auf
     // den öffentlichen Seiten nicht, und der SW würde statt der Offline-Seite
     // einen Login-Redirect cachen.
-    "/((?!_next/static|_next/image|favicon.ico|robots.txt|manifest.json|sw.js|offline.html|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    //
+    // `email/magic-link.html` ebenso: selbst gehostetes Supabase-Auth
+    // (GoTrue) holt das gebrandete Template per HTTP-GET von dort — als
+    // unauthentifizierter Client ohne Session-Cookie. Fehlt die Ausnahme,
+    // bekommt GoTrue einen 307 auf /login, hält das für ein ungültiges
+    // Template und fällt STILL auf sein Default zurück: die Login-Mails
+    // kämen unbrandet an, ohne Fehler im Log. Die Datei enthält nur Layout
+    // + Go-Template-Platzhalter, keine Geheimnisse.
+    //
+    // Bewusst der exakte Dateiname statt `email/`: ein Präfix hätte jede
+    // künftige Route unter /email/* automatisch unauthentifiziert gemacht —
+    // eine Falle, die beim Anlegen der Route niemand hier vermuten würde.
+    "/((?!_next/static|_next/image|favicon.ico|robots.txt|manifest.json|sw.js|offline.html|email/magic-link\\.html|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

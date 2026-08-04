@@ -235,8 +235,14 @@ supabase db push
 - SMTP-Provider eintragen (z.B. Resend mit eigener Sender-Domain)
 - **Sign In / Providers → Email:** „Confirm email" auf **OFF** (wir nutzen Magic-Link-Only-Auth; Confirm-Signup würde sonst eine unbranded Vorab-Mail schicken)
 - **URL Configuration:** Site URL = Production-Domain, Redirect URLs enthalten `/auth/callback`, `/auth/confirm`, `/auth/verify`
-- **Email Templates → Magic Link:** Inhalt aus [`supabase/email-templates/magic-link.html`](supabase/email-templates/magic-link.html) einsetzen. Die URL muss `&type=email&email={{ .Email }}` enthalten (kein `{{ .Type }}` — das rendert bei Magic-Links als leer). Subject z.B. `Dein Bordkasse-Login-Link`.
+- **Email Templates → Magic Link:** Inhalt aus [`public/email/magic-link.html`](public/email/magic-link.html) einsetzen. Die URL muss `&type=email&email={{ .Email }}` enthalten (kein `{{ .Type }}` — das rendert bei Magic-Links als leer). Subject z.B. `Dein Bordkasse-Login-Link`.
 - Optional: Email OTP Expiration auf 900 s (15 Min) reduzieren (Default: 3600 s)
+
+> **Selbst gehostet?** Dieser Abschnitt beschreibt das **Supabase-Cloud**-Setup.
+> Beim selbst gehosteten Stack gibt es kein Dashboard — dieselben Einstellungen
+> laufen über Env-Variablen (u. a. entspricht „Confirm email OFF" dem
+> `GOTRUE_MAILER_AUTOCONFIRM=true`), und das Template wird automatisch aus
+> `public/email/` geladen. Runbook: [`docs/self-hosting.md`](../docs/self-hosting.md).
 
 **4. Vercel-Project anlegen:**
 - **Root Directory:** `webapp`

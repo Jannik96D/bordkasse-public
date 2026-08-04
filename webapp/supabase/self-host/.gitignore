@@ -1,0 +1,14 @@
+# Echte Secrets bleiben lokal / in der Coolify-Env-Verwaltung.
+.env
+.env.*
+!.env.example
+
+# Postgres-Datenverzeichnis — der eigentliche Datenbestand, gehört ins
+# Backup (docs/self-hosting.md), niemals ins Repo.
+volumes/db/data/
+
+# Studio-Snippets sind Arbeitsdateien, kein Quellcode.
+volumes/snippets/*
+!volumes/snippets/.gitkeep
+volumes/functions/*
+!volumes/functions/.gitkeep

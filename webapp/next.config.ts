@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { supabaseConnectSrc } from "./lib/security/csp";
 
 /**
  * Security-Header für die Bordkasse-App.
@@ -10,7 +11,9 @@ import type { NextConfig } from "next";
  * - Permissions-Policy:    Hardware-APIs (Kamera, Mikro, Geo, …) sind komplett aus.
  * - CSP:                   Erlaubt nur eigene Origin + Supabase.
  *
- * `connect-src` enthält wss://*.supabase.co für Realtime-Subscriptions.
+ * `connect-src` enthält den Supabase-Host doppelt (https:// + wss://) — das
+ * wss:// braucht Realtime. Der Host wird aus NEXT_PUBLIC_SUPABASE_URL
+ * abgeleitet, siehe supabaseConnectSrc() unten.
  *
  * script-src-Härtung (S-4): In PRODUKTION fällt `'unsafe-eval'` weg — der
  * produktive Next.js-Bundle braucht kein eval() (nur Turbopack/HMR im Dev-
@@ -26,7 +29,6 @@ import type { NextConfig } from "next";
  * Breakage-Footgun. Daher bewusst beim 'unsafe-inline'-Fallback bleiben.
  */
 const isProd = process.env.NODE_ENV === "production";
-const SUPABASE_HOST = "*.supabase.co";
 
 const scriptSrc = isProd
   ? `script-src 'self' 'unsafe-inline'`
@@ -38,7 +40,7 @@ const csp = [
   `style-src 'self' 'unsafe-inline'`,
   `img-src 'self' data: blob:`,
   `font-src 'self' data:`,
-  `connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST}`,
+  `connect-src 'self' ${supabaseConnectSrc(process.env.NEXT_PUBLIC_SUPABASE_URL)}`,
   `frame-ancestors 'self'`,
   `form-action 'self'`,
   `base-uri 'self'`,
