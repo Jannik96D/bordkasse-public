@@ -561,13 +561,18 @@ export async function replaceMember(
   }
 
   // 2. Neue Person anlegen (oder bestehende per E-Mail nachladen)
+  //
+  // Fund 9 (Code-Review 2026-08): `.eq` statt `.ilike` (CITEXT ist bereits
+  // case-insensitiv) + Fehler geprüft, statt ihn still als "nicht gefunden"
+  // durchzureichen.
   let newPersonId: string;
   if (new_email) {
-    const { data: existingPriv } = await supabase
+    const { data: existingPriv, error: lookupErr } = await supabase
       .from("persons_private")
       .select("person_id")
-      .ilike("email", new_email)
+      .eq("email", new_email)
       .maybeSingle();
+    if (lookupErr) return { status: "error", message: dbErr(lookupErr, "E-Mail-Suche fehlgeschlagen.") };
     if (existingPriv) {
       newPersonId = existingPriv.person_id;
     } else {

@@ -59,12 +59,31 @@ export const getCurrentPerson = cache(async (): Promise<CurrentPerson | null> =>
   }
 
   // 2. Ghost-Person mit passender E-Mail vorhanden? → verlinken
+  //
+  // Fund 9 (Code-Review 2026-08): `.eq` statt `.ilike` — die Spalte ist
+  // bereits CITEXT (case-insensitiv), `ilike` brachte nur Wildcards
+  // (`%`/`_`) ins Spiel. Mit `_` als Ein-Zeichen-Joker hätte sich sonst ein
+  // frisch eingeloggter Auth-User mit einer E-Mail wie `max_mueller@…`
+  // (Länge/Domain identisch zu `max.mueller@…`) mit der FREMDEN Ghost-Person
+  // verlinken lassen und deren Törn-Mitgliedschaften übernommen — bei genau
+  // einem Treffer griff sogar der Fail-Safe unten (mehrere Treffer →
+  // Fehler) nicht. `eq` + die UNIQUE-Constraint auf persons_private.email
+  // schließen mehrdeutige Treffer strukturell aus.
+  //
+  // Fehler wird jetzt explizit geprüft und fail-closed behandelt (statt
+  // still als "kein Ghost gefunden" durchzureichen) — sonst hätte ein
+  // transienter DB-Fehler zur Neuanlage einer zusätzlichen Person geführt,
+  // während der eigentliche Ghost unverlinkt liegen bleibt.
   if (user.email) {
-    const { data: ghostPriv } = await admin
+    const { data: ghostPriv, error: ghostPrivErr } = await admin
       .from("persons_private")
       .select("person_id, email")
-      .ilike("email", user.email)
+      .eq("email", user.email)
       .maybeSingle();
+    if (ghostPrivErr) {
+      console.error("[bordkasse:get-current-person] Ghost-Lookup fehlgeschlagen:", ghostPrivErr.message);
+      return null;
+    }
 
     if (ghostPriv) {
       const { data: ghost } = await admin

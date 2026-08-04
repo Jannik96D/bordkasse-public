@@ -99,14 +99,24 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
   // möglich, s.o.), dort eine Person finden oder als Ghost anlegen —
   // sonst wird der Ersteller selbst Skipper. E-Mail-Lookup geht seit
   // Migration 0013 über persons_private.
+  // Fund 9 (Code-Review 2026-08): `.eq` statt `.ilike` (CITEXT ist bereits
+  // case-insensitiv; ilike brachte nur unbeabsichtigte Wildcards
+  // (`%`/`_`) ins Spiel) + Fehler explizit geprüft — sonst hätte ein
+  // DB-Fehler still den else-Zweig ausgelöst und (statt einer klaren
+  // Meldung) einen rohen UNIQUE-Violation-Fehler beim persons_private-
+  // Insert weiter unten produziert.
   let skipperId = auth.personId;
   if (parsed.data.skipper_email) {
     const email = parsed.data.skipper_email;
-    const { data: existingPriv } = await supabase
+    const { data: existingPriv, error: lookupErr } = await supabase
       .from("persons_private")
       .select("person_id")
-      .ilike("email", email)
+      .eq("email", email)
       .maybeSingle();
+    if (lookupErr) {
+      console.error("[bordkasse:db]", lookupErr.message);
+      return { status: "error", message: "Skipper-E-Mail-Suche fehlgeschlagen. Bitte erneut versuchen." };
+    }
     if (existingPriv) {
       skipperId = existingPriv.person_id;
     } else {

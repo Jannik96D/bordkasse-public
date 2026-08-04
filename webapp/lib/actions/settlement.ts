@@ -202,7 +202,10 @@ export async function resendSettlement(tripId: string): Promise<Result> {
   // direkt selbst raushauen, ohne den Skipper bemühen zu müssen. Spam ist
   // ausgeschlossen, weil der Resend nur funktioniert, wenn
   // `changes_pending_since` gesetzt ist — und das Flag wird nach jedem
-  // erfolgreichen Versand gelöscht.
+  // erfolgreichen Versand gelöscht (Guard unten, Fund 8 Code-Review 2026-08:
+  // vorher stand genau dieser Satz hier als Kommentar, ohne dass der Code
+  // ihn tatsächlich einhielt — `changes_pending_since` wurde bis dahin nur
+  // als Zeitstempel für die Audit-Zusammenfassung gelesen, nie als Guard).
   const auth = await requireMember(tripId);
   if (!auth.ok) return { ok: false, message: auth.message };
 
@@ -221,6 +224,12 @@ export async function resendSettlement(tripId: string): Promise<Result> {
       ok: false,
       message:
         "Es wurde noch keine Abrechnung verschickt. Bitte erst die initiale Abrechnung verschicken.",
+    };
+  }
+  if (!trip.changes_pending_since) {
+    return {
+      ok: false,
+      message: "Seit der letzten Abrechnungs-Mail hat sich nichts geändert.",
     };
   }
 

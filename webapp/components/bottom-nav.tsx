@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Plus, Euro, ScaleIcon, Wallet, BarChart3, Coins, Settings } from "lucide-react";
+import { LayoutDashboard, Plus, Euro, ScaleIcon, Wallet, BarChart3, Coins } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/toast-provider";
 import { isFormCached, markOfflineMiss } from "@/lib/offline/offline-help";
@@ -153,4 +153,3 @@ export function FabAddTransaction({ tripId }: { tripId: string }) {
     </Link>
   );
 }
-export { Settings };

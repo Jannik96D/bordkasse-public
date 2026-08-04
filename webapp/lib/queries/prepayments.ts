@@ -127,15 +127,6 @@ export async function getPaymentAggregates(tripId: string): Promise<PaymentAggre
     }));
 }
 
-/** Einzelne Zahlungen einer Tranche-Person-Kombination (für Detail-Modal). */
-export interface PaymentEntry {
-  id: string;
-  date: string;
-  amount: number;
-  description: string | null;
-  created_by_id: string | null;
-}
-
 /**
  * Anzahlungspool-Saldo pro Person — „was muss diese Person noch zur
  * Anzahlung beitragen?"-Sicht.
@@ -369,26 +360,3 @@ export async function getPrepaymentNavState(
   return { show: anyCrewOpen || anyPending || advancerOwes };
 }
 
-export async function listPaymentsFor(
-  tripId: string,
-  trancheId: string,
-  personId: string,
-): Promise<PaymentEntry[]> {
-  const supabase = await readClient();
-  const { data } = await supabase
-    .from("transactions")
-    .select("id, date, amount, description, created_by")
-    .eq("trip_id", tripId)
-    .eq("tranche_id", trancheId)
-    .eq("credit_from", personId)
-    .eq("type", "credit")
-    .is("deleted_at", null)
-    .order("date", { ascending: false });
-  return (data ?? []).map((t) => ({
-    id: t.id,
-    date: t.date,
-    amount: Number(t.amount),
-    description: t.description,
-    created_by_id: t.created_by,
-  }));
-}
