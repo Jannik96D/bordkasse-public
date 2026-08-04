@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useCallback, useEffect, useState, useTransition } from "react";
-import { Anchor, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Anchor, ArrowRightLeft, Pencil, Plus, Trash2, X } from "lucide-react";
 import {
   inviteMember,
   removeMember,
@@ -9,6 +9,7 @@ import {
   updateMember,
   type MemberState,
 } from "@/lib/actions/trip-members";
+import { replaceMember, type PrepaymentState } from "@/lib/actions/prepayments";
 import type { TripMemberRow } from "@/lib/queries/trips";
 import { formatDate } from "@/lib/utils";
 import { tripVocab, type TripType, type TripVocab } from "@/lib/trip-vocab";
@@ -16,6 +17,7 @@ import { InfoTooltip } from "@/components/info-tooltip";
 import { useConfirm } from "@/components/confirm-dialog";
 
 const initial: MemberState = { status: "idle" };
+const replaceInitial: PrepaymentState = { status: "idle" };
 
 export function CrewSection({
   tripId,
@@ -38,6 +40,7 @@ export function CrewSection({
   const [showForm, setShowForm] = useState(members.length === 0);
   const [, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [replacingId, setReplacingId] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const { confirm, confirmDialog } = useConfirm();
   const closeAddForm = useCallback(() => setShowForm(false), []);
@@ -172,14 +175,32 @@ export function CrewSection({
                   </button>
                   <button
                     type="button"
-                    onClick={() =>
-                      setEditingId(editingId === m.id ? null : m.id)
-                    }
+                    onClick={() => {
+                      setReplacingId(null);
+                      setEditingId(editingId === m.id ? null : m.id);
+                    }}
                     className="rounded-md p-1.5 text-ink-soft hover:bg-paper-soft hover:text-primary"
                     aria-label={`${m.display_name} bearbeiten`}
                     title="Bearbeiten"
                   >
                     <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingId(null);
+                      setReplacingId(replacingId === m.id ? null : m.id);
+                    }}
+                    disabled={m.person_id === ownerId}
+                    className="rounded-md p-1.5 text-ink-soft hover:bg-paper-soft hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label={`${m.display_name} durch eine andere Person ersetzen`}
+                    title={
+                      m.person_id === ownerId
+                        ? `Der Original-${vocab.skipper} kann nicht ersetzt werden.`
+                        : "Durch eine andere Person ersetzen"
+                    }
+                  >
+                    <ArrowRightLeft className="h-4 w-4" />
                   </button>
                   <button
                     type="button"
@@ -207,6 +228,14 @@ export function CrewSection({
                 endDate={endDate}
                 vocab={vocab}
                 onClose={() => setEditingId(null)}
+              />
+            )}
+            {canEdit && replacingId === m.id && (
+              <ReplaceMemberForm
+                member={m}
+                tripId={tripId}
+                vocab={vocab}
+                onClose={() => setReplacingId(null)}
               />
             )}
           </li>
@@ -547,6 +576,105 @@ function EditMemberForm({
         className="w-full rounded-md bg-primary px-4 py-2 font-medium text-paper hover:bg-navy-dark disabled:opacity-60"
       >
         {pending ? "Speichere …" : "Speichern"}
+      </button>
+    </form>
+  );
+}
+
+/**
+ * Crewwechsel: A (member) wird durch eine neue Person B ersetzt. Übernimmt
+ * Anwesenheit/Koje/Anzahlungssoll von A, bucht bereits geleistete
+ * Anzahlungszahlungen von A auf B um (Gegen-Gutschrift) und setzt A's
+ * Anwesenheit auf null (bleibt im Audit-Trail, wird aber nicht mehr zur
+ * Kasse gebeten). Löst das Remove-Schutz-Dilemma: eine Person mit
+ * Buchungen/Anzahlungssoll kann nicht einfach entfernt werden, aber ein
+ * Crewwechsel (z.B. Person sagt ab, jemand anderes rückt nach) ist ein
+ * eigener, häufiger Fall.
+ */
+function ReplaceMemberForm({
+  member,
+  tripId,
+  vocab,
+  onClose,
+}: {
+  member: TripMemberRow;
+  tripId: string;
+  vocab: TripVocab;
+  onClose: () => void;
+}) {
+  const [state, formAction, pending] = useActionState(replaceMember, replaceInitial);
+
+  useEffect(() => {
+    if (state.status !== "ok") return;
+    const t = setTimeout(onClose, 1000);
+    return () => clearTimeout(t);
+  }, [state, onClose]);
+
+  return (
+    <form
+      action={formAction}
+      className="space-y-3 border-t border-rule bg-paper-soft p-4"
+    >
+      <input type="hidden" name="trip_id" value={tripId} />
+      <input type="hidden" name="old_person_id" value={member.person_id} />
+
+      <div className="flex items-center justify-between">
+        <h4 className="font-medium">
+          {member.display_name} ersetzen
+          <InfoTooltip
+            label="Was passiert dabei?"
+            text={`Anwesenheit, ${vocab.cabin} und Anzahlungssoll von ${member.display_name} gehen auf die neue Person über. Bereits geleistete Anzahlungszahlungen werden auf die neue Person umgebucht. ${member.display_name} bleibt im Audit-Trail sichtbar, gilt aber ab jetzt als nicht mehr ${vocab.onBoard.toLowerCase()}.`}
+          />
+        </h4>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-ink-soft hover:text-ink"
+          aria-label="Abbrechen"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div>
+        <label htmlFor={`repl-email-${member.id}`} className="block text-sm font-medium">
+          E-Mail der neuen Person <span className="text-ink-soft font-normal">(optional)</span>
+        </label>
+        <input
+          id={`repl-email-${member.id}`}
+          name="new_email"
+          type="email"
+          placeholder="crew@example.com"
+          className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+        />
+      </div>
+
+      <div>
+        <label htmlFor={`repl-name-${member.id}`} className="block text-sm font-medium">
+          Anzeigename der neuen Person
+        </label>
+        <input
+          id={`repl-name-${member.id}`}
+          name="new_display_name"
+          type="text"
+          placeholder="Pflicht wenn keine E-Mail angegeben"
+          className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+        />
+      </div>
+
+      {state.status === "error" && (
+        <p className="text-sm text-danger" role="alert">{state.message}</p>
+      )}
+      {state.status === "ok" && (
+        <p className="text-sm text-success" role="status">✓ Ersetzt.</p>
+      )}
+
+      <button
+        type="submit"
+        disabled={pending}
+        className="w-full rounded-md bg-primary px-4 py-2 font-medium text-paper hover:bg-navy-dark disabled:opacity-60"
+      >
+        {pending ? "Speichere …" : "Ersetzen"}
       </button>
     </form>
   );

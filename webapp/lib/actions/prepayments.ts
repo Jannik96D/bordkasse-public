@@ -574,6 +574,25 @@ export async function replaceMember(
       .maybeSingle();
     if (lookupErr) return { status: "error", message: dbErr(lookupErr, "E-Mail-Suche fehlgeschlagen.") };
     if (existingPriv) {
+      // Pre-Check: ist diese Person schon Crew DIESES Törns? Sonst würde
+      // replaceMember ihre trip_members-/prepayment_obligations-Zeile
+      // stillschweigend überschreiben (Anwesenheit/Koje/Soll von old_person_id
+      // draufgebügelt) und eine Gutschrift zwischen zwei voneinander
+      // unabhängigen Personen erzeugen — ohne Fehler, ohne Rückfrage.
+      const { data: alreadyMember } = await supabase
+        .from("trip_members")
+        .select("id")
+        .eq("trip_id", trip_id)
+        .eq("person_id", existingPriv.person_id)
+        .maybeSingle();
+      if (alreadyMember) {
+        return {
+          status: "error",
+          message:
+            "Diese E-Mail-Adresse gehört bereits zu einem Crewmitglied dieses Törns. " +
+            "Wähle eine andere E-Mail-Adresse oder lege die neue Person ohne E-Mail als Ghost an.",
+        };
+      }
       newPersonId = existingPriv.person_id;
     } else {
       const { data: created, error } = await supabase
@@ -625,7 +644,32 @@ export async function replaceMember(
     .single();
   if (tmErr || !newMember) return { status: "error", message: dbErr(tmErr, "Creweintrag konnte nicht angelegt werden.") };
 
-  // 4. Obligation von A auf B übertragen (Cabin bleibt)
+  // 4a. Pre-Check: eine noch unbestätigte Selbstmeldung von A blockt den
+  //     Wechsel — sie bliebe sonst nach dem Wechsel an old_person_id
+  //     hängen, während dessen Anzahlungssoll schon auf B umgezogen ist
+  //     (Bestätigung landet dann auf einer Person ohne Soll, Ablehnung
+  //     bräuchte eine Vorstrecker-Mail an eine Person, die gerade "abreist").
+  //     Der Skipper soll erst bewusst bestätigen oder ablehnen (Matrix),
+  //     statt dass wir die Meldung stillschweigend verwerfen oder übernehmen.
+  const { count: pendingCount } = await supabase
+    .from("transactions")
+    .select("id", { count: "exact", head: true })
+    .eq("trip_id", trip_id)
+    .eq("credit_from", old_person_id)
+    .eq("type", "credit")
+    .not("tranche_id", "is", null)
+    .is("confirmed_at", null)
+    .is("deleted_at", null);
+  if ((pendingCount ?? 0) > 0) {
+    return {
+      status: "error",
+      message:
+        "Diese Person hat noch eine unbestätigte Anzahlungs-Selbstmeldung. Bitte erst in der " +
+        "Anzahlungs-Matrix bestätigen oder ablehnen, bevor du sie ersetzt.",
+    };
+  }
+
+  // 4b. Obligation von A auf B übertragen (Cabin bleibt)
   const { data: oldObl } = await supabase
     .from("prepayment_obligations")
     .select("cabin_type_id, total_amount")
@@ -633,9 +677,13 @@ export async function replaceMember(
     .eq("person_id", old_person_id)
     .maybeSingle();
   if (oldObl) {
-    await supabase.from("prepayment_obligations").delete()
-      .eq("trip_id", trip_id).eq("person_id", old_person_id);
-    await supabase.from("prepayment_obligations").upsert(
+    const { error: oblDeleteErr } = await supabase
+      .from("prepayment_obligations")
+      .delete()
+      .eq("trip_id", trip_id)
+      .eq("person_id", old_person_id);
+    if (oblDeleteErr) return { status: "error", message: dbErr(oblDeleteErr, "Anzahlungssoll konnte nicht übertragen werden.") };
+    const { error: oblUpsertErr } = await supabase.from("prepayment_obligations").upsert(
       {
         trip_id,
         person_id: newPersonId,
@@ -644,11 +692,15 @@ export async function replaceMember(
       },
       { onConflict: "trip_id,person_id" },
     );
+    if (oblUpsertErr) return { status: "error", message: dbErr(oblUpsertErr, "Anzahlungssoll konnte nicht übertragen werden.") };
   }
 
   // 5. Bisher gezahlte Anzahlungs-Gutschriften von A:
   //    Pro Eintrag erzeugen wir eine Gegen-Gutschrift "B → A" (B hat A privat ausgezahlt),
   //    sodass B bilanziell in A's Position rutscht und A's Saldo auf 0 geht.
+  //    Nur BESTÄTIGTE Zahlungen (confirmed_at IS NOT NULL, wie v_prepayment_payments) —
+  //    eine unbestätigte Selbstmeldung ist noch kein echter Zahlungseingang (der Pre-Check
+  //    oben blockt den Wechsel ohnehin, solange eine solche offen ist).
   const { data: oldPayments } = await supabase
     .from("transactions")
     .select("id, tranche_id, amount, date")
@@ -656,11 +708,12 @@ export async function replaceMember(
     .eq("credit_from", old_person_id)
     .eq("type", "credit")
     .not("tranche_id", "is", null)
+    .not("confirmed_at", "is", null)
     .is("deleted_at", null);
 
   let transferredSum = 0;
   for (const p of oldPayments ?? []) {
-    await supabase.from("transactions").insert({
+    const { error: transferErr } = await supabase.from("transactions").insert({
       trip_id,
       type: "credit",
       date: p.date,
@@ -671,15 +724,17 @@ export async function replaceMember(
       tranche_id: null,
       created_by: person.id,
     });
+    if (transferErr) return { status: "error", message: dbErr(transferErr, "Zahlungsübertrag fehlgeschlagen.") };
     transferredSum += Number(p.amount);
   }
 
   // 6. A "abreisen lassen" — Anwesenheit auf null, bleibt aber im trip_members
   //    für Audit. Bei aktiven Buchungen wäre Löschen sowieso geblockt.
-  await supabase
+  const { error: departErr } = await supabase
     .from("trip_members")
     .update({ on_board_from: null, on_board_to: null, note: `Ersetzt durch ${effectiveName}` })
     .eq("id", oldMember.id);
+  if (departErr) return { status: "error", message: dbErr(departErr, "Alte Crewperson konnte nicht auf abgereist gesetzt werden.") };
 
   await logAudit(supabase, {
     table_name: "trip_members",
