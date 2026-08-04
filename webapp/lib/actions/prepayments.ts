@@ -535,11 +535,18 @@ export async function replaceMember(
     old_person_id: formData.get("old_person_id"),
     new_display_name: formData.get("new_display_name"),
     new_email: formData.get("new_email") || "",
+    new_person_id: formData.get("new_person_id") || undefined,
   });
   if (!parsed.success) {
     return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
   const { trip_id, old_person_id, new_display_name, new_email } = parsed.data;
+  // Fund 3 (Idempotency, Grill-Review): ohne clientseitig stabile ID würde
+  // ein Netzwerk-Retry (Yacht-WLAN — siehe 0005_idempotency.sql) die neue
+  // Person, den Anzahlungs-Transfer und die Gegen-Gutschrift duplizieren.
+  // Fallback nur zur Absicherung gegen einen Client ohne dieses Feld — dann
+  // ist der jeweilige Aufruf einfach nicht idempotent, wie bisher.
+  const effectiveNewPersonId = parsed.data.new_person_id ?? crypto.randomUUID();
   // Name optional: fehlt er, aus der E-Mail ableiten. Das Schema-Refine
   // garantiert, dass mindestens eins von beidem gesetzt ist.
   const effectiveName = new_display_name || displayNameFromEmail(new_email);
@@ -560,11 +567,53 @@ export async function replaceMember(
     return { status: "error", message: "Der ursprüngliche Skipper kann nicht ersetzt werden." };
   }
 
-  // 2. Neue Person anlegen (oder bestehende per E-Mail nachladen)
+  // 2. Pre-Check: eine noch unbestätigte Selbstmeldung von A blockt den
+  //    Wechsel — sie bliebe sonst nach dem Wechsel an old_person_id
+  //    hängen, während dessen Anzahlungssoll schon auf B umgezogen ist
+  //    (Bestätigung landet dann auf einer Person ohne Soll, Ablehnung
+  //    bräuchte eine Vorstrecker-Mail an eine Person, die gerade "abreist").
+  //    Der Skipper soll erst bewusst bestätigen oder ablehnen (Matrix),
+  //    statt dass wir die Meldung stillschweigend verwerfen oder übernehmen.
+  //    BEWUSST vor jeder Schreib-Operation (Grill-Review-Fund): dieser Check
+  //    hing früher NACH der Personen-/Crew-Anlage — ein Reject hätte trotzdem
+  //    schon eine Ghost-Person + Creweintrag hinterlassen (Orphan), obwohl
+  //    der gesamte Wechsel abgelehnt wurde.
+  const { count: pendingCount } = await supabase
+    .from("transactions")
+    .select("id", { count: "exact", head: true })
+    .eq("trip_id", trip_id)
+    .eq("credit_from", old_person_id)
+    .eq("type", "credit")
+    .not("tranche_id", "is", null)
+    .is("confirmed_at", null)
+    .is("deleted_at", null);
+  if ((pendingCount ?? 0) > 0) {
+    return {
+      status: "error",
+      message:
+        "Diese Person hat noch eine unbestätigte Anzahlungs-Selbstmeldung. Bitte erst in der " +
+        "Anzahlungs-Matrix bestätigen oder ablehnen, bevor du sie ersetzt.",
+    };
+  }
+
+  // 3. Neue Person anlegen (oder bestehende per E-Mail nachladen)
   //
   // Fund 9 (Code-Review 2026-08): `.eq` statt `.ilike` (CITEXT ist bereits
   // case-insensitiv) + Fehler geprüft, statt ihn still als "nicht gefunden"
   // durchzureichen.
+  //
+  // Bekannte, akzeptierte Lücke (Grill-Review-Fund): landet new_email auf
+  // eine bereits EXISTIERENDE Person, die schon Crew dieses Törns ist (der
+  // Guard direkt unten), schlägt ein echter Retry NACH einem bereits
+  // erfolgreichen ersten Versuch mit genau dieser Fehlermeldung fehl statt
+  // idempotent No-Op zu sein — SICHER (kein Doppel-Merge), aber nicht
+  // idempotent. Ein Fix müsste "das ist meine eigene vorige Anfrage" von
+  // "das ist eine andere, echte Kollision" unterscheiden, ohne sich auf
+  // new_person_id zu verlassen (der Wert ist client-kontrolliert und daher
+  // KEIN vertrauenswürdiger Beweis für "das war ich selbst" — sonst ließe
+  // sich der Collision-Guard von Fund 1 per manipuliertem Hidden-Feld
+  // aushebeln). Ghost-ohne-E-Mail und "komplett neue Person per E-Mail"
+  // bleiben voll idempotent.
   let newPersonId: string;
   if (new_email) {
     const { data: existingPriv, error: lookupErr } = await supabase
@@ -595,30 +644,33 @@ export async function replaceMember(
       }
       newPersonId = existingPriv.person_id;
     } else {
+      // upsert-by-id statt insert: mit stabiler effectiveNewPersonId ist ein
+      // Retry (verlorene Antwort bei flakey Yacht-WLAN) idempotent — legt
+      // dieselbe Person nicht zweimal an (Fund 3).
       const { data: created, error } = await supabase
         .from("persons")
-        .insert({ display_name: effectiveName })
+        .upsert({ id: effectiveNewPersonId, display_name: effectiveName }, { onConflict: "id" })
         .select("id")
         .single();
       if (error || !created) return { status: "error", message: dbErr(error, "Person konnte nicht angelegt werden.") };
       newPersonId = created.id;
       const { error: privErr } = await supabase
         .from("persons_private")
-        .insert({ person_id: newPersonId, email: new_email });
+        .upsert({ person_id: newPersonId, email: new_email }, { onConflict: "person_id" });
       if (privErr) return { status: "error", message: dbErr(privErr, "E-Mail konnte nicht gespeichert werden.") };
     }
   } else {
-    // Ghost-Person ohne E-Mail
+    // Ghost-Person ohne E-Mail — ebenfalls upsert-by-id (Fund 3).
     const { data: created, error } = await supabase
       .from("persons")
-      .insert({ display_name: effectiveName })
+      .upsert({ id: effectiveNewPersonId, display_name: effectiveName }, { onConflict: "id" })
       .select("id")
       .single();
     if (error || !created) return { status: "error", message: dbErr(error, "Person konnte nicht angelegt werden.") };
     newPersonId = created.id;
   }
 
-  // 3. Neue Person als Crew anlegen (übernimmt Daten von A — Koje, Anwesenheit)
+  // 4. Neue Person als Crew anlegen (übernimmt Daten von A — Koje, Anwesenheit)
   const { data: oldMember } = await supabase
     .from("trip_members")
     .select("id, on_board_from, on_board_to, is_alcoholic, note")
@@ -644,32 +696,7 @@ export async function replaceMember(
     .single();
   if (tmErr || !newMember) return { status: "error", message: dbErr(tmErr, "Creweintrag konnte nicht angelegt werden.") };
 
-  // 4a. Pre-Check: eine noch unbestätigte Selbstmeldung von A blockt den
-  //     Wechsel — sie bliebe sonst nach dem Wechsel an old_person_id
-  //     hängen, während dessen Anzahlungssoll schon auf B umgezogen ist
-  //     (Bestätigung landet dann auf einer Person ohne Soll, Ablehnung
-  //     bräuchte eine Vorstrecker-Mail an eine Person, die gerade "abreist").
-  //     Der Skipper soll erst bewusst bestätigen oder ablehnen (Matrix),
-  //     statt dass wir die Meldung stillschweigend verwerfen oder übernehmen.
-  const { count: pendingCount } = await supabase
-    .from("transactions")
-    .select("id", { count: "exact", head: true })
-    .eq("trip_id", trip_id)
-    .eq("credit_from", old_person_id)
-    .eq("type", "credit")
-    .not("tranche_id", "is", null)
-    .is("confirmed_at", null)
-    .is("deleted_at", null);
-  if ((pendingCount ?? 0) > 0) {
-    return {
-      status: "error",
-      message:
-        "Diese Person hat noch eine unbestätigte Anzahlungs-Selbstmeldung. Bitte erst in der " +
-        "Anzahlungs-Matrix bestätigen oder ablehnen, bevor du sie ersetzt.",
-    };
-  }
-
-  // 4b. Obligation von A auf B übertragen (Cabin bleibt)
+  // 5. Obligation von A auf B übertragen (Cabin bleibt)
   const { data: oldObl } = await supabase
     .from("prepayment_obligations")
     .select("cabin_type_id, total_amount")
@@ -695,7 +722,7 @@ export async function replaceMember(
     if (oblUpsertErr) return { status: "error", message: dbErr(oblUpsertErr, "Anzahlungssoll konnte nicht übertragen werden.") };
   }
 
-  // 5. Bisher gezahlte Anzahlungs-Gutschriften von A:
+  // 6. Bisher gezahlte Anzahlungs-Gutschriften von A:
   //    Pro Eintrag erzeugen wir eine Gegen-Gutschrift "B → A" (B hat A privat ausgezahlt),
   //    sodass B bilanziell in A's Position rutscht und A's Saldo auf 0 geht.
   //    Nur BESTÄTIGTE Zahlungen (confirmed_at IS NOT NULL, wie v_prepayment_payments) —
@@ -713,6 +740,16 @@ export async function replaceMember(
 
   let transferredSum = 0;
   for (const p of oldPayments ?? []) {
+    // Fund 3 (Idempotency) + Grill-Review-Fund: `idempotency_key = p.id`
+    // (die ID der QUELL-Zahlung, nicht new_person_id!) statt Check-before-
+    // Insert. p.id ist pro Quell-Zahlung eindeutig — ein früherer Ansatz
+    // über Betrag+Datum hätte zwei unterschiedliche, zufällig gleich hohe
+    // Zahlungen vom selben Tag (z.B. zwei gleich große Tranchen) als
+    // "schon übertragen" verwechselt und die zweite Übertragung ausgelassen
+    // (Geld verschwindet aus der Bilanz). `idempotency_key` ist UNIQUE
+    // (trip_id, idempotency_key) — echte DB-Garantie statt TOCTOU-Race
+    // zwischen SELECT und INSERT, exakt das Muster aus recordPayment/
+    // insertCredit.
     const { error: transferErr } = await supabase.from("transactions").insert({
       trip_id,
       type: "credit",
@@ -723,12 +760,17 @@ export async function replaceMember(
       credit_to: old_person_id,
       tranche_id: null,
       created_by: person.id,
+      idempotency_key: p.id,
     });
-    if (transferErr) return { status: "error", message: dbErr(transferErr, "Zahlungsübertrag fehlgeschlagen.") };
+    if (transferErr && transferErr.code !== PG_UNIQUE_VIOLATION) {
+      return { status: "error", message: dbErr(transferErr, "Zahlungsübertrag fehlgeschlagen.") };
+    }
+    // Bei Unique-Violation (Retry) ist der Transfer schon passiert — trotzdem
+    // mitzählen, sonst würde der Audit-Log-Betrag beim Retry plötzlich 0 zeigen.
     transferredSum += Number(p.amount);
   }
 
-  // 6. A "abreisen lassen" — Anwesenheit auf null, bleibt aber im trip_members
+  // 7. A "abreisen lassen" — Anwesenheit auf null, bleibt aber im trip_members
   //    für Audit. Bei aktiven Buchungen wäre Löschen sowieso geblockt.
   const { error: departErr } = await supabase
     .from("trip_members")
@@ -750,14 +792,32 @@ export async function replaceMember(
     },
   });
 
-  // Optional: Magic-Link für neue Person, falls E-Mail
+  // Optional: Magic-Link für die neue Person — aber NUR wenn sie noch nie
+  // eingeloggt war (auth_user_id NULL). Sonst hätte jeder Wechsel auf eine
+  // per E-Mail bereits bestehende, längst aktive Person eine (Re-)Invite-
+  // Mail ausgelöst (Konvention wie bei inviteMember/updateMember: nur
+  // Neuanlage invited). Bewusst NICHT über ein "wasCreated"-Flag aus DIESEM
+  // Aufruf entschieden (Grill-Review-Fund): bei einem Retry nach einem
+  // Absturz VOR dem Mail-Versand (aber NACH der Personen-Anlage) würde der
+  // zweite Versuch die Person per E-Mail wiederfinden ("bereits existierend"-
+  // Zweig) und die Mail damit dauerhaft verschluckt bekommen — der neue Ghost
+  // stünde ohne jede Möglichkeit da, sich je einzuloggen. Der auth_user_id-
+  // Check ist retry-sicher: eine bisher unbestätigte Ghost-Person bleibt
+  // NULL, bis sie sich tatsächlich einmal einloggt.
   if (new_email) {
-    try {
-      const hdrs = await headers();
-      const origin = resolveOrigin(hdrs.get("origin"));
-      await sendInvitationMagicLink(new_email, origin);
-    } catch (e) {
-      console.error("[bordkasse:invite]", e);
+    const { data: newPersonRow } = await supabase
+      .from("persons")
+      .select("auth_user_id")
+      .eq("id", newPersonId)
+      .maybeSingle();
+    if (!newPersonRow?.auth_user_id) {
+      try {
+        const hdrs = await headers();
+        const origin = resolveOrigin(hdrs.get("origin"));
+        await sendInvitationMagicLink(new_email, origin);
+      } catch (e) {
+        console.error("[bordkasse:invite]", e);
+      }
     }
   }
 

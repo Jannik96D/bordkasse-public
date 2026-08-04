@@ -603,6 +603,11 @@ function ReplaceMemberForm({
   onClose: () => void;
 }) {
   const [state, formAction, pending] = useActionState(replaceMember, replaceInitial);
+  // Stabil über Retries desselben Form-Mounts (verlorene Antwort bei
+  // flakey Yacht-WLAN) — macht die neue Person + den Anzahlungs-Transfer
+  // serverseitig idempotent (Fund 3, Grill-Review). Gleiches Muster wie
+  // idempotencyKey in transaction-form-parts.tsx.
+  const [newPersonId] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
     if (state.status !== "ok") return;
@@ -617,6 +622,7 @@ function ReplaceMemberForm({
     >
       <input type="hidden" name="trip_id" value={tripId} />
       <input type="hidden" name="old_person_id" value={member.person_id} />
+      <input type="hidden" name="new_person_id" value={newPersonId} />
 
       <div className="flex items-center justify-between">
         <h4 className="font-medium">

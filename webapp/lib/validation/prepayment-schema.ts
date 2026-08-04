@@ -102,6 +102,12 @@ export const ReplaceMemberSchema = z
     // InviteSchema). Ungültig ist nur „beides leer".
     new_display_name: z.string().trim().max(80).optional().or(z.literal("")),
     new_email: z.string().email().optional().or(z.literal("")),
+    // Client-generierte ID für die neue Person (Idempotenz — Fund 3,
+    // Grill-Review beim UI-Anbinden): stabil über Retries desselben
+    // Form-Submits, macht persons/trip_members/prepayment_obligations
+    // upsert-fähig statt insert-only. Optional mit Server-Fallback, falls
+    // ein älterer Client sie mal nicht mitschickt.
+    new_person_id: Uuid.optional(),
   })
   .refine(
     (d) => !!d.new_email || !!(d.new_display_name && d.new_display_name.length >= 1),
