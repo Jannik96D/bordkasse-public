@@ -49,12 +49,19 @@ export default async function EditTransactionPage({
   if (!tx || tx.deleted_at) notFound();
   if (tx.trip_id !== tripId) notFound();
 
-  // Berechtigung: Skipper, Admin oder Ersteller
+  // Berechtigung: Skipper, Admin oder (nur bei Ausgaben) Ersteller.
+  // Gutschriften sind Skipper/Admin-only — wie beim Anlegen (createCredit)
+  // hat der Ersteller hier KEIN eigenes Recht (Fund 3, Code-Review 2026-08):
+  // sonst könnte ein Crewmitglied seine eigene, per submitSelfPayment
+  // gemeldete (und ggf. vom Vorstrecker schon bestätigte) Anzahlung über
+  // dieses Formular frei verändern. lib/actions/transactions.ts:updateCredit
+  // erzwingt dasselbe serverseitig — diese Prüfung ist nur der UI-Kurzschluss,
+  // damit niemand vor einem Formular landet, das er ohnehin nicht absenden darf.
   const myMember = members.find((m) => m.person_id === person.id);
   const isMyTripSkipper = !!myMember?.is_skipper;
   const admin = await isAdmin();
   const isCreator = tx.created_by === person.id;
-  const canEdit = isMyTripSkipper || admin || isCreator;
+  const canEdit = isMyTripSkipper || admin || (tx.type === "expense" && isCreator);
   if (!canEdit) {
     redirect(`/trips/${tripId}/transactions`);
   }

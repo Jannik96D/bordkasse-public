@@ -70,6 +70,20 @@ export async function savePrepaymentPlan(
 
   const supabase = createAdminClient();
 
+  // Cross-Trip-Schutz (Fund 7, Code-Review 2026-08): advancer_person_id kommt
+  // aus dem Client-JSON und wurde bisher nur als UUID-Format geprüft (Zod),
+  // NICHT gegen die Crew dieses Törns — anders als createExpense/createCredit/
+  // recordPayment, die personsBelongToTrip bereits nutzen. recordPayment und
+  // submitSelfPayment leiten den Empfänger direkt aus
+  // prepayment_plan.advancer_person_id ab und schreiben ihn ungeprüft als
+  // credit_to in echte Buchungen — eine trip-fremde Person würde dort landen
+  // und zusätzlich Notice-/Reminder-Mails mit Törn-Namen, Beträgen und
+  // Crew-Namen erhalten (sendPrepaymentNoticeMails/sendPrepaymentReminderMail
+  // nehmen advancerPersonId ungeprüft in die Empfängerliste).
+  if (advancer_person_id && !(await personsBelongToTrip(supabase, [advancer_person_id], trip_id))) {
+    return { status: "error", message: CROSS_TRIP_PERSON_MSG };
+  }
+
   // 1. Plan-Row upserten
   const { error: planErr } = await supabase
     .from("prepayment_plan")
@@ -179,6 +193,23 @@ export async function savePrepaymentPlan(
       total_amount: s.totalAmount,
       cabin_type_id: s.cabinTypeId ?? null,
     }));
+  }
+
+  // Cross-Trip-Schutz (Fund 7, Fortsetzung): bei "individuell"/"kojen"
+  // kommen die person_id-Werte roh aus dem Client-Payload. "gleichmaessig"/
+  // "zeitanteilig" berechnen computedObligations bereits aus trip_members
+  // weiter oben und sind damit inhärent trip-scoped — für sie ist dieser
+  // Check ein günstiges No-Op. Bewusst NACH dem Berechnen von
+  // computedObligations (hängt bei "kojen" von den frisch upgeserteten
+  // Kojen-IDs ab), aber VOR dem Schreiben der Sollbeträge.
+  if (
+    !(await personsBelongToTrip(
+      supabase,
+      computedObligations.map((o) => o.person_id),
+      trip_id,
+    ))
+  ) {
+    return { status: "error", message: CROSS_TRIP_PERSON_MSG };
   }
 
   // Obligations replace: alte löschen, neue rein.

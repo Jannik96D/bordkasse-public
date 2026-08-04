@@ -20,6 +20,7 @@ vi.mock("@/lib/auth/get-current-person", () => ({ getCurrentPerson: vi.fn() }));
 import {
   createExpense,
   createCredit,
+  updateCredit,
   deleteTransaction,
   replayPendingTransaction,
 } from "@/lib/actions/transactions";
@@ -319,6 +320,216 @@ describe("replayPendingTransaction — dieselben Guards wie createExpense (Fund 
     });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.message).toContain("niemand an Bord");
+  });
+});
+
+describe("updateCredit — Skipper/Admin-only, kein Ersteller-Recht (Fund 3)", () => {
+  const CREDIT_FROM = "aaaaaaaa-0000-4000-8000-000000000004";
+  const CREDIT_TO = "aaaaaaaa-0000-4000-8000-000000000005";
+  const TX_ID = "aaaaaaaa-0000-4000-8000-00000000000e";
+  const OTHER_TRANCHE_ID = "aaaaaaaa-0000-4000-8000-000000000006";
+
+  /**
+   * Supabase-Mock für updateCredit: `transactions` liefert beim ersten
+   * .maybeSingle()-Aufruf `existing`, beim späteren .update() wird das
+   * Payload eingefangen (`getCapturedUpdate`). `prepayment_tranches` und
+   * `trip_members` bedienen trancheBelongsToTrip/personsBelongToTrip.
+   */
+  function makeUpdateCreditSupabase(opts: {
+    existing: Record<string, unknown> | null;
+    trancheBelongs?: boolean;
+    memberIds?: string[];
+  }) {
+    const { existing, trancheBelongs = true, memberIds = [CREDIT_FROM, CREDIT_TO] } = opts;
+    let capturedUpdate: Record<string, unknown> | null = null;
+    const make = (table: string) => {
+      const b: Record<string, unknown> = {};
+      const self = () => b;
+      b.select = self;
+      b.eq = self;
+      b.in = self;
+      b.insert = () => Promise.resolve({ error: null }); // logAudit
+      b.update = (payload: Record<string, unknown>) => {
+        capturedUpdate = payload;
+        return b;
+      };
+      b.maybeSingle = () => {
+        if (table === "transactions") return Promise.resolve({ data: existing });
+        if (table === "prepayment_tranches") {
+          return Promise.resolve({ data: trancheBelongs ? { id: OTHER_TRANCHE_ID } : null });
+        }
+        return Promise.resolve({ data: null });
+      };
+      b.then = (onFulfilled: (v: unknown) => unknown) => {
+        let value: unknown = { error: null };
+        if (table === "trip_members") {
+          value = { data: memberIds.map((person_id) => ({ person_id })) };
+        }
+        return Promise.resolve(value).then(onFulfilled);
+      };
+      return b;
+    };
+    return {
+      supabase: {
+        from: (table: string) => make(table),
+        rpc: () => Promise.resolve({ error: null }), // markPostSettlementChange
+      },
+      getCapturedUpdate: () => capturedUpdate,
+    };
+  }
+
+  function creditFormData(extra: Record<string, string> = {}): FormData {
+    const fd = new FormData();
+    fd.set("transaction_id", TX_ID);
+    fd.set("trip_id", TRIP_ID);
+    fd.set("date", "2026-06-07");
+    fd.set("description", "Anzahlung");
+    fd.set("amount", "150,00");
+    fd.set("credit_from", CREDIT_FROM);
+    fd.set("credit_to", CREDIT_TO);
+    for (const [k, v] of Object.entries(extra)) fd.set(k, v);
+    return fd;
+  }
+
+  beforeEach(() => {
+    mockedPerson.mockReset();
+    mockedRequireSkipperOrAdmin.mockReset();
+    mockedAdvancer.mockReset();
+    mockedAdminClient.mockReset();
+    mockedPerson.mockResolvedValue({ id: CREDIT_FROM, display_name: "Crew" } as never);
+  });
+
+  it("weist den Ersteller einer Gutschrift ab, der nicht Skipper/Admin ist (submitSelfPayment-Missbrauch)", async () => {
+    // Genau das Szenario aus Fund 3: die Person hat die Gutschrift selbst
+    // erstellt (z. B. per submitSelfPayment) und versucht, sie nachträglich
+    // per updateCredit zu ändern — ohne Skipper/Admin zu sein.
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: false, message: "nein" });
+    const { supabase } = makeUpdateCreditSupabase({
+      existing: {
+        created_by: CREDIT_FROM,
+        type: "credit",
+        trip_id: TRIP_ID,
+        deleted_at: null,
+        amount: 100,
+        credit_from: CREDIT_FROM,
+        credit_to: CREDIT_TO,
+        tranche_id: null,
+      },
+    });
+    mockedAdminClient.mockReturnValue(supabase as never);
+
+    const res = await updateCredit({ status: "idle" }, creditFormData());
+
+    expect(res.status).toBe("error");
+    if (res.status === "error") {
+      expect(res.message).toContain("Nur Skipper oder Admin");
+    }
+    // requireSkipperOrAdmin ist der EINZIGE Guard — kein Ersteller-Vorrang mehr.
+    expect(mockedRequireSkipperOrAdmin).toHaveBeenCalledWith(TRIP_ID);
+  });
+
+  it("lässt tranche_id unverändert, wenn tranche_field_present fehlt (Feld nicht gerendert)", async () => {
+    // Existing ist bereits einer Tranche zugeordnet. Ohne den Marker darf
+    // ein (ggf. leeres) tranche_id-Feld im Formular die Zuordnung NICHT
+    // stillschweigend lösen — sonst rutscht die Anzahlung ungewollt aus dem
+    // Pool in die Bordkasse (das Kern-Szenario aus Fund 3d).
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: true, personId: CREDIT_FROM });
+    const { supabase, getCapturedUpdate } = makeUpdateCreditSupabase({
+      existing: {
+        created_by: CREDIT_FROM,
+        type: "credit",
+        trip_id: TRIP_ID,
+        deleted_at: null,
+        amount: 150,
+        credit_from: CREDIT_FROM,
+        credit_to: CREDIT_TO,
+        tranche_id: OTHER_TRANCHE_ID,
+      },
+    });
+    mockedAdminClient.mockReturnValue(supabase as never);
+
+    const res = await updateCredit({ status: "idle" }, creditFormData());
+
+    // redirect() ist im Test ein No-Op-Mock (wirft nicht wie in echtem
+    // Next.js) — die Funktion läuft danach ohne Return durch, res ist also
+    // undefined. Entscheidend ist: KEIN Fehler, und das Update-Payload zeigt
+    // die unveränderte (nicht genullte) Tranche.
+    expect((res as { status?: string } | undefined)?.status).not.toBe("error");
+    expect(mockedAdvancer).not.toHaveBeenCalled();
+    expect(getCapturedUpdate()?.tranche_id).toBe(OTHER_TRANCHE_ID);
+  });
+
+  it("lehnt eine Tranchen-Änderung ab, wenn der Editor die Tranchen-Rolle nicht hat", async () => {
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: true, personId: CREDIT_FROM });
+    mockedAdvancer.mockResolvedValue({ ok: false, message: "nein" });
+    const { supabase } = makeUpdateCreditSupabase({
+      existing: {
+        created_by: CREDIT_FROM,
+        type: "credit",
+        trip_id: TRIP_ID,
+        deleted_at: null,
+        amount: 150,
+        credit_from: CREDIT_FROM,
+        credit_to: CREDIT_TO,
+        tranche_id: null,
+      },
+    });
+    mockedAdminClient.mockReturnValue(supabase as never);
+
+    const res = await updateCredit(
+      { status: "idle" },
+      creditFormData({ tranche_field_present: "1", tranche_id: OTHER_TRANCHE_ID }),
+    );
+
+    expect(res.status).toBe("error");
+    if (res.status === "error") {
+      expect(res.message).toContain("Anzahlungstranche");
+    }
+    expect(mockedAdvancer).toHaveBeenCalledWith(TRIP_ID);
+  });
+
+  it("setzt confirmed_at zurück, wenn eine tranche-getaggte Gutschrift materiell geändert wird", async () => {
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: true, personId: CREDIT_FROM });
+    const { supabase, getCapturedUpdate } = makeUpdateCreditSupabase({
+      existing: {
+        created_by: CREDIT_FROM,
+        type: "credit",
+        trip_id: TRIP_ID,
+        deleted_at: null,
+        amount: 100, // Formular schickt 150 → Betrag ändert sich materiell
+        credit_from: CREDIT_FROM,
+        credit_to: CREDIT_TO,
+        tranche_id: OTHER_TRANCHE_ID,
+      },
+    });
+    mockedAdminClient.mockReturnValue(supabase as never);
+
+    const res = await updateCredit({ status: "idle" }, creditFormData({ amount: "150,00" }));
+
+    expect((res as { status?: string } | undefined)?.status).not.toBe("error");
+    expect(getCapturedUpdate()?.confirmed_at).toBeNull();
+  });
+
+  it("lässt confirmed_at unangetastet, wenn sich an einer tranche-getaggten Gutschrift nichts ändert", async () => {
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: true, personId: CREDIT_FROM });
+    const { supabase, getCapturedUpdate } = makeUpdateCreditSupabase({
+      existing: {
+        created_by: CREDIT_FROM,
+        type: "credit",
+        trip_id: TRIP_ID,
+        deleted_at: null,
+        amount: 150, // identisch zum Formular → keine Bilanz-Änderung
+        credit_from: CREDIT_FROM,
+        credit_to: CREDIT_TO,
+        tranche_id: OTHER_TRANCHE_ID,
+      },
+    });
+    mockedAdminClient.mockReturnValue(supabase as never);
+
+    const res = await updateCredit({ status: "idle" }, creditFormData({ description: "Umbenannt" }));
+
+    expect((res as { status?: string } | undefined)?.status).not.toBe("error");
+    expect(getCapturedUpdate()).not.toHaveProperty("confirmed_at");
   });
 });
 
