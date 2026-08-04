@@ -57,13 +57,22 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
   // anlegen. E-Mail liegt seit Migration 0013 ausschließlich in
   // persons_private — persons selbst hat sie nicht mehr.
   // Sonderfall ohne E-Mail: direkt neue Ghost-Person (kein persons_private-Eintrag).
+  // Fund 9 (Code-Review 2026-08): `.eq` statt `.ilike` (CITEXT ist bereits
+  // case-insensitiv) + Fehler geprüft, statt ihn still als "nicht gefunden"
+  // durchzureichen (sonst legt der else-Zweig eine Person an, deren
+  // persons_private-Insert danach an der UNIQUE-Constraint scheitert, statt
+  // einer klaren Fehlermeldung an dieser Stelle).
   let personId: string;
   if (email) {
-    const { data: existingPriv } = await supabase
+    const { data: existingPriv, error: lookupErr } = await supabase
       .from("persons_private")
       .select("person_id")
-      .ilike("email", email)
+      .eq("email", email)
       .maybeSingle();
+    if (lookupErr) {
+      console.error("[bordkasse:db]", lookupErr.message);
+      return { status: "error", message: "E-Mail-Suche fehlgeschlagen. Bitte erneut versuchen." };
+    }
 
     if (existingPriv) {
       personId = existingPriv.person_id;
@@ -365,12 +374,24 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
       // Gehört die E-Mail bereits einer anderen Person? Dann versuchen wir
       // automatisch zu mergen: der aktuelle Ghost-Eintrag wird in den
       // bestehenden Account integriert.
-      const { data: emailInUse } = await supabase
+      //
+      // Fund 9 (Code-Review 2026-08): `.eq` statt `.ilike` — die Spalte ist
+      // bereits CITEXT (case-insensitiv), `ilike` brachte nur unbeabsichtigte
+      // Wildcards ins Spiel. Mit `_` als Ein-Zeichen-Joker hätte eine
+      // nachgetragene E-Mail wie `max_mueller@…` sonst fälschlich mit dem
+      // ANDEREN Ghost-Eintrag `max.mueller@…` „matchen" und einen
+      // unbeabsichtigten Merge auslösen können. Fehler wird jetzt geprüft,
+      // statt still als "keine Kollision" durchzureichen.
+      const { data: emailInUse, error: emailInUseErr } = await supabase
         .from("persons_private")
         .select("person_id, persons!inner(display_name, auth_user_id)")
-        .ilike("email", email)
+        .eq("email", email)
         .neq("person_id", member.person_id)
         .maybeSingle();
+      if (emailInUseErr) {
+        console.error("[bordkasse:db]", emailInUseErr.message);
+        return { status: "error", message: "E-Mail-Prüfung fehlgeschlagen. Bitte erneut versuchen." };
+      }
 
       if (emailInUse) {
         // Consent-Schutz: Gehört die E-Mail einem bereits REGISTRIERTEN

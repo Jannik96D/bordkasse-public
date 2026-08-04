@@ -61,12 +61,17 @@ export async function isEmailAllowedToSignIn(email: string): Promise<boolean> {
 
   if (getAdminEmails().includes(normalized)) return true;
 
+  // Fund 9 (Code-Review 2026-08): `.eq` statt `.ilike` — die Spalte ist
+  // bereits CITEXT (case-insensitiv), `ilike` brachte nur unbeabsichtigte
+  // Wildcards (`%`/`_`) ins Whitelist-Gate. Fail-closed bleibt unverändert:
+  // sowohl "nicht gefunden" als auch ein DB-Fehler ergeben `data == null`.
   const supabase = createAdminClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("persons_private")
     .select("person_id")
-    .ilike("email", normalized)
+    .eq("email", normalized)
     .maybeSingle();
+  if (error) console.error("[bordkasse:auth] Whitelist-Lookup fehlgeschlagen:", error.message);
   return !!data;
 }
 

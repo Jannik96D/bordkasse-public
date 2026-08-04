@@ -91,6 +91,16 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # Unused-Export-Scan (Fund 10, Code-Review 2026-08). --no-exit-code:
+      # rein informativ, blockiert den Merge NICHT — ein Teil der Fundstellen
+      # sind bewusst gehaltene Zod-Kompositionsbausteine/Rückgabetypen
+      # exportierter Actions (siehe Review-Notiz), die knip nicht von echtem
+      # totem Code unterscheiden kann. Erst scharf schalten (Exit-Code
+      # auswerten), wenn die Ausgabe dauerhaft nur noch bekannte, akzeptierte
+      # Einträge zeigt.
+      - name: Unused exports / files (informativ)
+        run: pnpm exec knip --include exports,types,files --no-exit-code
+
       - name: Tests (S1–S7)
         run: pnpm test
 
