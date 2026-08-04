@@ -61,6 +61,26 @@ test.describe("Auth-Schutz", () => {
   });
 });
 
+test.describe("Cron-Endpunkte", () => {
+  // Regression zu Code-Review 2026-08 Fund 2: die Session-Middleware
+  // (proxy.ts) darf /api/cron/* NICHT abfangen — Vercel-Cron schickt kein
+  // Session-Cookie, nur `Authorization: Bearer <CRON_SECRET>`, und folgt
+  // keinen Redirects. Ohne den Bypass in proxy.ts würde jeder Cron-Aufruf
+  // in einem unbemerkten 307 auf /login enden (Redirects werden von Vercel
+  // nicht geloggt) — die automatische DSGVO-Löschung und die Anzahlungs-
+  // Erinnerungen liefen dann nie. Der eigentliche Auth-Schutz der Routen
+  // ist verifyCronAuth (401/503), NICHT die Middleware — deshalb wird hier
+  // nur "kein Redirect" geprüft, nicht der konkrete Statuscode.
+  for (const path of ["/api/cron/purge", "/api/cron/prepayment-reminders"]) {
+    test(`${path} wird nicht auf /login umgeleitet`, async ({ request }) => {
+      const response = await request.get(path, { maxRedirects: 0 });
+      expect(response.status()).not.toBe(307);
+      expect(response.headers()["location"]).toBeUndefined();
+      expect([401, 503]).toContain(response.status());
+    });
+  }
+});
+
 test.describe("Security-Header", () => {
   test("HSTS, X-Frame-Options, CSP, Referrer-Policy sind gesetzt", async ({ request }) => {
     const response = await request.get("/login");
