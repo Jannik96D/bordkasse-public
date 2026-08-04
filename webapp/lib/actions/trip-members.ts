@@ -182,9 +182,16 @@ export async function removeMember(
   if (!auth.ok) return { ok: false, message: auth.message };
   const supabase = createAdminClient();
 
+  // IDOR-Schutz (Fund 4, Code-Review 2026-08): memberId wird OHNE trip_id-
+  // Filter gelesen/gelöscht — ein Skipper von Törn A könnte sonst eine
+  // fremde trip_members.id aus Törn B übergeben (per RLS für jedes Mitglied
+  // von B lesbar) und deren Mitgliedschaft löschen, während der Buchungs-
+  // und Owner-Schutz unten immer gegen Törn A prüfen und den fremden Törn
+  // damit nie schützen. .eq("trip_id", tripId) macht memberId + tripId zu
+  // einem zusammengehörigen Schlüssel.
   const [{ data: tripRow }, { data: memberRow }] = await Promise.all([
     supabase.from("trips").select("skipper_id").eq("id", tripId).maybeSingle(),
-    supabase.from("trip_members").select("person_id").eq("id", memberId).maybeSingle(),
+    supabase.from("trip_members").select("person_id").eq("id", memberId).eq("trip_id", tripId).maybeSingle(),
   ]);
   if (!memberRow) return { ok: false, message: "Crewmitglied nicht gefunden." };
 
@@ -200,14 +207,30 @@ export async function removeMember(
   // Person hat noch (nicht-soft-deleted) Buchungen → entfernen würde die
   // Bilanz inkonsistent machen (Bezahlt/Anteil-Summe ≠ 0). Skipper soll
   // erst die Buchungen umbuchen oder stornieren.
+  //
+  // Fund 6 (Code-Review 2026-08): geprüft wurden bisher nur paid_by/
+  // credit_from/credit_to — eine Person, die NUR über transaction_
+  // participants an einer Buchung beteiligt ist (split_type='individual'
+  // oder 'per_person'), ließ sich trotzdem entfernen. Bei 'per_person'
+  // bleibt der Anteil dann als unallokierter Rest in v_transaction_shares
+  // stehen (Σ balance ≠ 0), ohne jede Fehlermeldung — analog zum Blocker in
+  // delete_my_account() (Migration 0021), der genau das schon verhindert.
   const personId = memberRow.person_id;
-  const { count: txCount } = await supabase
-    .from("transactions")
-    .select("*", { count: "exact", head: true })
-    .eq("trip_id", tripId)
-    .is("deleted_at", null)
-    .or(`paid_by.eq.${personId},credit_from.eq.${personId},credit_to.eq.${personId}`);
-  if ((txCount ?? 0) > 0) {
+  const [{ count: txCount }, { count: participantCount }] = await Promise.all([
+    supabase
+      .from("transactions")
+      .select("*", { count: "exact", head: true })
+      .eq("trip_id", tripId)
+      .is("deleted_at", null)
+      .or(`paid_by.eq.${personId},credit_from.eq.${personId},credit_to.eq.${personId}`),
+    supabase
+      .from("transaction_participants")
+      .select("transaction_id, transactions!inner(trip_id, deleted_at)", { count: "exact", head: true })
+      .eq("person_id", personId)
+      .eq("transactions.trip_id", tripId)
+      .is("transactions.deleted_at", null),
+  ]);
+  if ((txCount ?? 0) > 0 || (participantCount ?? 0) > 0) {
     return {
       ok: false,
       message:
@@ -215,7 +238,7 @@ export async function removeMember(
     };
   }
 
-  await supabase.from("trip_members").delete().eq("id", memberId);
+  await supabase.from("trip_members").delete().eq("id", memberId).eq("trip_id", tripId);
   await logAudit(supabase, {
     table_name: "trip_members",
     operation: "DELETE",
@@ -430,15 +453,21 @@ export async function setSkipperRole(memberId: string, tripId: string, isSkipper
   if (!auth.ok) return;
   const supabase = createAdminClient();
 
+  // IDOR-Schutz (Fund 4, Code-Review 2026-08): memberId OHNE trip_id-Filter
+  // zu lesen/schreiben ließe einen Skipper von Törn A eine fremde
+  // trip_members.id aus Törn B übergeben (per RLS für jedes Mitglied von B
+  // lesbar) und dort is_skipper setzen — Selbst-Beförderung zum Co-Skipper
+  // eines fremden Törns. .eq("trip_id", tripId) bindet memberId an DIESEN
+  // Törn.
   const [{ data: tripRow }, { data: memberRow }] = await Promise.all([
     supabase.from("trips").select("skipper_id").eq("id", tripId).maybeSingle(),
-    supabase.from("trip_members").select("person_id").eq("id", memberId).maybeSingle(),
+    supabase.from("trip_members").select("person_id").eq("id", memberId).eq("trip_id", tripId).maybeSingle(),
   ]);
   if (!tripRow || !memberRow) return;
   // Original-Owner kann nicht von der Skipper-Rolle entbunden werden.
   if (!isSkipper && tripRow.skipper_id === memberRow.person_id) return;
 
-  await supabase.from("trip_members").update({ is_skipper: isSkipper }).eq("id", memberId);
+  await supabase.from("trip_members").update({ is_skipper: isSkipper }).eq("id", memberId).eq("trip_id", tripId);
   await logAudit(supabase, {
     table_name: "trip_members",
     operation: "UPDATE",
@@ -474,6 +503,18 @@ export async function setSkipperRole(memberId: string, tripId: string, isSkipper
  *     Ghost-Obligation wird verworfen wenn real schon eine hat
  *   - `trip_members` UNIQUE (trip_id, person_id): real hat Vorrang,
  *     Ghost-Membership wird gelöscht wenn real schon Member ist
+ *
+ * WICHTIGE VORAUSSETZUNG (Fund 5, Code-Review 2026-08): der Ghost darf
+ * NIRGENDS außer in `tripId` Crew sein. Schritt 1/6 hängen transactions/
+ * audit_log GLOBAL um (kein trip_id-Filter) — ohne diese Voraussetzung
+ * würden Buchungen eines FREMDEN Törns auf `realId` umgehängt, obwohl real
+ * dort gar nicht Mitglied ist (Phantom-Gläubiger in
+ * v_balances_bordkasse_only, all_debts_settled nie erfüllbar → der fremde
+ * Törn wird dauerhaft unpurgebar). Ein eigener Pre-Check lehnt den Merge
+ * deshalb ab, wenn der Ghost Mitglied eines anderen Törns ist — dieser Fall
+ * ist selten (nur möglich, wenn zwei Skipper denselben Ghost per E-Mail in
+ * unterschiedliche Törns eingeladen haben) und braucht eine bewusste,
+ * manuelle Entscheidung statt einer automatischen Verschmelzung.
  */
 async function mergeGhostIntoExistingPerson(
   supabase: ReturnType<typeof createAdminClient>,
@@ -508,8 +549,40 @@ async function mergeGhostIntoExistingPerson(
     };
   }
 
+  // Pre-Check (Fund 5, Code-Review 2026-08): ist der Ghost Mitglied eines
+  // ANDEREN Törns? Die folgenden Schritte hängen transactions/audit_log
+  // GLOBAL um (ohne trip_id-Filter) — das ist nur sicher, wenn der Ghost
+  // NIRGENDS außer in diesem Törn Crew war. Ohne diesen Check würden
+  // Buchungen eines fremden Törns auf `realId` umgehängt, obwohl real dort
+  // gar nicht Mitglied ist (Bilanz-Bruch in v_balances/
+  // v_balances_bordkasse_only — Phantom-Gläubiger, simplify_debts plant
+  // Überweisungen an eine törnfremde Person, all_debts_settled wird nie
+  // wahr → der fremde Törn wird dauerhaft unpurgebar). Zusätzlich schlägt
+  // der abschließende persons-DELETE dort an der NO-ACTION-FK von
+  // trip_members.person_id fehl, aber ERST NACHDEM die globalen UPDATEs
+  // (Schritt 1/6) bereits gelaufen sind — der Skipper sieht einen Fehler,
+  // während der fremde Törn schon beschädigt ist.
+  const { count: foreignMembershipCount } = await supabase
+    .from("trip_members")
+    .select("*", { count: "exact", head: true })
+    .eq("person_id", ghostId)
+    .neq("trip_id", tripId);
+  if ((foreignMembershipCount ?? 0) > 0) {
+    return {
+      ok: false,
+      message:
+        "Diese Person ist Crewmitglied in mindestens einem anderen Törn. Eine automatische " +
+        "Verschmelzung würde dort Buchungen fälschlich umhängen und ist daher gesperrt. Falls die " +
+        "beiden Einträge trotzdem dieselbe Person sind, lass den aktuellen Ghost-Eintrag (ohne E-Mail) " +
+        "stehen und trage die E-Mail stattdessen direkt am bestehenden Konto ein — oder wende dich bei " +
+        "Bedarf an einen Admin.",
+    };
+  }
+
   // 1. transactions: paid_by / credit_from / credit_to umhängen — keine
-  //    Constraints betroffen, einfache UPDATEs.
+  //    Constraints betroffen, einfache UPDATEs. Durch den Pre-Check oben
+  //    ist der Ghost NUR in diesem Törn Crew, ein globales UPDATE ist damit
+  //    ungefährlich (der Ghost kann in keinem anderen Törn referenziert sein).
   await supabase.from("transactions").update({ paid_by: realId }).eq("paid_by", ghostId);
   await supabase.from("transactions").update({ credit_from: realId }).eq("credit_from", ghostId);
   await supabase.from("transactions").update({ credit_to: realId }).eq("credit_to", ghostId);
@@ -598,6 +671,26 @@ async function mergeGhostIntoExistingPerson(
   // 7. settled_debts: from_person_id / to_person_id (Schulden-Häkchen)
   await supabase.from("settled_debts").update({ from_person_id: realId }).eq("from_person_id", ghostId);
   await supabase.from("settled_debts").update({ to_person_id: realId }).eq("to_person_id", ghostId);
+
+  // 7a. settled_by_person_id (Fund 5): ON DELETE SET NULL würde beim finalen
+  //     persons-DELETE sonst still verlieren, WER das Häkchen gesetzt hat.
+  //     Auf diesen Törn beschränkt (settled_debts.trip_id) — nach dem
+  //     Pre-Check oben ist der Ghost ohnehin nur hier Crew.
+  await supabase
+    .from("settled_debts")
+    .update({ settled_by_person_id: realId })
+    .eq("trip_id", tripId)
+    .eq("settled_by_person_id", ghostId);
+
+  // 7b. prepayment_plan.advancer_person_id (Fund 5): ebenfalls ON DELETE SET
+  //     NULL — war der Ghost als Vorstrecker eingetragen, ginge diese Rolle
+  //     beim Löschen sonst still verloren und requireSkipperAdminOrAdvancer
+  //     fiele unbemerkt auf den Trip-Skipper zurück.
+  await supabase
+    .from("prepayment_plan")
+    .update({ advancer_person_id: realId })
+    .eq("trip_id", tripId)
+    .eq("advancer_person_id", ghostId);
 
   // 8. Ghost-Person + persons_private löschen
   await supabase.from("persons_private").delete().eq("person_id", ghostId);

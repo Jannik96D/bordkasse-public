@@ -33,9 +33,14 @@ export function TransactionsList({
     individual: "Individuell",
     per_person: "Pro Person",
   } as const;
-  // Skipper + Admin dürfen jede Buchung editieren; Ersteller die eigene.
+  // Skipper + Admin dürfen jede Buchung editieren; Ersteller nur die eigene
+  // AUSGABE — Gutschriften sind Skipper/Admin-only (Fund 3, Code-Review
+  // 2026-08), sonst könnte ein Crewmitglied seine eigene per
+  // submitSelfPayment gemeldete Anzahlung frei verändern.
   const canEditRow = (row: TransactionListRow) =>
-    isMyTripSkipper || isAdmin || (currentPersonId !== null && row.created_by_id === currentPersonId);
+    isMyTripSkipper ||
+    isAdmin ||
+    (row.type === "expense" && currentPersonId !== null && row.created_by_id === currentPersonId);
   const [query, setQuery] = useState(initialQuery);
 
   const filtered = useMemo(() => {

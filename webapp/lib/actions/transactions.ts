@@ -946,10 +946,16 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     return { status: "error", message: "Diese Buchung ist keine Gutschrift." };
   }
 
-  // Gutschriften ändern: weiterhin nur Skipper/Admin (oder Creator —
-  // bei aktuellem Workflow ist das aber sowieso Skipper/Admin).
-  if (!(await canEditTransaction(parsed.data.trip_id, existing.created_by, person.id))) {
-    return { status: "error", message: "Nur Skipper, Admin oder die Person, die gebucht hat, dürfen ändern." };
+  // Gutschriften ändern ist — wie das Anlegen — Skipper/Admin-only, OHNE
+  // Ersteller-Ausnahme (Fund 3, Code-Review 2026-08). Der Ersteller-Vorrang
+  // aus canEditTransaction ist für Ausgaben gedacht; bei Gutschriften griff
+  // er auch für submitSelfPayment (jedes Crewmitglied, created_by = es
+  // selbst) — ein Crewmitglied konnte damit die eigene, bereits vom
+  // Vorstrecker BESTÄTIGTE Anzahlungsmeldung nachträglich frei verändern
+  // (Betrag, credit_from/credit_to inkl. „An Alle", tranche_id).
+  const skipperCheck = await requireSkipperOrAdmin(parsed.data.trip_id);
+  if (!skipperCheck.ok) {
+    return { status: "error", message: "Nur Skipper oder Admin dürfen eine Gutschrift ändern." };
   }
 
   // „An Alle"-Validierung wie bei createCredit
@@ -961,8 +967,21 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     };
   }
 
-  if (!(await trancheBelongsToTrip(supabase, parsed.data.tranche_id, parsed.data.trip_id))) {
-    return { status: "error", message: "Ungültige Tranche für diesen Törn." };
+  // Tranche-Zuordnung darf nur ändern, wer das Feld auch sieht (Skipper/
+  // Admin/Vorstrecker) — analog updateExpense. Der `tranche_field_present`-
+  // Marker unterscheidet „Feld da, bewusst auf Keine gesetzt" von „Feld gar
+  // nicht angezeigt" (z. B. Törn ohne Tranchen): im zweiten Fall bleibt die
+  // bestehende Zuordnung unangetastet, statt sie über ein serverseitig
+  // fehlendes tranche_id versehentlich aus dem Anzahlungspool zu lösen.
+  const trancheFieldPresent = formData.get("tranche_field_present") === "1";
+  let trancheToSave: string | null = existing.tranche_id ?? null;
+  if (trancheFieldPresent && (parsed.data.tranche_id ?? null) !== (existing.tranche_id ?? null)) {
+    const trancheAuth = await requireSkipperAdminOrAdvancer(parsed.data.trip_id);
+    if (!trancheAuth.ok) return { status: "error", message: TRANCHE_AUTHZ_MSG };
+    if (!(await trancheBelongsToTrip(supabase, parsed.data.tranche_id, parsed.data.trip_id))) {
+      return { status: "error", message: "Ungültige Tranche für diesen Törn." };
+    }
+    trancheToSave = parsed.data.tranche_id ?? null;
   }
 
   if (
@@ -984,6 +1003,28 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     bank_foreign_amount: parsed.data.bank_foreign_amount,
   });
 
+  // Materielle Änderung einer tranche-getaggten Gutschrift (vor ODER nach
+  // dem Edit tranche-getaggt) entwertet eine bestehende Bestätigung — der
+  // Vorstrecker hat einen ANDEREN Betrag/eine andere Zuordnung bestätigt.
+  // Ohne Reset bliebe eine nachträglich hochgesetzte Anzahlung fälschlich
+  // als „bestätigt" stehen.
+  const balanceChanged = creditBalanceChanged(
+    {
+      amount: existing.amount,
+      credit_from: existing.credit_from,
+      credit_to: existing.credit_to,
+      tranche_id: existing.tranche_id,
+    },
+    {
+      amount: creditCur.amount,
+      credit_from: parsed.data.credit_from,
+      credit_to: parsed.data.credit_to,
+      tranche_id: trancheToSave,
+    },
+  );
+  const resetConfirmation =
+    balanceChanged && (existing.tranche_id != null || trancheToSave != null);
+
   const { error } = await supabase
     .from("transactions")
     .update({
@@ -993,12 +1034,13 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
       credit_from: parsed.data.credit_from,
       credit_to: parsed.data.credit_to,
       credit_to_all: parsed.data.credit_to == null,
-      tranche_id: parsed.data.tranche_id ?? null,
+      tranche_id: trancheToSave,
       original_currency: creditCur.original_currency,
       original_amount: creditCur.original_amount,
       exchange_rate: creditCur.exchange_rate,
       rate_source: creditCur.rate_source,
       rate_confirmed_at: rateConfirmedAt(creditCur.rate_source),
+      ...(resetConfirmation ? { confirmed_at: null } : {}),
     })
     .eq("id", transactionId)
     .eq("trip_id", parsed.data.trip_id);
@@ -1013,22 +1055,10 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     payload: { type: "credit", ...parsed.data },
   });
 
-  // Banner nur bei echter Bilanz-Änderung (s. updateExpense) — reine
-  // Umbenennung der Gutschrift soll keine Update-Mail-Aufforderung auslösen.
-  const balanceChanged = creditBalanceChanged(
-    {
-      amount: existing.amount,
-      credit_from: existing.credit_from,
-      credit_to: existing.credit_to,
-      tranche_id: existing.tranche_id,
-    },
-    {
-      amount: creditCur.amount,
-      credit_from: parsed.data.credit_from,
-      credit_to: parsed.data.credit_to,
-      tranche_id: parsed.data.tranche_id ?? null,
-    },
-  );
+  // balanceChanged wurde bereits vor dem Update berechnet (für den
+  // confirmed_at-Reset) — hier nur noch für den Settlement-Update-Banner
+  // wiederverwendet (s. updateExpense): reine Umbenennung soll keine
+  // Update-Mail-Aufforderung auslösen.
   if (balanceChanged) await markPostSettlementChange(supabase, parsed.data.trip_id);
   revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
   revalidatePath(`/trips/${parsed.data.trip_id}/balance`);
