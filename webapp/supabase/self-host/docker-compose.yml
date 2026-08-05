@@ -30,7 +30,7 @@
 # ⚠️ COOLIFY: „Preserve Repository During Deployment" MUSS aktiv sein.
 #
 # Diese Datei bindet Nachbardateien per relativem Bind-Mount ein (kong.yml,
-# kong-entrypoint.sh, volumes/db/*.sql). Ohne die Option führt Coolify
+# kong-entrypoint.sh, volumes/db/*.sql, backup.sh). Ohne die Option führt Coolify
 # `docker compose up` in einem WEGWERF-Build-Container aus; das Repo liegt
 # dann nicht auf dem Host, wo der Docker-Daemon die Bind-Mounts auflöst.
 # Docker legt daraufhin leere VERZEICHNISSE an den Quellpfaden an, und ein
@@ -70,6 +70,15 @@ services:
       - db-data:/var/lib/postgresql/data
       # Named Volume, damit der pgsodium-Key Neustarts überlebt
       - db-config:/etc/postgresql-custom
+      # Backup: Skript UND Zielverzeichnis liegen im db-Container, weil
+      # Coolifys Scheduled Tasks ihren Befehl in einem Container ausführen —
+      # ohne Docker-Socket, ein `docker exec`-Skript wäre dort nicht
+      # einrichtbar. Details im Kopf von backup.sh.
+      - ./backup.sh:/usr/local/bin/bordkasse-backup:ro,Z
+      # Named Volume, nicht ./volumes/backups: ein Redeploy mit frischem
+      # Clone nähme ein Verzeichnis im Checkout mit — also genau die
+      # Sicherungen, die man dann bräuchte.
+      - db-backups:/backups
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
       interval: 5s
@@ -421,3 +430,7 @@ volumes:
   # `docker compose down -v` löscht ihn — dieses Flag niemals blind nutzen.
   db-data:
   db-config:
+  # Die nächtlichen Dumps (backup.sh). Liegen auf DERSELBEN Maschine wie die
+  # Datenbank — das Auslagern auf ein anderes System ist ein eigener,
+  # separater Schritt, siehe docs/self-hosting.md.
+  db-backups:
