@@ -460,6 +460,13 @@ eingerichtet werden sollte.
 bash /usr/local/bin/bordkasse-backup
 ```
 
+Das Feld **Container name** muss `db` enthalten — bleibt es leer, landet der
+Befehl in einem beliebigen Container des Stacks, wo es weder das Skript noch
+`pg_dump` gibt. Die Ausgabe jedes Laufs steht auf der Task-Seite unter
+„Recent executions" (Eintrag anklicken). Coolify setzt ein **Timeout von
+300 s** — für die heutige Datenmenge weit ausreichend (ein Lauf dauert ~2 s),
+aber die Stelle, die bei stark gewachsener Datenbank still zuschlägt.
+
 Manuell vom Host aus — Container-Namen dynamisch ermitteln, Coolify
 ignoriert `container_name`:
 
