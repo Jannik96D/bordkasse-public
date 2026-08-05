@@ -487,19 +487,41 @@ fehlgeschlagener Lauf löscht nie die letzten guten Backups).
 
 **Zwei Dinge musst du selbst ergänzen:**
 
-1. **Auslagern.** Bewusst nicht Teil des Skripts: der Container hat kein
-   `rclone`/`ssh` und soll keine Zugangsdaten zu einem Fernziel sehen. Ein
-   Backup auf derselben Maschine überlebt keinen Serververlust — der
-   Transfer gehört daher vom **Host** aus auf ein anderes System (NAS oder
-   Objektspeicher), verschlüsselt. Die Dumps liegen im Named Volume:
+1. **Auslagern** — [`pull-backup.sh`](../webapp/supabase/self-host/pull-backup.sh),
+   läuft auf **deinem Rechner**, nicht auf dem Server:
 
    ```bash
-   docker run --rm -v bordkasse-supabase_db-backups:/b:ro -v "$PWD":/out alpine \
-     sh -c 'cp /b/*.sql.gz /out/'
+   ./pull-backup.sh
    ```
 
-   (Volume-Name unter Coolify mit `docker volume ls | grep db-backups`
-   prüfen — der Präfix hängt am Projektnamen.)
+   Es holt den jüngsten Dump per `ssh` + `docker exec cat`, verschlüsselt
+   ihn im Flug mit `age` (der Klartext berührt die lokale Platte nie),
+   prüft anschließend Entschlüsselung **und** gzip-Integrität und legt die
+   Datei erst danach an ihren endgültigen Platz. Standardziel
+   `~/Documents/bordkasse-backups`, überschreibbar per Argument;
+   `BORDKASSE_SSH_HOST`, `BORDKASSE_APP_UUID`, `BORDKASSE_AGE_KEY` und
+   `KEEP_DAYS` sind Umgebungsvariablen.
+
+   Einmalige Vorbereitung:
+
+   ```bash
+   brew install age && age-keygen -o ~/.config/bordkasse-backup.key
+   ```
+
+   `BORDKASSE_APP_UUID` ist **Pflicht** (UUID der Coolify-Anwendung) — sie
+   hat bewusst keinen Default im Skript, weil dieses Repo öffentlich ist.
+   In `~/.zshrc` setzen. Meldet das Skript hinterher eine **Warnung**, der
+   Dump auf dem Server sei nicht von heute, ist der nächtliche Task
+   ausgefallen — dann dort nachsehen, statt sich auf das „OK" zu verlassen.
+
+   ⚠️ **Den Schlüssel getrennt von den Backups sichern** (Passwortmanager,
+   Ausdruck). Ohne ihn sind alle ausgelagerten Kopien unlesbar — das
+   Backup-Problem wäre dann nur verschoben.
+
+   Gezogen statt geschoben, damit keine Zugangsdaten zu deinem Speicher auf
+   dem Server liegen und ein kompromittierter Server die ausgelagerten
+   Kopien nicht mitnehmen kann. Wöchentlich per `launchd`/`cron`
+   einrichten oder von Hand laufen lassen — Hauptsache regelmäßig.
 2. **Restore testen.** Am besten quartalsweise: Dump zurückspielen und die
    Bilanz-Summenprobe aus Schritt 4c fahren. Ein nie getesteter Restore ist
    kein Restore.
