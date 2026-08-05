@@ -454,7 +454,7 @@ einrichtbar. Die Alternative — System-Cron auf dem Host — läge außerhalb
 des Repos und außerhalb dessen, was auf einer fremden Maschine
 eingerichtet werden sollte.
 
-**Coolify Scheduled Task** anlegen (Container `db`, z. B. täglich `0 2 * * *`):
+**Coolify Scheduled Task** anlegen (Container `db`, täglich `0 0 * * *`):
 
 ```bash
 bash /usr/local/bin/bordkasse-backup
@@ -485,35 +485,38 @@ Archivs, verweigert offensichtlich abgebrochene Dumps und räumt Dateien
 älter als 30 Tage auf (erst nach erfolgreicher Prüfung — ein
 fehlgeschlagener Lauf löscht nie die letzten guten Backups).
 
-**Zwei Dinge musst du selbst ergänzen:**
+### Auslagern (eingerichtet, Stand 2026-08-05)
 
-1. **Auslagern** — ⚠️ **noch nicht eingerichtet.** Die Dumps liegen im
-   Named Volume `db-backups` auf **derselben Maschine** wie die Datenbank;
-   Platten- oder Serververlust nimmt beides mit.
+Der **Server-Betreiber** zieht das Named Volume `db-backups` mit seinem
+eigenen Backup-Werkzeug **vom Server weg**, verschlüsselt und
+zugriffsgeschützt. Für Hetzner besteht ein AV-Vertrag, weitere
+Cloud-Dienste sind nicht beteiligt.
 
-   Übernimmt der Server-Betreiber mit seinem eigenen Backup-Werkzeug
-   (Stand 2026-08-05: angefragt). Anforderungen an die Lösung, egal
-   welche es wird:
+**Die Uhrzeiten sind aufeinander abgestimmt:**
 
-   - **Das Volume `db-backups` mitnehmen**, nicht `PGDATA` (`db-data`) im
-     laufenden Betrieb kopieren — ein Dateisystem-Backup einer laufenden
-     Postgres-Instanz ist nicht konsistent. In `db-backups` liegen fertige,
-     bereits geprüfte Dumps.
-   - **Verschlüsselt ablegen.** Der Inhalt sind Klarnamen und
-     E-Mail-Adressen der Crew.
-   - Wer die Kopien speichert, **verarbeitet personenbezogene Daten** —
-     das gehört in die Datenschutzerklärung, siehe Schritt 9a.
+| | |
+|---|---|
+| 00:00 | unser Dump (`bordkasse-backup`, Coolify Scheduled Task) |
+| 02:00 | sein Sweep holt das Volume vom Server |
 
-   Sobald es steht, hier festhalten: **wohin**, **wie oft** und **wie ein
-   Restore aussieht**. Solange dieser Absatz ein „noch nicht eingerichtet"
-   trägt, existiert keine externe Kopie.
+Deshalb `0 0 * * *` und nicht `0 2 * * *`: so wandert jede Nacht der
+frische Stand nach außen. **Wer die Zeit verschiebt, muss das mit ihm
+klären** — sonst geht nachts der Dump des Vortags mit, ohne dass es
+auffällt.
 
-   (Es gab hier zeitweise ein Skript `pull-backup.sh`, das die Dumps per
-   `ssh` auf den Rechner des Skippers zog. Entfernt, weil der SSH-Zugang
-   dafür nicht existiert — Port 22 des Servers ist von außen nicht
-   erreichbar. Ein Skript, das wie eine funktionierende Absicherung
-   aussieht, aber nie läuft, ist schlimmer als keins.)
-2. **Restore testen.** Am besten quartalsweise: Dump zurückspielen und die
+Nicht das Volume `db-data` (PGDATA) sichern: ein Dateisystem-Backup einer
+laufenden Postgres-Instanz ist nicht konsistent. In `db-backups` liegen
+fertige, bereits inhaltlich geprüfte Dumps.
+
+> Historie: Es gab hier zeitweise ein Skript `pull-backup.sh`, das die
+> Dumps per `ssh` auf den Rechner des Skippers zog. Entfernt, weil dieser
+> SSH-Zugang nicht existiert (Port 22 ist von außen nicht erreichbar). Ein
+> Skript, das wie eine funktionierende Absicherung aussieht, aber nie
+> läuft, ist schlimmer als keins.
+
+**Das musst du selbst ergänzen:**
+
+1. **Restore testen.** Am besten quartalsweise: Dump zurückspielen und die
    Bilanz-Summenprobe aus Schritt 4c fahren. Ein nie getesteter Restore ist
    kein Restore.
 
