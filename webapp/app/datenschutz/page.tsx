@@ -111,16 +111,19 @@ export default function DatenschutzPage() {
           <p>Folgende Dienstleister verarbeiten Daten in unserem Auftrag:</p>
           <ul className="ml-5 list-disc">
             <li>
-              <strong>Supabase</strong> (Datenbank, Auth):
-              Supabase Inc., 970 Toa Payoh North #07-04, Singapur 318992. Serverstandort:
-              Frankfurt (EU). Datenschutzerklärung:{" "}
+              <strong>Datenbank und Login</strong>: betrieben auf einem gemieteten Server
+              in Deutschland. Rechenzentrumsbetreiber ist die Hetzner Online GmbH,
+              Industriestr. 25, 91710 Gunzenhausen. Administration des Servers und
+              verschlüsselte Sicherungskopien übernimmt ein von uns beauftragter
+              Dienstleister in Deutschland. Für Datenbank, Login und Sicherungskopien
+              findet keine Übermittlung in Drittländer statt. Datenschutzerklärung:{" "}
               <a
-                href="https://supabase.com/privacy"
+                href="https://www.hetzner.com/de/legal/privacy-policy/"
                 target="_blank"
                 rel="noreferrer"
                 className="underline"
               >
-                supabase.com/privacy
+                hetzner.com/de/legal/privacy-policy
               </a>
             </li>
             <li>
@@ -240,7 +243,7 @@ export default function DatenschutzPage() {
           <h2 className="text-base font-semibold">6. Cookies</h2>
           <p>
             Wir setzen ausschließlich technisch notwendige Cookies für die Login-Session
-            (Supabase Auth-Cookie). Es werden keine Tracking-, Analyse- oder Werbecookies
+            (Auth-Cookie). Es werden keine Tracking-, Analyse- oder Werbecookies
             verwendet.
           </p>
         </div>
