@@ -26,8 +26,9 @@ import {
 } from "@/lib/email/charter-reminder-template";
 import { toCrewDueDate, formatDeDate } from "@/lib/prepayments/dates";
 import { round2 } from "@/lib/utils";
+import { appOrigin } from "@/lib/auth/origin";
 
-const SITE_URL = process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.dieter.ms";
+const SITE_URL = appOrigin();
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 

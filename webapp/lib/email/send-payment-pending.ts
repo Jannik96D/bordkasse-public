@@ -7,8 +7,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendMail } from "@/lib/email/send";
 import { renderPaymentPendingMail } from "@/lib/email/payment-pending-template";
 import { formatDeDate } from "@/lib/prepayments/dates";
+import { appOrigin } from "@/lib/auth/origin";
 
-const SITE_URL = process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.dieter.ms";
+const SITE_URL = appOrigin();
 
 export async function sendPaymentPendingMail(params: {
   tripId: string;

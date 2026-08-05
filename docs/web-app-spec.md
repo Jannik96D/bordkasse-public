@@ -24,7 +24,7 @@ Solange das nicht der Fall ist: Sheets-Lösung beibehalten und iterativ verbesse
 | UI | Tailwind CSS + shadcn/ui | Schnelles Bauen, anpassbar, Mobile-first |
 | Backend | Supabase (Postgres + Auth + Realtime) | Komplettpaket, Row Level Security, Free Tier ausreichend |
 | Auth | Supabase Auth, Magic Link | Niedrige Hürde — Crew klickt Link in E-Mail, kein Passwort |
-| Hosting | Vercel | Zero-config Next.js Deploy, Free Tier reicht |
+| Hosting | ~~Vercel~~ → selbst gehostet | Historisch: Vercel (Zero-config, Free Tier). Seit 2026-08-05 App **und** Supabase-Stack unter Coolify auf einem Hetzner-Server — siehe [`self-hosting.md`](self-hosting.md) |
 | Icons | Lucide React | Konsistent, breite Auswahl |
 
 ## Datenmodell (Postgres)

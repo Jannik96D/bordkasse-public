@@ -5,7 +5,7 @@ Tool zur fairen Aufteilung gemeinsamer Kosten auf Segel-Törns mit wechselnden C
 Zwei Varianten parallel im Repo:
 
 - **Sheets-Lösung** (`assets/sheets-current/`) — Apps Script v11 + xlsx Layout v10. Kein Login, sofort einsetzbar auf Google Sheets. Eingefroren.
-- **Web-App** (`webapp/`) — Next.js + Supabase + Vercel. Crew-fähig, Magic-Link-Auth, Realtime-Sync, PWA-Offline, Statistik-Tab, Audit-Log, automatische DSGVO-Löschung 30 Tage nach Törn-Ende.
+- **Web-App** (`webapp/`) — Next.js + Supabase, selbst gehostet unter Coolify auf einem Hetzner-Server in Deutschland. Crew-fähig, Magic-Link-Auth, Realtime-Sync, PWA-Offline, Statistik-Tab, Audit-Log, automatische DSGVO-Löschung 30 Tage nach Törn-Ende.
 
 ## Web-App auf einen Blick
 
@@ -18,9 +18,9 @@ Zwei Varianten parallel im Repo:
 - **Statistik:** Live-Aggregation nach Kategorie + Tag pro Trip + Cross-Trip-Gesamtsicht. Bleibt nach Törn-Ende anonymisiert erhalten.
 - **Reise-Typ:** ein Törn kann als „Andere Reise" (Gruppen-Urlaub) laufen — durchgängig neutrales Wording (Reise/Urlaubskasse/Reisegruppe) und Ausschluss aus der Segel-Gesamtstatistik.
 - **PWA & Offline:** App lässt sich zum Home-Bildschirm hinzufügen; Buchungen offline erfassen/bearbeiten, automatische Sync bei Reconnect. Bereits online besuchte Seiten bleiben offline ansehbar; kontrollierter Update-Flow (neue Version erst nach Tippen im „Aktualisieren"-Banner, kein erzwungener Reload).
-- **Push-Benachrichtigungen:** opt-in pro Gerät (Web-Push), **zusätzlich** zur E-Mail — für Abrechnung, Schulden-Häkchen und Anzahlungs-Reminder.
+- **Push-Benachrichtigungen:** opt-in pro Gerät (Web-Push), **zusätzlich** zur E-Mail — für Abrechnung, Schulden-Häkchen und Anzahlungs-Reminder. (Derzeit inaktiv: die VAPID-Keys sind nach dem Hosting-Umzug noch nicht nachgetragen, die Funktion zeigt sich deshalb als „nicht unterstützt" — alle Mails laufen unverändert.)
 - **Sicherheit:** RLS auf allen Tabellen, Service-Role-Bypass nur in Server Actions, Security-Header (HSTS/CSP/X-Frame), `noindex`-Meta + `robots.txt` blocken Crawler, Audit-Log für Schreib-Operationen, Soft-Delete für Buchungen.
-- **DSGVO:** Personenbezogene Daten werden 30 Tage nach Törn-Ende automatisch gepurged (Vercel-Cron-Job ruft `purge_expired_trip_data()`). Anonymisiertes Statistik-Aggregat bleibt für die Auswertung erhalten. Self-Service-Kontolöschung unter `/profile`.
+- **DSGVO:** Personenbezogene Daten werden 30 Tage nach Törn-Ende automatisch gepurged (ein täglicher Cron-Task ruft `purge_expired_trip_data()`). Anonymisiertes Statistik-Aggregat bleibt für die Auswertung erhalten. Self-Service-Kontolöschung unter `/profile`.
 
 ## Schnellstart
 

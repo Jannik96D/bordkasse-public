@@ -12,6 +12,7 @@ import { sendPushToPersons } from "@/lib/notify/web-push";
 import { pushRecipients } from "@/lib/notify/recipients";
 import { settlementAnnouncedPush, settlementUpdatedPush } from "@/lib/notify/payloads";
 import { formatDate } from "@/lib/utils";
+import { appOrigin } from "@/lib/auth/origin";
 
 type Result =
   // skipped = kein E-Mail-Adresse hinterlegt (z. B. Ghost-Crew); failed =
@@ -93,7 +94,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
   // Link führt direkt zu den Schulden — dort sieht das Crewmitglied den
   // Zahlungsplan und kann erledigte Zahlungen abhaken. Für den Gesamt-Saldo
   // ist der Bilanz-Tab nur einen Tap entfernt.
-  const appUrl = `${process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.example"}/trips/${tripId}/debts`;
+  const appUrl = `${appOrigin()}/trips/${tripId}/debts`;
 
   let skipped = 0;
 
@@ -298,7 +299,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
 
   const tripDates = `${formatDate(trip.start_date)} – ${formatDate(trip.end_date)}`;
   const tripType: "sailing" | "other" = trip.trip_type === "other" ? "other" : "sailing";
-  const appUrl = `${process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.example"}/trips/${tripId}/debts`;
+  const appUrl = `${appOrigin()}/trips/${tripId}/debts`;
 
   let skipped = 0;
 

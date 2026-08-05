@@ -38,8 +38,8 @@ Next.js 16 + Supabase Web-App-Variante der Bordkasse. Spec: [`../docs/web-app-sp
 - **PWA & Offline:** Service Worker (`public/sw.js`) cached App-Shell + besuchte Seiten (RSC) → bereits geöffnete Routen bleiben offline ansehbar; IndexedDB-Outbox erfasst Buchungen offline (auch Bearbeiten/Löschen noch nicht gesyncter Entwürfe) und synchronisiert bei Reconnect (`lib/offline/sync.ts`). Idempotency-Key verhindert Duplikate. **Kontrollierter Update-Flow:** eine neue SW-Version bleibt im `waiting`-Zustand, bis der Nutzer im Banner „Aktualisieren" tippt — kein erzwungener Reload mitten in der Eingabe.
 - **Audit-Log:** jede Schreib-Operation (Trip, Crew, Kategorie, Buchung, Settled-Debt) hinterlässt einen Eintrag in `audit_log`. RLS schränkt Lese-Zugriff auf den Skipper des betroffenen Trips ein.
 - **Soft-Delete:** Buchungen werden mit `deleted_at` markiert statt physisch gelöscht. Views/Listen filtern automatisch.
-- **DSGVO-Datenlöschung:** Vercel-Cron ruft täglich `/api/cron/purge` → `purge_expired_trip_data()`. Ein Trip wird nur gepurged, wenn drei Bedingungen erfüllt sind: (a) end_date + 30 Tage in der Vergangenheit, (b) Skipper hat die Abrechnung verschickt (`settlement_announced_at`), (c) alle simplified-debts sind in `settled_debts` abgehakt. Trips mit offenen Schulden bleiben für den nächsten Cron-Lauf liegen. Skipper/Admin können den Purge im Trip-Settings-Tab manuell anstoßen (`purge_trip_data(trip_id, force)`); Force-Modus überspringt Retention-Frist + Settlement-Flag, NIE aber die Schulden-Prüfung. Auf der Trip-Auswahl-Seite werden überfällige Trips (`end_date + 30 Tage < heute`, noch nicht gepurged) für Skipper/Admin rot markiert + Banner oben. Anonymisiertes Statistik-Aggregat bleibt erhalten. **Härtung 0042:** der Purge löscht jetzt auch die Anzahlungs-Tabellen (`prepayment_plan` inkl. `wero_id`, `-obligations`, `-tranches`, `cabin_types`, `-reminder_log` — Fix Q2, deren `trips`-CASCADE feuert nicht, da die Trip-Row nur anonymisiert wird), nullt `settlement_announced_by` mit und isoliert Fehler pro Törn, damit ein einzelner FK-Fehler nicht den ganzen Cron-Lauf abbricht (Q3). **Buchungs-Kerndaten bleiben erhalten (Migration 0044):** `purge_trip_data` löscht `transactions`-Zeilen nicht mehr, sondern nullt nur `paid_by`/`credit_from`/`credit_to`/`created_by` — Betrag, Beschreibung, Alkohol-/Trinkgeld-Anteil, Datum, Kategorie und Aufteilungsart bleiben als Vergleichswert für künftige Törns erhalten (`transaction_participants` und `trip_categories` s.u. unverändert: Ersteres wird weiter komplett gelöscht, Letzteres bewusst NICHT mehr, damit die Kategorie-Zuordnung nicht verwaist). Neue Audience-RLS lässt ehemalige Crewmitglieder mit Login diese anonymisierten Buchungen weiterlesen; `transactions.credit_to_all` (Migration 0046) verhindert, dass eine anonymisierte direkte Gutschrift danach fälschlich als „An Alle" angezeigt wird.
-- **Hosting-Region:** Server-Functions, Server-Actions und Cron laufen auf Vercel in der EU-Region `fra1` (Frankfurt), konfiguriert via `regions: ["fra1"]` in `vercel.json`. Ohne diese Config würde Vercel im US-Default `iad1` laufen. Supabase-DB ebenfalls in Frankfurt (Central EU). Mailserver bei whost.dev (DE).
+- **DSGVO-Datenlöschung:** ein Coolify Scheduled Task ruft täglich `/api/cron/purge` → `purge_expired_trip_data()`. Ein Trip wird nur gepurged, wenn drei Bedingungen erfüllt sind: (a) end_date + 30 Tage in der Vergangenheit, (b) Skipper hat die Abrechnung verschickt (`settlement_announced_at`), (c) alle simplified-debts sind in `settled_debts` abgehakt. Trips mit offenen Schulden bleiben für den nächsten Cron-Lauf liegen. Skipper/Admin können den Purge im Trip-Settings-Tab manuell anstoßen (`purge_trip_data(trip_id, force)`); Force-Modus überspringt Retention-Frist + Settlement-Flag, NIE aber die Schulden-Prüfung. Auf der Trip-Auswahl-Seite werden überfällige Trips (`end_date + 30 Tage < heute`, noch nicht gepurged) für Skipper/Admin rot markiert + Banner oben. Anonymisiertes Statistik-Aggregat bleibt erhalten. **Härtung 0042:** der Purge löscht jetzt auch die Anzahlungs-Tabellen (`prepayment_plan` inkl. `wero_id`, `-obligations`, `-tranches`, `cabin_types`, `-reminder_log` — Fix Q2, deren `trips`-CASCADE feuert nicht, da die Trip-Row nur anonymisiert wird), nullt `settlement_announced_by` mit und isoliert Fehler pro Törn, damit ein einzelner FK-Fehler nicht den ganzen Cron-Lauf abbricht (Q3). **Buchungs-Kerndaten bleiben erhalten (Migration 0044):** `purge_trip_data` löscht `transactions`-Zeilen nicht mehr, sondern nullt nur `paid_by`/`credit_from`/`credit_to`/`created_by` — Betrag, Beschreibung, Alkohol-/Trinkgeld-Anteil, Datum, Kategorie und Aufteilungsart bleiben als Vergleichswert für künftige Törns erhalten (`transaction_participants` und `trip_categories` s.u. unverändert: Ersteres wird weiter komplett gelöscht, Letzteres bewusst NICHT mehr, damit die Kategorie-Zuordnung nicht verwaist). Neue Audience-RLS lässt ehemalige Crewmitglieder mit Login diese anonymisierten Buchungen weiterlesen; `transactions.credit_to_all` (Migration 0046) verhindert, dass eine anonymisierte direkte Gutschrift danach fälschlich als „An Alle" angezeigt wird.
+- **Hosting-Region:** App, Datenbank und Cron laufen auf einem gemieteten Hetzner-Server in Deutschland (Coolify, siehe [`docs/self-hosting.md`](../docs/self-hosting.md)) — kein CDN, keine Drittland-Übermittlung. Mailserver bei whost.dev (DE).
 - **Security-Header:** HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, CSP — gesetzt in [`next.config.ts`](next.config.ts).
 - **Crawler-Schutz:** `robots.txt` + `<meta name="robots" content="noindex,nofollow">`.
 - **Explizite Data-API-GRANTs (Migration 0022):** Supabase deprecatet ab 30.10.2026 die automatischen GRANTs auf neue Tabellen im `public`-Schema. Migration `0022_explicit_grants.sql` setzt deshalb für alle bestehenden Tabellen/Views/`simplify_debts()` explizite `GRANT … TO authenticated` und definiert via `ALTER DEFAULT PRIVILEGES` Defaults für künftige Tabellen. Neue `CREATE TABLE`-Migrationen brauchen damit kein eigenes `GRANT` mehr — RLS-Policies aus 0004 filtern weiterhin pro Row.
@@ -48,7 +48,7 @@ Next.js 16 + Supabase Web-App-Variante der Bordkasse. Spec: [`../docs/web-app-sp
 - **Trip-Datum nachträglich ändern:** Skipper/Co-Skipper/Admin können in den Trip-Settings unter „Törndatum" Start- und End-Datum korrigieren. Refine prüft `end_date >= start_date`. Bestehende Buchungen werden nicht automatisch verschoben — der Hinweis-Text macht das klar.
 - **Public-Funktionsübersicht** `/about`: 18 Mobile-Screenshots aus echtem Betrieb mit synthetischer Crew (Anna/Ben/Clara/David/Eva), erklärt jede Hauptfunktion in 1–2 Sätzen. Verlinkt vom Welcome-Screen + Footer der Trip-Liste. Als Phasen-Explorer mit ARIA-Tab-Leiste + Rollen-Filter organisiert. Public route in `proxy.ts` (in Next 16.2 von `middleware.ts` umbenannt). Aufnahme reproduzierbar via `scripts/take-screenshots.ts` (Playwright + Mailpit-Magic-Link); komplettes Demo-Setup über [`scripts/seed-demo.sh`](scripts/seed-demo.sh). Demo enthält drei Trips (Zeiträume + Namens-Jahre dynamisch aus dem Tagesdatum berechnet, driftfrei): „Ostseetörn {laufendes Jahr}" (aktueller, laufender Törn), „Kroatien {Vorjahr}" (vergangen, abgerechnet) + „Korsika {Folgejahr}" (zukünftiger Charter, Anzahlungs-Modul mit Kojen, Vorstrecker, gemischte Tranchen-Stati).
 - **Anzahlungs-Modul** (Migrationen 0023–0028, Spec [`../docs/prepayments.md`](../docs/prepayments.md)): Mechanik für Yachtanzahlungen Monate vor dem Törn. Wizard mit vier Aufteilungs-Arten (Gleichmäßig, Zeitanteilig, Individuell, **Kojen** mit Preis pro Person), Vorstrecker-Auswahl (Default Skipper), Tranchen-Editor. Matrix unter `/trips/[id]/prepayments` mit Statussymbolen (○/◐/✓/⏰/⏳), Charter-Reminder-Banner für den Vorstrecker, Pending-Banner für Crew-Selbstmeldungen, 🔔/💬-Buttons pro Zeile. Crew-Self-View für Nicht-Skipper/Nicht-Admin/Nicht-Vorstrecker. Crew-Wechsel-Workflow (`replaceMember`) erzeugt Gegen-Gutschriften.
-- **Auto-Reminder-Cron** (`/api/cron/prepayment-reminders`, täglich 7:00 UTC in `vercel.json`): innerhalb der letzten 6 Tage vor Charterfrist Reminder an offene Crewmitglieder (= 3 Tage vor Crewfrist), innerhalb der letzten 3 Tage Charter-Übersicht an den Vorstrecker. Fenster statt exakter Tag → ein verpasster Cron-Tag verliert keinen Reminder. Pending-Awareness: Crew mit unbestätigter Selbstmeldung wird nicht erneut gemahnt. Advancer-Skip: keine Charter-Mail, wenn die Tranche bereits voll an den Vercharterer überwiesen ist. Dedup über `prepayment_reminder_log(tranche_id, person_id, reminder_type)` aus Migration 0028 — bei Reject wird der Eintrag gelöscht, damit ein korrigierter Reminder rausgehen kann.
+- **Auto-Reminder-Cron** (`/api/cron/prepayment-reminders`, täglich 7:00 als Coolify Scheduled Task): innerhalb der letzten 6 Tage vor Charterfrist Reminder an offene Crewmitglieder (= 3 Tage vor Crewfrist), innerhalb der letzten 3 Tage Charter-Übersicht an den Vorstrecker. Fenster statt exakter Tag → ein verpasster Cron-Tag verliert keinen Reminder. Pending-Awareness: Crew mit unbestätigter Selbstmeldung wird nicht erneut gemahnt. Advancer-Skip: keine Charter-Mail, wenn die Tranche bereits voll an den Vercharterer überwiesen ist. Dedup über `prepayment_reminder_log(tranche_id, person_id, reminder_type)` aus Migration 0028 — bei Reject wird der Eintrag gelöscht, damit ein korrigierter Reminder rausgehen kann.
 - **Mail-Design einheitlich:** `lib/email/mail-shell.ts` rendert Logo-PNG-Header + Card-Wrapper + Footer, Helper `renderActionButton`, `renderHintBlock`, `escapeHtml`, `fmtEuro`. Alle Templates (settlement, debt-settled, debt-observer, prepayment-reminder, charter-reminder, payment-pending, prepayment-notice) nutzen dasselbe Shell.
 - **Notice-Mails bei Admin-Aktionen:** wenn `recordPayment` / `confirmSelfPayment` / `rejectSelfPayment` von einer dritten Person ausgelöst wird, gehen Info-Mails an Crew-Person + Vorstrecker (sofern Actor ≠ Empfänger). Schulden-Häkchen analog: bei Admin-Drittaktion bekommen Skipper und Vorstrecker zusätzliche Observer-Mails.
 - **Wero-Hinweis-Text** in der Reminder-Mail dynamisch: „Bitte schicke {Vorstrecker} per Wero die fällige Anzahlung". **Keine Klick-Links** — Wero hat keine öffentliche API; die Wero-ID + Verwendungszweck stehen als Pille zum manuellen Übernehmen in der Wero-App. `prepayment_tranches.wero_request_link`-Spalte bleibt im Schema, das Feld ist aber aus dem Wizard entfernt.
@@ -75,7 +75,7 @@ cp .env.local.example .env.local
 #   NEXT_PUBLIC_SUPABASE_ANON_KEY  (aus `supabase status`)
 #   SUPABASE_SERVICE_ROLE_KEY      (aus `supabase status`)
 #   ADMIN_EMAILS = deine.email@example.com   (Komma-separiert)
-# Für Vercel-Cron-Schutz in Production zusätzlich:
+# Für den Cron-Schutz in Production zusätzlich:
 #   CRON_SECRET = <zufälliger Wert>
 
 # 4. Migrations einspielen (+ Demo-Daten via Helper)
@@ -144,7 +144,7 @@ app/                            Next.js App Router
     settings/                   Crew (Skipper-Toggle, Edit) + Kategorien (Icon-Picker) + Archiv
     prepayments/                Anzahlungs-Matrix · /setup (Wizard) · CrewSelfView
   /stats                        Cross-Trip-Statistik (aktiver Live + gepurgte aus trip_statistics)
-  /api/cron/purge               Cron-Endpoint (DSGVO-Löschung), via vercel.json täglich
+  /api/cron/purge               Cron-Endpoint (DSGVO-Löschung), Coolify Scheduled Task täglich
   /api/cron/prepayment-reminders Cron-Endpoint (Anzahlungs-Reminder 3 Tage vor Frist), täglich
 
 components/
@@ -219,9 +219,9 @@ __tests__/                      Vitest-Suiten (calc, schema, prepayments, dates,
 e2e/                            Playwright Smoke-Tests
 ```
 
-## Deploy zu Vercel + Supabase Cloud
+## Deploy (Coolify, selbst gehostet)
 
-Voraussetzungen: Vercel↔GitHub-Verknüpfung, Supabase-Account, SMTP-Provider (z. B. Resend oder eigener Mailserver).
+Produktiv laufen App **und** Supabase-Stack selbst gehostet unter Coolify auf einem Hetzner-Server — Runbook: [`docs/self-hosting.md`](../docs/self-hosting.md). Die Schritte 1–3 unten beschreiben die Datenbank-/Auth-Seite (am Beispiel Supabase Cloud, die als Rückweg noch existiert); die Schritte 4–6 die App.
 
 **1. Supabase-Projekt anlegen** (Cloud-Dashboard) und Project URL + `anon` + `service_role` Keys notieren.
 
@@ -244,10 +244,8 @@ supabase db push
 > `GOTRUE_MAILER_AUTOCONFIRM=true`), und das Template wird automatisch aus
 > `public/email/` geladen. Runbook: [`docs/self-hosting.md`](../docs/self-hosting.md).
 
-**4. Vercel-Project anlegen:**
-- **Root Directory:** `webapp`
-- **Framework:** Next.js (auto-detect)
-- **Env-Variables (alle Environments):**
+**4. App-Ressource in Coolify anlegen** (Build Pack `Dockerfile`, Base Directory `/webapp`, Dockerfile Location `/Dockerfile` — der Pfad ist relativ zum Base Directory —, Port 3000). Vollständiges Runbook inklusive Fallstricke: [`docs/self-hosting.md`](../docs/self-hosting.md), Abschnitt 9a.
+- **Env-Variables:** ⚠️ Coolify unterscheidet **Buildtime** und **Runtime**. Alle `NEXT_PUBLIC_*`-Werte müssen Buildtime sein (Next backt sie beim Build ein), alle Secrets dürfen es **nicht** sein — Coolify setzt den Buildtime-Haken aber standardmäßig bei jeder neuen Variable, also nachkontrollieren.
   - `NEXT_PUBLIC_SUPABASE_URL`
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
   - `SUPABASE_SERVICE_ROLE_KEY`
@@ -257,9 +255,9 @@ supabase db push
   - `CRON_SECRET` (für `/api/cron/*`-Schutz; zufällig generieren — schützt sowohl `purge` als auch `prepayment-reminders`)
   - SMTP: `SMTP_HOST`, `SMTP_PORT` (587 STARTTLS oder 465 SSL), `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` (z. B. `"Bordkasse <bordkasse@dieter.ms>"`)
 
-**5. Deploy.** Domain auf eigene Subdomain mappen (CNAME → `cname.vercel-dns.com.`).
+**5. Deploy.** Domain per `A`-Record auf die Server-IP zeigen lassen **und** dieselbe Domain im „Domains"-Feld der Coolify-Ressource eintragen — fehlt sie dort, kann Traefik kein Let's-Encrypt-Zertifikat ausstellen und der TLS-Handshake bricht ab, obwohl DNS korrekt zeigt.
 
-**6. Cron-Jobs aktivieren:** Vercel liest `vercel.json` automatisch und richtet zwei tägliche Cron-Jobs ein — `/api/cron/purge` (DSGVO-Löschung, 3:00 UTC) und `/api/cron/prepayment-reminders` (Anzahlungs-Reminder 3 Tage vor Frist, 7:00 UTC). Beide via `Authorization: Bearer ${CRON_SECRET}` abgesichert.
+**6. Cron-Jobs aktivieren:** zwei Coolify Scheduled Tasks auf der App-Ressource, „Container name" leer lassen — `/api/cron/purge` (DSGVO-Löschung, 3:00) und `/api/cron/prepayment-reminders` (Anzahlungs-Reminder, 7:00), beide via `Authorization: Bearer ${CRON_SECRET}` abgesichert. ⚠️ **Nicht `curl` verwenden:** das gibt es im `node:22-alpine`-Image nicht, der Task scheitert still mit Exit 127. Fertige Kommandos (`node -e "fetch(…)"`) in [`docs/self-hosting.md`](../docs/self-hosting.md), Abschnitt „Die beiden Crons".
 
 ### PWA-Updates auf installierten Geräten
 

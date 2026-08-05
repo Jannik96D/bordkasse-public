@@ -13,9 +13,10 @@ updates:
     commit-message:
       prefix: deps
     ignore:
-      # @types/node bleibt an die Node-Runtime gekoppelt (CI + Vercel = Node 22).
-      # Major-Bumps (23+) bringen Typen für APIs, die auf Node 22 zur Laufzeit
-      # nicht existieren → Typecheck grün, aber Crash auf Vercel. Deshalb wurden
+      # @types/node bleibt an die Node-Runtime gekoppelt (CI + Container-Image
+      # `node:22-alpine` = Node 22). Major-Bumps (23+) bringen Typen für APIs,
+      # die auf Node 22 zur Laufzeit nicht existieren → Typecheck grün, aber
+      # Crash im Container. Deshalb wurden
       # #172 (→25) und #201 (→26) geschlossen. Minor/Patch (22.x) bleiben erlaubt.
       - dependency-name: "@types/node"
         update-types:

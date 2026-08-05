@@ -30,6 +30,10 @@ function translateAuthError(code: string, _rawMessage: string | null): string {
       return "Zugriff verweigert. Falls dein Account neu ist, frage deinen Skipper, dich zur Crew einzuladen.";
     case "user_not_allowed":
       return "Diese E-Mail-Adresse ist nicht eingeladen. Bitte beim Skipper melden.";
+    case "untrusted_host":
+      // Der Token wurde bewusst NICHT eingelöst (siehe requestMayRedeemToken)
+      // — er gilt also noch, wenn die App über die richtige Adresse geöffnet wird.
+      return "Der Login lief über eine nicht freigegebene Adresse. Öffne bordkasse.dieter.ms direkt — dein Link gilt noch.";
     default:
       return "Bitte fordere einen neuen Magic-Link an.";
   }

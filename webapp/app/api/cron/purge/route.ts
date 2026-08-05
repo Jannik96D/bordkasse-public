@@ -5,13 +5,14 @@ import { verifyCronAuth } from "@/lib/auth/cron-auth";
 /**
  * Cron-Endpoint für die DSGVO-Datenlöschung.
  *
- * Wird täglich von Vercel Cron aufgerufen (siehe vercel.json) und ruft
+ * Wird täglich um 03:00 vom Coolify Scheduled Task `purge-node` aufgerufen
+ * (Kommando + Fallstricke: docs/self-hosting.md, „Die beiden Crons") und ruft
  * die Postgres-Function purge_expired_trip_data() — sie löscht alle
  * personenbezogenen Daten von Törns, deren Ende mehr als 30 Tage zurück
  * liegt, und schreibt vorher ein anonymisiertes Statistik-Aggregat in
  * trip_statistics.
  *
- * Sicherheit: Vercel-Cron sendet im Header
+ * Sicherheit: der Cron-Task sendet im Header
  *     Authorization: Bearer <CRON_SECRET>
  * Wir vergleichen das mit der Env-Variable CRON_SECRET. Schlägt fehl,
  * wenn das Secret nicht gesetzt ist (fail-closed).
