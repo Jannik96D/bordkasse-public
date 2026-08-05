@@ -452,6 +452,8 @@ services:
       # 2 Worker/130 MB (auto) gegen 1 Worker/81 MB (diese Zeile).
       KONG_NGINX_MAIN_WORKER_PROCESSES: 1
       KONG_PROXY_ACCESS_LOG: /dev/stdout combined
+      # Für die CORS-`origins`-Einschränkung in kong.yml (statt Wildcard `*`).
+      SITE_URL: ${SITE_URL}
       SUPABASE_ANON_KEY: ${ANON_KEY}
       SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
       # Supabases „Opaque Keys" nutzen wir nicht — aber LEER DEKLARIEREN ist
