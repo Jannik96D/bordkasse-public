@@ -63,11 +63,13 @@ describe("/auth/verify — Guard läuft vor dem Einlösen", () => {
     expect(createClient).not.toHaveBeenCalled();
     expect(verifyOtp).not.toHaveBeenCalled();
 
-    const location = response.headers.get("location") ?? "";
-    expect(location).toContain("/login");
-    expect(location).toContain("auth_error=untrusted_host");
+    const location = new URL(response.headers.get("location") ?? "");
+    expect(location.pathname).toBe("/login");
+    expect(location.searchParams.get("auth_error")).toBe("untrusted_host");
     // Redirect zeigt auf die konfigurierte Domain, nicht auf den fremden Host.
-    expect(location.startsWith(APP_ORIGIN)).toBe(true);
+    // Bewusst `origin` vergleichen statt `startsWith`: Letzteres würde auch
+    // ein `https://bordkasse.example.com.evil.com` passieren lassen.
+    expect(location.origin).toBe(APP_ORIGIN);
   });
 
   it("löst den Token bei Cross-Origin-POST NICHT ein (Login-CSRF)", async () => {
@@ -115,7 +117,9 @@ describe("/auth/callback — Guard läuft vor dem Code-Tausch", () => {
 
     expect(createClient).not.toHaveBeenCalled();
     expect(exchangeCodeForSession).not.toHaveBeenCalled();
-    expect(response.headers.get("location") ?? "").toContain("auth_error=untrusted_host");
+    const location = new URL(response.headers.get("location") ?? "");
+    expect(location.pathname).toBe("/login");
+    expect(location.searchParams.get("auth_error")).toBe("untrusted_host");
   });
 
   it("tauscht den Code beim regulären Request ein (Positiv-Kontrolle)", async () => {
