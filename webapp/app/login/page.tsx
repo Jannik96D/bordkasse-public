@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useActionState, useEffect, useState } from "react";
 import { signInWithMagicLink, type LoginState } from "./actions";
-import { AlertCircle, Mail } from "lucide-react";
+import { AlertCircle, Loader2, Mail } from "lucide-react";
 
 const initial: LoginState = { status: "idle" };
 const RESEND_DELAY_MS = 30_000;
@@ -132,8 +132,9 @@ function LoginPageInner() {
                 <button
                   type="submit"
                   disabled={pending}
-                  className="w-full rounded-md bg-primary px-4 py-3 text-sm font-medium text-paper hover:bg-navy-dark disabled:opacity-60"
+                  className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-medium text-paper hover:bg-navy-dark disabled:opacity-60"
                 >
+                  {pending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
                   {pending ? "Sende neuen Link …" : `Neuen Link an ${authErrorEmail} senden`}
                 </button>
               </form>
@@ -163,8 +164,9 @@ function LoginPageInner() {
                 <button
                   type="submit"
                   disabled={pending}
-                  className="mt-2 w-full rounded-md border border-primary px-4 py-3 text-sm font-medium text-primary hover:bg-primary hover:text-paper disabled:opacity-60"
+                  className="mt-2 flex w-full items-center justify-center gap-2 rounded-md border border-primary px-4 py-3 text-sm font-medium text-primary hover:bg-primary hover:text-paper disabled:opacity-60"
                 >
+                  {pending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
                   {pending ? "Sende erneut …" : "Mail erneut senden"}
                 </button>
               </form>
@@ -207,8 +209,9 @@ function LoginPageInner() {
             <button
               type="submit"
               disabled={pending}
-              className="w-full rounded-md bg-primary px-4 font-medium text-paper transition-colors hover:bg-navy-dark disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 font-medium text-paper transition-colors hover:bg-navy-dark disabled:opacity-60"
             >
+              {pending && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
               {pending ? "Sende Mail …" : "Magic-Link anfordern"}
             </button>
           </form>
