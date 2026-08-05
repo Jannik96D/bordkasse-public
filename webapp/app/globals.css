@@ -55,6 +55,15 @@ button, [role="button"], input:not([type="checkbox"]):not([type="radio"]), selec
   min-height: var(--spacing-touch);
 }
 
+/* Tailwind v4 setzt (anders als v3) standardmäßig KEIN cursor:pointer mehr
+   auf <button> — entspricht dem nativen Browser-Default, fühlt sich aber
+   auf klickbaren Elementen falsch an. Disabled-Buttons behalten den
+   Default-Cursor (kein "not-allowed", das würde bei den vielen inline
+   deaktivierten Icon-Buttons zu aufdringlich wirken). */
+button:not(:disabled), [role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
 /* Reduced-Motion: Nutzer mit prefers-reduced-motion bekommen
    keine Transition-Animationen mehr (Vestibular- / Migräne-
    Sensible). Animationen werden auf 0.01ms reduziert statt

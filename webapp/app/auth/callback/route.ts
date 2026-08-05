@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { safeNextPath } from "@/lib/auth/origin";
+import { resolveOrigin, safeNextPath } from "@/lib/auth/origin";
 
 export const dynamic = "force-dynamic";
 
@@ -29,26 +29,33 @@ export async function GET(request: NextRequest) {
   const code = url.searchParams.get("code");
   const next = safeNextPath(url.searchParams.get("next"));
 
+  // Bewusst NICHT `url.origin`: hinter Traefik/Coolify (Docker-Standalone-
+  // Server) liefert `new URL(request.url)` verlässlich `0.0.0.0:3000` statt
+  // der echten Domain (siehe /auth/verify). Bei einem GET-Linkklick schickt
+  // der Browser i. d. R. keinen Origin-Header — `resolveOrigin` fällt dann
+  // korrekt auf NEXT_PUBLIC_SITE_URL/APP_ORIGIN zurück.
+  const origin = resolveOrigin(request.headers.get("origin"));
+
   // Supabase-eigene Fehler werden als ?error=…&error_description=… übergeben.
   const supaError = url.searchParams.get("error");
   const supaErrorDescription = url.searchParams.get("error_description");
   if (supaError) {
-    return redirectWithError(url.origin, supaError, supaErrorDescription ?? undefined);
+    return redirectWithError(origin, supaError, supaErrorDescription ?? undefined);
   }
 
   if (!code) {
     return redirectWithError(
-      url.origin,
+      origin,
       "no_code",
       "Magic-Link enthält keinen Auth-Code. Häufigste Ursache: Link in einem anderen Browser geöffnet als angefordert (PKCE-Verifier liegt in Cookies des Original-Browsers).",
     );
   }
 
-  const response = NextResponse.redirect(new URL(next, url.origin));
+  const response = NextResponse.redirect(new URL(next, origin));
   const supabase = await createClient(response);
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
-    return redirectWithError(url.origin, error.code ?? "exchange_failed", error.message);
+    return redirectWithError(origin, error.code ?? "exchange_failed", error.message);
   }
 
   return response;

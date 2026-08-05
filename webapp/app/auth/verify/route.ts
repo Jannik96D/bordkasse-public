@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { safeNextPath } from "@/lib/auth/origin";
+import { resolveOrigin, safeNextPath } from "@/lib/auth/origin";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +25,13 @@ export async function POST(request: NextRequest) {
   const next = safeNextPath(formData.get("next")?.toString());
   const email = formData.get("email")?.toString() ?? undefined;
 
-  const origin = new URL(request.url).origin;
+  // Bewusst NICHT `new URL(request.url).origin`: hinter Traefik/Coolify
+  // (Docker-Standalone-Server) liefert das verlässlich `0.0.0.0:3000` statt
+  // der echten Domain — der Redirect zeigt dann auf eine Adresse, die kein
+  // Browser aufrufen kann (ERR_ABORTED, "Jetzt einloggen" tut scheinbar
+  // nichts). `resolveOrigin` validiert den Origin-Header gegen die
+  // Allowlist bzw. fällt auf NEXT_PUBLIC_SITE_URL/APP_ORIGIN zurück.
+  const origin = resolveOrigin(request.headers.get("origin"));
 
   if (!token_hash || !type) {
     return redirectWithError(
