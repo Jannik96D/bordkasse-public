@@ -668,9 +668,27 @@ Scheduled Tasks (Container = App-Container):
 `-f` ist wichtig: ohne das Flag liefert `curl` bei einem 401 oder 500
 Exit-Code 0, und der Task meldet grün, obwohl nichts passiert ist.
 
-### Beim Umschalten
+### Beim Umschalten (✅ durchgeführt am 2026-08-05)
 
 1. Domain `bordkasse.dieter.ms` umhängen — **macht der Server-Betreiber.**
+   DNS: alten `CNAME` auf `cname.vercel-dns.com` löschen, `A`-Record auf die
+   Server-IP anlegen (A und CNAME können für denselben Namen nicht
+   koexistieren). Zusätzlich in der Coolify-App-Ressource selbst im Feld
+   „Domains" die Custom-Domain eintragen (`https://bordkasse.dieter.ms`) und
+   redeployen — **sonst bricht der TLS-Handshake ab**, obwohl DNS längst
+   korrekt zeigt: Traefik kennt die Domain nicht und kann kein
+   Let's-Encrypt-Zertifikat dafür ausstellen (Symptom: `curl` liefert
+   `LibreSSL: error:1404B438:SSL routines:ST_CONNECT:tlsv1 alert internal
+   error`, HTTP-Status `000`). Nach dem Redeploy stellt Coolify das
+   Zertifikat automatisch aus.
+
+   Nach dem DNS-Wechsel kann es bei Endnutzern **bis zu einer Stunde**
+   (altes TTL) dauern, bis ihr lokaler Resolver den neuen Wert zieht — bei
+   öffentlichen Resolvern (Cloudflare `1.1.1.1`, Google `8.8.8.8`) und dem
+   autoritativen Nameserver selbst ist der neue Wert sofort sichtbar. Zum
+   Verifizieren unabhängig vom eigenen DNS-Cache: `curl --resolve
+   bordkasse.dieter.ms:443:<server-ip> https://bordkasse.dieter.ms/`, oder
+   testweise einen Eintrag in `/etc/hosts` setzen.
 2. `MAILER_TEMPLATE_MAGIC_LINK` im Supabase-Stack auf den internen
    Docker-Namen der App zeigen lassen
    (`http://<app-container>:3000/email/magic-link.html`). Danach eine echte

@@ -111,12 +111,13 @@ export default function DatenschutzPage() {
           <p>Folgende Dienstleister verarbeiten Daten in unserem Auftrag:</p>
           <ul className="ml-5 list-disc">
             <li>
-              <strong>Datenbank und Login</strong>: betrieben auf einem gemieteten Server
-              in Deutschland. Rechenzentrumsbetreiber ist die Hetzner Online GmbH,
+              <strong>Datenbank, Login und Anwendung</strong>: betrieben auf einem gemieteten
+              Server in Deutschland. Rechenzentrumsbetreiber ist die Hetzner Online GmbH,
               Industriestr. 25, 91710 Gunzenhausen. Administration des Servers und
               verschlüsselte Sicherungskopien übernimmt ein von uns beauftragter
-              Dienstleister in Deutschland. Für Datenbank, Login und Sicherungskopien
-              findet keine Übermittlung in Drittländer statt. Datenschutzerklärung:{" "}
+              Dienstleister in Deutschland. Für Datenbank, Login, Anwendung und
+              Sicherungskopien findet keine Übermittlung in Drittländer statt.
+              Datenschutzerklärung:{" "}
               <a
                 href="https://www.hetzner.com/de/legal/privacy-policy/"
                 target="_blank"
@@ -124,24 +125,6 @@ export default function DatenschutzPage() {
                 className="underline"
               >
                 hetzner.com/de/legal/privacy-policy
-              </a>
-            </li>
-            <li>
-              <strong>Vercel</strong> (Hosting): Vercel Inc., 340 S Lemon Ave #4133, Walnut, CA
-              91789, USA. Serverfunktionen und Cron-Jobs laufen in der EU-Region{" "}
-              <code>fra1</code> (Frankfurt), konfiguriert in <code>vercel.json</code>. Statische
-              Assets (HTML/CSS/JS) liefert das globale Vercel-CDN aus. Diese enthalten keine
-              personenbezogenen Daten. Soweit dabei eine Übermittlung in die USA stattfindet,
-              erfolgt sie auf Grundlage der EU-Standardvertragsklauseln (Art. 46 DSGVO);
-              Vercel ist zudem unter dem EU-US Data Privacy Framework zertifiziert.
-              Datenschutzerklärung:{" "}
-              <a
-                href="https://vercel.com/legal/privacy-policy"
-                target="_blank"
-                rel="noreferrer"
-                className="underline"
-              >
-                vercel.com/legal/privacy-policy
               </a>
             </li>
             <li>
