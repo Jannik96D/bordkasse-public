@@ -527,8 +527,37 @@ docker exec bordkasse-auth wget -qO- "$MAILER_TEMPLATE_MAGIC_LINK" | head -5
 Häufigste Ursache: die Ausnahme für `email/` im `config.matcher` von
 `proxy.ts` fehlt, dann antwortet die App mit `307` auf `/login`.
 
+**`realtime`, `rest` und `auth` in einer Neustart-Schleife, `db` meldet aber
+„healthy".** Im `db`-Log steht dann:
+
+```
+role "supabase_admin" does not exist
+```
+
+Ursache: `POSTGRES_USER` wurde im `db`-Service gesetzt. Das Image bringt
+`POSTGRES_USER=supabase_admin` mit; `initdb` erzeugt daraus den Superuser,
+und genau als diese Rolle verbindet sich anschließend das Init-Skript des
+Images (`/docker-entrypoint-initdb.d/migrate.sh`), das **alle** Supabase-
+Rollen und Schemata anlegt. Ein Override bricht das beim ersten Befehl ab.
+
+Tückisch daran: das passiert **nur beim allerersten Start**. Die Variable
+danach zu entfernen genügt nicht — das Datenverzeichnis bleibt für immer
+ohne Rollen. Deshalb: Variable entfernen, Stack stoppen, `db-data` **und**
+`db-config` löschen, neu deployen.
+
+```bash
+docker volume rm <projekt>_db-data <projekt>_db-config
+```
+
+Bei Coolify ist `<projekt>` die Anwendungs-UUID. Kein `docker volume prune`
+auf geteilten Servern — das trifft auch fremde Dienste.
+
 **Alles antwortet mit 401.** `ANON_KEY`/`SERVICE_ROLE_KEY` passen nicht zu
 `JWT_SECRET`. Beide müssen aus demselben Lauf von `gen-keys.mjs` stammen.
+
+**`/rest/v1/` antwortet mit 403, obwohl der anon-Key stimmt.** Kein Fehler:
+Upstream beschränkt die OpenAPI-Wurzel auf `service_role`. Eine echte
+Tabellen-Abfrage (`/rest/v1/<tabelle>`) funktioniert mit dem anon-Key.
 
 **PostgREST antwortet mit 404 auf existierende Tabellen.**
 `PGRST_DB_SCHEMAS` weicht von `supabase/config.toml` (`[api] schemas`) ab.
