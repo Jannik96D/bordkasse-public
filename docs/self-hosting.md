@@ -577,8 +577,25 @@ bereitliegen, bevor umgeschaltet wird.
 |---|---|
 | Build Pack | `Dockerfile` |
 | Base Directory | `/webapp` |
-| Dockerfile Location | `/webapp/Dockerfile` |
+| Dockerfile Location | `/Dockerfile` |
 | Port | `3000` |
+
+⚠️ **Falle „Dockerfile Location" (echter Fund beim ersten Deploy):** Coolify
+hängt den Wert von „Dockerfile Location" an „Base Directory" — der Pfad ist
+relativ zum Base Directory, NICHT zum Repo-Root. `/webapp/Dockerfile` (Repo-
+Root-relativ, naheliegend) ergibt zusammen mit `Base Directory=/webapp` den
+Pfad `webapp/webapp/Dockerfile` und der Build bricht sofort mit `lstat
+/artifacts/.../webapp/webapp: no such file or directory` ab, noch bevor
+irgendein Build-Log erscheint. Richtig ist `/Dockerfile`.
+
+**„Consistent Container Names" / „Custom Container Name" (Advanced-Tab):**
+für einen stabilen, redeploy-festen Namen (z. B. damit ein anderer Coolify-
+Service die App über den Docker-Namen ansprechen kann) im Advanced-Tab
+„Custom Container Name" setzen (hier: `bordkasse-app`). Ohne das vergibt
+Coolify bei jedem Deploy einen neuen Namen mit Zeitstempel-Suffix. Nebeneffekt:
+„Custom internal name is set, rolling update is not supported" — Redeploys
+stoppen den alten Container erst, bevor der neue startet (kurze Downtime
+statt nahtlosem Wechsel; für eine Crew-App ohne Dauerlast unkritisch).
 
 ### Env-Vars
 
@@ -618,6 +635,23 @@ Alles Übrige sind reine Laufzeit-Werte und gehören **nicht** in Build-Args
 `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`. Vollständige Liste in CLAUDE.md,
 Abschnitt „Deploy".
 
+⚠️ **Coolify setzt „Available at Buildtime" standardmäßig für JEDE neu
+angelegte Variable** — beim ersten echten Setup stand der Haken bei
+ausnahmslos allen Variablen, inklusive `SUPABASE_SERVICE_ROLE_KEY` und
+`SMTP_PASS`. Nach dem Anlegen jeder Nicht-`NEXT_PUBLIC_*`-Variable **aktiv
+kontrollieren und den Buildtime-Haken entfernen** (Runtime bleibt an) — sowohl
+im „Production"- als auch im „Preview Deployments"-Abschnitt, beide werden
+unabhängig verwaltet.
+
+⚠️ **`??` vs. leerer String:** in Vercel ist eine nicht gesetzte Env-Var
+`undefined`; im Docker-Build wird ein nicht übergebener `ARG` beim `ENV`-
+Befehl im Dockerfile zu einem **leeren String** `""`. Code-Stellen, die
+`process.env.A ?? process.env.B` fallback-verketten (`??` reagiert nur auf
+`null`/`undefined`, nicht auf `""`), brechen deshalb im Docker-Deploy auf eine
+Art, die auf Vercel nie auftritt — siehe `lib/auth/origin.ts` (gefixt, PR
+#239). Bei künftigen Env-Fallback-Ketten `||` statt `??` verwenden, wenn eine
+der Variablen aus einem Docker-`ARG` ohne Default stammen könnte.
+
 ### Die beiden Crons
 
 `vercel.json` fällt weg — **aber erst beim Umschalten, nicht vorher**. Es
@@ -642,6 +676,23 @@ Exit-Code 0, und der Task meldet grün, obwohl nichts passiert ist.
    (`http://<app-container>:3000/email/magic-link.html`). Danach eine echte
    Testmail ansehen: GoTrue fällt bei nicht erreichbarer URL **still** auf
    sein unbrandetes Default zurück.
+
+   ⚠️ **Getestet, funktioniert (noch) nicht:** im ersten echten Setup (App +
+   Supabase-Stack als zwei getrennte Coolify-Ressourcen im selben Projekt)
+   war der interne Name trotz „Custom Container Name" für GoTrue NICHT
+   erreichbar — die Mail kam mit GoTrues eingebautem Default-Template an
+   (Symptom: Link zeigt auf `<API_EXTERNAL_URL>/auth/confirm?token=pkce_…`
+   statt auf die App-Domain, landet im Kong-Catch-all/Studio-Basic-Auth statt
+   in der App). Vermutlich liegen Dockerfile-Apps und Docker-Compose-Stacks
+   in Coolify nicht automatisch im selben Docker-Netzwerk — noch nicht
+   abschließend untersucht (kein Terminal-/Exec-Zugriff in dieser Session).
+   **Workaround, der nachweislich funktioniert:** `MAILER_TEMPLATE_MAGIC_LINK`
+   auf der öffentlichen URL belassen (`https://bordkasse.dieter.ms/email/
+   magic-link.html`) — die zeigt nach Schritt 1 ja bereits auf den neuen
+   App-Container. Die interne-Docker-Name-Optimierung ist ohnehin nur
+   „optional" (unabhängig von DNS/TLS) und kann bei Gelegenheit separat
+   untersucht werden (z. B. beide Ressourcen explizit auf ein gemeinsames
+   Coolify-Netzwerk legen).
 3. `webapp/vercel.json` entfernen und das Vercel-Projekt abschalten.
 4. **Datenschutzerklärung** (`app/datenschutz/page.tsx`): Vercel Inc. und
    Supabase Inc. fallen als Auftragsverarbeiter weg, der Betreiber des
