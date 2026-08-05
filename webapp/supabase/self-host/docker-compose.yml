@@ -233,16 +233,29 @@ services:
   # ── Realtime (components/realtime-trip.tsx) ───────────────────────────
   realtime:
     # Der Container-Name sieht falsch aus, ist aber korrekt: Realtime leitet
-    # seine Tenant-ID aus dem Namen ab (Upstream-Kommentar).
-    #
-    # NICHT auf `bordkasse-…` umbenennen, obwohl es zu den anderen Containern
-    # passen würde: kong.yml referenziert diesen Namen als Upstream-Host an
-    # vier Stellen. Eine Umbenennung nur hier lässt jede Realtime-Anfrage in
-    # einem 502 enden — die App rendert normal weiter, nur Live-Updates
-    # bleiben still aus. Deshalb bewusst identisch zu Upstream.
+    # seine Tenant-ID aus dem Hostnamen ab, unter dem es angesprochen wird.
+    # Kong setzt den Host-Header auf den Upstream-Namen (kein preserve_host),
+    # also muss dieser `realtime-dev.…` lauten — sonst sucht Realtime den
+    # Tenant `realtime` statt `realtime-dev`.
     container_name: realtime-dev.supabase-realtime
     image: supabase/realtime:v2.102.3
     restart: unless-stopped
+    # ⚠️ Dieser Alias ist unter Coolify PFLICHT, nicht Kosmetik.
+    #
+    # Coolify ignoriert `container_name` und vergibt eigene Namen
+    # (`realtime-<uuid>-<zeitstempel>`). Der Name oben löst dann im
+    # Docker-Netz NICHT auf, während kong.yml ihn an vier Stellen als
+    # Upstream-Host referenziert → jede Realtime-Anfrage endet in einem 502.
+    # Sichtbare Folge: die App läuft vollständig, nur Live-Updates bleiben
+    # still aus (components/realtime-trip.tsx) — ein Fehler, den man leicht
+    # monatelang übersieht.
+    #
+    # Der Alias erzeugt den Namen unabhängig vom Container-Namen und wirkt
+    # sowohl unter Coolify als auch bei reinem `docker compose`.
+    networks:
+      default:
+        aliases:
+          - realtime-dev.supabase-realtime
     depends_on:
       db:
         condition: service_healthy
