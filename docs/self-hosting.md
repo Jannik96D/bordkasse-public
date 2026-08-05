@@ -487,41 +487,32 @@ fehlgeschlagener Lauf löscht nie die letzten guten Backups).
 
 **Zwei Dinge musst du selbst ergänzen:**
 
-1. **Auslagern** — [`pull-backup.sh`](../webapp/supabase/self-host/pull-backup.sh),
-   läuft auf **deinem Rechner**, nicht auf dem Server:
+1. **Auslagern** — ⚠️ **noch nicht eingerichtet.** Die Dumps liegen im
+   Named Volume `db-backups` auf **derselben Maschine** wie die Datenbank;
+   Platten- oder Serververlust nimmt beides mit.
 
-   ```bash
-   ./pull-backup.sh
-   ```
+   Übernimmt der Server-Betreiber mit seinem eigenen Backup-Werkzeug
+   (Stand 2026-08-05: angefragt). Anforderungen an die Lösung, egal
+   welche es wird:
 
-   Es holt den jüngsten Dump per `ssh` + `docker exec cat`, verschlüsselt
-   ihn im Flug mit `age` (der Klartext berührt die lokale Platte nie),
-   prüft anschließend Entschlüsselung **und** gzip-Integrität und legt die
-   Datei erst danach an ihren endgültigen Platz. Standardziel
-   `~/Documents/bordkasse-backups`, überschreibbar per Argument;
-   `BORDKASSE_SSH_HOST`, `BORDKASSE_APP_UUID`, `BORDKASSE_AGE_KEY` und
-   `KEEP_DAYS` sind Umgebungsvariablen.
+   - **Das Volume `db-backups` mitnehmen**, nicht `PGDATA` (`db-data`) im
+     laufenden Betrieb kopieren — ein Dateisystem-Backup einer laufenden
+     Postgres-Instanz ist nicht konsistent. In `db-backups` liegen fertige,
+     bereits geprüfte Dumps.
+   - **Verschlüsselt ablegen.** Der Inhalt sind Klarnamen und
+     E-Mail-Adressen der Crew.
+   - Wer die Kopien speichert, **verarbeitet personenbezogene Daten** —
+     das gehört in die Datenschutzerklärung, siehe Schritt 9a.
 
-   Einmalige Vorbereitung:
+   Sobald es steht, hier festhalten: **wohin**, **wie oft** und **wie ein
+   Restore aussieht**. Solange dieser Absatz ein „noch nicht eingerichtet"
+   trägt, existiert keine externe Kopie.
 
-   ```bash
-   brew install age && age-keygen -o ~/.config/bordkasse-backup.key
-   ```
-
-   `BORDKASSE_APP_UUID` ist **Pflicht** (UUID der Coolify-Anwendung) — sie
-   hat bewusst keinen Default im Skript, weil dieses Repo öffentlich ist.
-   In `~/.zshrc` setzen. Meldet das Skript hinterher eine **Warnung**, der
-   Dump auf dem Server sei nicht von heute, ist der nächtliche Task
-   ausgefallen — dann dort nachsehen, statt sich auf das „OK" zu verlassen.
-
-   ⚠️ **Den Schlüssel getrennt von den Backups sichern** (Passwortmanager,
-   Ausdruck). Ohne ihn sind alle ausgelagerten Kopien unlesbar — das
-   Backup-Problem wäre dann nur verschoben.
-
-   Gezogen statt geschoben, damit keine Zugangsdaten zu deinem Speicher auf
-   dem Server liegen und ein kompromittierter Server die ausgelagerten
-   Kopien nicht mitnehmen kann. Wöchentlich per `launchd`/`cron`
-   einrichten oder von Hand laufen lassen — Hauptsache regelmäßig.
+   (Es gab hier zeitweise ein Skript `pull-backup.sh`, das die Dumps per
+   `ssh` auf den Rechner des Skippers zog. Entfernt, weil der SSH-Zugang
+   dafür nicht existiert — Port 22 des Servers ist von außen nicht
+   erreichbar. Ein Skript, das wie eine funktionierende Absicherung
+   aussieht, aber nie läuft, ist schlimmer als keins.)
 2. **Restore testen.** Am besten quartalsweise: Dump zurückspielen und die
    Bilanz-Summenprobe aus Schritt 4c fahren. Ein nie getesteter Restore ist
    kein Restore.
