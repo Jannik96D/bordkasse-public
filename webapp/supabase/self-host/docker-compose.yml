@@ -333,8 +333,9 @@ services:
   #
   #   docker compose stop studio meta
   #
-  # Solange Studio nicht läuft, antwortet Kong auf `/` mit 502 — das ist
-  # nur das Dashboard, REST, Auth und Realtime sind davon unberührt.
+  # Solange Studio nicht läuft, fragt Kong auf `/` weiter das Basic-Auth ab
+  # (401) und liefert erst NACH dem Login einen 502 — das ist nur das
+  # Dashboard, REST, Auth und Realtime sind davon unberührt.
   # Wer keine GUI braucht, kommt auch so an die Daten:
   #   docker exec -it <db-container> psql -U supabase_admin -d postgres
   studio:

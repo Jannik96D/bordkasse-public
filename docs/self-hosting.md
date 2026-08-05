@@ -34,10 +34,32 @@ Alle Dateien liegen in [`webapp/supabase/self-host/`](../webapp/supabase/self-ho
 
 ### Speicherbedarf
 
-Grobe Richtwerte: Postgres ~512 MB, Realtime ~300 MB, Kong ~150 MB,
-Studio + Meta ~250 MB, PostgREST + GoTrue ~100 MB, App ~400 MB. Dazu
-Coolify selbst (~1–1,5 GB inkl. eigener Postgres/Redis) und das
-Betriebssystem. **Rechne mit ~3 GB**, 4 GB RAM reichen, 8 GB sind bequem.
+**Gemessen** auf dem laufenden Stack (`docker stats --no-stream`), nach der
+RAM-Optimierung vom 05.08.2026:
+
+| Container | RAM | vorher |
+|---|---|---|
+| realtime | 201 MB | 202 MB |
+| kong | 81 MB | **614 MB** |
+| db | 74 MB | 78 MB |
+| auth | 10 MB | 9 MB |
+| rest | 9 MB | 22 MB |
+| studio | — (Profil) | 197 MB |
+| meta | — (Profil) | 85 MB |
+| **Summe** | **375 MB** | **1.207 MB** |
+
+Zwei Eingriffe, beide ohne Funktionsverlust für die Crew: Kong startete
+einen nginx-Worker **pro CPU-Kern** (acht auf dieser Maschine), jetzt einen
+— das allein waren 533 MB. Und Studio + Meta liegen im Compose-Profil
+`studio` und starten nur auf Abruf.
+
+Dazu kommen Coolify selbst (~450 MB inkl. eigener Postgres/Redis) und das
+Betriebssystem. **Für den Stack allein reichen 1 GB bequem**, mit Coolify
+und Reserve sind 2 GB angenehm. Kommt die App als Container hinzu, plane
+~400 MB extra.
+
+Postgres braucht hier bewusst kein Tuning: 74 MB bei einer Datenbank, deren
+Dump 78 KB groß ist. Wer an `shared_buffers` dreht, gewinnt nichts.
 
 ### Erreichbarkeit von außen
 
