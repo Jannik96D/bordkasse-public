@@ -69,4 +69,16 @@ describe("resolveOrigin — Env-Fallback (SITE_URL ?? APP_ORIGIN)", () => {
       },
     );
   });
+
+  it("nutzt APP_ORIGIN, wenn SITE_URL ein LEERER STRING ist (Docker-ARG-Fall)", () => {
+    // In Docker-Builds (Coolify) wird ein nicht gesetzter ARG beim ENV-Befehl
+    // zu "" statt undefined — anders als auf Vercel. `??` würde hier fälschlich
+    // den leeren String gewinnen lassen (Fund beim Coolify-Cutover).
+    withEnv(
+      { NEXT_PUBLIC_SITE_URL: "", NEXT_PUBLIC_APP_ORIGIN: "https://bordkasse.example.com" },
+      () => {
+        expect(resolveOrigin(null)).toBe("https://bordkasse.example.com");
+      },
+    );
+  });
 });
