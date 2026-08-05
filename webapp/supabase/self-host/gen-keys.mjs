@@ -42,10 +42,22 @@ function signJwt(payload, secret) {
 // Zeichensatz bewusst alphanumerisch: diese Werte landen teils in
 // Postgres-Verbindungs-URLs (postgres://user:pass@host/db), wo +, / oder @
 // URL-kodiert werden müssten — eine klassische Fehlerquelle beim Aufsetzen.
-function alnum(bytes) {
+//
+// Rejection-Sampling statt `b % chars.length`: 256 ist nicht durch 62
+// teilbar, ein einfaches Modulo würde die ersten Zeichen des Alphabets
+// leicht überrepräsentieren (bei der hier verwendeten Länge praktisch
+// irrelevant, aber sauberes Sampling ist genauso billig).
+function alnum(count) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  const buf = randomBytes(bytes);
-  return Array.from(buf, (b) => chars[b % chars.length]).join("");
+  const limit = chars.length * Math.floor(256 / chars.length); // 248
+  let out = "";
+  while (out.length < count) {
+    const buf = randomBytes(count - out.length);
+    for (const b of buf) {
+      if (b < limit) out += chars[b % chars.length];
+    }
+  }
+  return out;
 }
 
 const jwtSecret = alnum(48);

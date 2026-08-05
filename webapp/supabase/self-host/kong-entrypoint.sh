@@ -2,6 +2,16 @@
 # Custom entrypoint for Kong that builds Lua expressions for request-transformer
 # and performs environment variable substitution in the declarative config.
 
+# ⚠️ Fail-loud statt eines Basic-Auth-Logins mit Leer-Passwort: die
+# Dashboard-Route (kong.yml, Consumer DASHBOARD) ist der einzige Schutz vor
+# vollem, RLS-losem DB-Zugriff über Studio, sobald das `studio`-Profil läuft.
+# Fehlt DASHBOARD_PASSWORD in der Coolify-Env, würde Kong sonst klaglos mit
+# einem gültigen Basic-Auth-Credential ohne Passwort starten.
+if [ -z "$DASHBOARD_USERNAME" ] || [ -z "$DASHBOARD_PASSWORD" ]; then
+    echo "FEHLER: DASHBOARD_USERNAME/DASHBOARD_PASSWORD ist leer — Kong startet nicht." >&2
+    exit 1
+fi
+
 # Build Lua expressions for translating opaque API keys to asymmetric JWTs.
 # When opaque keys are not configured (empty env vars), expressions fall through
 # to legacy-only behavior - just passing apikey as-is.
