@@ -26,6 +26,22 @@
 #
 # Versionen sind bewusst gepinnt. Updates laufen über diese Datei im Repo,
 # nicht über ein Template, das sich unter uns ändert.
+#
+# ⚠️ COOLIFY: „Preserve Repository During Deployment" MUSS aktiv sein.
+#
+# Diese Datei bindet Nachbardateien per relativem Bind-Mount ein (kong.yml,
+# kong-entrypoint.sh, volumes/db/*.sql). Ohne die Option führt Coolify
+# `docker compose up` in einem WEGWERF-Build-Container aus; das Repo liegt
+# dann nicht auf dem Host, wo der Docker-Daemon die Bind-Mounts auflöst.
+# Docker legt daraufhin leere VERZEICHNISSE an den Quellpfaden an, und ein
+# Verzeichnis auf einen Datei-Pfad zu mounten scheitert → der Deploy bricht
+# nach ~1 Minute ab (kein Healthcheck-Timeout, sondern sofort).
+#
+# Setzen (die Coolify-UI kann es auch, das General-Formular hat aber in
+# v4.2.0 einen Speicher-Bug — siehe docs/self-hosting.md):
+#   curl -X PATCH "$COOLIFY/api/v1/applications/$APP_UUID" \
+#     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+#     -d '{"is_preserve_repository_enabled":true}'
 
 name: bordkasse-supabase
 

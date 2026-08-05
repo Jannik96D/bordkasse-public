@@ -129,6 +129,71 @@ Mailserver, den die App-Mails schon nutzen.
 
 ---
 
+## 3a. Coolify-Besonderheiten (aus dem echten Aufsetzen gelernt)
+
+Drei Dinge, die beim ersten Durchlauf Zeit gekostet haben. Sie gelten für
+Coolify **v4.2.0**; in neueren Versionen kann sich das ändern.
+
+### „Preserve Repository During Deployment" ist Pflicht
+
+Ohne diese Einstellung führt Coolify `docker compose up` in einem
+**Wegwerf-Build-Container** aus (`executeInDocker(...)` im
+`ApplicationDeploymentJob`). Das geklonte Repo liegt dann nicht auf dem
+Host — der Docker-Daemon löst die relativen Bind-Mounts dieser
+compose-Datei (`kong.yml`, `volumes/db/*.sql`) aber **auf dem Host** auf.
+Docker legt an den fehlenden Quellpfaden leere **Verzeichnisse** an, und ein
+Verzeichnis auf einen Datei-Pfad zu mounten schlägt fehl. Der Deploy bricht
+dann nach etwa einer Minute ab.
+
+Mit aktivierter Option kopiert Coolify das Repo auf den Server und startet
+dort direkt mit `--project-directory`, womit die Pfade stimmen.
+
+```bash
+curl -X PATCH "https://<coolify>/api/v1/applications/<APP_UUID>" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"is_preserve_repository_enabled":true}'
+```
+
+### Das General-Formular kann in v4.2.0 nicht gespeichert werden
+
+Jeder Speicherversuch im Tab *Configuration → General* einer
+Docker-Compose-Anwendung endet mit:
+
+```
+sslipDomainWarning(): Argument #1 ($domains) must be of type string, null given
+```
+
+Ursache: `General.php` ruft `sslipDomainWarning($this->fqdn)` auf; bei
+Compose-Anwendungen gibt es kein anwendungsweites `fqdn`, der Wert ist
+`null`, und die Funktion war in v4.2.0 nicht nullable. Im `main`-Branch ist
+das behoben (`?string`), in v4.2.0 noch nicht.
+
+Domains deshalb über die API setzen — für Compose-Apps ausdrücklich über
+`docker_compose_domains`, nicht über `domains`:
+
+```bash
+curl -X PATCH "https://<coolify>/api/v1/applications/<APP_UUID>" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"docker_compose_domains":[{"name":"kong","domain":"https://sb.bordkasse.dieter.ms"}]}'
+```
+
+Vorteil gegenüber der UI: die API validiert den Wert, ein versehentliches
+führendes Leerzeichen fliegt sofort auf statt still eine kaputte
+Traefik-Regel zu erzeugen.
+
+### API-Token: Berechtigungen bewusst wählen
+
+`read` + `write` genügen für Konfiguration. Bewusst **nicht** vergeben:
+
+- `root` — Vollzugriff auf die ganze Instanz (bei geteilten Servern tabu)
+- `read:sensitive` — nötig, um Env-**Werte** über die API zu lesen; ohne das
+  liefert die API die Schlüssel ohne Werte, was für Konfigurationsarbeit
+  reicht und Secrets nicht unnötig herumträgt
+- `deploy` — nur, wenn Deployments per API ausgelöst werden sollen; sonst
+  bleibt der Deploy-Knopf in der UI
+
+Setup-Token kurz befristen (7 Tage) und danach widerrufen.
+
 ## 4. Schritt 2 — Stack starten
 
 ```bash
