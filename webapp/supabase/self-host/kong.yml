@@ -1,0 +1,443 @@
+# ── Kong-Routen für den Bordkasse-Slim-Stack ─────────────────────────────
+#
+# Abgeleitet vom offiziellen supabase/docker/volumes/api/kong.yml.
+# Bewusst ENTFERNT gegenüber Upstream (die Container laufen bei uns nicht):
+#   - storage-v1   → Supabase Storage nutzt die App nachweislich nirgends
+#   - functions-v1 → keine Edge Functions im Projekt
+# Eine Route auf einen fehlenden Upstream würde nur in 502ern enden.
+#
+# Studio wird von der Catch-all-Route `dashboard` (unten) hinter Basic-Auth
+# ausgeliefert — deshalb braucht Studio KEINE eigene Domain.
+_format_version: '2.1'
+_transform: true
+
+###
+### Consumers / Users
+###
+# ⚠️ SICHERHEIT — hier standen zusätzlich die Upstream-Zeilen
+#     - key: $SUPABASE_PUBLISHABLE_KEY   (bei anon)
+#     - key: $SUPABASE_SECRET_KEY        (bei service_role)
+# für Supabases neue „Opaque Keys". Die nutzen wir nicht.
+#
+# Sie MUSSTEN raus, nicht bloß leer bleiben: kong-entrypoint.sh substituiert
+# per awk nur Variablen, die in ENVIRON stehen — undefinierte bleiben
+# WÖRTLICH stehen, und das nachgeschaltete sed löscht nur Zeilen mit leerem
+# Wert. Der literale String `$SUPABASE_SECRET_KEY` wäre damit ein gültiger
+# API-Key für den Consumer `service_role` (ACL-Gruppe `admin`) gewesen —
+# öffentlich im Repo nachlesbar. Über die `/pg/`-Route (pg-meta redet als
+# `postgres` und prüft selbst keine Auth) hätte das beliebiges SQL an RLS
+# vorbei erlaubt: Klarnamen und E-Mail-Adressen der Crew lesen und ändern.
+#
+# Zusätzlich sind beide Variablen in docker-compose.yml leer deklariert
+# (Gürtel und Hosenträger), damit ein künftiges Wieder-Einfügen aus Upstream
+# nicht erneut zu einem gültigen Key wird.
+consumers:
+  - username: DASHBOARD
+  - username: anon
+    keyauth_credentials:
+      - key: $SUPABASE_ANON_KEY
+  - username: service_role
+    keyauth_credentials:
+      - key: $SUPABASE_SERVICE_KEY
+
+###
+### Access Control List
+###
+acls:
+  - consumer: anon
+    group: anon
+  - consumer: service_role
+    group: admin
+
+###
+### Dashboard credentials
+###
+basicauth_credentials:
+  - consumer: DASHBOARD
+    username: '$DASHBOARD_USERNAME'
+    password: '$DASHBOARD_PASSWORD'
+
+###
+### API Routes
+###
+services:
+  ## Open Auth routes
+  - name: auth-v1-open
+    _comment: 'Auth: /auth/v1/verify* -> http://auth:9999/verify*'
+    url: http://auth:9999/verify
+    routes:
+      - name: auth-v1-open
+        strip_path: true
+        paths:
+          - /auth/v1/verify
+    plugins:
+      - name: cors
+  - name: auth-v1-open-callback
+    _comment: 'Auth: /auth/v1/callback* -> http://auth:9999/callback*'
+    url: http://auth:9999/callback
+    routes:
+      - name: auth-v1-open-callback
+        strip_path: true
+        paths:
+          - /auth/v1/callback
+    plugins:
+      - name: cors
+  - name: auth-v1-open-authorize
+    _comment: 'Auth: /auth/v1/authorize* -> http://auth:9999/authorize*'
+    url: http://auth:9999/authorize
+    routes:
+      - name: auth-v1-open-authorize
+        strip_path: true
+        paths:
+          - /auth/v1/authorize
+    plugins:
+      - name: cors
+  - name: auth-v1-open-jwks
+    _comment: 'Auth: /auth/v1/.well-known/jwks.json -> http://auth:9999/.well-known/jwks.json'
+    url: http://auth:9999/.well-known/jwks.json
+    routes:
+      - name: auth-v1-open-jwks
+        strip_path: true
+        paths:
+          - /auth/v1/.well-known/jwks.json
+    plugins:
+      - name: cors
+
+  - name: auth-v1-open-sso-acs
+    url: "http://auth:9999/sso/saml/acs"
+    routes:
+      - name: auth-v1-open-sso-acs
+        strip_path: true
+        paths:
+        - /auth/v1/sso/saml/acs
+    plugins:
+      - name: cors
+
+  - name: auth-v1-open-sso-metadata
+    url: "http://auth:9999/sso/saml/metadata"
+    routes:
+      - name: auth-v1-open-sso-metadata
+        strip_path: true
+        paths:
+        - /auth/v1/sso/saml/metadata
+    plugins:
+      - name: cors
+
+  ## Secure Auth routes
+  - name: auth-v1
+    _comment: 'Auth: /auth/v1/* -> http://auth:9999/*'
+    url: http://auth:9999/
+    routes:
+      - name: auth-v1-all
+        strip_path: true
+        paths:
+          - /auth/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: request-transformer
+        config:
+          add:
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+          replace:
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+
+  ## OpenAPI root - admin only
+  - name: rest-v1-openapi
+    _comment: 'PostgREST OpenAPI root: /rest/v1/ -> <http://rest:3000/> (admin only). See <https://github.com/orgs/supabase/discussions/42949>'
+    url: http://rest:3000/
+    routes:
+      - name: rest-v1-openapi-root
+        strip_path: true
+        expression: 'http.path == "/rest/v1/"'
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: request-transformer
+        config:
+          add:
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+          replace:
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+
+  ## Secure PostgREST routes
+  - name: rest-v1
+    _comment: 'PostgREST: /rest/v1/* -> http://rest:3000/*'
+    url: http://rest:3000/
+    routes:
+      - name: rest-v1-all
+        strip_path: true
+        paths:
+          - /rest/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: request-transformer
+        config:
+          add:
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+          replace:
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+
+  ## Secure GraphQL routes
+  - name: graphql-v1
+    _comment: 'PostgREST: /graphql/v1/* -> http://rest:3000/rpc/graphql'
+    url: http://rest:3000/rpc/graphql
+    routes:
+      - name: graphql-v1-all
+        strip_path: true
+        paths:
+          - /graphql/v1
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: request-transformer
+        config:
+          add:
+            headers:
+              - "Content-Profile: graphql_public"
+              - "Authorization: $LUA_AUTH_EXPR"
+          replace:
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+
+  ## Secure Realtime routes
+  - name: realtime-v1-ws
+    _comment: 'Realtime: /realtime/v1/* -> ws://realtime:4000/socket/*'
+    url: http://realtime-dev.supabase-realtime:4000/socket
+    protocol: ws
+    routes:
+      - name: realtime-v1-ws
+        strip_path: true
+        paths:
+          - /realtime/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: request-transformer
+        config:
+          add:
+            headers:
+              - "x-api-key:$LUA_RT_WS_EXPR"
+          replace:
+            querystring:
+              - "apikey:$LUA_RT_WS_EXPR"
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+
+  # Block access to /realtime/v1/api/openapi
+  - name: realtime-v1-rest-openapi
+    _comment: 'Realtime: /realtime/v1/api/openapi/* -> http://realtime:4000/api/openapi/* (blocked)'
+    url: http://realtime-dev.supabase-realtime:4000/api/openapi
+    protocol: http
+    routes:
+      - name: realtime-v1-rest-openapi
+        strip_path: true
+        paths:
+          - /realtime/v1/api/openapi
+    plugins:
+      - name: request-termination
+        config:
+          status_code: 403
+          message: "Access is forbidden."
+
+  # Block access to /realtime/v1/api/tenants
+  - name: realtime-v1-rest-tenants
+    _comment: 'Realtime: /realtime/v1/api/tenants/* -> http://realtime:4000/api/tenants/* (blocked)'
+    url: http://realtime-dev.supabase-realtime:4000/api/tenants
+    protocol: http
+    routes:
+      - name: realtime-v1-rest-tenants
+        strip_path: true
+        paths:
+          - /realtime/v1/api/tenants
+    plugins:
+      - name: request-termination
+        config:
+          status_code: 403
+          message: "Access is forbidden."
+
+  - name: realtime-v1-rest
+    _comment: 'Realtime: /realtime/v1/api/* -> http://realtime:4000/api/*'
+    url: http://realtime-dev.supabase-realtime:4000/api
+    protocol: http
+    routes:
+      - name: realtime-v1-rest
+        strip_path: true
+        paths:
+          - /realtime/v1/api
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: request-transformer
+        config:
+          add:
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+          replace:
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+
+  ## OAuth 2.0 Authorization Server Metadata (RFC 8414)
+  - name: well-known-oauth
+    _comment: 'Auth: /.well-known/oauth-authorization-server -> http://auth:9999/.well-known/oauth-authorization-server'
+    url: http://auth:9999/.well-known/oauth-authorization-server
+    routes:
+      - name: well-known-oauth
+        strip_path: true
+        paths:
+          - /.well-known/oauth-authorization-server
+    plugins:
+      - name: cors
+
+  ## Analytics routes
+  ## Not used - Studio and Vector talk directly to analytics via Docker networking.
+  ## If external access is needed, add routes with key-auth matching Logflare's x-api-key auth.
+  # - name: analytics-v1-api
+  #   _comment: 'Analytics: /analytics/v1/api/endpoints/* -> http://logflare:4000/api/endpoints/*'
+  #   url: http://analytics:4000/api/endpoints
+  #   routes:
+  #     - name: analytics-v1-api
+  #       strip_path: true
+  #       paths:
+  #         - /analytics/v1/api/endpoints/
+  # - name: analytics-v1
+  #   _comment: 'Analytics: /analytics/v1/* -> http://logflare:4000/*'
+  #   url: http://analytics:4000/
+  #   routes:
+  #     - name: dashboard-v1-all
+  #       strip_path: true
+  #       paths:
+  #         - /analytics/v1
+  #   plugins:
+  #     - name: cors
+  #     - name: basic-auth
+  #       config:
+  #         hide_credentials: true
+
+  ## Secure Database routes
+  - name: meta
+    _comment: 'pg-meta: /pg/* -> http://pg-meta:8080/*'
+    url: http://meta:8080/
+    routes:
+      - name: meta-all
+        strip_path: true
+        paths:
+          - /pg/
+    plugins:
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+
+  ## Block access to /api/mcp
+  - name: mcp-blocker
+    _comment: 'Block direct access to /api/mcp'
+    url: http://studio:3000/api/mcp
+    routes:
+      - name: mcp-blocker-route
+        strip_path: true
+        paths:
+          - /api/mcp
+    plugins:
+      - name: request-termination
+        config:
+          status_code: 403
+          message: "Access is forbidden."
+
+  ## MCP endpoint - local access
+  - name: mcp
+    _comment: 'MCP: /mcp -> http://studio:3000/api/mcp (local access)'
+    url: http://studio:3000/api/mcp
+    routes:
+      - name: mcp
+        strip_path: true
+        paths:
+          - /mcp
+    plugins:
+      # Block access to /mcp by default
+      - name: request-termination
+        config:
+          status_code: 403
+          message: "Access is forbidden."
+      # Enable local access (danger zone!)
+      # 1. Comment out the 'request-termination' section above
+      # 2. Uncomment the entire section below, including 'deny'
+      # 3. Add your local IPs to the 'allow' list
+      #- name: cors
+      #- name: ip-restriction
+      #  config:
+      #    allow:
+      #      - 127.0.0.1
+      #      - ::1
+      #    deny: []
+
+  ## Protected Dashboard - catch all remaining routes
+  - name: dashboard
+    _comment: 'Studio: /* -> http://studio:3000/*'
+    url: http://studio:3000/
+    routes:
+      - name: dashboard-all
+        strip_path: true
+        paths:
+          - /
+    plugins:
+      - name: cors
+      - name: basic-auth
+        config:
+          hide_credentials: true

@@ -3,13 +3,32 @@
 Diese HTML-Templates ersetzen die Default-Mails von Supabase Auth durch ein
 Bordkasse-eigenes Design (Logo, Marineblau-Theme, deutsch).
 
+## Wo das Template liegt
+
+➡️ **[`webapp/public/email/magic-link.html`](../../public/email/magic-link.html)**
+
+Seit dem Umzug auf den selbst gehosteten Supabase-Stack ist das die
+**einzige** Quelle. Früher lag hier ein zweiter Snapshot, der von Hand ins
+Supabase-Dashboard kopiert wurde — dieses Dashboard gibt es nicht mehr, und
+zwei Kopien wären auseinandergedriftet.
+
 ## Einsetzen
 
-1. Supabase-Dashboard → **Authentication → Emails**
-2. Template **"Magic Link"** öffnen
-3. Subject ersetzen durch: `Dein Bordkasse-Login-Link`
-4. Body (HTML) mit dem Inhalt aus [`magic-link.html`](./magic-link.html) überschreiben
-5. Speichern → "Send test email" prüfen
+Nichts zu tun — das Template wird automatisch wirksam:
+
+1. Die App liefert die Datei unter `/email/magic-link.html` aus (öffentlich
+   erreichbar über eine Ausnahme im `config.matcher` von `proxy.ts`).
+2. Der `auth`-Container holt sie per HTTP über
+   `GOTRUE_MAILER_TEMPLATES_MAGIC_LINK` (siehe
+   `supabase/self-host/.env.example`).
+
+Selbst gehostetes GoTrue liest Templates **ausschließlich per URL**, nicht
+aus gemounteten Dateien — daher der Weg über `public/`.
+
+⚠️ **Ist die URL nicht erreichbar, fällt GoTrue still auf sein
+Default-Template zurück** — die Mail kommt an, nur unbrandet, und im Log
+steht kein Fehler. Nach jeder Änderung an Datei, Domain oder Matcher also
+eine echte Testmail auslösen und anschauen.
 
 Wichtig: Supabase nutzt Go-Templates. Wir bauen die Login-URL bewusst
 selbst über `{{ .TokenHash }}` statt `{{ .ConfirmationURL }}` zu nutzen.
