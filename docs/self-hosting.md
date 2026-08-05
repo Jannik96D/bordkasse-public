@@ -434,31 +434,78 @@ Nicht abhaken, ohne es wirklich ausprobiert zu haben:
 - [ ] **Studio** erreichbar und fragt nach Basic-Auth.
 - [ ] **Crons:** beide Endpunkte antworten mit gültigem `CRON_SECRET`
       `200`, ohne `401`.
-- [ ] **Backup** einmal manuell laufen lassen und wiederherstellen.
+- [ ] **Backup:** Scheduled Task angelegt, einmal manuell laufen lassen
+      (`OK: /backups/…`), Dump ausgelagert und in eine frische Instanz
+      zurückgespielt.
 
 ---
 
 ## 9. Backup
 
 [`supabase/self-host/backup.sh`](../webapp/supabase/self-host/backup.sh)
-als **Coolify Scheduled Task** einrichten, z. B. täglich 2:00:
+läuft **innerhalb des `db`-Containers**. `docker-compose.yml` mountet es
+nach `/usr/local/bin/bordkasse-backup` und legt das Named Volume
+`db-backups` unter `/backups` ab.
+
+Warum im Container und nicht auf dem Host: Coolifys Scheduled Tasks führen
+ihren Befehl in einem Container des Stacks aus. Dort gibt es keinen
+Docker-Socket, ein Skript mit `docker exec` wäre also gar nicht
+einrichtbar. Die Alternative — System-Cron auf dem Host — läge außerhalb
+des Repos und außerhalb dessen, was auf einer fremden Maschine
+eingerichtet werden sollte.
+
+**Coolify Scheduled Task** anlegen (Container `db`, z. B. täglich `0 2 * * *`):
 
 ```bash
-/pfad/zu/backup.sh /var/backups/bordkasse
+bash /usr/local/bin/bordkasse-backup
 ```
 
-Das Skript sichert `public` **und** `auth`, prüft die Integrität des
+Manuell vom Host aus — Container-Namen dynamisch ermitteln, Coolify
+ignoriert `container_name`:
+
+```bash
+# <app-uuid> = UUID der Coolify-Anwendung.
+# `--filter name=` matcht als Teilstring: während eines Redeploys existiert
+# der alte Container kurz noch, dann liefert der Filter zwei Zeilen und
+# `docker exec` bricht kryptisch ab. Daher `head -n1`.
+docker exec "$(docker ps --filter name=db-<app-uuid> --format '{{.Names}}' | head -n1)" bash /usr/local/bin/bordkasse-backup
+```
+
+Das Skript dumpt als `supabase_admin` (der Superuser des Images — als
+`postgres` fehlten still die `auth`-Tabellen, die `supabase_auth_admin`
+gehören), sichert also `public` **und** `auth`, prüft die Integrität des
 Archivs, verweigert offensichtlich abgebrochene Dumps und räumt Dateien
 älter als 30 Tage auf (erst nach erfolgreicher Prüfung — ein
 fehlgeschlagener Lauf löscht nie die letzten guten Backups).
 
 **Zwei Dinge musst du selbst ergänzen:**
 
-1. **Auslagern.** Am Ende des Skripts ist die Stelle markiert. Ein Backup
-   auf derselben Maschine überlebt keinen Serververlust.
+1. **Auslagern.** Bewusst nicht Teil des Skripts: der Container hat kein
+   `rclone`/`ssh` und soll keine Zugangsdaten zu einem Fernziel sehen. Ein
+   Backup auf derselben Maschine überlebt keinen Serververlust — der
+   Transfer gehört daher vom **Host** aus auf ein anderes System (NAS oder
+   Objektspeicher), verschlüsselt. Die Dumps liegen im Named Volume:
+
+   ```bash
+   docker run --rm -v bordkasse-supabase_db-backups:/b:ro -v "$PWD":/out alpine \
+     sh -c 'cp /b/*.sql.gz /out/'
+   ```
+
+   (Volume-Name unter Coolify mit `docker volume ls | grep db-backups`
+   prüfen — der Präfix hängt am Projektnamen.)
 2. **Restore testen.** Am besten quartalsweise: Dump zurückspielen und die
    Bilanz-Summenprobe aus Schritt 4c fahren. Ein nie getesteter Restore ist
    kein Restore.
+
+   ```bash
+   gzip -dc bordkasse_<stamp>.sql.gz | docker exec -i <db-container> \
+     psql -U supabase_admin -d postgres
+   ```
+
+   Im Ernstfall (Restore in den **laufenden** Stack, nicht in eine frische
+   Instanz) vorher `auth`, `rest` und `realtime` stoppen. Deren offene
+   Verbindungen blockieren sonst die `DROP`s des `--clean`-Dumps, und die
+   Dienste laufen währenddessen gegen eine halb abgeräumte Datenbank.
 
    Wichtig dabei: Der Dump enthält **keine Rollen** (`anon`,
    `authenticated`, `service_role`, `supabase_auth_admin`, `authenticator`).

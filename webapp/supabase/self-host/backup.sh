@@ -2,25 +2,64 @@
 #
 # Nächtliches Backup der Bordkasse-Datenbank.
 #
-#   ./backup.sh [ZIELVERZEICHNIS]
+# ⚠️ Dieses Skript läuft INNERHALB des `db`-Containers, nicht auf dem Host.
 #
-# Als Coolify Scheduled Task einrichten (z. B. täglich 2:00). Sichert die
-# KOMPLETTE Postgres-Instanz — public-Schema (Törns, Buchungen, Bilanz) UND
-# auth (die Logins der Crew). Ein Dump ohne `auth` wäre die teuerste Sorte
-# Fehler: die Zahlen wären zurück, aber niemand käme mehr rein.
+# Grund: Coolifys „Scheduled Tasks" führen ihren Befehl in einem Container
+# des Stacks aus, nicht auf der Maschine. Eine Host-Variante mit
+# `docker exec` wäre dort gar nicht einrichtbar (kein Docker-Socket im
+# Container) — und ein System-Cron auf dem Host läge außerhalb des Repos und
+# außerhalb dessen, was wir auf einer fremden Maschine anlegen wollen.
+# Deshalb: pg_dump läuft im Container, der Docker-Socket bleibt unangetastet.
+#
+# Als Coolify Scheduled Task (Container `db`, täglich 2:00):
+#
+#   bash /usr/local/bin/bordkasse-backup
+#
+# Manuell vom Host aus — Container-Name dynamisch ermitteln, Coolify
+# ignoriert `container_name` und vergibt eigene Namen:
+#
+#   docker exec "$(docker ps --filter name=db-<app-uuid> --format '{{.Names}}' \
+#     | head -n1)" bash /usr/local/bin/bordkasse-backup
+#
+# (`head -n1`, weil `--filter name=` als Teilstring matcht: während eines
+# Redeploys existiert der alte Container kurz noch.)
+#
+# Sichert die KOMPLETTE Postgres-Instanz — public-Schema (Törns, Buchungen,
+# Bilanz) UND auth (die Logins der Crew). Ein Dump ohne `auth` wäre die
+# teuerste Sorte Fehler: die Zahlen wären zurück, aber niemand käme mehr
+# rein.
 #
 # ⚠️ Ein Backup, das nur auf demselben Server liegt, ist kein Backup.
-# Platten- oder Serververlust nimmt beides mit. Siehe „Auslagern" unten.
+# Platten- oder Serververlust nimmt beides mit. Das Auslagern passiert
+# bewusst NICHT hier: der Container hat kein rclone/ssh und soll auch keine
+# Zugangsdaten zu einem Fernziel sehen. Siehe docs/self-hosting.md,
+# Abschnitt „Backup".
 #
 # ⚠️ Der Dump enthält Klarnamen und E-Mail-Adressen der Crew — also
-# personenbezogene Daten. Zielverzeichnis entsprechend eng berechtigen und
-# beim Auslagern verschlüsseln.
+# personenbezogene Daten. Beim Auslagern verschlüsseln.
 
 set -euo pipefail
 
-DEST="${1:-/var/backups/bordkasse}"
-CONTAINER="bordkasse-db"
+# Standardziel ist das Named Volume `db-backups`, das docker-compose.yml
+# unter /backups mountet. Named Volume statt Bind-Mount aus demselben Grund
+# wie bei PGDATA: ein Coolify-Redeploy mit frischem Clone oder
+# `git clean -xfd` nähme ein Verzeichnis im Checkout mit — hier also genau
+# die Sicherungen, die man dann bräuchte.
+DEST="${1:-/backups}"
 KEEP_DAYS="${KEEP_DAYS:-30}"
+
+# Der Superuser dieses Images. NICHT `postgres`: die auth-Tabellen gehören
+# supabase_auth_admin, und ein Dump als schwächere Rolle lässt still genau
+# die Zeilen aus, die man beim Restore am dringendsten braucht.
+DB_USER="${BACKUP_DB_USER:-supabase_admin}"
+DB_NAME="${POSTGRES_DB:-postgres}"
+
+# Verbindung über den Unix-Socket — kein Netzwerk, kein Passwort.
+# PGHOST wird hier EXPLIZIT gesetzt: der Container kennt nur
+# `POSTGRES_HOST`, und das liest libpq nicht. Ohne diese Zeile klappt es
+# bloß, solange der einkompilierte Default-Socket-Pfad des Images zufällig
+# derselbe ist — eine Abhängigkeit vom Image-Build, die niemand garantiert.
+export PGHOST="${PGHOST:-${POSTGRES_HOST:-/var/run/postgresql}}"
 
 STAMP="$(date +%Y-%m-%d_%H%M%S)"
 OUT="${DEST}/bordkasse_${STAMP}.sql.gz"
@@ -31,9 +70,13 @@ mkdir -p "$DEST"
 # werden, ohne vorher manuell aufzuräumen.
 # --quote-all-identifiers: schützt vor Reserved-Word-Überraschungen bei
 # einem späteren Postgres-Upgrade.
-docker exec "$CONTAINER" pg_dump \
-  --username=postgres \
-  --dbname=postgres \
+#
+# Bricht pg_dump ab, endet das Skript hier (pipefail) — die angefangene
+# Datei bleibt zur Analyse liegen, aber die Aufräum-Zeile unten läuft nicht
+# mehr. Ein kaputter Lauf nimmt also nie die letzten guten Backups mit.
+pg_dump \
+  --username="$DB_USER" \
+  --dbname="$DB_NAME" \
   --clean --if-exists \
   --quote-all-identifiers \
   | gzip -9 > "$OUT"
@@ -68,14 +111,5 @@ done
 
 echo "OK: $OUT ($(numfmt --to=iec "$SIZE" 2>/dev/null || echo "${SIZE}B"))"
 
-# Alte Dumps aufräumen. Erst NACH der erfolgreichen Prüfung oben, damit ein
-# fehlgeschlagener Lauf nie die letzten guten Backups mitnimmt.
+# Alte Dumps aufräumen. Erst NACH der erfolgreichen Prüfung oben.
 find "$DEST" -name 'bordkasse_*.sql.gz' -type f -mtime "+${KEEP_DAYS}" -delete
-
-# ── Auslagern ────────────────────────────────────────────────────────────
-# Hier den Transfer auf ein anderes System ergänzen (rclone/rsync/scp auf
-# NAS oder Objektspeicher). Ohne diesen Schritt liegt die einzige Kopie auf
-# derselben Maschine wie das Original.
-#
-# Beispiel:
-#   rclone copy "$OUT" remote:bordkasse-backups/
