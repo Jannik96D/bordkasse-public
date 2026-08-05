@@ -11,7 +11,12 @@
 # außerhalb dessen, was wir auf einer fremden Maschine anlegen wollen.
 # Deshalb: pg_dump läuft im Container, der Docker-Socket bleibt unangetastet.
 #
-# Als Coolify Scheduled Task (Container `db`, täglich 2:00):
+# Als Coolify Scheduled Task (Container `db`, täglich 0:00 — `0 0 * * *`):
+#
+# ⚠️ Die Uhrzeit ist abgestimmt: der Server-Betreiber holt die Dumps um
+# 02:00 vom Server weg. Um 0:00 zu dumpen heißt, dass jede Nacht der
+# frische Stand mitgeht. Wer die Zeit verschiebt, muss das mit ihm klären —
+# sonst wandert nachts der Dump des Vortags nach außen.
 #
 #   bash /usr/local/bin/bordkasse-backup
 #
