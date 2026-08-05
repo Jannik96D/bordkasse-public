@@ -60,6 +60,14 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   /**
+   * Container-Betrieb (Coolify): `next build` legt unter .next/standalone
+   * einen eigenständigen Server samt der wirklich benötigten node_modules
+   * ab — siehe Dockerfile. Auf Vercel ist die Option folgenlos (Vercel baut
+   * ohnehin eigene Lambdas), sie darf also schon vor dem Umschalten im Repo
+   * stehen.
+   */
+  output: "standalone",
+  /**
    * Client-Router-Cache (Performance): besuchte Törn-Tabs bleiben 30 s im
    * Browser wiederverwendbar. Das Hin- und Herwechseln zwischen
    * Übersicht/Buchungen/Bilanz/Schulden/Statistik ist dann sofort, ohne
