@@ -35,9 +35,16 @@ function normalizeOrigin(value: string): string | null {
  * Konfigurierter App-Origin aus der Env. NEXT_PUBLIC_SITE_URL hat Vorrang,
  * NEXT_PUBLIC_APP_ORIGIN ist der Fallback (gleicher Wert, von den Mail-
  * Templates genutzt) — so genügt es, eine der beiden Variablen zu setzen.
+ *
+ * Bewusst `||` statt `??`: in Docker-Builds (siehe Dockerfile/Coolify) wird
+ * ein nicht gesetzter `ARG` beim `ENV`-Befehl zu einem LEEREN String, nicht
+ * zu `undefined` (anders als auf Vercel). `??` fällt nur bei `null`/
+ * `undefined` zurück — ein leeres `NEXT_PUBLIC_SITE_URL` hätte damit immer
+ * gewonnen und die korrekt gesetzte `APP_ORIGIN` verdeckt (Fund beim
+ * Coolify-Cutover: Magic-Link-Versand stürzte trotz gesetzter APP_ORIGIN ab).
  */
 function configuredOrigin(): string | undefined {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXT_PUBLIC_APP_ORIGIN;
+  return process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_ORIGIN || undefined;
 }
 
 function allowedOrigins(): Set<string> {
