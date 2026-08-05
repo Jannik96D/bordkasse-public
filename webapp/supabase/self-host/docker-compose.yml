@@ -299,9 +299,12 @@ services:
       DISABLE_HEALTHCHECK_LOGGING: "true"
 
   # ── Postgres-Meta (Backend für Studio) ────────────────────────────────
+  #
+  # Nur zusammen mit Studio nötig, deshalb im selben Profil — siehe dort.
   meta:
     container_name: bordkasse-meta
     image: supabase/postgres-meta:v0.96.6
+    profiles: ["studio"]
     restart: unless-stopped
     depends_on:
       db:
@@ -316,9 +319,28 @@ services:
       CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
 
   # ── Studio (Web-UI auf die DB) ────────────────────────────────────────
+  #
+  # ⚠️ Läuft NICHT mehr standardmäßig mit. Studio + meta zogen gemessen
+  # 197 + 85 = 282 MB, obwohl sie im Alltag niemand braucht: die Crew
+  # nutzt die App, der Skipper schaut selten in die Tabellen. Ein
+  # Compose-Profil hält beide bereit, ohne sie dauernd laufen zu lassen.
+  #
+  # Bei Bedarf starten (auf dem Server, im Verzeichnis des Stacks):
+  #
+  #   docker compose --profile studio up -d studio
+  #
+  # Und wieder abschalten, wenn du fertig bist:
+  #
+  #   docker compose stop studio meta
+  #
+  # Solange Studio nicht läuft, antwortet Kong auf `/` mit 502 — das ist
+  # nur das Dashboard, REST, Auth und Realtime sind davon unberührt.
+  # Wer keine GUI braucht, kommt auch so an die Daten:
+  #   docker exec -it <db-container> psql -U supabase_admin -d postgres
   studio:
     container_name: bordkasse-studio
     image: supabase/studio:2026.08.03-sha-022b374
+    profiles: ["studio"]
     restart: unless-stopped
     depends_on:
       meta:
@@ -378,14 +400,16 @@ services:
       timeout: 5s
       retries: 5
     depends_on:
-      # Studio bewusst nur `service_started`, NICHT `service_healthy`: sonst
-      # hängt die gesamte API (REST, Auth, Realtime) am Gesundheitszustand
-      # des optionalen Dashboards. Ein Studio-Update, dessen Healthcheck
-      # nicht mehr greift — oder das unter RAM-Druck in sein start_period
-      # läuft — würde Login, Buchungen und Bilanz komplett offline nehmen,
-      # obwohl DB, Auth und REST gesund sind.
-      studio:
-        condition: service_started
+      # ⚠️ KEIN depends_on auf `studio`. Studio liegt seit der
+      # RAM-Optimierung in einem Profil und läuft normalerweise nicht;
+      # Compose bricht mit einem Fehler ab, wenn ein aktiver Service von
+      # einem nicht aktivierten Profil-Service abhängt. Kong braucht Studio
+      # ohnehin nicht — es routet nur `/` dorthin, und das ist das
+      # Dashboard, nicht die API.
+      #
+      # (Historie: die Abhängigkeit war bewusst `service_started` und nicht
+      # `service_healthy`, damit ein hängender Studio-Healthcheck nicht die
+      # ganze API offline nimmt. Dieses Risiko ist mit dem Profil ganz weg.)
       auth:
         condition: service_healthy
       rest:
@@ -407,6 +431,25 @@ services:
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,request-termination,ip-restriction,post-function
       KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      # ⚠️ Ohne diese Zeile startet nginx EINEN WORKER PRO CPU-KERN
+      # (`worker_processes auto`). Auf der 8-Kern-Maschine waren das acht
+      # Worker: gemessen 614 MB für Kong — mehr als der gesamte Rest des
+      # Stacks zusammen (realtime 202, studio 197, meta 85, db 78, rest 22,
+      # auth 9).
+      #
+      # Für eine Crew von höchstens zwölf Leuten ist ein Worker reichlich;
+      # nginx ist ereignisgesteuert, ein Worker bedient tausende gleichzeitige
+      # Verbindungen. Wer den Stack auf eine Maschine mit ernstem Traffic
+      # stellt, kann hochgehen — dann aber messen, nicht raten.
+      #
+      # ⚠️ Der Präfix ist entscheidend: `worker_processes` gehört in den
+      # MAIN-Kontext von nginx, also `KONG_NGINX_MAIN_…`. Ein naheliegendes
+      # `KONG_NGINX_WORKER_PROCESSES` wird von Kong stillschweigend
+      # IGNORIERT — die Variable steht dann im Container, die generierte
+      # /usr/local/kong/nginx.conf sagt weiter `worker_processes auto`, und
+      # man hält das Problem für gelöst. Nachgeprüft mit dem echten Image:
+      # 2 Worker/130 MB (auto) gegen 1 Worker/81 MB (diese Zeile).
+      KONG_NGINX_MAIN_WORKER_PROCESSES: 1
       KONG_PROXY_ACCESS_LOG: /dev/stdout combined
       SUPABASE_ANON_KEY: ${ANON_KEY}
       SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
