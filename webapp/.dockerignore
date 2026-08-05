@@ -1,0 +1,35 @@
+# Was NICHT in den Build-Kontext gehört.
+#
+# Neben Tempo (kleinerer Kontext) ist das auch eine Sicherheitsfrage:
+# .env* enthält Service-Role-Key und SMTP-Passwort. Läge es im Kontext,
+# landete es über `COPY . .` in einem Image-Layer — auch wenn die App es
+# zur Laufzeit nie liest.
+.env
+.env.*
+!.env.example
+
+node_modules
+.next
+out
+build
+
+# Lokaler Supabase-Stack, Migrationen und Seeds braucht der App-Build nicht
+# (Migrationen laufen getrennt per `supabase db push`).
+supabase/.branches
+supabase/.temp
+supabase/data
+supabase/self-host/volumes/db/data
+
+# Tests und Werkzeug
+__tests__
+e2e
+playwright-report
+test-results
+coverage
+scripts
+
+.git
+.github
+.vscode
+.DS_Store
+*.log

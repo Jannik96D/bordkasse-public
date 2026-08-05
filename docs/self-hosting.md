@@ -548,6 +548,94 @@ von Supabase zu euch. Das ist der Preis dafür, dass nichts mehr einschläft.
 
 ---
 
+## 9a. Schritt 7 — App von Vercel nach Coolify
+
+Der technische Teil liegt im Repo: [`webapp/Dockerfile`](../webapp/Dockerfile)
+(Next.js `standalone`, non-root, Healthcheck) und `output: "standalone"` in
+`next.config.ts`. Beides ist auf Vercel folgenlos, kann also fertig
+bereitliegen, bevor umgeschaltet wird.
+
+### Neue Coolify-Anwendung
+
+| Feld | Wert |
+|---|---|
+| Build Pack | `Dockerfile` |
+| Base Directory | `/webapp` |
+| Dockerfile Location | `/webapp/Dockerfile` |
+| Port | `3000` |
+
+### Env-Vars
+
+**Jede `NEXT_PUBLIC_*`-Variable** muss als **Build Variable** markiert sein,
+nicht nur als Laufzeit-Wert:
+
+| Variable | |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Pflicht |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Pflicht |
+| `NEXT_PUBLIC_APP_ORIGIN` | Pflicht (Magic-Links) |
+| `NEXT_PUBLIC_SITE_URL` | optional, hat Vorrang vor `APP_ORIGIN` |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | optional, ohne ihn kein Web-Push |
+
+Next ersetzt **jede** `process.env.NEXT_PUBLIC_*`-Referenz statisch beim
+Build — auch in Server-Code. Ein Wert, der nur im Container-Environment
+steht, kommt danach nirgends mehr an; das Environment nachträglich zu
+ändern wirkt ohne Neubau nicht.
+
+Was still bricht, wenn man das übersieht:
+
+- **`SUPABASE_URL`:** `next.config.ts` leitet den `connect-src`-Teil der CSP
+  daraus ab. Fehlt sie, lädt die App — aber der Browser blockt jeden
+  Datenzugriff und Realtime an der CSP.
+- **`APP_ORIGIN`/`SITE_URL`:** `lib/auth/origin.ts` baut daraus die
+  Magic-Link-URL. Fehlen beide, stürzen Crew-Einladungen ab — genau der
+  Vorfall, der in Produktion schon einmal passiert ist.
+- **`VAPID_PUBLIC_KEY`:** der Push-Knopf scheitert clientseitig ohne
+  aussagekräftige Meldung.
+
+Das Dockerfile bricht bei den drei Pflicht-Werten absichtlich mit einer
+klaren Meldung ab, statt ein Image zu erzeugen, das erst im Browser hängt.
+
+Alles Übrige sind reine Laufzeit-Werte und gehören **nicht** in Build-Args
+(sonst liegen sie in den Image-Layern): `SUPABASE_SERVICE_ROLE_KEY`,
+`ADMIN_EMAILS`, `CRON_SECRET`, `SMTP_*`, `MAIL_FROM`,
+`VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`. Vollständige Liste in CLAUDE.md,
+Abschnitt „Deploy".
+
+### Die beiden Crons
+
+`vercel.json` fällt weg — **aber erst beim Umschalten, nicht vorher**. Es
+trägt neben den Crons auch `regions: ["fra1"]`; ohne die Datei liefe die
+App auf Vercel wieder in `iad1` (USA), und die beiden Crons hörten auf zu
+laufen (DSGVO-Löschung und Anzahlungs-Erinnerungen). Ersatz als Coolify
+Scheduled Tasks (Container = App-Container):
+
+| Name | Frequenz | Command |
+|---|---|---|
+| `purge` | `0 3 * * *` | `curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/purge` |
+| `prepayment-reminders` | `0 7 * * *` | `curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/prepayment-reminders` |
+
+`-f` ist wichtig: ohne das Flag liefert `curl` bei einem 401 oder 500
+Exit-Code 0, und der Task meldet grün, obwohl nichts passiert ist.
+
+### Beim Umschalten
+
+1. Domain `bordkasse.dieter.ms` umhängen — **macht der Server-Betreiber.**
+2. `MAILER_TEMPLATE_MAGIC_LINK` im Supabase-Stack auf den internen
+   Docker-Namen der App zeigen lassen
+   (`http://<app-container>:3000/email/magic-link.html`). Danach eine echte
+   Testmail ansehen: GoTrue fällt bei nicht erreichbarer URL **still** auf
+   sein unbrandetes Default zurück.
+3. `webapp/vercel.json` entfernen und das Vercel-Projekt abschalten.
+4. **Datenschutzerklärung** (`app/datenschutz/page.tsx`): Vercel Inc. und
+   Supabase Inc. fallen als Auftragsverarbeiter weg, der Betreiber des
+   Servers kommt hinzu (mit ladungsfähiger Identität), Hetzner als
+   Unterauftragsverarbeiter. Rechtlich der empfindlichste Schritt — und
+   getrennt davon zu klären, dass der Betreiber damit Auftragsverarbeiter
+   für die Daten der Crew wird.
+
+---
+
 ## 10. Betrieb
 
 **Updates:** Image-Versionen in `docker-compose.yml` sind gepinnt. Zum
