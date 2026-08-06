@@ -56,6 +56,26 @@ export function NotificationBlock() {
         </button>
       )}
 
+      {/* Abo stammt von einem alten VAPID-Key und die stille Erneuerung im Hook
+          ist fehlgeschlagen — hier bleibt nur der manuelle Weg. */}
+      {status === "stale" && (
+        <div className="mt-3">
+          <p role="status" className="text-xs text-ink-soft">
+            Die Benachrichtigungen auf diesem Gerät sind nach einer Server-Umstellung ungültig
+            geworden und müssen einmal neu aktiviert werden. E-Mails kommen unverändert an.
+          </p>
+          <button
+            type="button"
+            onClick={enable}
+            disabled={busy}
+            className="mt-2 inline-flex min-h-[44px] items-center gap-2 rounded-md border border-primary px-4 py-2 text-sm font-medium text-primary hover:bg-primary hover:text-paper disabled:opacity-60"
+          >
+            <Bell className="h-4 w-4" aria-hidden="true" />
+            {busy ? "Aktiviere …" : "Neu aktivieren"}
+          </button>
+        </div>
+      )}
+
       {status === "subscribed" && (
         <div className="mt-3 space-y-2">
           <p
