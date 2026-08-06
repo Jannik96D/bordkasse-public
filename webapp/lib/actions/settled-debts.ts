@@ -12,6 +12,7 @@ import { sendPushToPersons } from "@/lib/notify/web-push";
 import { pushRecipients } from "@/lib/notify/recipients";
 import { debtSettledPush } from "@/lib/notify/payloads";
 import { formatDate } from "@/lib/utils";
+import { appOrigin } from "@/lib/auth/origin";
 
 const ToggleSchema = z.object({
   trip_id: z.string().uuid(),
@@ -281,7 +282,7 @@ async function sendDebtSettledMails(
   const actorName = nameById.get(args.actorPersonId) ?? "Skipper";
   const tripDates = `${formatDate(trip.start_date)} – ${formatDate(trip.end_date)}`;
   const tripType: "sailing" | "other" = trip.trip_type === "other" ? "other" : "sailing";
-  const appUrl = `${process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.example"}/trips/${args.tripId}/debts`;
+  const appUrl = `${appOrigin()}/trips/${args.tripId}/debts`;
 
   // Dedup: pro Person-ID nur EINE Mail (falls jemand sowohl Skipper als
   // auch Vorstrecker und gleichzeitig Schuldner ist → erste Rolle gewinnt).

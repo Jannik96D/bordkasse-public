@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { resolveOrigin, safeNextPath } from "@/lib/auth/origin";
+import { requestMayRedeemToken, resolveRedirectOrigin, safeNextPath } from "@/lib/auth/origin";
 
 export const dynamic = "force-dynamic";
 
@@ -25,19 +25,29 @@ export async function POST(request: NextRequest) {
   const next = safeNextPath(formData.get("next")?.toString());
   const email = formData.get("email")?.toString() ?? undefined;
 
-  // Bewusst NICHT `new URL(request.url).origin`: hinter Traefik/Coolify
-  // (Docker-Standalone-Server) liefert das verlässlich `0.0.0.0:3000` statt
-  // der echten Domain — der Redirect zeigt dann auf eine Adresse, die kein
-  // Browser aufrufen kann (ERR_ABORTED, "Jetzt einloggen" tut scheinbar
-  // nichts). `resolveOrigin` validiert den Origin-Header gegen die
-  // Allowlist bzw. fällt auf NEXT_PUBLIC_SITE_URL/APP_ORIGIN zurück.
-  const origin = resolveOrigin(request.headers.get("origin"));
+  // Weder `new URL(request.url).origin` (liefert hinter Traefik/Coolify
+  // `0.0.0.0:3000`, der Redirect zeigt ins Leere) noch `resolveOrigin` (wirft
+  // fail-loud → nackter 500 auf dem Klick-Pfad). Details siehe
+  // resolveRedirectOrigin in lib/auth/origin.ts.
+  const origin = resolveRedirectOrigin(request.headers, request.url);
 
   if (!token_hash || !type) {
     return redirectWithError(
       origin,
       "missing_token",
       "Der Login-Link enthält keinen gültigen Token. Fordere einen neuen an.",
+      email,
+    );
+  }
+
+  // WICHTIG: vor `verifyOtp`. Ein Request über eine nicht erlaubte Domain (oder
+  // ein Cross-Origin-POST) würde den Single-Use-Token sonst verbrauchen, ohne
+  // dass eine nutzbare Session entsteht — siehe requestMayRedeemToken.
+  if (!requestMayRedeemToken(request.headers, request.url)) {
+    return redirectWithError(
+      origin,
+      "untrusted_host",
+      "Der Login wurde über eine nicht freigegebene Adresse aufgerufen. Öffne die App direkt und fordere einen neuen Link an.",
       email,
     );
   }

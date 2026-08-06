@@ -2,8 +2,9 @@
  * Schickt transaktionale Mails über den konfigurierten SMTP-Server.
  *
  * Nutzt nodemailer + denselben SMTP, der bereits für Supabase-Auth-Mails
- * angebunden ist (Magic-Link). Credentials kommen aus Vercel-Env-Vars,
- * NICHT aus Supabase — die App spricht den Mailserver direkt an.
+ * angebunden ist (Magic-Link). Credentials kommen aus den Env-Vars der
+ * App-Ressource, NICHT aus Supabase — die App spricht den Mailserver
+ * direkt an.
  *
  * Pflicht-Env-Vars:
  *   SMTP_HOST       z. B. mail.example.com

@@ -2,14 +2,88 @@
 # Custom entrypoint for Kong that builds Lua expressions for request-transformer
 # and performs environment variable substitution in the declarative config.
 
-# ⚠️ Fail-loud statt eines Basic-Auth-Logins mit Leer-Passwort: die
-# Dashboard-Route (kong.yml, Consumer DASHBOARD) ist der einzige Schutz vor
-# vollem, RLS-losem DB-Zugriff über Studio, sobald das `studio`-Profil läuft.
-# Fehlt DASHBOARD_PASSWORD in der Coolify-Env, würde Kong sonst klaglos mit
-# einem gültigen Basic-Auth-Credential ohne Passwort starten.
-if [ -z "$DASHBOARD_USERNAME" ] || [ -z "$DASHBOARD_PASSWORD" ]; then
-    echo "FEHLER: DASHBOARD_USERNAME/DASHBOARD_PASSWORD ist leer — Kong startet nicht." >&2
+# ── CORS_ORIGIN aus SITE_URL ableiten ────────────────────────────────────
+#
+# Die `cors`-Plugins in kong.yml schränken `origins` auf genau einen Wert ein.
+# Der muss BYTEWEISE dem `Origin`-Header des Browsers entsprechen, also
+# `schema://host[:port]` — kleingeschrieben, ohne Pfad und ohne Trailing-Slash.
+# Passt er nicht, bricht nichts laut: server-seitige Calls laufen weiter,
+# während jeder Browser-Call (Token-Refresh, Realtime) still an der
+# CORS-Preflight scheitert.
+#
+# ⚠️ SITE_URL wird GETEILT: dieselbe Variable geht als GOTRUE_SITE_URL an den
+# auth-Container, wo ein Trailing-Slash völlig harmlos ist (das Mail-Template
+# hängt `/auth/confirm` an). Ein bestehendes, funktionierendes Deployment darf
+# deshalb NICHT daran scheitern, dass Kong strengere Ansprüche stellt als
+# GoTrue — sonst nimmt ein Neustart (Reboot, Redeploy, `restart: unless-stopped`)
+# das ganze Gateway mit herunter. Wir normalisieren also, statt abzubrechen,
+# und schreiben das Ergebnis in eine Kong-eigene Variable.
+if [ -z "$SITE_URL" ]; then
+    echo "FEHLER: SITE_URL ist nicht gesetzt — die CORS-Allowlist in kong.yml bliebe leer und jeder Browser-Zugriff auf die API würde scheitern. Kong startet nicht." >&2
     exit 1
+fi
+
+# Schema + Host kleinschreiben (Kong liefert den Wert unverändert im
+# `Access-Control-Allow-Origin` aus; der Browser vergleicht gegen seinen
+# kleingeschriebenen Origin), dann alles ab dem ersten `/` nach dem Schema
+# abschneiden — das erschlägt Trailing-Slash, Pfad und Query in einem.
+CORS_ORIGIN="$(printf '%s' "$SITE_URL" | tr '[:upper:]' '[:lower:]' | sed -E 's#^([a-z][a-z0-9+.-]*://[^/?#]*).*#\1#')"
+
+case "$CORS_ORIGIN" in
+    http://?*|https://?*) ;;
+    *) echo "FEHLER: Aus SITE_URL ('$SITE_URL') lässt sich kein Origin ableiten — erwartet wird http(s)://host[:port]. Kong startet nicht, weil die CORS-Allowlist sonst nie matcht." >&2; exit 1 ;;
+esac
+
+# Kong nutzt einen `origins`-Eintrag nur dann als LITERAL, wenn er
+# `^[A-Za-z0-9.:/-]+$` erfüllt (siehe plugins/cors/handler.lua); alles andere
+# behandelt es als Regex — dann matcht z. B. eine IPv6-Adresse oder ein
+# Umlaut-Domain-Name still gar nicht mehr. Lieber hier abbrechen.
+case "$CORS_ORIGIN" in
+    *[!A-Za-z0-9.:/-]*) echo "FEHLER: SITE_URL ('$SITE_URL') enthält Zeichen, die Kong als Regex statt als festen Origin behandeln würde (erlaubt: A-Z a-z 0-9 . : / -). Kong startet nicht." >&2; exit 1 ;;
+esac
+
+if [ "$CORS_ORIGIN" != "$SITE_URL" ]; then
+    echo "HINWEIS: SITE_URL ('$SITE_URL') wurde für die CORS-Allowlist zu '$CORS_ORIGIN' normalisiert (Kleinschreibung, ohne Pfad/Trailing-Slash). GOTRUE_SITE_URL bleibt unverändert." >&2
+fi
+export CORS_ORIGIN
+
+# Die Dashboard-Route (kong.yml, Consumer DASHBOARD) ist der einzige Schutz vor
+# vollem, RLS-losem DB-Zugriff über Studio, sobald das `studio`-Profil läuft.
+# Ohne Passwort wäre das Basic-Auth-Credential leer und damit wirkungslos.
+#
+# Bewusst KEIN `exit 1`: die Route ist optional (das `studio`-Profil startet
+# standardmäßig nicht), Kong dagegen bedient Auth, REST und Realtime der
+# ganzen App. Ein harter Abbruch nähme für einen abgeschalteten Dashboard-
+# Zugang die komplette App mit herunter — und .env.example liefert diese
+# beiden Werte bewusst leer aus. Stattdessen verriegeln wir die Route mit
+# einem Zufallspasswort: Studio ist dann unerreichbar (401), aber niemals
+# offen, und der Rest des Gateways läuft.
+if [ -z "$DASHBOARD_USERNAME" ] || [ -z "$DASHBOARD_PASSWORD" ]; then
+    DASHBOARD_USERNAME="disabled"
+    DASHBOARD_PASSWORD="$(head -c 32 /dev/urandom | base64 | tr -d '=+/ \n')"
+    # Das Ergebnis MUSS geprüft werden: schlägt die Kette fehl (kein base64 im
+    # Image, kein /dev/urandom), wäre das Passwort leer — und ein leeres
+    # Basic-Auth-Credential öffnet Studio für jeden. Lieber gar nicht starten,
+    # als die Datenbank an RLS vorbei offenzulegen. `${#VAR}` ist POSIX.
+    if [ "${#DASHBOARD_PASSWORD}" -lt 20 ]; then
+        echo "FEHLER: Zufallspasswort für die Studio-Route konnte nicht erzeugt werden (head/base64/urandom nicht verfügbar?) — Kong startet nicht, statt Studio ohne wirksames Passwort auszuliefern." >&2
+        exit 1
+    fi
+    export DASHBOARD_USERNAME DASHBOARD_PASSWORD
+    echo "WARNUNG: DASHBOARD_USERNAME/DASHBOARD_PASSWORD ist leer — die Studio-Route wird mit einem Zufallspasswort verriegelt (kein Login möglich). Zum Nutzen von Studio beide Werte in der Env setzen." >&2
+else
+    # Selbst gesetzte Werte: ein Hochkomma zerlegt den einfach gequoteten
+    # YAML-Skalar in kong.yml und lässt Kong mit einem kryptischen Parse-Fehler
+    # sterben — hier lieber mit klarer Ansage abbrechen.
+    case "$DASHBOARD_USERNAME$DASHBOARD_PASSWORD" in
+        *\'*) echo "FEHLER: DASHBOARD_USERNAME/DASHBOARD_PASSWORD darf kein Hochkomma (') enthalten — das bricht die YAML-Struktur von kong.yml." >&2; exit 1 ;;
+    esac
+    # Kein harter Abbruch bei kurzen Passwörtern: das ist die bewusste
+    # Entscheidung des Betreibers, und ein Lockout des Gateways wäre die
+    # schlechtere Antwort. Nur ein deutlicher Hinweis.
+    if [ "${#DASHBOARD_PASSWORD}" -lt 16 ]; then
+        echo "WARNUNG: DASHBOARD_PASSWORD ist kürzer als 16 Zeichen — die Studio-Route ist der einzige Schutz vor vollem DB-Zugriff an RLS vorbei." >&2
+    fi
 fi
 
 # Build Lua expressions for translating opaque API keys to asymmetric JWTs.

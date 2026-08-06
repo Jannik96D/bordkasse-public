@@ -21,8 +21,9 @@
  */
 
 import { formatEuro } from "@/lib/utils";
+import { appOrigin } from "@/lib/auth/origin";
 
-const SITE_URL = process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.dieter.ms";
+const SITE_URL = appOrigin();
 
 export interface MailShellParams {
   /** Doc-Title (Browser-Tab im Webmailer) und im preheader. */

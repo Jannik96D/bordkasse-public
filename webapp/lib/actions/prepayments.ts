@@ -20,7 +20,7 @@ import {
 import { calculateObligations } from "@/lib/calc/prepayment-shares";
 import type { PrepaymentMember, PrepaymentCabin } from "@/lib/calc/prepayment-shares";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
-import { resolveOrigin } from "@/lib/auth/origin";
+import { resolveOrigin, appOrigin } from "@/lib/auth/origin";
 import { round2, daysBetween, displayNameFromEmail } from "@/lib/utils";
 
 const PG_UNIQUE_VIOLATION = "23505";
@@ -1153,7 +1153,7 @@ async function sendPrepaymentNoticeMails(
     amount: number;
   },
 ): Promise<void> {
-  const SITE_URL = process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://bordkasse.dieter.ms";
+  const SITE_URL = appOrigin();
 
   const [{ data: trip }, { data: plan }, { data: tranche }] = await Promise.all([
     supabase.from("trips").select("name, skipper_id, trip_type").eq("id", args.tripId).maybeSingle(),

@@ -12,8 +12,10 @@ sind Docker-Container, die laufen, bis jemand sie stoppt.
 
 ## 1. Architektur
 
-Sieben Container statt der 14 des vollen Supabase-Stacks. Weggelassen ist
-nur, was die App nachweislich nicht nutzt:
+Sieben Container statt der 14 des vollen Supabase-Stacks — im Normalbetrieb
+laufen davon **fünf**, weil `studio` und `meta` im Compose-Profil `studio`
+liegen und nicht automatisch starten (RAM-Optimierung, siehe Abschnitt 12).
+Weggelassen ist nur, was die App nachweislich nicht nutzt:
 
 | Container | Rolle |
 |---|---|
@@ -21,8 +23,8 @@ nur, was die App nachweislich nicht nutzt:
 | `auth` | GoTrue, verschickt die Magic-Link-Mails |
 | `rest` | PostgREST, bedient alle Lese-Queries der App |
 | `realtime` | Live-Updates für `components/realtime-trip.tsx` |
-| `meta` | Backend für Studio |
-| `studio` | Web-UI auf die Datenbank |
+| `meta` | Backend für Studio (Compose-Profil `studio`, startet nicht automatisch) |
+| `studio` | Web-UI auf die Datenbank (Compose-Profil `studio`, startet nicht automatisch) |
 | `kong` | interner API-Gateway, bündelt alle Pfade unter einer URL |
 
 **Nicht dabei:** `storage` + `imgproxy` (die App nutzt Supabase Storage an
@@ -85,7 +87,12 @@ Kong liefert darunter alles aus:
 Studio braucht also **keine eigene Domain** und steht nicht ungeschützt im
 Netz. Das ist wichtig: wer in Studio hineinkommt, liest und schreibt jede
 Zeile an RLS vorbei — inklusive Klarnamen und E-Mail-Adressen der Crew.
-Setze ein langes, einmaliges `DASHBOARD_PASSWORD`.
+Setze ein langes, einmaliges `DASHBOARD_PASSWORD`, **wenn** du Studio nutzen
+willst. Lässt du beide Werte leer (so liefert `.env.example` sie aus), verriegelt
+`kong-entrypoint.sh` die Route mit einem Zufallspasswort: Studio ist dann
+dauerhaft 401 — aber niemals offen, und der Rest des Gateways (Auth, REST,
+Realtime) läuft unbehelligt weiter. Ein Hochkomma im Passwort lehnt der
+Entrypoint ab, weil es die YAML-Struktur von `kong.yml` zerlegt.
 
 Postgres wird **nicht** veröffentlicht. Migrationen, Dumps und Restores
 laufen über `docker compose exec db …`.
@@ -148,6 +155,17 @@ Anzupassen sind außerdem die URLs: `API_EXTERNAL_URL` und
 `SUPABASE_PUBLIC_URL` auf die Supabase-Domain, `SITE_URL` auf
 `https://bordkasse.dieter.ms`, und die SMTP-Variablen auf denselben
 Mailserver, den die App-Mails schon nutzen.
+
+ℹ️ **`SITE_URL` wird doppelt genutzt.** GoTrue bekommt sie als
+`GOTRUE_SITE_URL` (Basis für den Magic-Link), und `kong-entrypoint.sh` leitet
+daraus die CORS-Allowlist ab. Für GoTrue ist ein Trailing-Slash harmlos, für
+einen CORS-Vergleich gegen den `Origin`-Header wäre er tödlich — deshalb
+**normalisiert** der Entrypoint den Wert (Kleinschreibung, ohne Pfad und
+Trailing-Slash) in eine eigene Variable `CORS_ORIGIN` und schreibt eine
+`HINWEIS:`-Zeile ins Log, wenn er dabei etwas ändern musste. Kong bricht nur ab,
+wenn sich gar kein Origin ableiten lässt (leer, ohne Schema) oder der Wert
+Zeichen enthält, die Kong als **Regex** statt als festen Origin behandeln würde
+(IPv6-Literale, Umlaut-Domains, Komma-Listen — erlaubt sind `A-Z a-z 0-9 . : / -`).
 
 ---
 
@@ -409,7 +427,8 @@ Leeres Ergebnis = alles in Ordnung.
 
 ## 7. Schritt 5 — App auf den neuen Stack zeigen lassen
 
-Solange die App noch auf Vercel läuft, dort in den Env-Vars ändern:
+In den Env-Vars der App-Ressource ändern (damals noch bei Vercel, seit dem
+Cutover in Coolify — Abschnitt 9a):
 
 | Variable | neuer Wert |
 |---|---|
@@ -453,7 +472,9 @@ Nicht abhaken, ohne es wirklich ausprobiert zu haben:
       CSP-Meldung zu `connect-src` stehen.
 - [ ] **Schreiben:** Buchung anlegen, ändern, löschen.
 - [ ] **Mails der App:** Abrechnung verschicken (Testtörn).
-- [ ] **Studio** erreichbar und fragt nach Basic-Auth.
+- [ ] **Studio:** erst `docker compose --profile studio up -d studio` starten,
+      dann erreichbar und fragt nach Basic-Auth. Ohne das Profil fragt Kong das
+      Basic-Auth zwar ab, liefert danach aber erwartungsgemäß einen 502.
 - [ ] **Crons:** beide Endpunkte antworten mit gültigem `CRON_SECRET`
       `200`, ohne `401`.
 - [ ] **Backup:** Scheduled Task angelegt, einmal manuell laufen lassen
@@ -568,8 +589,8 @@ von Supabase zu euch. Das ist der Preis dafür, dass nichts mehr einschläft.
 
 Der technische Teil liegt im Repo: [`webapp/Dockerfile`](../webapp/Dockerfile)
 (Next.js `standalone`, non-root, Healthcheck) und `output: "standalone"` in
-`next.config.ts`. Beides ist auf Vercel folgenlos, kann also fertig
-bereitliegen, bevor umgeschaltet wird.
+`next.config.ts`. Beides war auf Vercel folgenlos und lag deshalb schon fertig
+bereit, bevor umgeschaltet wurde.
 
 ### Neue Coolify-Anwendung
 
@@ -643,6 +664,23 @@ kontrollieren und den Buildtime-Haken entfernen** (Runtime bleibt an) — sowohl
 im „Production"- als auch im „Preview Deployments"-Abschnitt, beide werden
 unabhängig verwaltet.
 
+⚠️ **`NEXT_PUBLIC_*` sind seit dem Auth-Guard sicherheitsrelevant, nicht mehr
+nur kosmetisch.** Next backt sie beim Build ein — auch in Server-Code. Aus
+`NEXT_PUBLIC_SITE_URL`/`NEXT_PUBLIC_APP_ORIGIN` entsteht die Allowlist, gegen
+die `requestMayRedeemToken` (`lib/auth/origin.ts`) entscheidet, ob ein
+Magic-Link überhaupt eingelöst werden darf. Früher führte ein falscher Wert nur
+zu falschen Links; heute kann er **jeden Login blockieren** (`?auth_error=untrusted_host`).
+Daraus folgt:
+
+- Eine Domain-Änderung braucht einen **Rebuild**, kein Restart — ein reiner
+  Runtime-Wechsel wirkt nicht, und die Allowlist trägt weiter die alte Domain.
+- Beide Variablen dürfen abweichen (beide stehen auf der Allowlist), sollten es
+  aber nicht: für Mail-Links gewinnt `SITE_URL`.
+- **Notfall-Ausweg, falls nach einem Deploy niemand mehr einloggen kann:** beide
+  Variablen aus den **Build**-Args entfernen und neu bauen. Bei leerer Allowlist
+  schaltet der Guard bewusst auf fail-open, der Login funktioniert wieder wie
+  vorher. Das ist schneller als ein Revert samt Rebuild.
+
 ⚠️ **`??` vs. leerer String:** in Vercel ist eine nicht gesetzte Env-Var
 `undefined`; im Docker-Build wird ein nicht übergebener `ARG` beim `ENV`-
 Befehl im Dockerfile zu einem **leeren String** `""`. Code-Stellen, die
@@ -654,19 +692,51 @@ der Variablen aus einem Docker-`ARG` ohne Default stammen könnte.
 
 ### Die beiden Crons
 
-`vercel.json` fällt weg — **aber erst beim Umschalten, nicht vorher**. Es
-trägt neben den Crons auch `regions: ["fra1"]`; ohne die Datei liefe die
-App auf Vercel wieder in `iad1` (USA), und die beiden Crons hörten auf zu
-laufen (DSGVO-Löschung und Anzahlungs-Erinnerungen). Ersatz als Coolify
-Scheduled Tasks (Container = App-Container):
+`vercel.json` ist mit dem Cutover entfallen (es trug neben den beiden Crons
+auch `regions: ["fra1"]`). Ersatz sind zwei Coolify Scheduled Tasks auf der
+App-Ressource — „Container name" bleibt **leer**, dann läuft der Befehl im
+App-Container (verifiziert: ein Task mit leerem Feld führt erfolgreich aus):
 
 | Name | Frequenz | Command |
 |---|---|---|
-| `purge` | `0 3 * * *` | `curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/purge` |
-| `prepayment-reminders` | `0 7 * * *` | `curl -fsS -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/prepayment-reminders` |
+| `purge-node` | `0 3 * * *` | `node -e "fetch('http://127.0.0.1:3000/api/cron/purge',{headers:{Authorization:'Bearer '+process.env.CRON_SECRET}}).then(async r=>{console.log(r.status,await r.text());process.exit(r.ok?0:1)}).catch(e=>{console.log(e);process.exit(1)})"` |
+| `prepayment-reminders-node` | `0 7 * * *` | dasselbe Kommando, nur `/api/cron/purge` → `/api/cron/prepayment-reminders` (der Pfad kommt genau einmal vor; ergibt 250 Zeichen — siehe Längenlimit unten) |
 
-`-f` ist wichtig: ohne das Flag liefert `curl` bei einem 401 oder 500
-Exit-Code 0, und der Task meldet grün, obwohl nichts passiert ist.
+⚠️ **`curl` gibt es im App-Container NICHT** (echter Fund, empirisch geprüft
+über einen temporären Scheduled Task mit
+`sh -c "command -v curl || echo NO_CURL; command -v wget || echo NO_WGET; node -v"`
+→ Ausgabe `NO_CURL`, `/usr/bin/wget`, `v22.23.2`). Das Image ist
+`node:22-alpine`; Alpine bringt kein curl mit, und das Dockerfile installiert
+keins — genau deshalb nutzt schon der `HEALTHCHECK` ein `node -e "fetch(…)"`.
+Die ursprünglich hier dokumentierten `curl`-Kommandos wären beim ersten Lauf
+still mit `curl: not found` (Exit 127) gescheitert: DSGVO-Purge und
+Anzahlungs-Erinnerungen hätten nie stattgefunden. Verfügbar sind `node` und
+BusyBox-`wget` (`/usr/bin/wget`) — `wget -qO- --header=…` wäre die kürzere
+Alternative, `node -e` ist die sichere, weil die App ohnehin Node ist.
+
+Warum diese Form:
+
+- `process.env.CRON_SECRET` statt `$CRON_SECRET` — keine Shell-Quoting-Fallen,
+  falls das Secret Sonderzeichen enthält.
+- `process.exit(r.ok?0:1)` ist das Gegenstück zu `curl -f`: ohne expliziten
+  Exit-Code meldet der Task auch bei 401/500 grün, obwohl nichts passiert ist.
+- `127.0.0.1` statt `localhost` — der Server bindet auf IPv4 `0.0.0.0`
+  (`HOSTNAME` im Dockerfile). Node ≥ 20 würde ein `localhost` per Happy
+  Eyeballs zwar von `::1` auf IPv4 zurückfallen lassen, aber deterministisch
+  IPv4 ohne diesen Umweg ist sauberer — der `HEALTHCHECK` macht es genauso.
+- Status **und** Body werden geloggt, damit unter „Recent executions" sichtbar
+  ist, was der Lauf getan hat.
+
+⚠️ **Längenlimit der Coolify-API:** ein `command` über ~255 Zeichen lässt
+`POST …/scheduled-tasks` mit einer nackten HTTP-500-HTML-Seite antworten (kein
+Validierungsfehler). Die Kommandos oben liegen bei 235 bzw. 250 Zeichen —
+beim Erweitern also kürzen, nicht anhängen.
+
+**Zu den Zeiten:** 03:00 und 07:00 sind unverändert aus der alten `vercel.json`
+übernommen. Sie passen gut zum Backup-Fenster (Dump 00:00, Auslagern 02:00) —
+der Purge läuft danach, löscht also nur Daten, die schon im Dump derselben
+Nacht liegen. Wer die Zeiten verschiebt, sollte diese Reihenfolge erhalten.
+Coolify zeigt die Laufzeiten unter „Recent executions" in UTC an.
 
 ### Beim Umschalten (✅ durchgeführt am 2026-08-05)
 
@@ -711,7 +781,9 @@ Exit-Code 0, und der Task meldet grün, obwohl nichts passiert ist.
    „optional" (unabhängig von DNS/TLS) und kann bei Gelegenheit separat
    untersucht werden (z. B. beide Ressourcen explizit auf ein gemeinsames
    Coolify-Netzwerk legen).
-3. `webapp/vercel.json` entfernen und das Vercel-Projekt abschalten.
+3. `webapp/vercel.json` entfernen und das Vercel-Projekt abschalten. ✅ erledigt
+   — die beiden Crons daraus leben jetzt als Coolify Scheduled Tasks (siehe
+   „Die beiden Crons"), die `fra1`-Region entfällt mit dem eigenen Server.
 4. **Datenschutzerklärung** (`app/datenschutz/page.tsx`): Vercel Inc. und
    Supabase Inc. fallen als Auftragsverarbeiter weg, der Betreiber des
    Servers kommt hinzu (mit ladungsfähiger Identität), Hetzner als
@@ -724,9 +796,18 @@ Exit-Code 0, und der Task meldet grün, obwohl nichts passiert ist.
 ## 10. Betrieb
 
 **Updates:** Image-Versionen in `docker-compose.yml` sind gepinnt. Zum
-Aktualisieren dort die Version hochziehen, committen und
-`docker compose up -d`. Vorher Backup. Bewusst kein `:latest` — sonst
-ändert sich die Infrastruktur beim nächsten Neustart unbemerkt.
+Aktualisieren dort die Version hochziehen, committen und die Ressource **in
+Coolify redeployen** (Coolify fährt selbst `docker compose up -d`; „Preserve
+Repository During Deployment" muss gesetzt sein, siehe Abschnitt 3a). Vorher
+Backup.
+
+⚠️ **Neue `environment:`-Einträge brauchen ein Recreate, kein Restart.**
+`docker compose restart` startet den bestehenden Container mit seiner alten
+Konfiguration neu — eine frisch ergänzte Variable (z. B. `SITE_URL` beim
+Kong-Service) fehlt darin weiterhin. Nur `up -d` bzw. ein Coolify-Redeploy der
+**Supabase-Compose-Ressource** (eine andere Ressource als die App!) legt den
+Container neu an. Bewusst kein `:latest` — sonst ändert sich die Infrastruktur beim
+nächsten Neustart unbemerkt.
 
 > ⚠️ **`docker compose down -v` niemals blind ausführen.** Das `-v` löscht
 > die Named Volumes — inklusive `db-data`, also des gesamten
@@ -741,10 +822,12 @@ hätte ausgesehen, als wären alle Törns gelöscht.
 
 **Logs:** über Coolify oder `docker compose logs -f <service>`.
 
-**Postgres-Konsole:**
+**Postgres-Konsole:** auf dem Coolify-Stack trägt der Container NICHT den Namen
+aus `container_name` (siehe Abschnitt 8) — Namen deshalb dynamisch ermitteln:
 
 ```bash
-docker exec -it bordkasse-db psql -U postgres -d postgres
+DB=$(docker ps --filter name=db-<app-uuid> --format '{{.Names}}' | head -n1)
+docker exec -it "$DB" psql -U postgres -d postgres
 ```
 
 **RAM prüfen:** `docker stats --no-stream`
@@ -754,9 +837,13 @@ docker exec -it bordkasse-db psql -U postgres -d postgres
 ## 11. Rollback
 
 Solange Supabase Cloud noch existiert, ist der Rückweg kurz: die drei
-Env-Vars der App auf die alten Werte zurücksetzen und neu deployen. Das
-Cloud-Projekt erst löschen, wenn der neue Stack einen echten Törn
-überlebt hat.
+Env-Vars (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY`) in der Coolify-App-Ressource auf die alten Werte
+zurücksetzen und **neu bauen** — die beiden `NEXT_PUBLIC_*` sind
+Build-Variablen, ein Restart allein wirkt nicht. Ein Rückweg nach Vercel
+existiert nicht mehr (Projekt gelöscht), der Rollback betrifft nur die
+Datenbank. Das Cloud-Projekt erst löschen, wenn der neue Stack einen echten
+Törn überlebt hat.
 
 Wurde in der Cloud bereits gelöscht: Sicherung aus Schritt 0 einspielen.
 
@@ -770,7 +857,8 @@ Templates **nur per HTTP-URL**, nicht aus gemounteten Dateien. Ist
 sein Default zurück — kein Fehler im Log. Prüfen:
 
 ```bash
-docker exec bordkasse-auth wget -qO- "$MAILER_TEMPLATE_MAGIC_LINK" | head -5
+AUTH=$(docker ps --filter name=auth-<app-uuid> --format '{{.Names}}' | head -n1)
+docker exec "$AUTH" wget -qO- "$MAILER_TEMPLATE_MAGIC_LINK" | head -5
 ```
 
 Häufigste Ursache: die Ausnahme für `email/` im `config.matcher` von

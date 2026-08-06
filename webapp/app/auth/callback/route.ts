@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { resolveOrigin, safeNextPath } from "@/lib/auth/origin";
+import { requestMayRedeemToken, resolveRedirectOrigin, safeNextPath } from "@/lib/auth/origin";
 
 export const dynamic = "force-dynamic";
 
@@ -29,12 +29,11 @@ export async function GET(request: NextRequest) {
   const code = url.searchParams.get("code");
   const next = safeNextPath(url.searchParams.get("next"));
 
-  // Bewusst NICHT `url.origin`: hinter Traefik/Coolify (Docker-Standalone-
-  // Server) liefert `new URL(request.url)` verlässlich `0.0.0.0:3000` statt
-  // der echten Domain (siehe /auth/verify). Bei einem GET-Linkklick schickt
-  // der Browser i. d. R. keinen Origin-Header — `resolveOrigin` fällt dann
-  // korrekt auf NEXT_PUBLIC_SITE_URL/APP_ORIGIN zurück.
-  const origin = resolveOrigin(request.headers.get("origin"));
+  // Bewusst NICHT `url.origin` (hinter Traefik `0.0.0.0:3000`). Bei einem
+  // GET-Linkklick schickt der Browser keinen Origin-Header — deshalb zieht
+  // resolveRedirectOrigin primär den Forwarded-/Host-Header. Details siehe
+  // lib/auth/origin.ts.
+  const origin = resolveRedirectOrigin(request.headers, request.url);
 
   // Supabase-eigene Fehler werden als ?error=…&error_description=… übergeben.
   const supaError = url.searchParams.get("error");
@@ -48,6 +47,16 @@ export async function GET(request: NextRequest) {
       origin,
       "no_code",
       "Magic-Link enthält keinen Auth-Code. Häufigste Ursache: Link in einem anderen Browser geöffnet als angefordert (PKCE-Verifier liegt in Cookies des Original-Browsers).",
+    );
+  }
+
+  // Vor dem Code-Tausch: auch der PKCE-Code ist einmalig, ein Request über eine
+  // nicht erlaubte Domain würde ihn verbrennen (siehe requestMayRedeemToken).
+  if (!requestMayRedeemToken(request.headers, request.url)) {
+    return redirectWithError(
+      origin,
+      "untrusted_host",
+      "Der Login wurde über eine nicht freigegebene Adresse aufgerufen. Öffne die App direkt und fordere einen neuen Link an.",
     );
   }
 

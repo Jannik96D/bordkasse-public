@@ -21,11 +21,12 @@ const PUBLIC_ROUTES = new Set([
 ]);
 
 export async function proxy(request: NextRequest) {
-  // Cron-Endpunkte (Vercel Cron, kein Session-Cookie, nur `Authorization:
-  // Bearer <CRON_SECRET>`) laufen NICHT durch die Session-Middleware — sonst
-  // landet jeder Aufruf mangels User in einem 307-Redirect auf /login. Cron-
-  // Jobs folgen keinen Redirects und Vercel loggt Redirect-Antworten nicht,
-  // weshalb der Ausfall unbemerkt bliebe (Code-Review 2026-08, Fund 2). Die
+  // Cron-Endpunkte (Coolify Scheduled Task, kein Session-Cookie, nur
+  // `Authorization: Bearer <CRON_SECRET>`) laufen NICHT durch die Session-
+  // Middleware — sonst landet jeder Aufruf mangels User in einem 307-Redirect
+  // auf /login. Der Cron-Aufruf folgt keinen Redirects und würde den 307 als
+  // Erfolg verbuchen, weshalb der Ausfall unbemerkt bliebe (Code-Review
+  // 2026-08, Fund 2). Die
   // Route-Handler unter app/api/cron/* sind selbst fail-closed via
   // verifyCronAuth (lib/auth/cron-auth.ts) geschützt — dieser Bypass entzieht
   // ihnen also keinen Schutz, er lässt sie nur den Proxy überhaupt erreichen.

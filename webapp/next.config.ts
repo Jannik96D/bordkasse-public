@@ -62,9 +62,8 @@ const nextConfig: NextConfig = {
   /**
    * Container-Betrieb (Coolify): `next build` legt unter .next/standalone
    * einen eigenständigen Server samt der wirklich benötigten node_modules
-   * ab — siehe Dockerfile. Auf Vercel ist die Option folgenlos (Vercel baut
-   * ohnehin eigene Lambdas), sie darf also schon vor dem Umschalten im Repo
-   * stehen.
+   * ab — siehe Dockerfile. Pflicht für den Container-Betrieb: ohne die Option
+   * fehlt .next/standalone/server.js, auf das der Runner-Stage-`CMD` zeigt.
    */
   output: "standalone",
   /**

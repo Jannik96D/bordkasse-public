@@ -63,11 +63,11 @@ test.describe("Auth-Schutz", () => {
 
 test.describe("Cron-Endpunkte", () => {
   // Regression zu Code-Review 2026-08 Fund 2: die Session-Middleware
-  // (proxy.ts) darf /api/cron/* NICHT abfangen — Vercel-Cron schickt kein
+  // (proxy.ts) darf /api/cron/* NICHT abfangen — der Cron-Task schickt kein
   // Session-Cookie, nur `Authorization: Bearer <CRON_SECRET>`, und folgt
   // keinen Redirects. Ohne den Bypass in proxy.ts würde jeder Cron-Aufruf
-  // in einem unbemerkten 307 auf /login enden (Redirects werden von Vercel
-  // nicht geloggt) — die automatische DSGVO-Löschung und die Anzahlungs-
+  // in einem unbemerkten 307 auf /login enden — die automatische
+  // DSGVO-Löschung und die Anzahlungs-
   // Erinnerungen liefen dann nie. Der eigentliche Auth-Schutz der Routen
   // ist verifyCronAuth (401/503), NICHT die Middleware — deshalb wird hier
   // nur "kein Redirect" geprüft, nicht der konkrete Statuscode.
@@ -90,6 +90,14 @@ test.describe("Security-Header", () => {
     expect(headers["x-content-type-options"]).toBe("nosniff");
     expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
     expect(headers["content-security-policy"]).toContain("default-src 'self'");
-    expect(headers["content-security-policy"]).toContain("supabase.co");
+
+    // `connect-src` wird beim Build aus NEXT_PUBLIC_SUPABASE_URL abgeleitet
+    // (lib/security/csp.ts). Früher stand hier fest `supabase.co` — das ist
+    // aber nur der Fallback für eine NICHT gesetzte Variable: gegen den selbst
+    // gehosteten Stack schlug die Zusicherung fehl, gegen einen kaputt
+    // konfigurierten Build ging sie durch. Sie prüfte also den Fehlerfall.
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const expectedHost = supabaseUrl ? new URL(supabaseUrl).host : "supabase.co";
+    expect(headers["content-security-policy"]).toContain(expectedHost);
   });
 });
