@@ -231,6 +231,13 @@ supabase link --project-ref <ref>
 supabase db push
 ```
 
+⚠️ Das gilt **nicht nur beim Aufsetzen**: auch jede spätere Migration muss
+einzeln gepusht werden. Ein Coolify-Deployment wendet keine Migrationen an —
+auch nicht das der Supabase-Ressource, denn der Compose-Stack startet nur
+Container neu. Kontrolle: `select max(version) from supabase_migrations.schema_migrations`.
+Notfallweg ohne DB-Verbindung und der Trockenlauf-Trick zur Fehlersuche stehen
+in [`docs/self-hosting.md`](../docs/self-hosting.md), Abschnitt 10.
+
 **3. Auth konfigurieren** (Supabase Dashboard → Authentication):
 - SMTP-Provider eintragen (z.B. Resend mit eigener Sender-Domain)
 - **Sign In / Providers → Email:** „Confirm email" auf **OFF** (wir nutzen Magic-Link-Only-Auth; Confirm-Signup würde sonst eine unbranded Vorab-Mail schicken)
