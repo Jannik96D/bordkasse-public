@@ -87,6 +87,11 @@ export function appOrigin(): string {
     const normalized = normalizeOrigin(configured);
     if (normalized) return normalized;
   }
+  // Ohne Env außerhalb von Production auf den lokalen Server zeigen: sonst
+  // verweisen Mails, die man lokal auslöst (Abrechnung, Reminder — sie landen
+  // im Mailpit), auf die LIVE-Installation. Zwei der ersetzten Aufrufstellen
+  // hatten dafür früher eine offensichtlich tote Domain als Fallback.
+  if (process.env.NODE_ENV !== "production") return "http://localhost:3000";
   return FALLBACK_ORIGIN;
 }
 
@@ -115,12 +120,12 @@ function requestScheme(requestUrl: string | undefined): string | null {
  * sonst das Schema der Request-URL übernehmen.
  */
 function forwardedOrigin(headers: Headers, requestUrl?: string): string | null {
-  // `||` statt `??`: ein VORHANDENER, aber leerer `x-forwarded-host` muss auf
-  // den `Host`-Header zurückfallen. Mit `??` bliebe `host` ein leerer String,
-  // `forwardedOrigin` gäbe null zurück und die Host-Prüfung in
+  // `||` (nicht `??`): ein VORHANDENER, aber leerer `x-forwarded-host` ist ein
+  // leerer String und muss auf den `Host`-Header zurückfallen — sonst gäbe
+  // `forwardedOrigin` null zurück und die Host-Prüfung in
   // `requestMayRedeemToken` wäre stillschweigend ausgeschaltet (fail-open in
   // genau der Funktion, die fail-closed sein soll).
-  const forwardedHost = headers.get("x-forwarded-host") || null;
+  const forwardedHost = headers.get("x-forwarded-host");
   const host = forwardedHost || headers.get("host");
   if (!host) return null;
 
@@ -160,16 +165,17 @@ function forwardedOrigin(headers: Headers, requestUrl?: string): string | null {
  *      und damit unbrauchbar.
  */
 export function resolveRedirectOrigin(headers: Headers, requestUrl: string): string {
-  const allowed = allowedOrigins();
   const forwarded = forwardedOrigin(headers, requestUrl);
 
-  if (forwarded && allowed.has(forwarded)) return forwarded;
+  // Host-basiert nachschlagen, kanonischen Origin zurückgeben — siehe
+  // allowedOriginForHost. Ein `http`-Forwarded (Proxy ohne x-forwarded-proto)
+  // darf denselben Host nicht verfehlen wie der Token-Guard, der ihn zulässt.
+  const fromForwarded = allowedOriginForHost(hostOf(forwarded ?? ""));
+  if (fromForwarded) return fromForwarded;
 
   const originHeader = headers.get("origin");
-  if (originHeader) {
-    const normalized = normalizeOrigin(originHeader);
-    if (normalized && allowed.has(normalized)) return normalized;
-  }
+  const fromOrigin = allowedOriginForHost(hostOf(originHeader ?? ""));
+  if (fromOrigin) return fromOrigin;
 
   if (process.env.NODE_ENV !== "production" && forwarded) return forwarded;
 
@@ -203,9 +209,18 @@ export function resolveRedirectOrigin(headers: Headers, requestUrl: string): str
  */
 function hostOf(value: string): string | null {
   try {
+    const url = new URL(value);
     // Trailing-Dot der FQDN-Schreibweise (`example.com.`) abschneiden: sonst
     // wäre derselbe Host formal ein anderer und der Login würde abgewiesen.
-    return new URL(value).host.toLowerCase().replace(/\.(?=:|$)/, "");
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+    // Default-Ports abschneiden — und zwar SCHEMA-UNABHÄNGIG. `new URL()` tut
+    // das nur passend zum eigenen Schema (`https://h:443` → `h`, aber
+    // `http://h:443` → `h:443`). Da wir Hosts über Schema-Grenzen hinweg
+    // vergleichen (das Schema ist hinter dem Proxy unzuverlässig), muss
+    // `:443`/`:80` in beiden Richtungen wegfallen — sonst sperrt ein Proxy,
+    // der den Port in `x-forwarded-host` schreibt, die ganze Crew aus.
+    const port = url.port === "80" || url.port === "443" ? "" : url.port;
+    return port ? `${hostname}:${port}` : hostname;
   } catch {
     return null;
   }
@@ -219,6 +234,26 @@ function allowedHosts(): Set<string> {
     if (host) hosts.add(host);
   }
   return hosts;
+}
+
+/**
+ * Der allowlistete Origin zu einem Host — oder null, wenn der Host nicht
+ * freigegeben ist.
+ *
+ * Der Vergleich läuft über den Host, zurückgegeben wird aber der KANONISCHE
+ * Origin aus der Env (also mit dem dort konfigurierten Schema). Sonst entstünde
+ * genau der Riss, den `requestMayRedeemToken` verhindern soll: der Guard lässt
+ * einen Request durch, weil der Host stimmt (Schema und Trailing-Dot sind ihm
+ * egal), während der Redirect-Origin exakt verglichen wird, danebengeht und den
+ * Nutzer nach erfolgreichem `verifyOtp` auf einen anderen Host schickt —
+ * ausgeloggt, Token verbraucht.
+ */
+function allowedOriginForHost(host: string | null): string | null {
+  if (!host) return null;
+  for (const origin of allowedOrigins()) {
+    if (hostOf(origin) === host) return origin;
+  }
+  return null;
 }
 
 /**
@@ -328,9 +363,24 @@ export function safeNextPath(
   fallback = "/",
 ): string {
   if (!next) return fallback;
-  if (!next.startsWith("/")) return fallback;
+
+  // ⚠️ ZUERST die Zeichen entfernen, die der URL-Parser selbst entfernt, sonst
+  // ist die Prüfung wertlos: `new URL()` streicht Tab, LF und CR ÜBERALL aus
+  // der Eingabe und trimmt führende/abschließende Steuerzeichen. `/<Tab>/evil.com`
+  // beginnt also mit einem einzelnen `/` (Prüfung unten bestanden), wird beim
+  // Auflösen aber zu `https://evil.com/` — ein Open-Redirect auf genau der
+  // Response, die die frische Session setzt. Der Wert kommt aus `?next=` bzw.
+  // dem Formularfeld auf /auth/confirm; `%09` wird von `searchParams` in einen
+  // echten Tab dekodiert, ist also nicht durch Prozent-Kodierung entschärft.
+  const cleaned = next
+    .replace(/[\t\n\r]/g, "")
+    // C0-Steuerzeichen und Leerzeichen am Rand: die trimmt der URL-Parser.
+    // eslint-disable-next-line no-control-regex
+    .replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, "");
+
+  if (!cleaned.startsWith("/")) return fallback;
   // "//host" und "/\host" werden vom Browser als protokoll-relative bzw.
   // externe URL interpretiert.
-  if (next.startsWith("//") || next.startsWith("/\\")) return fallback;
-  return next;
+  if (cleaned.startsWith("//") || cleaned.startsWith("/\\")) return fallback;
+  return cleaned;
 }

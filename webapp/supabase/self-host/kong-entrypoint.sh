@@ -2,35 +2,50 @@
 # Custom entrypoint for Kong that builds Lua expressions for request-transformer
 # and performs environment variable substitution in the declarative config.
 
-# ⚠️ SITE_URL trägt die CORS-Allowlist jeder Route in kong.yml
-# (`origins: [$SITE_URL]`).
+# ── CORS_ORIGIN aus SITE_URL ableiten ────────────────────────────────────
 #
-# Der Wert MUSS exakt dem Origin-Header des Browsers entsprechen, also
-# `schema://host[:port]` — ohne Trailing-Slash, ohne Pfad, ohne Komma-Liste.
-# Ein abweichender Wert bricht nicht laut, sondern erzeugt eine CORS-Liste, die
-# NIE matcht: server-seitige Calls laufen weiter, jeder Browser-Call
-# (Token-Refresh, Realtime) scheitert an der Preflight. Diagnostisch ist das die
-# schlimmste Variante — deshalb hier fail-loud statt später im Betrieb rätseln.
+# Die `cors`-Plugins in kong.yml schränken `origins` auf genau einen Wert ein.
+# Der muss BYTEWEISE dem `Origin`-Header des Browsers entsprechen, also
+# `schema://host[:port]` — kleingeschrieben, ohne Pfad und ohne Trailing-Slash.
+# Passt er nicht, bricht nichts laut: server-seitige Calls laufen weiter,
+# während jeder Browser-Call (Token-Refresh, Realtime) still an der
+# CORS-Preflight scheitert.
 #
-# Hinweis: eine gesetzte-aber-LEERE Variable ergibt in kong.yml einen
-# YAML-`null`-Eintrag, an dem Kongs Schema-Validierung ohnehin scheitert (also
-# laut, nur mit unverständlicher Meldung); eine GAR NICHT gesetzte lässt die
-# awk-Substitution das Literal `$SITE_URL` stehen, was still danebengeht.
+# ⚠️ SITE_URL wird GETEILT: dieselbe Variable geht als GOTRUE_SITE_URL an den
+# auth-Container, wo ein Trailing-Slash völlig harmlos ist (das Mail-Template
+# hängt `/auth/confirm` an). Ein bestehendes, funktionierendes Deployment darf
+# deshalb NICHT daran scheitern, dass Kong strengere Ansprüche stellt als
+# GoTrue — sonst nimmt ein Neustart (Reboot, Redeploy, `restart: unless-stopped`)
+# das ganze Gateway mit herunter. Wir normalisieren also, statt abzubrechen,
+# und schreiben das Ergebnis in eine Kong-eigene Variable.
 if [ -z "$SITE_URL" ]; then
     echo "FEHLER: SITE_URL ist nicht gesetzt — die CORS-Allowlist in kong.yml bliebe leer und jeder Browser-Zugriff auf die API würde scheitern. Kong startet nicht." >&2
     exit 1
 fi
 
-case "$SITE_URL" in
-    http://*|https://*) ;;
-    *) echo "FEHLER: SITE_URL braucht ein Schema (http:// oder https://), ist aber '$SITE_URL' — der CORS-Vergleich gegen den Origin-Header würde nie matchen." >&2; exit 1 ;;
+# Schema + Host kleinschreiben (Kong liefert den Wert unverändert im
+# `Access-Control-Allow-Origin` aus; der Browser vergleicht gegen seinen
+# kleingeschriebenen Origin), dann alles ab dem ersten `/` nach dem Schema
+# abschneiden — das erschlägt Trailing-Slash, Pfad und Query in einem.
+CORS_ORIGIN="$(printf '%s' "$SITE_URL" | tr '[:upper:]' '[:lower:]' | sed -E 's#^([a-z][a-z0-9+.-]*://[^/?#]*).*#\1#')"
+
+case "$CORS_ORIGIN" in
+    http://?*|https://?*) ;;
+    *) echo "FEHLER: Aus SITE_URL ('$SITE_URL') lässt sich kein Origin ableiten — erwartet wird http(s)://host[:port]. Kong startet nicht, weil die CORS-Allowlist sonst nie matcht." >&2; exit 1 ;;
 esac
 
-# Rest nach dem Schema darf nur host[:port] sein. Deckt Trailing-Slash (GoTrue
-# akzeptiert den für dieselbe Variable), Pfade und Komma-Listen ab.
-case "${SITE_URL#*://}" in
-    */*|*,*|*\ *) echo "FEHLER: SITE_URL muss host[:port] ohne Pfad, Trailing-Slash, Komma oder Leerzeichen sein, ist aber '$SITE_URL'." >&2; exit 1 ;;
+# Kong nutzt einen `origins`-Eintrag nur dann als LITERAL, wenn er
+# `^[A-Za-z0-9.:/-]+$` erfüllt (siehe plugins/cors/handler.lua); alles andere
+# behandelt es als Regex — dann matcht z. B. eine IPv6-Adresse oder ein
+# Umlaut-Domain-Name still gar nicht mehr. Lieber hier abbrechen.
+case "$CORS_ORIGIN" in
+    *[!A-Za-z0-9.:/-]*) echo "FEHLER: SITE_URL ('$SITE_URL') enthält Zeichen, die Kong als Regex statt als festen Origin behandeln würde (erlaubt: A-Z a-z 0-9 . : / -). Kong startet nicht." >&2; exit 1 ;;
 esac
+
+if [ "$CORS_ORIGIN" != "$SITE_URL" ]; then
+    echo "HINWEIS: SITE_URL ('$SITE_URL') wurde für die CORS-Allowlist zu '$CORS_ORIGIN' normalisiert (Kleinschreibung, ohne Pfad/Trailing-Slash). GOTRUE_SITE_URL bleibt unverändert." >&2
+fi
+export CORS_ORIGIN
 
 # Die Dashboard-Route (kong.yml, Consumer DASHBOARD) ist der einzige Schutz vor
 # vollem, RLS-losem DB-Zugriff über Studio, sobald das `studio`-Profil läuft.
@@ -56,6 +71,19 @@ if [ -z "$DASHBOARD_USERNAME" ] || [ -z "$DASHBOARD_PASSWORD" ]; then
     fi
     export DASHBOARD_USERNAME DASHBOARD_PASSWORD
     echo "WARNUNG: DASHBOARD_USERNAME/DASHBOARD_PASSWORD ist leer — die Studio-Route wird mit einem Zufallspasswort verriegelt (kein Login möglich). Zum Nutzen von Studio beide Werte in der Env setzen." >&2
+else
+    # Selbst gesetzte Werte: ein Hochkomma zerlegt den einfach gequoteten
+    # YAML-Skalar in kong.yml und lässt Kong mit einem kryptischen Parse-Fehler
+    # sterben — hier lieber mit klarer Ansage abbrechen.
+    case "$DASHBOARD_USERNAME$DASHBOARD_PASSWORD" in
+        *\'*) echo "FEHLER: DASHBOARD_USERNAME/DASHBOARD_PASSWORD darf kein Hochkomma (') enthalten — das bricht die YAML-Struktur von kong.yml." >&2; exit 1 ;;
+    esac
+    # Kein harter Abbruch bei kurzen Passwörtern: das ist die bewusste
+    # Entscheidung des Betreibers, und ein Lockout des Gateways wäre die
+    # schlechtere Antwort. Nur ein deutlicher Hinweis.
+    if [ "${#DASHBOARD_PASSWORD}" -lt 16 ]; then
+        echo "WARNUNG: DASHBOARD_PASSWORD ist kürzer als 16 Zeichen — die Studio-Route ist der einzige Schutz vor vollem DB-Zugriff an RLS vorbei." >&2
+    fi
 fi
 
 # Build Lua expressions for translating opaque API keys to asymmetric JWTs.

@@ -90,6 +90,14 @@ test.describe("Security-Header", () => {
     expect(headers["x-content-type-options"]).toBe("nosniff");
     expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
     expect(headers["content-security-policy"]).toContain("default-src 'self'");
-    expect(headers["content-security-policy"]).toContain("supabase.co");
+
+    // `connect-src` wird beim Build aus NEXT_PUBLIC_SUPABASE_URL abgeleitet
+    // (lib/security/csp.ts). Früher stand hier fest `supabase.co` — das ist
+    // aber nur der Fallback für eine NICHT gesetzte Variable: gegen den selbst
+    // gehosteten Stack schlug die Zusicherung fehl, gegen einen kaputt
+    // konfigurierten Build ging sie durch. Sie prüfte also den Fehlerfall.
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const expectedHost = supabaseUrl ? new URL(supabaseUrl).host : "supabase.co";
+    expect(headers["content-security-policy"]).toContain(expectedHost);
   });
 });

@@ -87,7 +87,12 @@ Kong liefert darunter alles aus:
 Studio braucht also **keine eigene Domain** und steht nicht ungeschützt im
 Netz. Das ist wichtig: wer in Studio hineinkommt, liest und schreibt jede
 Zeile an RLS vorbei — inklusive Klarnamen und E-Mail-Adressen der Crew.
-Setze ein langes, einmaliges `DASHBOARD_PASSWORD`.
+Setze ein langes, einmaliges `DASHBOARD_PASSWORD`, **wenn** du Studio nutzen
+willst. Lässt du beide Werte leer (so liefert `.env.example` sie aus), verriegelt
+`kong-entrypoint.sh` die Route mit einem Zufallspasswort: Studio ist dann
+dauerhaft 401 — aber niemals offen, und der Rest des Gateways (Auth, REST,
+Realtime) läuft unbehelligt weiter. Ein Hochkomma im Passwort lehnt der
+Entrypoint ab, weil es die YAML-Struktur von `kong.yml` zerlegt.
 
 Postgres wird **nicht** veröffentlicht. Migrationen, Dumps und Restores
 laufen über `docker compose exec db …`.
@@ -150,6 +155,17 @@ Anzupassen sind außerdem die URLs: `API_EXTERNAL_URL` und
 `SUPABASE_PUBLIC_URL` auf die Supabase-Domain, `SITE_URL` auf
 `https://bordkasse.dieter.ms`, und die SMTP-Variablen auf denselben
 Mailserver, den die App-Mails schon nutzen.
+
+ℹ️ **`SITE_URL` wird doppelt genutzt.** GoTrue bekommt sie als
+`GOTRUE_SITE_URL` (Basis für den Magic-Link), und `kong-entrypoint.sh` leitet
+daraus die CORS-Allowlist ab. Für GoTrue ist ein Trailing-Slash harmlos, für
+einen CORS-Vergleich gegen den `Origin`-Header wäre er tödlich — deshalb
+**normalisiert** der Entrypoint den Wert (Kleinschreibung, ohne Pfad und
+Trailing-Slash) in eine eigene Variable `CORS_ORIGIN` und schreibt eine
+`HINWEIS:`-Zeile ins Log, wenn er dabei etwas ändern musste. Kong bricht nur ab,
+wenn sich gar kein Origin ableiten lässt (leer, ohne Schema) oder der Wert
+Zeichen enthält, die Kong als **Regex** statt als festen Origin behandeln würde
+(IPv6-Literale, Umlaut-Domains, Komma-Listen — erlaubt sind `A-Z a-z 0-9 . : / -`).
 
 ---
 
@@ -648,6 +664,23 @@ kontrollieren und den Buildtime-Haken entfernen** (Runtime bleibt an) — sowohl
 im „Production"- als auch im „Preview Deployments"-Abschnitt, beide werden
 unabhängig verwaltet.
 
+⚠️ **`NEXT_PUBLIC_*` sind seit dem Auth-Guard sicherheitsrelevant, nicht mehr
+nur kosmetisch.** Next backt sie beim Build ein — auch in Server-Code. Aus
+`NEXT_PUBLIC_SITE_URL`/`NEXT_PUBLIC_APP_ORIGIN` entsteht die Allowlist, gegen
+die `requestMayRedeemToken` (`lib/auth/origin.ts`) entscheidet, ob ein
+Magic-Link überhaupt eingelöst werden darf. Früher führte ein falscher Wert nur
+zu falschen Links; heute kann er **jeden Login blockieren** (`?auth_error=untrusted_host`).
+Daraus folgt:
+
+- Eine Domain-Änderung braucht einen **Rebuild**, kein Restart — ein reiner
+  Runtime-Wechsel wirkt nicht, und die Allowlist trägt weiter die alte Domain.
+- Beide Variablen dürfen abweichen (beide stehen auf der Allowlist), sollten es
+  aber nicht: für Mail-Links gewinnt `SITE_URL`.
+- **Notfall-Ausweg, falls nach einem Deploy niemand mehr einloggen kann:** beide
+  Variablen aus den **Build**-Args entfernen und neu bauen. Bei leerer Allowlist
+  schaltet der Guard bewusst auf fail-open, der Login funktioniert wieder wie
+  vorher. Das ist schneller als ein Revert samt Rebuild.
+
 ⚠️ **`??` vs. leerer String:** in Vercel ist eine nicht gesetzte Env-Var
 `undefined`; im Docker-Build wird ein nicht übergebener `ARG` beim `ENV`-
 Befehl im Dockerfile zu einem **leeren String** `""`. Code-Stellen, die
@@ -766,7 +799,14 @@ Coolify zeigt die Laufzeiten unter „Recent executions" in UTC an.
 Aktualisieren dort die Version hochziehen, committen und die Ressource **in
 Coolify redeployen** (Coolify fährt selbst `docker compose up -d`; „Preserve
 Repository During Deployment" muss gesetzt sein, siehe Abschnitt 3a). Vorher
-Backup. Bewusst kein `:latest` — sonst ändert sich die Infrastruktur beim
+Backup.
+
+⚠️ **Neue `environment:`-Einträge brauchen ein Recreate, kein Restart.**
+`docker compose restart` startet den bestehenden Container mit seiner alten
+Konfiguration neu — eine frisch ergänzte Variable (z. B. `SITE_URL` beim
+Kong-Service) fehlt darin weiterhin. Nur `up -d` bzw. ein Coolify-Redeploy der
+**Supabase-Compose-Ressource** (eine andere Ressource als die App!) legt den
+Container neu an. Bewusst kein `:latest` — sonst ändert sich die Infrastruktur beim
 nächsten Neustart unbemerkt.
 
 > ⚠️ **`docker compose down -v` niemals blind ausführen.** Das `-v` löscht

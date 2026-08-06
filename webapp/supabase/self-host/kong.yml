@@ -9,13 +9,17 @@
 # Studio wird von der Catch-all-Route `dashboard` (unten) hinter Basic-Auth
 # ausgeliefert — deshalb braucht Studio KEINE eigene Domain.
 #
-# CORS: alle `cors`-Plugins sind auf `origins: [$SITE_URL]` eingeschränkt
+# CORS: alle `cors`-Plugins sind auf `origins: [$CORS_ORIGIN]` eingeschränkt
 # (statt Kongs Default-Wildcard `*`) — Defense-in-depth, da Key-Auth + RLS
 # ohnehin greifen, aber ein fremder Origin soll nicht browser-seitig gegen
-# die API fahren können. $SITE_URL wird von kong-entrypoint.sh wie jede
-# andere Variable substituiert (dieselbe Variable, die GoTrue als
-# GOTRUE_SITE_URL bekommt) — dafür muss SITE_URL in der Kong-Umgebung
-# (docker-compose.yml) gesetzt sein.
+# die API fahren können.
+#
+# $CORS_ORIGIN wird NICHT in der Env gesetzt, sondern von kong-entrypoint.sh
+# aus SITE_URL abgeleitet (kleingeschrieben, ohne Pfad/Trailing-Slash) und
+# exportiert, bevor die awk-Substitution läuft. Grund: SITE_URL geht als
+# GOTRUE_SITE_URL an denselben Stack, wo ein Trailing-Slash harmlos ist —
+# für einen CORS-Vergleich gegen den Origin-Header wäre er tödlich. Der
+# Entrypoint bricht nur ab, wenn sich gar kein Origin ableiten lässt.
 _format_version: '2.1'
 _transform: true
 
@@ -82,7 +86,7 @@ services:
       - name: cors
         config:
           origins:
-            - $SITE_URL
+            - $CORS_ORIGIN
   - name: auth-v1-open-callback
     _comment: 'Auth: /auth/v1/callback* -> http://auth:9999/callback*'
     url: http://auth:9999/callback
@@ -95,7 +99,7 @@ services:
       - name: cors
         config:
           origins:
-            - $SITE_URL
+            - $CORS_ORIGIN
   - name: auth-v1-open-authorize
     _comment: 'Auth: /auth/v1/authorize* -> http://auth:9999/authorize*'
     url: http://auth:9999/authorize
@@ -108,7 +112,7 @@ services:
       - name: cors
         config:
           origins:
-            - $SITE_URL
+            - $CORS_ORIGIN
   - name: auth-v1-open-jwks
     _comment: 'Auth: /auth/v1/.well-known/jwks.json -> http://auth:9999/.well-known/jwks.json'
     url: http://auth:9999/.well-known/jwks.json
@@ -121,7 +125,7 @@ services:
       - name: cors
         config:
           origins:
-            - $SITE_URL
+            - $CORS_ORIGIN
 
   - name: auth-v1-open-sso-acs
     url: "http://auth:9999/sso/saml/acs"
@@ -134,7 +138,7 @@ services:
       - name: cors
         config:
           origins:
-            - $SITE_URL
+            - $CORS_ORIGIN
 
   - name: auth-v1-open-sso-metadata
     url: "http://auth:9999/sso/saml/metadata"
@@ -147,7 +151,7 @@ services:
       - name: cors
         config:
           origins:
-            - $SITE_URL
+            - $CORS_ORIGIN
 
   ## Secure Auth routes
   - name: auth-v1
@@ -162,7 +166,7 @@ services:
       - name: cors
         config:
           origins:
-            - $SITE_URL
+            - $CORS_ORIGIN
       - name: key-auth
         config:
           hide_credentials: false
@@ -193,7 +197,7 @@ services:
       - name: cors
         config:
           origins:
-            - $SITE_URL
+            - $CORS_ORIGIN
       - name: key-auth
         config:
           hide_credentials: false
@@ -224,7 +228,7 @@ services:
       - name: cors
         config:
           origins:
-            - $SITE_URL
+            - $CORS_ORIGIN
       - name: key-auth
         config:
           hide_credentials: false
@@ -256,7 +260,7 @@ services:
       - name: cors
         config:
           origins:
-            - $SITE_URL
+            - $CORS_ORIGIN
       - name: key-auth
         config:
           hide_credentials: false
@@ -290,7 +294,7 @@ services:
       - name: cors
         config:
           origins:
-            - $SITE_URL
+            - $CORS_ORIGIN
       - name: key-auth
         config:
           hide_credentials: false
@@ -354,7 +358,7 @@ services:
       - name: cors
         config:
           origins:
-            - $SITE_URL
+            - $CORS_ORIGIN
       - name: key-auth
         config:
           hide_credentials: false
@@ -386,7 +390,7 @@ services:
       - name: cors
         config:
           origins:
-            - $SITE_URL
+            - $CORS_ORIGIN
 
   ## Analytics routes
   ## Not used - Studio and Vector talk directly to analytics via Docker networking.
@@ -487,7 +491,7 @@ services:
       - name: cors
         config:
           origins:
-            - $SITE_URL
+            - $CORS_ORIGIN
       - name: basic-auth
         config:
           hide_credentials: true

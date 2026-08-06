@@ -31,9 +31,11 @@ function translateAuthError(code: string, _rawMessage: string | null): string {
     case "user_not_allowed":
       return "Diese E-Mail-Adresse ist nicht eingeladen. Bitte beim Skipper melden.";
     case "untrusted_host":
-      // Der Token wurde bewusst NICHT eingelöst (siehe requestMayRedeemToken)
-      // — er gilt also noch, wenn die App über die richtige Adresse geöffnet wird.
-      return "Der Login lief über eine nicht freigegebene Adresse. Öffne bordkasse.dieter.ms direkt — dein Link gilt noch.";
+      // Der Token wurde bewusst NICHT eingelöst (siehe requestMayRedeemToken),
+      // gilt also noch. Bewusst ohne fest verdrahtete Domain (dieselbe Datei
+      // wird in Forks genutzt) und mit einem Ausweg, falls der Link erneut auf
+      // derselben Adresse landet.
+      return "Der Login lief über eine nicht freigegebene Adresse — dein Link wurde nicht verbraucht und gilt noch. Öffne die App über die gewohnte Adresse und klicke den Link dort erneut; falls er wieder hier landet, fordere unten einen neuen an.";
     default:
       return "Bitte fordere einen neuen Magic-Link an.";
   }
