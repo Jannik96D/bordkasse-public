@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useToast } from "@/components/toast-provider";
 import { savePushSubscription, deletePushSubscription } from "@/app/profile/push-actions";
 import { isIos, isStandalone } from "@/lib/pwa";
+import { urlBase64ToUint8Array, vapidKeyMatches } from "@/lib/push/vapid";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -13,17 +14,99 @@ export type PushStatus =
   | "needs-install" // iOS: erst zum Home-Bildschirm hinzufügen
   | "denied" // Permission hart blockiert
   | "subscribed"
+  | "stale" // Abo existiert, wurde aber mit einem ALTEN VAPID-Key erzeugt
   | "unsubscribed";
 
-/** Base64url (VAPID-Public-Key) → Uint8Array für applicationServerKey.
- *  Klassische Fehlerquelle: den rohen String direkt zu übergeben → subscribe() wirft. */
-function urlBase64ToUint8Array(base64: string): Uint8Array {
-  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
-  const b64 = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const raw = atob(b64);
-  const out = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
-  return out;
+/** Ergebnis eines stillen Erneuerungsversuchs. */
+type HealResult = "healed" | "failed" | "not-ours";
+
+/**
+ * Ersetzt ein Abo, das mit einem alten VAPID-Key erzeugt wurde, still durch
+ * ein frisches.
+ *
+ * **Zuerst die DB-Zeile löschen, dann erst das Browser-Abo anfassen.** Das ist
+ * bewusst so herum und erledigt drei Dinge auf einmal:
+ *
+ *  1. **Eigentumsnachweis.** `deletePushSubscription` filtert serverseitig auf
+ *     die eigene `person_id` und meldet über `deleted`, ob wirklich eine
+ *     eigene Zeile getroffen wurde. Auf einem geteilten Gerät (Familien-iPad —
+ *     ausdrücklich ein Anwendungsfall) gehört das vorhandene Abo womöglich
+ *     jemand anderem. Ohne diese Prüfung würden wir ihm **ohne jede Nutzer-
+ *     aktion** sein Abo abmelden und die eigene Person darüberschreiben; seine
+ *     DB-Zeile bliebe als Leiche zurück und er bekäme nie wieder etwas.
+ *     `disable()` schützt genau davor — der Heilpfad muss es genauso tun.
+ *  2. **Keine Waise bei Fehlern.** Ist die Zeile weg, bevor `unsubscribe()`
+ *     läuft, hinterlässt jeder spätere Fehlschlag einen konsistenten Zustand:
+ *     kein Abo im Browser UND keine Zeile in der DB. Andersherum (löschen zum
+ *     Schluss) bliebe bei einem Abbruch nach `unsubscribe()` genau die tote
+ *     Zeile stehen, die diese Funktion beseitigen soll — `web-push.ts` räumt
+ *     nur 404/410 auf, ein 403 nie.
+ *  3. Der Endpoint ist nach `unsubscribe()` ohnehin nicht mehr erreichbar; das
+ *     Abo ist in dem Moment tot, unabhängig von der DB-Zeile.
+ */
+export async function healStaleSubscription(
+  reg: ServiceWorkerRegistration,
+  oldSub: PushSubscription,
+): Promise<HealResult> {
+  try {
+    // Schritt 1: Zeile löschen — und daran erkennen, ob das Abo uns gehört.
+    // `deletePushSubscription` WIRFT NICHT, es liefert {ok:false} zurück
+    // (z. B. abgelaufene Session) — deshalb hier das Ergebnis prüfen und
+    // nicht bloß ein `.catch()` anhängen.
+    const del = await deletePushSubscription(oldSub.endpoint);
+    if (!del.ok) {
+      console.error("[push] Alte Abo-Zeile konnte nicht entfernt werden:", del.message);
+      return "failed";
+    }
+    if (!del.deleted) {
+      // Fremdes Abo auf einem geteilten Gerät — unangetastet lassen.
+      return "not-ours";
+    }
+
+    // Schritt 2: Browser-Abo tauschen. `subscribe()` mit einem anderen Key
+    // wirft `InvalidStateError`, solange das alte noch existiert.
+    await oldSub.unsubscribe();
+    const fresh = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY!) as BufferSource,
+    });
+    const res = await savePushSubscription(fresh.toJSON(), navigator.userAgent);
+    if (!res.ok) {
+      await fresh.unsubscribe().catch(() => {});
+      return "failed";
+    }
+    console.info("[push] Abo nach VAPID-Wechsel automatisch erneuert.");
+    return "healed";
+  } catch (e) {
+    console.error("[push] Automatische Erneuerung fehlgeschlagen", e);
+    return "failed";
+  }
+}
+
+/**
+ * Merker für „stille Erneuerung ist fehlgeschlagen". Nötig, weil der Status
+ * `stale` sonst nur in genau der Sitzung existiert, in der es schiefging: nach
+ * einem Reload gibt es kein Abo mehr, der Hook meldete `unsubscribed` — und
+ * wer den Nudge irgendwann weggeklickt hat, bekäme nie wieder einen Hinweis
+ * und hielte Push weiter für aktiv.
+ */
+const HEAL_FAILED_KEY = "bk_push_heal_failed";
+
+function markHealFailed(failed: boolean) {
+  try {
+    if (failed) localStorage.setItem(HEAL_FAILED_KEY, "1");
+    else localStorage.removeItem(HEAL_FAILED_KEY);
+  } catch {
+    /* localStorage kann blockiert sein — dann gilt der Hinweis nur diese Sitzung */
+  }
+}
+
+function healFailedEarlier(): boolean {
+  try {
+    return localStorage.getItem(HEAL_FAILED_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -72,7 +155,32 @@ export function usePushSubscription() {
         return;
       }
       const sub = await reg.pushManager.getSubscription();
-      if (!cancelled) setStatus(sub ? "subscribed" : "unsubscribed");
+      if (!sub) {
+        // Kein Abo — aber vielleicht ist zuvor eine Erneuerung gescheitert.
+        // Dann weiter `stale` melden, sonst verschwindet der Hinweis nach dem
+        // ersten Reload spurlos (und ein weggeklickter Nudge für immer).
+        if (!cancelled) setStatus(healFailedEarlier() ? "stale" : "unsubscribed");
+        return;
+      }
+
+      // Abo vorhanden — stammt es noch vom aktuellen VAPID-Key?
+      const matches = vapidKeyMatches(sub.options?.applicationServerKey, VAPID_PUBLIC_KEY);
+      if (matches !== false) {
+        if (!cancelled) setStatus("subscribed");
+        return;
+      }
+
+      // Veraltet: still heilen. Die Berechtigung liegt bereits vor (sonst gäbe
+      // es kein Abo), und `subscribe()` braucht dann KEINE Nutzer-Geste — die
+      // Crew merkt im Normalfall nichts davon. Nur wenn das schiefgeht, zeigen
+      // wir einen Hinweis.
+      const result = await healStaleSubscription(reg, sub);
+      markHealFailed(result === "failed");
+      if (!cancelled) {
+        // "not-ours": das Abo gehört jemand anderem auf diesem Gerät — für uns
+        // gibt es schlicht keins, also der normale Aktivieren-Weg.
+        setStatus(result === "healed" ? "subscribed" : result === "failed" ? "stale" : "unsubscribed");
+      }
     })().catch(() => {
       if (!cancelled) setStatus("unsupported");
     });
@@ -105,6 +213,21 @@ export function usePushSubscription() {
         setError("Service Worker nicht bereit — bitte Seite neu laden und erneut versuchen.");
         return;
       }
+      // Liegt noch ein Abo vor, das NICHT nachweislich zum aktuellen Key
+      // gehört, wirft `subscribe()` gleich `InvalidStateError` — also vorher
+      // abräumen. Bewusst `!== true` statt `=== false`: gibt der Browser
+      // `applicationServerKey` gar nicht heraus (Ergebnis `null`), wäre der
+      // Nutzer sonst dauerhaft ausgesperrt — jeder Klick liefe in denselben
+      // Fehler, ohne Weg zurück außer „Website-Daten löschen".
+      // Hier ist das unbedenklich, anders als beim stillen Heilen: enable() ist
+      // eine ausdrückliche Nutzeraktion auf diesem Gerät.
+      const leftover = await reg.pushManager.getSubscription();
+      if (leftover && vapidKeyMatches(leftover.options?.applicationServerKey, VAPID_PUBLIC_KEY) !== true) {
+        const staleEndpoint = leftover.endpoint;
+        await leftover.unsubscribe().catch(() => {});
+        const del = await deletePushSubscription(staleEndpoint);
+        if (!del.ok) console.warn("[push] Alte Abo-Zeile blieb stehen:", del.message);
+      }
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         // Cast: TS 5.9 typt Uint8Array generisch (ArrayBufferLike); subscribe()
@@ -119,6 +242,7 @@ export function usePushSubscription() {
         setError(res.message);
         return;
       }
+      markHealFailed(false); // Hinweis-Merker wieder abräumen.
       setStatus("subscribed");
       show("Benachrichtigungen auf diesem Gerät aktiviert.", { variant: "success" });
     } catch (e) {

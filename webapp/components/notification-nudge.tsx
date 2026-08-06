@@ -40,7 +40,12 @@ export function NotificationNudge() {
     };
   }, []);
 
-  if (dismissed || status !== "unsubscribed") return null;
+  // `stale` = Abo existiert noch vom alten VAPID-Key und die stille Erneuerung
+  // im Hook ist fehlgeschlagen. Anderer Text (die Crew hatte Push ja bereits
+  // aktiviert) und bewusst NICHT wegklickbar-vergessen: der Dismiss-Key gilt
+  // nur für die Erst-Einladung, sonst bliebe ein totes Abo unbemerkt.
+  const isStale = status === "stale";
+  if (!isStale && (dismissed || status !== "unsubscribed")) return null;
 
   function dismiss() {
     try {
@@ -55,10 +60,13 @@ export function NotificationNudge() {
     <section className="mt-4 flex items-start gap-3 rounded-lg border border-primary/30 bg-navy-light/30 p-4">
       <Bell className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-primary">Benachrichtigungen aktivieren</p>
+        <p className="text-sm font-medium text-primary">
+          {isStale ? "Benachrichtigungen neu aktivieren" : "Benachrichtigungen aktivieren"}
+        </p>
         <p className="mt-0.5 text-xs text-ink-soft">
-          Sofort Bescheid bei Abrechnung und fälligen Zahlungen — auf diesem Gerät, zusätzlich zur
-          E-Mail.
+          {isStale
+            ? "Die Benachrichtigungen auf diesem Gerät sind nach einer Server-Umstellung ungültig geworden. Ein Tap genügt — E-Mails kommen unverändert an."
+            : "Sofort Bescheid bei Abrechnung und fälligen Zahlungen — auf diesem Gerät, zusätzlich zur E-Mail."}
         </p>
         {error && (
           <p role="alert" className="mt-1 text-xs text-danger">
