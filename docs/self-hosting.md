@@ -254,10 +254,20 @@ docker compose logs -f db
 
 ---
 
-## 5. Schritt 3 — Schema anlegen (47 Migrationen)
+## 5. Schritt 3 — Schema anlegen (alle Migrationen)
+
+Dieser Abschnitt beschreibt das **erstmalige** Anlegen des Schemas. Für eine
+einzelne neue Migration im laufenden Betrieb siehe Abschnitt 10,
+„Neue Migration einspielen".
 
 Die Migrationen laufen der Reihe nach direkt in den Container. Postgres ist
-nicht von außen erreichbar, deshalb über `exec` statt `supabase db push`:
+nicht von außen erreichbar, deshalb über `exec` statt `supabase db push`.
+
+> ℹ️ Die Kommandos unten nutzen den festen Namen `bordkasse-db`, weil dieser
+> Schritt vor der Coolify-Verwaltung von Hand lief. **Auf dem Coolify-Stack
+> greift `container_name` nicht** — dort den Namen dynamisch ermitteln:
+> `DB=$(docker ps --filter name=db-<app-uuid> --format '{{.Names}}' | head -n1)`
+> (siehe Abschnitt 9).
 
 ```bash
 cd webapp
@@ -839,6 +849,63 @@ docker exec -it "$DB" psql -U postgres -d postgres
 ```
 
 **RAM prüfen:** `docker stats --no-stream`
+
+### Neue Migration einspielen (laufender Betrieb)
+
+> ⚠️ **Ein Coolify-Deployment wendet KEINE Migrationen an — auch nicht das der
+> Supabase-Ressource.** Der Compose-Stack startet nur Container neu; die
+> Init-Skripte des `db`-Images laufen ausschließlich bei **leerem**
+> Datenverzeichnis. Nach dem Merge einer Migration ist das Einspielen der
+> einzige Schritt, der zählt. Diese Fehlannahme („ich habe doch beide
+> Instanzen deployt") hat schon einmal dazu geführt, dass ein Fix tagelang
+> wirkungslos blieb.
+
+Normalfall ist `supabase db push` von einem Rechner mit DB-Verbindung. Geht das
+gerade nicht, lässt sich eine einzelne Migration direkt im `db`-Container
+einspielen — die Dateien liegen im öffentlichen Repo, und der Container hat
+`wget` **und** `curl` (geprüft). Als **temporärer** Coolify Scheduled Task auf
+der Supabase-Ressource, Feld „Container name" = `db`:
+
+```
+wget -qO- https://raw.githubusercontent.com/Jannik96D/bordkasse-public/main/webapp/supabase/migrations/<datei>.sql | psql -U postgres -d postgres -v ON_ERROR_STOP=1 --single-transaction -f -
+```
+
+`--single-transaction` zusammen mit `ON_ERROR_STOP=1` sorgt dafür, dass die
+Migration ganz oder gar nicht greift (DDL ist in Postgres transaktional) —
+sonst bleibt im Fehlerfall ein halbes Schema zurück.
+
+**Danach die Version nachtragen**, sonst hält der Ledger die Migration für
+ausstehend und ein späteres `supabase db push` will sie erneut anwenden:
+
+```
+psql -U postgres -d postgres -Atc "insert into supabase_migrations.schema_migrations(version,name) values('0048','purge_before_tranche_delete') on conflict do nothing"
+```
+
+Kontrolle: `select max(version) from supabase_migrations.schema_migrations`.
+Den temporären Task hinterher **löschen** (Coolify: Task-Seite → „Delete").
+
+⚠️ **Reihenfolge beachten.** Bei Auto-Deploy auf `main` ist der neue App-Code
+sofort live, während die DB noch das alte Schema trägt. Ändert eine Migration
+die **Signatur** einer Funktion, liest die App das Ergebnis falsch — bei 0048
+erwartete die Route `(purged, failed)`, bekam die alte `integer`-Rückgabe und
+meldete deshalb stumm `0/0`. Also entweder tolerant lesen (`?? 0`) oder die
+Migration **vor** dem App-Deploy einspielen.
+
+### Trockenlauf gegen echte Daten
+
+Die schnellste Diagnose für „SQL-Funktion schlägt fehl, aber warum" — ebenfalls
+als temporärer Task im `db`-Container:
+
+```
+psql -U postgres -d postgres -Atc "begin;select purge_trip_data('<trip-uuid>',false);rollback;"
+```
+
+Liefert die vollständige Fehlermeldung inklusive `CONTEXT`-Kette, ohne eine
+Zeile zu verändern. So wurde der Constraint-Bug in Migration 0048 gefunden und
+die Korrektur vorab an denselben Produktionsdaten bewiesen.
+
+> ⚠️ Ohne `rollback;` löscht `purge_trip_data` wirklich. Das Semikolon ist hier
+> kein Stilmittel.
 
 ---
 
