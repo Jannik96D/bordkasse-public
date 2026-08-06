@@ -699,7 +699,7 @@ App-Container (verifiziert: ein Task mit leerem Feld führt erfolgreich aus):
 
 | Name | Frequenz | Command |
 |---|---|---|
-| `purge-node` | `0 3 * * *` | `node -e "fetch('http://127.0.0.1:3000/api/cron/purge',{headers:{Authorization:'Bearer '+process.env.CRON_SECRET}}).then(async r=>{console.log(r.status,await r.text());process.exit(r.ok?0:1)}).catch(e=>{console.log(e);process.exit(1)})"` |
+| `purge-node` | `0 1 * * *` | `node -e "fetch('http://127.0.0.1:3000/api/cron/purge',{headers:{Authorization:'Bearer '+process.env.CRON_SECRET}}).then(async r=>{console.log(r.status,await r.text());process.exit(r.ok?0:1)}).catch(e=>{console.log(e);process.exit(1)})"` |
 | `prepayment-reminders-node` | `0 7 * * *` | dasselbe Kommando, nur `/api/cron/purge` → `/api/cron/prepayment-reminders` (der Pfad kommt genau einmal vor; ergibt 250 Zeichen — siehe Längenlimit unten) |
 
 ⚠️ **`curl` gibt es im App-Container NICHT** (echter Fund, empirisch geprüft
@@ -732,10 +732,18 @@ Warum diese Form:
 Validierungsfehler). Die Kommandos oben liegen bei 235 bzw. 250 Zeichen —
 beim Erweitern also kürzen, nicht anhängen.
 
-**Zu den Zeiten:** 03:00 und 07:00 sind unverändert aus der alten `vercel.json`
-übernommen. Sie passen gut zum Backup-Fenster (Dump 00:00, Auslagern 02:00) —
-der Purge läuft danach, löscht also nur Daten, die schon im Dump derselben
-Nacht liegen. Wer die Zeiten verschiebt, sollte diese Reihenfolge erhalten.
+**Zu den Zeiten:** Der Reminder-Lauf (07:00) stammt unverändert aus der alten
+`vercel.json`; der Purge lief anfangs ebenfalls dort (03:00) und wurde am
+06.08.2026 auf **01:00** vorgezogen.
+
+Entscheidend ist nur eine Reihenfolge: **der Backup-Dump (00:00) muss VOR dem
+Purge liegen.** Sonst löscht der Purge Daten, die in der Sicherung derselben
+Nacht noch fehlen — und der Rückweg für ein versehentliches „Sofort löschen"
+wäre einen Tag alt. Mit 01:00 ist der Abstand zum Dump kleiner als vorher, die
+Reihenfolge bleibt aber gewahrt. Das Auslagern der Sicherung (02:00) ist davon
+unabhängig: es kopiert den 00:00-Dump, also in beiden Fällen den Stand VOR dem
+Purge.
+
 Coolify zeigt die Laufzeiten unter „Recent executions" in UTC an.
 
 ### Beim Umschalten (✅ durchgeführt am 2026-08-05)

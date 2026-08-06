@@ -257,7 +257,7 @@ supabase db push
 
 **5. Deploy.** Domain per `A`-Record auf die Server-IP zeigen lassen **und** dieselbe Domain im „Domains"-Feld der Coolify-Ressource eintragen — fehlt sie dort, kann Traefik kein Let's-Encrypt-Zertifikat ausstellen und der TLS-Handshake bricht ab, obwohl DNS korrekt zeigt.
 
-**6. Cron-Jobs aktivieren:** zwei Coolify Scheduled Tasks auf der App-Ressource, „Container name" leer lassen — `/api/cron/purge` (DSGVO-Löschung, 3:00) und `/api/cron/prepayment-reminders` (Anzahlungs-Reminder, 7:00), beide via `Authorization: Bearer ${CRON_SECRET}` abgesichert. ⚠️ **Nicht `curl` verwenden:** das gibt es im `node:22-alpine`-Image nicht, der Task scheitert still mit Exit 127. Fertige Kommandos (`node -e "fetch(…)"`) in [`docs/self-hosting.md`](../docs/self-hosting.md), Abschnitt „Die beiden Crons".
+**6. Cron-Jobs aktivieren:** zwei Coolify Scheduled Tasks auf der App-Ressource, „Container name" leer lassen — `/api/cron/purge` (DSGVO-Löschung, 1:00) und `/api/cron/prepayment-reminders` (Anzahlungs-Reminder, 7:00), beide via `Authorization: Bearer ${CRON_SECRET}` abgesichert. ⚠️ **Nicht `curl` verwenden:** das gibt es im `node:22-alpine`-Image nicht, der Task scheitert still mit Exit 127. Fertige Kommandos (`node -e "fetch(…)"`) in [`docs/self-hosting.md`](../docs/self-hosting.md), Abschnitt „Die beiden Crons".
 
 ### PWA-Updates auf installierten Geräten
 
