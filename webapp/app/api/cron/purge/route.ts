@@ -5,7 +5,7 @@ import { verifyCronAuth } from "@/lib/auth/cron-auth";
 /**
  * Cron-Endpoint für die DSGVO-Datenlöschung.
  *
- * Wird täglich um 03:00 vom Coolify Scheduled Task `purge-node` aufgerufen
+ * Wird täglich um 01:00 vom Coolify Scheduled Task `purge-node` aufgerufen
  * (Kommando + Fallstricke: docs/self-hosting.md, „Die beiden Crons") und ruft
  * die Postgres-Function purge_expired_trip_data() — sie löscht alle
  * personenbezogenen Daten von Törns, deren Ende mehr als 30 Tage zurück
