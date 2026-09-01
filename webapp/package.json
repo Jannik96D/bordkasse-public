@@ -24,22 +24,22 @@
       "postcss": ">=8.5.10",
       "vite": "^8.1.5",
       "js-yaml": "^4.2.0",
-      "sharp": "^0.35.3",
+      "sharp": "^0.35.4",
       "minimatch@3.1.5>brace-expansion": "^1.1.16"
     }
   },
   "dependencies": {
-    "@supabase/ssr": "^0.12.4",
-    "@supabase/supabase-js": "^2.111.0",
+    "@supabase/ssr": "^0.12.5",
+    "@supabase/supabase-js": "^2.112.4",
     "clsx": "^2.1.1",
-    "lucide-react": "^1.28.0",
-    "next": "16.2.12",
-    "nodemailer": "^9.0.3",
+    "lucide-react": "^1.37.0",
+    "next": "16.3.3",
+    "nodemailer": "^9.0.6",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "tailwind-merge": "^3.6.0",
     "web-push": "^3.6.7",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
@@ -50,13 +50,13 @@
     "@types/react-dom": "^19",
     "@types/web-push": "^3.6.4",
     "eslint": "^9",
-    "eslint-config-next": "16.2.12",
+    "eslint-config-next": "16.3.3",
     "fake-indexeddb": "^6.2.5",
-    "happy-dom": "^20.11.1",
-    "knip": "^6.31.0",
-    "sharp": "^0.35.3",
+    "happy-dom": "^20.12.0",
+    "knip": "^6.33.0",
+    "sharp": "^0.35.4",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }
