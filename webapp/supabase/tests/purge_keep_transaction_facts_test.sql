@@ -1,9 +1,13 @@
 -- ═══════════════════════════════════════════════════════════════════════
--- pgTAP — Regression zu Migration 0044 (+ 0046): purge_trip_data behält
--- Buchungs-Kerndaten (Betrag/Beschreibung/Alkohol-Anteil/credit_to_all),
+-- pgTAP — Regression zu Migration 0044 (+ 0046, 0054): purge_trip_data
+-- behält Buchungs-Kerndaten (Betrag/Alkohol-Anteil/credit_to_all),
 -- entfernt aber jeden Personenbezug (paid_by/credit_from/credit_to/
--- created_by, transaction_participants). Zusätzlich müssen die neuen
--- Audience-RLS-Policies auf transactions/trip_categories greifen: ein
+-- created_by, transaction_participants). Seit 0054 (D5, Sanierungsplan PR
+-- 7) gilt für die Beschreibung eine bewusste Ausnahme: bei EXPENSE bleibt
+-- sie erhalten (0044-Verhalten, Erfahrungswert), bei CREDIT wird sie
+-- zusätzlich genullt — Gutschrift-Freitexte nennen systematisch Namen im
+-- Klartext ("Crewwechsel: X übernimmt Anzahlung für Y"). Zusätzlich müssen
+-- die Audience-RLS-Policies auf transactions/trip_categories greifen: ein
 -- Ex-Mitglied mit Login sieht die anonymisierten Buchungen weiterhin, ein
 -- eingeloggter Fremder (kein Audience-Eintrag für DIESEN Törn) NICHT.
 --
@@ -11,7 +15,7 @@
 -- ═══════════════════════════════════════════════════════════════════════
 
 BEGIN;
-SELECT plan(11);
+SELECT plan(12);
 
 -- ── Setup: Zwei-Personen-Törn. P1 hat einen Login (auth_user_id), landet
 -- also über die Audience-Spur im Purge. "Fremder" hat ebenfalls einen
@@ -88,7 +92,7 @@ SELECT is(
   30::numeric, 'Betrag bleibt erhalten');
 SELECT is(
   (SELECT description FROM transactions WHERE id = '44440000-0000-4000-8000-0000000000e1'),
-  'Bier + Chips', 'Beschreibung bleibt erhalten');
+  'Bier + Chips', 'Beschreibung einer AUSGABE bleibt erhalten (0044, unverändert)');
 SELECT is(
   (SELECT alcohol_amount FROM transactions WHERE id = '44440000-0000-4000-8000-0000000000e1'),
   12::numeric, 'Alkohol-Anteil bleibt erhalten');
@@ -115,6 +119,12 @@ SELECT ok(
 SELECT is(
   (SELECT credit_to_all FROM transactions WHERE id = '44440000-0000-4000-8000-0000000000e2'),
   FALSE, 'credit_to_all bleibt FALSE — bleibt von "An Alle" unterscheidbar');
+
+-- ── 3b. D5 (0054): Beschreibung einer GUTSCHRIFT wird zusätzlich genullt
+-- (Namen im Freitext), Ausgaben-Beschreibung oben bleibt davon unberührt.
+SELECT is(
+  (SELECT description FROM transactions WHERE id = '44440000-0000-4000-8000-0000000000e2'),
+  NULL, 'Beschreibung einer GUTSCHRIFT wird beim Purge genullt (D5)');
 
 -- ── 4. RLS: Audience-Mitglied sieht die Buchungen weiterhin ───────────
 SET LOCAL ROLE authenticated;
