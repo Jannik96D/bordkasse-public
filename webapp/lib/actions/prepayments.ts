@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireSkipperOrAdmin, requireMember, requireSkipperAdminOrAdvancer } from "@/lib/auth/authz";
+import { assertTripNotArchived } from "@/lib/auth/trip-state";
 import { sendPushToPersons } from "@/lib/notify/web-push";
 import { pushRecipients } from "@/lib/notify/recipients";
 import { paymentPendingPush, paymentConfirmedPush, paymentRejectedPush } from "@/lib/notify/payloads";
@@ -74,6 +75,9 @@ export async function savePrepaymentPlan(
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
 
   // Cross-Trip-Schutz (Fund 7, Code-Review 2026-08): advancer_person_id kommt
   // aus dem Client-JSON und wurde bisher nur als UUID-Format geprüft (Zod),
@@ -282,6 +286,9 @@ export async function saveTranches(
 
   const supabase = createAdminClient();
 
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
   // Diff: bestehende IDs vs. eingehende IDs.
   // Löschen einer Tranche setzt zugehörige transactions.tranche_id auf NULL
   // (via ON DELETE SET NULL aus 0023). Die Buchungen wandern dann in den
@@ -362,6 +369,9 @@ export async function recordPayment(
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
 
   // Cross-Trip-Schutz: person_id kommt aus dem Formular (nur als UUID
   // validiert). Der Service-Role-Client umgeht RLS, also hier prüfen, dass
@@ -560,6 +570,9 @@ export async function replaceMember(
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
 
   // 1. Original-Skipper darf nicht ersetzt werden (Audit-Spur)
   const { data: tripRow } = await supabase
@@ -1029,6 +1042,9 @@ export async function submitSelfPayment(
 
   const supabase = createAdminClient();
 
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
   // Vorstrecker (Empfänger) ermitteln
   const [{ data: tripRow }, { data: planRow }, { data: trancheRow }] = await Promise.all([
     supabase.from("trips").select("skipper_id, name").eq("id", trip_id).maybeSingle(),
@@ -1126,6 +1142,9 @@ export async function confirmSelfPayment(
   const auth = await requireSkipperAdminOrAdvancer(tx.trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
 
+  const archivedCheck = await assertTripNotArchived(supabase, tx.trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
   const { error } = await supabase
     .from("transactions")
     .update({ confirmed_at: new Date().toISOString() })
@@ -1195,6 +1214,9 @@ export async function rejectSelfPayment(
   // Vorstrecker darf ablehnen — er sieht das Geld NICHT auf seinem Konto.
   const auth = await requireSkipperAdminOrAdvancer(tx.trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
+
+  const archivedCheck = await assertTripNotArchived(supabase, tx.trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
 
   const { error } = await supabase
     .from("transactions")

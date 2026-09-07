@@ -4,6 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireSkipperOrAdmin } from "@/lib/auth/authz";
+import { assertTripNotArchived } from "@/lib/auth/trip-state";
 import { logAudit } from "@/lib/db/audit";
 import {
   CATEGORY_ICON_NAMES,
@@ -42,11 +43,15 @@ export async function addCategory(_prev: CatState, formData: FormData): Promise<
   const auth = await requireSkipperOrAdmin(parsed.data.trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
 
+  const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, parsed.data.trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
   const icon: CategoryIconName = isCategoryIconName(parsed.data.icon)
     ? parsed.data.icon
     : iconForCategoryName(parsed.data.name);
 
-  const supabase = createAdminClient();
   const { data: cat, error } = await supabase
     .from("trip_categories")
     .insert({
@@ -79,6 +84,10 @@ export async function removeCategory(categoryId: string, tripId: string) {
   const auth = await requireSkipperOrAdmin(tripId);
   if (!auth.ok) return;
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, tripId);
+  if (!archivedCheck.ok) return;
+
   // IDOR-Schutz: trip_id mitfiltern, sonst könnte ein Skipper über seinen
   // eigenen tripId eine Kategorie eines fremden Törns löschen.
   await supabase
@@ -114,6 +123,10 @@ export async function setCategoryIcon(
   if (!auth.ok) return { ok: false, message: auth.message };
 
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, parsed.data.trip_id);
+  if (!archivedCheck.ok) return { ok: false, message: archivedCheck.message };
+
   const { error } = await supabase
     .from("trip_categories")
     .update({ icon: parsed.data.icon })

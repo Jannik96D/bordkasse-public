@@ -119,6 +119,11 @@ describe("Audit-Log-Payloads enthalten keine PII im Klartext mehr (Sanierungspla
 
   it("updateMember: Anzeigename-Änderung loggt nur ein Flag, keinen Klartext-Namen", async () => {
     const { supabase, auditInserts } = makeQueuedSupabase({
+      trips: [
+        // assertTripNotArchived (Sanierungsplan D3) — erster Supabase-Aufruf
+        // direkt nach dem Auth-Guard, vor dem Member-Lookup.
+        { data: { archived: false } },
+      ],
       trip_members: [
         // 1. Member-Lookup (Ghost, kein auth_user_id).
         { data: { person_id: GHOST_PERSON_ID, persons: { auth_user_id: null } } },
@@ -152,6 +157,10 @@ describe("Audit-Log-Payloads enthalten keine PII im Klartext mehr (Sanierungspla
 
   it("updateMember: E-Mail-Änderung loggt nur ein Flag, keine Klartext-Adresse", async () => {
     const { supabase, auditInserts } = makeQueuedSupabase({
+      trips: [
+        // assertTripNotArchived (Sanierungsplan D3).
+        { data: { archived: false } },
+      ],
       trip_members: [
         // 1. Member-Lookup (Ghost, kein auth_user_id).
         { data: { person_id: GHOST_PERSON_ID, persons: { auth_user_id: null } } },
@@ -249,6 +258,11 @@ describe("Audit-Log-Payloads enthalten keine PII im Klartext mehr (Sanierungspla
 
     const CREDIT_TO_ID = "aaaaaaaa-0000-4000-8000-000000000006";
     const { supabase, auditInserts } = makeQueuedSupabase({
+      trips: [
+        // assertTripNotArchived (Sanierungsplan D3) — läuft direkt nach
+        // requireSkipperOrAdmin, vor der "An Alle"-Crewgrößen-Prüfung.
+        { data: { archived: false } },
+      ],
       trip_members: [
         // personsBelongToTrip(credit_from, credit_to).
         { data: [{ person_id: OWNER_ID }, { person_id: CREDIT_TO_ID }], error: null },

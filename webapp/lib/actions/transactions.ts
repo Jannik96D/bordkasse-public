@@ -16,6 +16,7 @@ import {
   personsBelongToTrip,
   CROSS_TRIP_PERSON_MSG,
 } from "@/lib/auth/cross-trip";
+import { assertTripNotArchived } from "@/lib/auth/trip-state";
 import { logAudit } from "@/lib/db/audit";
 import { tripVocab } from "@/lib/trip-vocab";
 import { round2 } from "@/lib/utils";
@@ -436,6 +437,11 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
 
   const supabase = createAdminClient();
 
+  // Schreibschutz für archivierte Törns (Sanierungsplan D3) — NACH dem
+  // Auth-Guard, VOR jeder Schreib-Operation.
+  const archivedCheck = await assertTripNotArchived(supabase, txData.trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
   // Min-1-Cent-pro-Person-Check vor dem Insert.
   const minCheck = await checkMinShare(supabase, txData.trip_id, {
     amount: txData.amount,
@@ -545,6 +551,9 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
   if (!skipperCheck.ok) return { status: "error", message: skipperCheck.message };
 
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, parsed.data.trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
 
   // „An Alle" (credit_to IS NULL) braucht ≥ 2 Crewmitglieder, sonst kann
   // die Bilanz nicht ausgeglichen werden (creditFrom bekommt +amount, aber
@@ -724,6 +733,9 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   if (!(await canEditTransaction(txData.trip_id, existing.created_by, person.id))) {
     return { status: "error", message: "Nur Skipper, Admin oder die Person, die gebucht hat, dürfen ändern." };
   }
+
+  const archivedCheck = await assertTripNotArchived(supabase, txData.trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
 
   // Wurde eine Kaution-Buchung berührt? (alte oder neue Kategorie = "Kaution")
   // Dann nach dem Speichern den Skipper an die Abrechnung erinnern.
@@ -980,6 +992,9 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     return { status: "error", message: "Nur Skipper oder Admin dürfen eine Gutschrift ändern." };
   }
 
+  const archivedCheck = await assertTripNotArchived(supabase, parsed.data.trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
   // „An Alle"-Validierung wie bei createCredit
   if (parsed.data.credit_to == null && !(await crewCountAtLeastTwo(supabase, parsed.data.trip_id))) {
     return {
@@ -1117,6 +1132,10 @@ export async function deleteTransaction(
   }
   if (!auth.ok) return { ok: false, wasKaution: false };
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, tripId);
+  if (!archivedCheck.ok) return { ok: false, wasKaution: false };
+
   const { data: existing } = await supabase
     .from("transactions")
     .select("category_id, trip_id, created_by")
@@ -1179,6 +1198,14 @@ export async function replayPendingTransaction(
   if (!authCheck.ok) return { ok: false, message: authCheck.message };
 
   const supabase = createAdminClient();
+
+  // Ein Draft kann offline erfasst worden sein, während der Törn noch nicht
+  // archiviert war, und erst beim Reconnect (deutlich später) synchronisiert
+  // werden — der Törn kann inzwischen archiviert worden sein. Klare Meldung
+  // statt stillem Erfolg, damit der Sync-Layer den Eintrag nicht kommentarlos
+  // verschluckt.
+  const archivedCheck = await assertTripNotArchived(supabase, tripId);
+  if (!archivedCheck.ok) return { ok: false, message: archivedCheck.message };
 
   if (kind === "expense") {
     // Fund 1 (PR 5): aus der Outbox gelesenes `participant_ids` ist nicht

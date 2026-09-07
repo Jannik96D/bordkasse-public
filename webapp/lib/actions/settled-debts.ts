@@ -27,6 +27,12 @@ const ToggleSchema = z.object({
  * Schlüssel: (trip_id, from_person_id, to_person_id, amount). Sobald sich
  * der Betrag durch eine neue Buchung ändert, gilt die Schuld als "neu" und
  * ist automatisch nicht mehr erledigt.
+ *
+ * BEWUSST NICHT durch `assertTripNotArchived` (Sanierungsplan D3) geschützt:
+ * ein Törn kann archiviert werden, bevor alle Zahlungen tatsächlich
+ * geflossen sind — die Crew muss die Bordkasse trotzdem fertig abrechnen
+ * können. Ändert selbst keine Buchungsdaten, sondern nur den
+ * Erledigt-Status einer bereits berechneten Schuld.
  */
 export async function toggleDebtSettled(input: {
   tripId: string;
