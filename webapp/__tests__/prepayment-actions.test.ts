@@ -52,6 +52,10 @@ function makeSupabase(opts: { memberIds?: string[] } = {}) {
     b.delete = self;
     b.update = self;
     b.single = () => Promise.resolve(table === "trips" ? { data: tripDates } : { data: null });
+    // assertTripNotArchived (Sanierungsplan D3) fragt `trips.archived` per
+    // maybeSingle ab — tripDates trägt kein `archived`-Feld, ist also
+    // implizit "nicht archiviert" (undefined ist falsy).
+    b.maybeSingle = () => Promise.resolve(table === "trips" ? { data: tripDates } : { data: null });
     b.then = (onFulfilled: (v: unknown) => unknown) => {
       let value: unknown = { data: [], error: null };
       if (table === "trip_members") {

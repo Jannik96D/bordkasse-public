@@ -33,6 +33,12 @@ type Result =
  *
  * Erlaubt nur Skipper/Co-Skipper/Admin. Idempotent: ist das Flag schon
  * gesetzt, gibt es einen freundlichen Hinweis ohne erneuten Mailversand.
+ *
+ * BEWUSST NICHT durch `assertTripNotArchived` (Sanierungsplan D3) geschützt
+ * — weder hier noch in `resendSettlement`: ein Törn wird typischerweise
+ * NACH Törnende archiviert, genau dann, wenn die Abrechnung erst verschickt
+ * werden soll. Ein Schreibschutz würde das Kernfeature blockieren, das den
+ * Törn überhaupt abschließt.
  */
 export async function announceSettlement(tripId: string): Promise<Result> {
   const person = await getCurrentPerson();
