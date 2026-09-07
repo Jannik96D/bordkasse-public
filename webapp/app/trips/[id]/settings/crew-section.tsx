@@ -583,10 +583,14 @@ function EditMemberForm({
 
 /**
  * Crewwechsel: A (member) wird durch eine neue Person B ersetzt. Übernimmt
- * Anwesenheit/Koje/Anzahlungssoll von A, bucht bereits geleistete
- * Anzahlungszahlungen von A auf B um (Gegen-Gutschrift) und setzt A's
- * Anwesenheit auf null (bleibt im Audit-Trail, wird aber nicht mehr zur
- * Kasse gebeten). Löst das Remove-Schutz-Dilemma: eine Person mit
+ * Anwesenheit/Koje/Anzahlungssoll von A, hängt A's Gutschriften direkt auf
+ * B um und entfernt A anschließend WIRKLICH aus der Crew (PR 4, Sanierungsplan
+ * 2026-09 — vorher nur Anwesenheit auf null gesetzt, was laut Schema
+ * "volle Anwesenheit" statt "abwesend" bedeutet und A dauerhaft fälschlich
+ * in der Bilanz hielt). A bleibt im Audit-Log sichtbar (payload trägt
+ * old_person_id/new_person_id), aber NICHT mehr als Crew-Zeile. Setzt daher
+ * voraus, dass A keine sonstige Buchungsspur mehr hat (sonst Block, siehe
+ * Fehlermeldung) — löst das Remove-Schutz-Dilemma: eine Person mit
  * Buchungen/Anzahlungssoll kann nicht einfach entfernt werden, aber ein
  * Crewwechsel (z.B. Person sagt ab, jemand anderes rückt nach) ist ein
  * eigener, häufiger Fall.
@@ -629,7 +633,7 @@ function ReplaceMemberForm({
           {member.display_name} ersetzen
           <InfoTooltip
             label="Was passiert dabei?"
-            text={`Anwesenheit, ${vocab.cabin} und Anzahlungssoll von ${member.display_name} gehen auf die neue Person über. Bereits geleistete Anzahlungszahlungen werden auf die neue Person umgebucht. ${member.display_name} bleibt im Audit-Trail sichtbar, gilt aber ab jetzt als nicht mehr ${vocab.onBoard.toLowerCase()}.`}
+            text={`Anwesenheit, ${vocab.cabin} und Anzahlungssoll von ${member.display_name} gehen auf die neue Person über. Bereits geleistete Anzahlungszahlungen werden auf die neue Person umgebucht. ${member.display_name} wird danach komplett aus der Crew entfernt (bleibt aber im Audit-Log sichtbar) — das geht nur, wenn ${member.display_name} sonst keine Buchungen mehr in diesem Törn hat.`}
           />
         </h4>
         <button

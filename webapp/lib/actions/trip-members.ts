@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/db/audit";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
 import { resolveOrigin } from "@/lib/auth/origin";
 import { displayNameFromEmail } from "@/lib/utils";
+import { personHasBookingTrace } from "@/lib/auth/cross-trip";
 
 const InviteSchema = z.object({
   trip_id: z.string().uuid(),
@@ -225,21 +226,10 @@ export async function removeMember(
   // stehen (Σ balance ≠ 0), ohne jede Fehlermeldung — analog zum Blocker in
   // delete_my_account() (Migration 0021), der genau das schon verhindert.
   const personId = memberRow.person_id;
-  const [{ count: txCount }, { count: participantCount }] = await Promise.all([
-    supabase
-      .from("transactions")
-      .select("*", { count: "exact", head: true })
-      .eq("trip_id", tripId)
-      .is("deleted_at", null)
-      .or(`paid_by.eq.${personId},credit_from.eq.${personId},credit_to.eq.${personId}`),
-    supabase
-      .from("transaction_participants")
-      .select("transaction_id, transactions!inner(trip_id, deleted_at)", { count: "exact", head: true })
-      .eq("person_id", personId)
-      .eq("transactions.trip_id", tripId)
-      .is("transactions.deleted_at", null),
-  ]);
-  if ((txCount ?? 0) > 0 || (participantCount ?? 0) > 0) {
+  // Geteilter Helfer mit replaceMember (lib/actions/prepayments.ts, PR 4) —
+  // lib/auth/cross-trip.ts:personHasBookingTrace, DRY statt zweier
+  // driftender Kopien.
+  if (await personHasBookingTrace(supabase, tripId, personId)) {
     return {
       ok: false,
       message:
