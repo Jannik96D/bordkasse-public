@@ -1,15 +1,26 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { Archive, Trash2 } from "lucide-react";
 import { toggleArchive, deleteTrip } from "@/lib/actions/trips";
 import { useConfirm } from "@/components/confirm-dialog";
 import { useTripVocab } from "@/components/trip-vocab-provider";
+import { useToast } from "@/components/toast-provider";
 
 export function ArchiveBlock({ tripId, archived }: { tripId: string; archived: boolean }) {
   const [pending, startTransition] = useTransition();
   const { confirm, confirmDialog } = useConfirm();
   const vocab = useTripVocab();
+  const toast = useToast();
+  const router = useRouter();
+
+  const handleArchiveToggle = () => {
+    startTransition(async () => {
+      const result = await toggleArchive(tripId, !archived);
+      if (!result.ok) toast.show(result.message ?? "Aktion fehlgeschlagen.", { variant: "error" });
+    });
+  };
 
   const handleDelete = async () => {
     const ok = await confirm({
@@ -19,7 +30,14 @@ export function ArchiveBlock({ tripId, archived }: { tripId: string; archived: b
       danger: true,
     });
     if (!ok) return;
-    startTransition(() => deleteTrip(tripId));
+    startTransition(async () => {
+      const result = await deleteTrip(tripId);
+      if (!result.ok) {
+        toast.show(result.message ?? "Löschen fehlgeschlagen.", { variant: "error" });
+        return;
+      }
+      router.push("/");
+    });
   };
 
   return (
@@ -27,7 +45,7 @@ export function ArchiveBlock({ tripId, archived }: { tripId: string; archived: b
       <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-soft">Verwaltung</h2>
       <button
         disabled={pending}
-        onClick={() => startTransition(() => toggleArchive(tripId, !archived))}
+        onClick={handleArchiveToggle}
         className="flex w-full items-center gap-3 rounded-md border border-rule bg-paper px-4 py-3 text-left text-sm hover:bg-paper-soft disabled:opacity-60"
       >
         <Archive className="h-4 w-4 text-ink-soft" />
