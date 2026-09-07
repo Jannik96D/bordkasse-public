@@ -7,7 +7,7 @@ import { ProfileForm } from "./profile-form";
 import { DeleteAccountBlock } from "./delete-account-block";
 import { DataExportBlock } from "./data-export-block";
 import { NotificationBlock } from "./notification-block";
-import { signOut } from "./actions";
+import { SignOutButton } from "./sign-out-button";
 
 export default async function ProfilePage() {
   const person = await getCurrentPerson();
@@ -52,14 +52,7 @@ export default async function ProfilePage() {
       <NotificationBlock />
 
       <div className="mt-12 border-t border-rule pt-6">
-        <form action={signOut}>
-          <button
-            type="submit"
-            className="text-sm font-medium text-ink-soft hover:text-danger"
-          >
-            Abmelden
-          </button>
-        </form>
+        <SignOutButton />
       </div>
 
       <DataExportBlock />

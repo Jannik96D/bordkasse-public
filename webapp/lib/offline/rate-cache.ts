@@ -50,3 +50,17 @@ export function getCachedRate(tripId: string, code: string): number | null {
   const rate = read()[tripId]?.[code];
   return typeof rate === "number" && rate > 0 ? rate : null;
 }
+
+/**
+ * Löscht den kompletten Kurs-Cache (Fund 5, PR 5: Logout-Aufräumen auf
+ * geteilten Geräten — der nächste Login soll nicht die Kurse einer fremden
+ * Person/eines fremden Törns vorbefüllt sehen). No-op ohne window.
+ */
+export function clearRateCache(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Speicher gesperrt/privater Modus → nichts zu tun.
+  }
+}

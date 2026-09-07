@@ -82,3 +82,54 @@ describe("syncOutbox — O-1-Lock", () => {
     expect(await get("id-c")).toBeDefined(); // NICHT entfernt
   });
 });
+
+describe("syncOutbox — Duplikat bleibt nicht hängen (Fund 4, PR 5)", () => {
+  it('entfernt den Eintrag auch bei "ok:true, duplicate:true" — kein Dauerfehler für eine längst gebuchte Zahlung', async () => {
+    await enqueue(item("id-dup"));
+    mockedReplay.mockResolvedValue({ ok: true, duplicate: true });
+
+    const res = await syncOutbox();
+
+    expect(res.failed).toHaveLength(0);
+    expect(res.succeeded).toBe(1);
+    // Vor dem Fix gab es dieses Feld nicht — auf altem Code ist es `undefined`
+    // und `toContain` schlägt fehl.
+    expect(res.duplicates).toContain("id-dup");
+    expect(await get("id-dup")).toBeUndefined(); // entfernt, nicht als Fehler stehen gelassen
+  });
+});
+
+describe("syncOutbox — Cross-Login-Schutz (Fund 6, PR 5)", () => {
+  it("verarbeitet einen Eintrag ohne personId (Altbestand) wie gewohnt als eigenen", async () => {
+    await enqueue(item("id-legacy")); // kein personId-Feld
+    mockedReplay.mockResolvedValue({ ok: true });
+
+    const res = await syncOutbox("person-a");
+
+    expect(mockedReplay).toHaveBeenCalledTimes(1);
+    expect(res.succeeded).toBe(1);
+    expect(res.foreignOwner).toHaveLength(0);
+  });
+
+  it("repliziert einen Eintrag mit ABWEICHENDER personId NICHT und entfernt ihn nicht", async () => {
+    await enqueue(item("id-foreign", { personId: "person-b" }));
+    mockedReplay.mockResolvedValue({ ok: true });
+
+    const res = await syncOutbox("person-a");
+
+    expect(mockedReplay).not.toHaveBeenCalled();
+    expect(res.attempted).toBe(0);
+    expect(res.foreignOwner).toEqual(["id-foreign"]);
+    expect(await get("id-foreign")).toBeDefined(); // bleibt stehen, wird nie still verworfen
+  });
+
+  it("repliziert einen Eintrag mit ÜBEREINSTIMMENDER personId ganz normal", async () => {
+    await enqueue(item("id-mine", { personId: "person-a" }));
+    mockedReplay.mockResolvedValue({ ok: true });
+
+    const res = await syncOutbox("person-a");
+
+    expect(mockedReplay).toHaveBeenCalledTimes(1);
+    expect(res.succeeded).toBe(1);
+  });
+});

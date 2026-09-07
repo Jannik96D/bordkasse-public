@@ -21,6 +21,18 @@ export function isSyncing(id: string): boolean {
 export type SyncResult = {
   attempted: number;
   succeeded: number;
+  /** IDs, deren Replay als Duplikat erkannt wurde (Fund 4, PR 5) — bereits
+   *  serverseitig vorhanden (gleicher idempotency_key). Zählen zu `succeeded`
+   *  und werden wie jeder Erfolg aus der Outbox entfernt, NIE als Dauerfehler
+   *  stehen gelassen (sonst würde eine Fehlerkarte für eine längst gebuchte
+   *  Zahlung den Nutzer zu einer echten Doppelbuchung verleiten). */
+  duplicates: string[];
+  /** IDs, die zu einem ANDEREN Login gehören (Fund 6, PR 5) — `personId`
+   *  gesetzt und abweichend von der aktuellen Person. Werden NICHT
+   *  repliziert und NICHT entfernt (kein stillschweigendes Verwerfen fremder
+   *  Daten); die UI (pending-transactions.tsx) zeigt sie separat mit einer
+   *  expliziten Verwerfen-Aktion. */
+  foreignOwner: string[];
   failed: { id: string; message: string }[];
 };
 
@@ -28,11 +40,18 @@ export type SyncResult = {
  * Arbeitet die Outbox einmal komplett ab. Mehrfache parallele Aufrufe
  * werden zusammengeführt, damit Online-Event + Manual-Trigger nicht
  * doppelt feuern. Idempotency-Keys auf Server-Seite schützen zusätzlich.
+ *
+ * `currentPersonId` (Fund 6, PR 5): Einträge mit einer ANDEREN, gesetzten
+ * `personId` (ein vorheriger Login auf diesem Gerät) werden übersprungen,
+ * statt sie unter der jetzt eingeloggten Identität zu replizieren — sonst
+ * könnte ein Geräte-/Account-Wechsel fremde Buchungsdaten unter dem falschen
+ * Namen einreichen. `undefined` (Altbestand ohne personId) gilt als "meine"
+ * und wird wie gewohnt verarbeitet.
  */
-export async function syncOutbox(): Promise<SyncResult> {
+export async function syncOutbox(currentPersonId?: string): Promise<SyncResult> {
   if (inFlight) return inFlight;
   inFlight = (async () => {
-    const result: SyncResult = { attempted: 0, succeeded: 0, failed: [] };
+    const result: SyncResult = { attempted: 0, succeeded: 0, duplicates: [], foreignOwner: [], failed: [] };
     let items: OutboxItem[];
     try {
       items = await listAll();
@@ -40,6 +59,10 @@ export async function syncOutbox(): Promise<SyncResult> {
       return result;
     }
     for (const snapshot of items) {
+      if (snapshot.personId !== undefined && snapshot.personId !== currentPersonId) {
+        result.foreignOwner.push(snapshot.id);
+        continue;
+      }
       result.attempted += 1;
       syncingIds.add(snapshot.id);
       try {
@@ -50,6 +73,9 @@ export async function syncOutbox(): Promise<SyncResult> {
         if (!item) continue; // zwischenzeitlich verworfen
         const res = await replayPendingTransaction(item.kind, item.formData);
         if (res.ok) {
+          // Duplikat oder echter Neu-Insert — in BEIDEN Fällen aus der Outbox
+          // entfernen (Fund 4); nur die Zählung unterscheidet sich.
+          if (res.duplicate) result.duplicates.push(item.id);
           await remove(item.id);
           result.succeeded += 1;
         } else {

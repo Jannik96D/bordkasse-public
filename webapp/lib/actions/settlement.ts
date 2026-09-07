@@ -145,14 +145,26 @@ export async function announceSettlement(tripId: string): Promise<Result> {
     }
   });
 
-  // Flag setzen — auch wenn manche Mails fehlschlugen (UI kann's später
-  // re-triggern, aber der Schulden-Toggle soll jetzt freigeschaltet sein).
+  // GATE setzen — auch wenn manche/alle Mails fehlschlugen (UI kann's später
+  // re-triggern, aber der Schulden-Toggle soll jetzt freigeschaltet sein;
+  // settlement_announced_at steuert außerdem Purge-Blocker + Checkliste und
+  // bleibt deshalb bewusst unverändert bei jedem announceSettlement-Aufruf).
+  //
+  // settlement_mail_sent_at ist davon GETRENNT und wird nur gesetzt, wenn
+  // mindestens eine Mail tatsächlich zugestellt wurde (sent > 0) — sonst
+  // bliebe ein komplett fehlgeschlagener Erstversand für immer unsichtbar
+  // (Fund 2, PR 6): resendSettlement erlaubt einen erneuten Versuch genau
+  // dann, wenn diese Spalte noch NULL ist (siehe dort).
+  const updatePayload: Record<string, unknown> = {
+    settlement_announced_at: new Date().toISOString(),
+    settlement_announced_by: person.id,
+  };
+  if (sent > 0) {
+    updatePayload.settlement_mail_sent_at = new Date().toISOString();
+  }
   const { error: updateErr } = await supabase
     .from("trips")
-    .update({
-      settlement_announced_at: new Date().toISOString(),
-      settlement_announced_by: person.id,
-    })
+    .update(updatePayload)
     .eq("id", tripId);
   if (updateErr) {
     console.error("[bordkasse:db]", updateErr.message);
@@ -215,7 +227,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
   const { data: trip } = await supabase
     .from("trips")
     .select(
-      "id, name, start_date, end_date, settlement_announced_at, changes_pending_since, last_settlement_resend_at, trip_type",
+      "id, name, start_date, end_date, settlement_announced_at, settlement_mail_sent_at, changes_pending_since, last_settlement_resend_at, trip_type",
     )
     .eq("id", tripId)
     .maybeSingle();
@@ -227,7 +239,14 @@ export async function resendSettlement(tripId: string): Promise<Result> {
         "Es wurde noch keine Abrechnung verschickt. Bitte erst die initiale Abrechnung verschicken.",
     };
   }
-  if (!trip.changes_pending_since) {
+  // Noch nie erfolgreich zugestellt (kompletter Erstversand-Fehlschlag,
+  // Fund 2 PR 6)? Dann darf erneut versucht werden, auch OHNE
+  // changes_pending_since — sonst gäbe es aus diesem Zustand keinen Ausweg,
+  // die Crew hätte nie erfahren, dass die Abrechnung existiert. Wurde
+  // dagegen bereits mindestens einmal erfolgreich zugestellt, bleibt der
+  // ursprüngliche Spam-Schutz (Fund 8, Code-Review 2026-08) unverändert.
+  const neverSuccessfullySent = !trip.settlement_mail_sent_at;
+  if (!neverSuccessfullySent && !trip.changes_pending_since) {
     return {
       ok: false,
       message: "Seit der letzten Abrechnungs-Mail hat sich nichts geändert.",
@@ -235,36 +254,41 @@ export async function resendSettlement(tripId: string): Promise<Result> {
   }
 
   // Diff-Hinweis aus dem Audit-Log: alle Transaktions-Änderungen seit dem
-  // Marker (oder seit dem letzten Resend / der initialen Abrechnung).
-  const since =
-    trip.changes_pending_since ??
-    trip.last_settlement_resend_at ??
-    trip.settlement_announced_at;
+  // Marker (oder seit dem letzten Resend / der initialen Abrechnung). Ist
+  // der Erstversand noch nie erfolgreich zugestellt worden, ist das hier
+  // gar kein "Update" — es ist der erste tatsächliche Versand, ein Diff
+  // ergibt dann keinen Sinn.
   let changeSummary: string | undefined;
-  try {
-    const { data: logRows } = await supabase
-      .from("audit_log")
-      .select("operation, table_name")
-      .eq("trip_id", tripId)
-      .in("table_name", ["transactions"])
-      .gte("created_at", since);
-    const rows = logRows ?? [];
-    let created = 0;
-    let updated = 0;
-    let deleted = 0;
-    for (const r of rows) {
-      if (r.operation === "INSERT") created += 1;
-      else if (r.operation === "UPDATE") updated += 1;
-      else if (r.operation === "DELETE") deleted += 1;
+  if (!neverSuccessfullySent) {
+    const since =
+      trip.changes_pending_since ??
+      trip.last_settlement_resend_at ??
+      trip.settlement_announced_at;
+    try {
+      const { data: logRows } = await supabase
+        .from("audit_log")
+        .select("operation, table_name")
+        .eq("trip_id", tripId)
+        .in("table_name", ["transactions"])
+        .gte("created_at", since);
+      const rows = logRows ?? [];
+      let created = 0;
+      let updated = 0;
+      let deleted = 0;
+      for (const r of rows) {
+        if (r.operation === "INSERT") created += 1;
+        else if (r.operation === "UPDATE") updated += 1;
+        else if (r.operation === "DELETE") deleted += 1;
+      }
+      const parts: string[] = [];
+      if (created > 0) parts.push(`${created} neu`);
+      if (updated > 0) parts.push(`${updated} geändert`);
+      if (deleted > 0) parts.push(`${deleted} gelöscht`);
+      if (parts.length > 0) changeSummary = parts.join(", ");
+    } catch (e) {
+      // Audit-Log ist optional — fehlt der Diff, schicken wir die Mail trotzdem.
+      console.error("[bordkasse:settlement-resend] audit summary failed", e);
     }
-    const parts: string[] = [];
-    if (created > 0) parts.push(`${created} neu`);
-    if (updated > 0) parts.push(`${updated} geändert`);
-    if (deleted > 0) parts.push(`${deleted} gelöscht`);
-    if (parts.length > 0) changeSummary = parts.join(", ");
-  } catch (e) {
-    // Audit-Log ist optional — fehlt der Diff, schicken wir die Mail trotzdem.
-    console.error("[bordkasse:settlement-resend] audit summary failed", e);
   }
 
   const [balances, debts] = await Promise.all([
@@ -331,7 +355,10 @@ export async function resendSettlement(tripId: string): Promise<Result> {
       debts: myDebts,
       appUrl,
       skipperName,
-      isUpdate: true,
+      // War der Erstversand nie erfolgreich, ist das hier de facto die
+      // erste echte Abrechnungs-Mail — kein "Update" (kein "Bilanz
+      // aktualisiert"-Wortlaut, kein Diff).
+      isUpdate: !neverSuccessfullySent,
       changeSummary,
       tripType,
     });
@@ -350,14 +377,20 @@ export async function resendSettlement(tripId: string): Promise<Result> {
   });
 
   // Marker zurücksetzen + Audit. Bei Mail-Fehlern bleibt der Marker bestehen,
-  // damit der Skipper es erneut versuchen kann.
+  // damit der Skipper es erneut versuchen kann. settlement_mail_sent_at wird
+  // nur beim ALLERERSTEN erfolgreichen Versand gesetzt (Fund 2, PR 6) — ist
+  // sie schon gesetzt, bleibt sie unangetastet (kein Rollback/Reset mehr).
   if (sent > 0) {
+    const resendUpdatePayload: Record<string, unknown> = {
+      last_settlement_resend_at: new Date().toISOString(),
+      changes_pending_since: null,
+    };
+    if (neverSuccessfullySent) {
+      resendUpdatePayload.settlement_mail_sent_at = new Date().toISOString();
+    }
     const { error: updateErr } = await supabase
       .from("trips")
-      .update({
-        last_settlement_resend_at: new Date().toISOString(),
-        changes_pending_since: null,
-      })
+      .update(resendUpdatePayload)
       .eq("id", tripId);
     if (updateErr) {
       console.error("[bordkasse:db]", updateErr.message);

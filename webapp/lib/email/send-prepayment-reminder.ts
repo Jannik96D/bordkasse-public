@@ -32,7 +32,12 @@ const SITE_URL = appOrigin();
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 
-type AnyResult = { ok: true } | { ok: false; message: string };
+// `reason: "send_failed"` markiert einen ECHTEN Zustellungsfehler (SMTP,
+// Konfiguration) — im Unterschied zu den übrigen `ok:false`-Fällen, die
+// bloß Dateneigenschaften sind (keine E-Mail hinterlegt, nichts offen,
+// Trip/Person nicht gefunden). Der Cron-Handler zählt nur `send_failed`
+// als `failed`, alles andere als `skipped` (Fund 3, PR 6).
+type AnyResult = { ok: true } | { ok: false; message: string; reason?: "send_failed" };
 
 /**
  * Haupt-Einstiegspunkt — leitet automatisch ans richtige Template um.
@@ -170,7 +175,7 @@ async function sendCrewReminder(
   });
 
   const result = await sendMail({ to: priv.email, subject: mail.subject, html: mail.html, text: mail.text });
-  if (!result.ok) return { ok: false, message: result.error };
+  if (!result.ok) return { ok: false, message: result.error, reason: "send_failed" };
   return { ok: true };
 }
 
@@ -296,7 +301,7 @@ async function sendCharterReminder(
     html: mail.html,
     text: mail.text,
   });
-  if (!result.ok) return { ok: false, message: result.error };
+  if (!result.ok) return { ok: false, message: result.error, reason: "send_failed" };
   return { ok: true };
 }
 

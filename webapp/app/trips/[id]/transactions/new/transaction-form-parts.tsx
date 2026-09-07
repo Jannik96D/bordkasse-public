@@ -300,8 +300,11 @@ export function useBookingSubmit(opts: {
   getTotal: () => number;
   /** Substantiv für die Rückfrage: „Buchung" | „Gutschrift". */
   fatFingerNoun: string;
+  /** Eingeloggte Person, die den Outbox-Eintrag erzeugt (Fund 6, PR 5) —
+   *  Cross-Login-Schutz: ein Eintrag merkt sich, wem er gehört. */
+  currentPersonId?: string;
 }) {
-  const { tripId, kind, isEdit, isDraft, draftId, createAction, updateAction, getTotal, fatFingerNoun } = opts;
+  const { tripId, kind, isEdit, isDraft, draftId, createAction, updateAction, getTotal, fatFingerNoun, currentPersonId } = opts;
   const router = useRouter();
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const formRef = useRef<HTMLFormElement>(null);
@@ -326,7 +329,7 @@ export function useBookingSubmit(opts: {
         // Erfolgs-Toast verschluckt. Nur ECHTE Fehler (Netzwerk) fallen durch.
         unstable_rethrow(err);
         try {
-          await enqueue({ id: idempotencyKey, tripId, kind, formData: formDataToObject(fd), createdAt: nowMs() });
+          await enqueue({ id: idempotencyKey, tripId, kind, formData: formDataToObject(fd), createdAt: nowMs(), personId: currentPersonId });
         } catch {
           throw err; // Outbox selbst kaputt → ursprünglichen Fehler zeigen
         }
@@ -334,7 +337,7 @@ export function useBookingSubmit(opts: {
         return idleState;
       }
     },
-    [createAction, idempotencyKey, tripId, kind, router],
+    [createAction, idempotencyKey, tripId, kind, currentPersonId, router],
   );
 
   const [state, formAction, pending] = useActionState(isEdit ? updateAction : createWithRescue, idleState);
@@ -361,11 +364,12 @@ export function useBookingSubmit(opts: {
         kind,
         formData: formDataToObject(new FormData(form)),
         createdAt: nowMs(),
+        personId: currentPersonId,
       }).catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
     };
     window.addEventListener("offline", onOffline);
     return () => window.removeEventListener("offline", onOffline);
-  }, [isEdit, isDraft, pending, idempotencyKey, tripId, kind]);
+  }, [isEdit, isDraft, pending, idempotencyKey, tripId, kind, currentPersonId]);
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     // Fat-Finger-Schutz: ungewöhnlich hoher Betrag → weiche Rückfrage.
@@ -398,9 +402,16 @@ export function useBookingSubmit(opts: {
             router.push(`/trips/${tripId}/transactions?toast=draft-synced`);
             return;
           }
-          return enqueue({ id: draftId, tripId, kind, formData: obj, createdAt: existing.createdAt }).then(
-            () => router.push(`/trips/${tripId}/transactions?toast=draft-updated`),
-          );
+          // Bestehende Zuordnung (`existing.personId`) bleibt beim Überschreiben
+          // erhalten — ein Draft wechselt beim Bearbeiten nicht den Besitzer.
+          return enqueue({
+            id: draftId,
+            tripId,
+            kind,
+            formData: obj,
+            createdAt: existing.createdAt,
+            personId: existing.personId ?? currentPersonId,
+          }).then(() => router.push(`/trips/${tripId}/transactions?toast=draft-updated`));
         })
         .catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
       return;
@@ -408,7 +419,7 @@ export function useBookingSubmit(opts: {
     if (!isEdit && typeof navigator !== "undefined" && !navigator.onLine) {
       e.preventDefault();
       const obj = formDataToObject(new FormData(e.currentTarget));
-      enqueue({ id: idempotencyKey, tripId, kind, formData: obj, createdAt: nowMs() })
+      enqueue({ id: idempotencyKey, tripId, kind, formData: obj, createdAt: nowMs(), personId: currentPersonId })
         .then(() => router.push(`/trips/${tripId}/transactions`))
         .catch((err) => console.error("Outbox-Schreiben fehlgeschlagen:", err));
     }

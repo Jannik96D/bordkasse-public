@@ -1,25 +1,46 @@
 -- ═══════════════════════════════════════════════════════════════════════
--- pgTAP — Regression zu Migration 0047 (Code-Review 2026-08, Fund 1):
+-- pgTAP — Regression zu Migration 0047 (Code-Review 2026-08, Fund 1) UND
+-- 0050 (Sanierungsplan 2026-09, PR 1, Funde 3/4/44):
 -- alle Schreib-Pfade laufen über den Service-Role-Client, nicht über den
 -- Cookie-/Browser-Client. Diese Datei beweist, dass ein normales,
 -- eingeloggtes Crewmitglied — OHNE App-Code, direkt per PostgREST-Data-API
 -- (simuliert über `SET LOCAL ROLE authenticated` + `request.jwt.claims`) —
--- keine der folgenden Eskalationen mehr durchführen kann:
+-- keine der folgenden Eskalationen mehr durchführen kann.
 --
---   1. sich selbst zum Co-Skipper befördern (trip_members.is_skipper)
---   2. die eigene Anwesenheit/den Alkohol-Status frei verstellen
---   3. eine Gutschrift direkt anlegen (App: Skipper/Admin-only)
---   4. eine fremde Buchung physisch löschen (App: nur Soft-Delete)
---   5. deleted_at selbst fälschen (Soft-Delete ohne Audit-Log-Eintrag)
+-- ⚠️ Seit 0050 tragen `authenticated`/`anon` GAR KEIN INSERT/UPDATE/DELETE-
+-- GRANT mehr auf public-Tabellen. PostgreSQL prüft das Tabellen-Privileg
+-- VOR jeder RLS-Policy-Auswertung — jedes INSERT/UPDATE/DELETE wirft
+-- deshalb jetzt 42501 ("permission denied for table"), UNABHÄNGIG davon,
+-- ob die WHERE-Klausel überhaupt eine Zeile träfe. Vor 0050 (nur die
+-- RLS-Policies aus 0047 gedroppt, GRANT aber noch vorhanden) lieferte
+-- ein UPDATE/DELETE ohne passende Policy dagegen 0 Zeilen. Alle Checks
+-- unten sind daher `throws_ok(..., '42501', ...)`, nicht `is(count, 0)`.
 --
--- Gegenprobe (Fund 1 darf NICHT zu Über-Härtung führen): der Cookie-Client
--- muss weiterhin lesen können — sonst bricht z. B. Realtime.
+-- Geprüfte Eskalationen:
+--   1. Crew befördert sich selbst zum Co-Skipper (trip_members.is_skipper)
+--   2. Crew verstellt eigene Anwesenheit
+--   3. Crew legt eine Gutschrift direkt an (App: Skipper/Admin-only)
+--   4. Crew löscht eine fremde Buchung physisch (App: nur Soft-Delete)
+--   5. Crew fälscht deleted_at selbst (Soft-Delete ohne Audit-Log-Eintrag)
+--   6. Skipper legt einen neuen Törn per direktem INSERT an
+--   7. Skipper benennt seinen eigenen Törn per direktem UPDATE um
+--   8. Skipper löscht seinen eigenen Törn per direktem DELETE
+--   9. Skipper legt eine Anzahlungs-Tranche per direktem INSERT an
+--  10. Crew ändert den eigenen Anzeigenamen per direktem UPDATE auf persons
+--
+-- Die Skipper-Fälle (6-9) sind bewusst dabei: vor 0050 hatte GENAU diese
+-- Rolle explizite Schreib-Policies (trips_insert_self/-update_skipper/
+-- -delete_skipper, tr_cud_skipper) — sie beweisen, dass der GRANT-Revoke
+-- greift, nicht nur eine Policy-Lücke bei Nicht-Skippern.
+--
+-- Gegenprobe (Fund 1/44 dürfen NICHT zu Über-Härtung führen): der
+-- Cookie-Client muss weiterhin lesen können — sonst bricht z. B. Realtime.
 --
 -- Lauf: cd webapp && supabase test db
 -- ═══════════════════════════════════════════════════════════════════════
 
 BEGIN;
-SELECT plan(9);
+SELECT plan(14);
 
 -- ── Setup: Skipper P1 + normales Mitglied P2, beide mit Login, ein Törn
 -- mit einer Ausgabe, damit es etwas zu manipulieren/lesen gibt. ──────────
@@ -49,29 +70,23 @@ SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',
   json_build_object('sub', '47470000-0000-4000-8000-0000000000f2')::text, TRUE);
 
--- 1. Selbst-Beförderung zum Co-Skipper: kein UPDATE-Policy mehr → 0 Zeilen.
-WITH u AS (
-  UPDATE trip_members SET is_skipper = TRUE
-   WHERE trip_id = '47470000-0000-4000-8000-0000000000aa'
-     AND person_id = '47470000-0000-4000-8000-000000000002'
-  RETURNING 1
-)
-SELECT is((SELECT count(*) FROM u), 0::bigint,
+-- 1. Selbst-Beförderung zum Co-Skipper: kein Tabellen-GRANT mehr → 42501.
+SELECT throws_ok(
+  $$UPDATE trip_members SET is_skipper = TRUE
+     WHERE trip_id = '47470000-0000-4000-8000-0000000000aa'
+       AND person_id = '47470000-0000-4000-8000-000000000002'$$,
+  '42501', NULL,
   'Crew kann sich nicht per direktem UPDATE selbst zum Co-Skipper machen');
 
--- 2. Eigene Anwesenheit manipulieren: ebenfalls 0 Zeilen.
-WITH u AS (
-  UPDATE trip_members SET on_board_from = '2099-01-01', on_board_to = '2099-01-02'
-   WHERE trip_id = '47470000-0000-4000-8000-0000000000aa'
-     AND person_id = '47470000-0000-4000-8000-000000000002'
-  RETURNING 1
-)
-SELECT is((SELECT count(*) FROM u), 0::bigint,
+-- 2. Eigene Anwesenheit manipulieren: ebenfalls 42501.
+SELECT throws_ok(
+  $$UPDATE trip_members SET on_board_from = '2099-01-01', on_board_to = '2099-01-02'
+     WHERE trip_id = '47470000-0000-4000-8000-0000000000aa'
+       AND person_id = '47470000-0000-4000-8000-000000000002'$$,
+  '42501', NULL,
   'Crew kann eigene Anwesenheit nicht per direktem UPDATE manipulieren');
 
--- 3. Gutschrift direkt anlegen (App: Skipper/Admin-only): kein INSERT-
--- Policy mehr → RLS lehnt mit 42501 ab, statt die Zeile stillschweigend
--- zu übernehmen.
+-- 3. Gutschrift direkt anlegen (App: Skipper/Admin-only): 42501.
 SELECT throws_ok(
   $$INSERT INTO transactions(trip_id, type, date, amount, credit_from, credit_to)
     VALUES ('47470000-0000-4000-8000-0000000000aa', 'credit', CURRENT_DATE, 500,
@@ -79,22 +94,73 @@ SELECT throws_ok(
   '42501', NULL,
   'Crew kann keine Gutschrift per direktem INSERT anlegen');
 
--- 4. Fremde Buchung physisch löschen: 0 Zeilen (kein DELETE-Policy mehr).
-WITH d AS (
-  DELETE FROM transactions WHERE id = '47470000-0000-4000-8000-0000000000e1'
-  RETURNING 1
-)
-SELECT is((SELECT count(*) FROM d), 0::bigint,
+-- 4. Fremde Buchung physisch löschen: 42501.
+SELECT throws_ok(
+  $$DELETE FROM transactions WHERE id = '47470000-0000-4000-8000-0000000000e1'$$,
+  '42501', NULL,
   'Crew kann eine Buchung nicht per direktem DELETE hart löschen');
 
--- 5. deleted_at selbst fälschen (Soft-Delete ohne Audit-Spur): 0 Zeilen.
-WITH u AS (
-  UPDATE transactions SET deleted_at = now()
-   WHERE id = '47470000-0000-4000-8000-0000000000e1'
-  RETURNING 1
-)
-SELECT is((SELECT count(*) FROM u), 0::bigint,
+-- 5. deleted_at selbst fälschen (Soft-Delete ohne Audit-Spur): 42501.
+SELECT throws_ok(
+  $$UPDATE transactions SET deleted_at = now()
+     WHERE id = '47470000-0000-4000-8000-0000000000e1'$$,
+  '42501', NULL,
   'Crew kann deleted_at nicht per direktem UPDATE selbst setzen');
+
+RESET ROLE;
+
+-- ── Als P1 (Skipper, hatte VOR 0050 explizite Schreib-Policies auf
+-- trips/prepayment_tranches) impersonieren — beweist, dass der
+-- GRANT-Revoke greift, nicht nur eine Policy-Lücke bei Nicht-Skippern. ──
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims',
+  json_build_object('sub', '47470000-0000-4000-8000-0000000000f1')::text, TRUE);
+
+-- 6. Skipper kann keinen neuen Törn per direktem INSERT anlegen: 42501.
+SELECT throws_ok(
+  $$INSERT INTO trips(name, start_date, end_date, skipper_id)
+    VALUES ('pgTAP Dead-Grant-Trip', '2026-06-01', '2026-06-10',
+            '47470000-0000-4000-8000-000000000001')$$,
+  '42501', NULL,
+  'Skipper kann keinen Törn mehr per direktem INSERT anlegen (GRANT-Revoke)');
+
+-- 7. Skipper kann seinen eigenen Törn nicht mehr per direktem UPDATE
+-- umbenennen: 42501.
+SELECT throws_ok(
+  $$UPDATE trips SET name = 'Umbenannt-Sollte-Nicht-Klappen'
+     WHERE id = '47470000-0000-4000-8000-0000000000aa'$$,
+  '42501', NULL,
+  'Skipper kann seinen Törn nicht mehr per direktem UPDATE umbenennen');
+
+-- 8. Skipper kann seinen Törn nicht mehr per direktem DELETE löschen: 42501.
+SELECT throws_ok(
+  $$DELETE FROM trips WHERE id = '47470000-0000-4000-8000-0000000000aa'$$,
+  '42501', NULL,
+  'Skipper kann seinen Törn nicht mehr per direktem DELETE löschen');
+
+-- 9. Skipper kann keine Anzahlungs-Tranche mehr per direktem INSERT
+-- anlegen: 42501.
+SELECT throws_ok(
+  $$INSERT INTO prepayment_tranches(trip_id, due_date, label, percent)
+    VALUES ('47470000-0000-4000-8000-0000000000aa', '2026-05-01',
+            'Anzahlung', 50)$$,
+  '42501', NULL,
+  'Skipper kann keine Anzahlungs-Tranche mehr per direktem INSERT anlegen');
+
+RESET ROLE;
+
+-- ── Zurück zu P2: persons/persons_private ohne jedes Schreib-GRANT ─────
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims',
+  json_build_object('sub', '47470000-0000-4000-8000-0000000000f2')::text, TRUE);
+
+-- 10. Kein direktes UPDATE mehr auf persons (persons_update_self
+-- gedroppt UND kein Tabellen-GRANT mehr): 42501.
+SELECT throws_ok(
+  $$UPDATE persons SET display_name = 'Manipuliert'
+     WHERE id = '47470000-0000-4000-8000-000000000002'$$,
+  '42501', NULL,
+  'Crew kann display_name nicht mehr per direktem UPDATE auf persons ändern');
 
 -- ── Gegenprobe: keine Über-Härtung — Lesen funktioniert weiterhin ─────
 SELECT is(

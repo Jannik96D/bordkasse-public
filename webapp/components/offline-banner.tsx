@@ -5,6 +5,7 @@ import { CloudOff, RefreshCw, AlertTriangle, Smartphone } from "lucide-react";
 import { count, remove, subscribeToChanges } from "@/lib/offline/outbox";
 import { syncOutbox } from "@/lib/offline/sync";
 import { readOfflineMiss, clearOfflineMiss } from "@/lib/offline/offline-help";
+import { useToast } from "@/components/toast-provider";
 
 function subscribeOnline(callback: () => void) {
   window.addEventListener("online", callback);
@@ -22,7 +23,7 @@ function subscribeOnline(callback: () => void) {
  * hängen und der Banner ginge nie weg ("die App ist kaputt"-Effekt).
  * Triggert beim Online-Werden automatisch den Outbox-Sync.
  */
-export function OfflineBanner() {
+export function OfflineBanner({ currentPersonId }: { currentPersonId?: string } = {}) {
   const online = useSyncExternalStore(
     subscribeOnline,
     () => navigator.onLine,
@@ -32,6 +33,7 @@ export function OfflineBanner() {
   const [syncing, setSyncing] = useState(false);
   const [failed, setFailed] = useState<{ id: string; message: string }[]>([]);
   const [showHelp, setShowHelp] = useState(false);
+  const toast = useToast();
 
   const refreshPending = useCallback(async () => {
     try {
@@ -44,13 +46,24 @@ export function OfflineBanner() {
   const triggerSync = useCallback(async () => {
     setSyncing(true);
     try {
-      const result = await syncOutbox();
+      const result = await syncOutbox(currentPersonId);
       setFailed(result.failed);
+      // Grill-Review-Fund (PR 5): result.duplicates existierte bisher als
+      // totes Datenfeld — niemand las es aus. Ohne diesen Hinweis sieht die
+      // Crew nicht, dass eine schon gebuchte Zahlung erkannt und NICHT
+      // doppelt angelegt wurde (nur still aus der Outbox entfernt).
+      if (result.duplicates.length > 0) {
+        toast.show(
+          result.duplicates.length === 1
+            ? "Eine Buchung war schon gespeichert und wurde nicht doppelt angelegt."
+            : `${result.duplicates.length} Buchungen waren schon gespeichert und wurden nicht doppelt angelegt.`,
+        );
+      }
     } finally {
       setSyncing(false);
       refreshPending();
     }
-  }, [refreshPending]);
+  }, [refreshPending, currentPersonId, toast]);
 
   const discardFailed = useCallback(async () => {
     for (const f of failed) {

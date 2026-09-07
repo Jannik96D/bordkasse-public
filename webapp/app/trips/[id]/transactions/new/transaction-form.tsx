@@ -520,6 +520,7 @@ function ExpenseForm({
       updateAction: updateExpense,
       getTotal: () => eurTotal,
       fatFingerNoun: "Buchung",
+      currentPersonId,
     });
 
   return (
@@ -876,6 +877,7 @@ function CreditForm({
       updateAction: updateCredit,
       getTotal: () => toEur(safeMathEval(amount) ?? 0),
       fatFingerNoun: "Gutschrift",
+      currentPersonId,
     });
 
   return (

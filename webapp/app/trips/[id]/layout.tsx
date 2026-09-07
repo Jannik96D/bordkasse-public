@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import { Suspense } from "react";
 import { getTrip, getTripMembers } from "@/lib/queries/trips";
 import { getPrepaymentNavState } from "@/lib/queries/prepayments";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
@@ -7,7 +6,6 @@ import { isAdmin } from "@/lib/auth/authz";
 import { BottomNav } from "@/components/bottom-nav";
 import { RealtimeTrip } from "@/components/realtime-trip";
 import { TripVocabProvider } from "@/components/trip-vocab-provider";
-import { Toast } from "@/components/toast";
 import { TripHeader } from "@/components/trip-header";
 import { OfflineBanner } from "@/components/offline-banner";
 import { PrefetchOfflineForm } from "@/components/prefetch-offline-form";
@@ -47,7 +45,7 @@ export default async function TripLayout({
           Buchungs-Flow eines Törns befüllt, der Sync triggert beim Online-
           Werden auf jeder Törn-Seite. So bleibt der IndexedDB-Code aus dem
           Bundle der öffentlichen Seiten (Landing/Login/About) heraus. */}
-      <OfflineBanner />
+      <OfflineBanner currentPersonId={person?.id} />
       <TripHeader
         tripId={id}
         tripName={trip.name}
@@ -55,10 +53,6 @@ export default async function TripLayout({
         endDate={trip.end_date}
         archived={!!trip.archived}
       />
-
-      <Suspense fallback={null}>
-        <Toast />
-      </Suspense>
 
       {/* pb-20 lässt Platz für die fixed-positionierte BottomNav (≈56px + safe-area). */}
       <div className="flex-1 pb-20">{children}</div>

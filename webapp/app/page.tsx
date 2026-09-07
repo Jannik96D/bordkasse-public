@@ -10,20 +10,28 @@ import { InstallHint } from "@/components/install-hint";
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ account_deleted?: string }>;
+  searchParams: Promise<{ account_deleted?: string; login_cleanup_pending?: string }>;
 }) {
   const person = await getCurrentPerson();
   const admin = await isAdmin();
   const sp = await searchParams;
   const justDeleted = sp.account_deleted === "1";
+  const loginCleanupPending = sp.login_cleanup_pending === "1";
 
   if (!person) {
     return (
       <main className="flex flex-1 flex-col items-center px-6 pb-12 pt-[14vh] text-center">
         <div className="w-full max-w-md space-y-6">
-          {justDeleted && (
+          {justDeleted && !loginCleanupPending && (
             <div className="rounded-md border border-success/30 bg-success/5 p-3 text-sm text-success">
               Konto wurde gelöscht. Bis dann!
+            </div>
+          )}
+          {justDeleted && loginCleanupPending && (
+            <div className="rounded-md border border-success/30 bg-success/5 p-3 text-sm text-success">
+              Deine Daten wurden gelöscht. Bei der Bereinigung deines
+              Login-Kontos ist ein technischer Fehler aufgetreten — das hat
+              keine weiteren Auswirkungen für dich.
             </div>
           )}
           {/* Feste Box reserviert den Platz vor dem Laden → kein Layout-Shift (CLS). */}

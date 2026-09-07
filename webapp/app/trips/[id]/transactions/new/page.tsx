@@ -7,17 +7,14 @@ import { tripVocab } from "@/lib/trip-vocab";
 import { round2 } from "@/lib/utils";
 import { getCurrencyOptions } from "@/lib/rates/currency-options";
 import { TransactionForm } from "./transaction-form";
-import { DraftEditor } from "../draft-editor";
+import { DraftOrNewForm } from "../draft-or-new";
 
 export default async function NewTransactionPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ draft?: string }>;
 }) {
   const { id } = await params;
-  const { draft } = await searchParams;
   const [trip, members, categories, person, tranches, plan, admin] = await Promise.all([
     getTrip(id),
     getTripMembers(id),
@@ -82,36 +79,39 @@ export default async function NewTransactionPage({
 
   return (
     <main className="mx-auto max-w-md px-4 py-6">
-      {draft ? (
-        // Outbox-Entwurf bearbeiten — DraftEditor lädt das Item client-seitig
-        // aus IndexedDB und befüllt das Form vor.
-        <DraftEditor
-          draftId={draft}
-          tripId={id}
-          isSkipper={isSkipper}
-          currentPersonId={person?.id}
-          tripStart={trip.start_date}
-          tripEnd={trip.end_date}
-          members={mappedMembers}
-          categories={mappedCategories}
-          tranches={mappedTranches}
-          canEditTranche={canEditTranche}
-          currencyOptions={currencyOptions}
-        />
-      ) : (
-        <TransactionForm
-          tripId={id}
-          isSkipper={isSkipper}
-          currentPersonId={person?.id}
-          tripStart={trip.start_date}
-          tripEnd={trip.end_date}
-          members={mappedMembers}
-          categories={mappedCategories}
-          tranches={mappedTranches}
-          canEditTranche={canEditTranche}
-          currencyOptions={currencyOptions}
-        />
-      )}
+      {/*
+        Ob ein Outbox-Entwurf bearbeitet wird, hängt am URL-FRAGMENT
+        (`#draft=<id>`), NICHT an `searchParams` (Fund 2, PR 5) — ein
+        Query-Parameter überlebt die Offline-Auslieferung durch den Service
+        Worker nicht zuverlässig (siehe Kommentar in draft-or-new.tsx).
+        DraftOrNewForm liest das Fragment client-seitig und entscheidet.
+      */}
+      <DraftOrNewForm
+        tripId={id}
+        isSkipper={isSkipper}
+        currentPersonId={person?.id}
+        tripStart={trip.start_date}
+        tripEnd={trip.end_date}
+        members={mappedMembers}
+        categories={mappedCategories}
+        tranches={mappedTranches}
+        canEditTranche={canEditTranche}
+        currencyOptions={currencyOptions}
+        formElement={
+          <TransactionForm
+            tripId={id}
+            isSkipper={isSkipper}
+            currentPersonId={person?.id}
+            tripStart={trip.start_date}
+            tripEnd={trip.end_date}
+            members={mappedMembers}
+            categories={mappedCategories}
+            tranches={mappedTranches}
+            canEditTranche={canEditTranche}
+            currencyOptions={currencyOptions}
+          />
+        }
+      />
     </main>
   );
 }

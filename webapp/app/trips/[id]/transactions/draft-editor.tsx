@@ -95,7 +95,10 @@ function draftToCreditInitial(d: FormDataObj): CreditInitial {
     description: str(d.description),
     amount: num(d.amount),
     creditFrom: str(d.credit_from),
-    creditTo: rawTo === "ALL" ? null : rawTo || null,
+    // Fund 3 (PR 5): NUR "ALL" ist "An Alle" (→ null). Ein leerer String
+    // bedeutet "nichts ausgewählt" und muss leer bleiben (nicht `|| null`),
+    // sonst zeigt das wiedereröffnete Formular fälschlich "Alle" vorausgewählt.
+    creditTo: rawTo === "ALL" ? null : rawTo,
     trancheId: str(d.tranche_id) || null,
     originalCurrency: currencyOrNull(d.original_currency),
     exchangeRate: rateOrNull(d.exchange_rate),
