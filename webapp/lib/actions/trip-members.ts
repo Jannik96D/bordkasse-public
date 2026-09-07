@@ -147,13 +147,16 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
   if (tmError) return { status: "error", message: tmError.message };
 
   if (member) {
+    // Grill-Review-Fund (PR 7, Fund 4): `note` ist ein Freitextfeld und kann
+    // personenbezogene Hinweise enthalten — nicht ins Audit-Log spiegeln.
+    const { note: _memberNote, ...memberAuditPayload } = member;
     await logAudit(supabase, {
       table_name: "trip_members",
       operation: "INSERT",
       record_id: member.id,
       trip_id,
       actor_person_id: auth.personId,
-      payload: member,
+      payload: memberAuditPayload,
     });
   }
 
@@ -348,7 +351,9 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
         record_id: member.person_id,
         trip_id,
         actor_person_id: auth.personId,
-        payload: { display_name },
+        // Kein Klartext-Name im Audit-Log (DSGVO) — nur die Tatsache der
+        // Änderung, keine personenbezogenen Werte.
+        payload: { name_changed: true },
       });
     }
     if (email) {
@@ -462,7 +467,9 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
         record_id: member.person_id,
         trip_id,
         actor_person_id: auth.personId,
-        payload: { email },
+        // Kein Klartext-E-Mail im Audit-Log (DSGVO) — nur die Tatsache der
+        // Änderung, keine personenbezogenen Werte.
+        payload: { email_changed: true },
       });
 
       if (isFirstEmail) {

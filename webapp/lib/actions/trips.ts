@@ -165,7 +165,9 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
     record_id: trip.id,
     trip_id: trip.id,
     actor_person_id: auth.personId,
-    payload: { ...trip, created_for_skipper_email: parsed.data.skipper_email || null },
+    // Kein Klartext-E-Mail im Audit-Log (DSGVO) — nur die Tatsache, dass
+    // eine Skipper-E-Mail beim Anlegen angegeben wurde.
+    payload: { ...trip, created_for_skipper_email_provided: !!parsed.data.skipper_email },
   });
 
   // Skipper als erstes Crewmitglied dazuschreiben (mit is_skipper=TRUE).

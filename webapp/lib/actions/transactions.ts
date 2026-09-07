@@ -608,13 +608,19 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
   }
   if (error || !tx) return { status: "error", message: dbErrorMessage(error, "Gutschrift konnte nicht angelegt werden. Bitte erneut versuchen.") };
 
+  // Grill-Review-Fund (PR 7, Fund 4): description enthält bei Gutschriften
+  // systematisch Namen im Klartext ("Crewwechsel: X übernimmt Anzahlung für
+  // Y") — dieselbe Begründung, aus der Migration 0054 (D5) description beim
+  // Purge nur bei Gutschriften nullt. Der Audit-Log-Eintrag trüge diesen
+  // Klartext sonst bis zum Purge weiter (Monate/Jahre bei laufenden Törns).
+  const { description: _creditDescription, ...creditAuditPayload } = parsed.data;
   await logAudit(supabase, {
     table_name: "transactions",
     operation: "INSERT",
     record_id: tx.id,
     trip_id: parsed.data.trip_id,
     actor_person_id: person.id,
-    payload: { type: "credit", ...parsed.data },
+    payload: { type: "credit", ...creditAuditPayload },
   });
 
   await markPostSettlementChange(supabase, parsed.data.trip_id);
@@ -1062,13 +1068,16 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     .eq("trip_id", parsed.data.trip_id);
   if (error) return { status: "error", message: dbErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
 
+  // Grill-Review-Fund (PR 7, Fund 4): description ausklammern, siehe
+  // createCredit oben.
+  const { description: _creditDescriptionUpd, ...creditAuditPayloadUpd } = parsed.data;
   await logAudit(supabase, {
     table_name: "transactions",
     operation: "UPDATE",
     record_id: transactionId,
     trip_id: parsed.data.trip_id,
     actor_person_id: person.id,
-    payload: { type: "credit", ...parsed.data },
+    payload: { type: "credit", ...creditAuditPayloadUpd },
   });
 
   // balanceChanged wurde bereits vor dem Update berechnet (für den
@@ -1349,13 +1358,16 @@ export async function replayPendingTransaction(
     return { ok: true, duplicate: true };
   }
   if (error || !tx) return { ok: false, message: dbErrorMessage(error, "Serverfehler") };
+  // Grill-Review-Fund (PR 7, Fund 4): description ausklammern, siehe
+  // createCredit oben.
+  const { description: _creditDescriptionReplay, ...creditAuditPayloadReplay } = parsed.data;
   await logAudit(supabase, {
     table_name: "transactions",
     operation: "INSERT",
     record_id: tx.id,
     trip_id: parsed.data.trip_id,
     actor_person_id: person.id,
-    payload: { type: "credit", source: "outbox-replay", ...parsed.data },
+    payload: { type: "credit", source: "outbox-replay", ...creditAuditPayloadReplay },
   });
   await markPostSettlementChange(supabase, parsed.data.trip_id);
   revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
