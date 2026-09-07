@@ -637,121 +637,183 @@ async function mergeGhostIntoExistingPerson(
     };
   }
 
+  // Generischer Fehler-Text für alle Zwischenschritte unten — Fund 3
+  // (Sanierungsplan PR 9a): jeder Schritt verwarf bisher den Rückgabewert,
+  // ein Fehler mittendrin blieb unbemerkt und die Funktion log am Ende
+  // trotzdem {ok:true}, obwohl ein teil-gemergter Zustand zurückblieb (keine
+  // echte DB-Transaktion über den Service-Role-Client möglich — siehe
+  // gleiches Limit in lib/actions/prepayments.ts:replaceMember). Ziel hier
+  // ist NUR, den Fehler sichtbar zu machen, kein Rollback.
+  const mergeStepFailed = (step: string, message: string): { ok: false; message: string } => {
+    console.error(`[bordkasse:db] mergeGhostIntoExistingPerson step "${step}" failed:`, message);
+    return {
+      ok: false,
+      message: `Verschmelzung mittendrin fehlgeschlagen (Schritt „${step}"). Daten können jetzt teilweise ` +
+        `verschmolzen sein — bitte einen Admin kontaktieren, statt es erneut zu versuchen: ${message}`,
+    };
+  };
+
   // 1. transactions: paid_by / credit_from / credit_to umhängen — keine
   //    Constraints betroffen, einfache UPDATEs. Durch den Pre-Check oben
   //    ist der Ghost NUR in diesem Törn Crew, ein globales UPDATE ist damit
   //    ungefährlich (der Ghost kann in keinem anderen Törn referenziert sein).
-  await supabase.from("transactions").update({ paid_by: realId }).eq("paid_by", ghostId);
-  await supabase.from("transactions").update({ credit_from: realId }).eq("credit_from", ghostId);
-  await supabase.from("transactions").update({ credit_to: realId }).eq("credit_to", ghostId);
-  await supabase.from("transactions").update({ created_by: realId }).eq("created_by", ghostId);
+  {
+    const { error } = await supabase.from("transactions").update({ paid_by: realId }).eq("paid_by", ghostId);
+    if (error) return mergeStepFailed("transactions.paid_by", error.message);
+  }
+  {
+    const { error } = await supabase.from("transactions").update({ credit_from: realId }).eq("credit_from", ghostId);
+    if (error) return mergeStepFailed("transactions.credit_from", error.message);
+  }
+  {
+    const { error } = await supabase.from("transactions").update({ credit_to: realId }).eq("credit_to", ghostId);
+    if (error) return mergeStepFailed("transactions.credit_to", error.message);
+  }
+  {
+    const { error } = await supabase.from("transactions").update({ created_by: realId }).eq("created_by", ghostId);
+    if (error) return mergeStepFailed("transactions.created_by", error.message);
+  }
 
   // 2. transaction_participants: PK (transaction_id, person_id). Wenn
   //    Ghost+real beide auf der gleichen Buchung waren, behalten wir die
   //    real-Zeile und addieren ggf. den per_person-Betrag des Ghosts dazu.
-  const { data: ghostParticipations } = await supabase
+  const { data: ghostParticipations, error: ghostPartErr } = await supabase
     .from("transaction_participants")
     .select("transaction_id, amount")
     .eq("person_id", ghostId);
+  if (ghostPartErr) return mergeStepFailed("transaction_participants.select", ghostPartErr.message);
   for (const gp of ghostParticipations ?? []) {
-    const { data: realPart } = await supabase
+    const { data: realPart, error: realPartErr } = await supabase
       .from("transaction_participants")
       .select("amount")
       .eq("transaction_id", gp.transaction_id)
       .eq("person_id", realId)
       .maybeSingle();
+    if (realPartErr) return mergeStepFailed("transaction_participants.select_real", realPartErr.message);
     if (realPart) {
       // Doppelte Teilnahme — Ghost-Eintrag verwerfen.
       // Bei per_person addieren wir den Ghost-Betrag aufs real-Konto (sonst
       // würde Σ(participant.amount) plötzlich kleiner als transaction.amount).
       if (gp.amount != null && realPart.amount != null) {
-        await supabase
+        const { error } = await supabase
           .from("transaction_participants")
           .update({ amount: Number(realPart.amount) + Number(gp.amount) })
           .eq("transaction_id", gp.transaction_id)
           .eq("person_id", realId);
+        if (error) return mergeStepFailed("transaction_participants.merge_amount", error.message);
       } else if (gp.amount != null && realPart.amount == null) {
         // real war individual-Teilnehmer ohne Betrag, Ghost war per_person mit Betrag — behalte den Betrag
-        await supabase
+        const { error } = await supabase
           .from("transaction_participants")
           .update({ amount: gp.amount })
           .eq("transaction_id", gp.transaction_id)
           .eq("person_id", realId);
+        if (error) return mergeStepFailed("transaction_participants.take_amount", error.message);
       }
-      await supabase
+      const { error } = await supabase
         .from("transaction_participants")
         .delete()
         .eq("transaction_id", gp.transaction_id)
         .eq("person_id", ghostId);
+      if (error) return mergeStepFailed("transaction_participants.delete_ghost", error.message);
     } else {
       // Nur Ghost war Teilnehmer → einfach umhängen
-      await supabase
+      const { error } = await supabase
         .from("transaction_participants")
         .update({ person_id: realId })
         .eq("transaction_id", gp.transaction_id)
         .eq("person_id", ghostId);
+      if (error) return mergeStepFailed("transaction_participants.reassign", error.message);
     }
   }
 
   // 3. Anzahlungs-Obligation: PK (trip_id, person_id). Wenn beide eine
   //    haben, behalten wir die real-Zeile.
-  const [{ data: ghostObl }, { data: realObl }] = await Promise.all([
+  const [{ data: ghostObl, error: ghostOblErr }, { data: realObl, error: realOblErr }] = await Promise.all([
     supabase.from("prepayment_obligations").select("cabin_type_id, total_amount").eq("trip_id", tripId).eq("person_id", ghostId).maybeSingle(),
     supabase.from("prepayment_obligations").select("person_id").eq("trip_id", tripId).eq("person_id", realId).maybeSingle(),
   ]);
+  if (ghostOblErr) return mergeStepFailed("prepayment_obligations.select_ghost", ghostOblErr.message);
+  if (realOblErr) return mergeStepFailed("prepayment_obligations.select_real", realOblErr.message);
   if (ghostObl) {
     if (!realObl) {
-      await supabase.from("prepayment_obligations").insert({
+      const { error } = await supabase.from("prepayment_obligations").insert({
         trip_id: tripId,
         person_id: realId,
         cabin_type_id: ghostObl.cabin_type_id,
         total_amount: ghostObl.total_amount,
       });
+      if (error) return mergeStepFailed("prepayment_obligations.insert", error.message);
     }
-    await supabase.from("prepayment_obligations").delete().eq("trip_id", tripId).eq("person_id", ghostId);
+    const { error } = await supabase.from("prepayment_obligations").delete().eq("trip_id", tripId).eq("person_id", ghostId);
+    if (error) return mergeStepFailed("prepayment_obligations.delete_ghost", error.message);
   }
 
   // 4. trip_members: Ghost-Eintrag auf real umhängen. Der Pre-Check oben
   //    hat sichergestellt, dass real noch nicht Mitglied dieses Trips ist —
   //    UNIQUE (trip_id, person_id) ist daher safe.
-  await supabase
-    .from("trip_members")
-    .update({ person_id: realId })
-    .eq("trip_id", tripId)
-    .eq("person_id", ghostId);
+  {
+    const { error } = await supabase
+      .from("trip_members")
+      .update({ person_id: realId })
+      .eq("trip_id", tripId)
+      .eq("person_id", ghostId);
+    if (error) return mergeStepFailed("trip_members.reassign", error.message);
+  }
 
   // 5. Trip-Skipper-FK darf nicht auf den Ghost zeigen (RESTRICT beim Delete)
-  await supabase.from("trips").update({ skipper_id: realId }).eq("skipper_id", ghostId);
+  {
+    const { error } = await supabase.from("trips").update({ skipper_id: realId }).eq("skipper_id", ghostId);
+    if (error) return mergeStepFailed("trips.skipper_id", error.message);
+  }
 
   // 6. Audit-Log-Spalte actor_person_id, falls Ghost je Actor war
-  await supabase.from("audit_log").update({ actor_person_id: realId }).eq("actor_person_id", ghostId);
+  {
+    const { error } = await supabase.from("audit_log").update({ actor_person_id: realId }).eq("actor_person_id", ghostId);
+    if (error) return mergeStepFailed("audit_log.actor_person_id", error.message);
+  }
 
   // 7. settled_debts: from_person_id / to_person_id (Schulden-Häkchen)
-  await supabase.from("settled_debts").update({ from_person_id: realId }).eq("from_person_id", ghostId);
-  await supabase.from("settled_debts").update({ to_person_id: realId }).eq("to_person_id", ghostId);
+  {
+    const { error } = await supabase.from("settled_debts").update({ from_person_id: realId }).eq("from_person_id", ghostId);
+    if (error) return mergeStepFailed("settled_debts.from_person_id", error.message);
+  }
+  {
+    const { error } = await supabase.from("settled_debts").update({ to_person_id: realId }).eq("to_person_id", ghostId);
+    if (error) return mergeStepFailed("settled_debts.to_person_id", error.message);
+  }
 
   // 7a. settled_by_person_id (Fund 5): ON DELETE SET NULL würde beim finalen
   //     persons-DELETE sonst still verlieren, WER das Häkchen gesetzt hat.
   //     Auf diesen Törn beschränkt (settled_debts.trip_id) — nach dem
   //     Pre-Check oben ist der Ghost ohnehin nur hier Crew.
-  await supabase
-    .from("settled_debts")
-    .update({ settled_by_person_id: realId })
-    .eq("trip_id", tripId)
-    .eq("settled_by_person_id", ghostId);
+  {
+    const { error } = await supabase
+      .from("settled_debts")
+      .update({ settled_by_person_id: realId })
+      .eq("trip_id", tripId)
+      .eq("settled_by_person_id", ghostId);
+    if (error) return mergeStepFailed("settled_debts.settled_by_person_id", error.message);
+  }
 
   // 7b. prepayment_plan.advancer_person_id (Fund 5): ebenfalls ON DELETE SET
   //     NULL — war der Ghost als Vorstrecker eingetragen, ginge diese Rolle
   //     beim Löschen sonst still verloren und requireSkipperAdminOrAdvancer
   //     fiele unbemerkt auf den Trip-Skipper zurück.
-  await supabase
-    .from("prepayment_plan")
-    .update({ advancer_person_id: realId })
-    .eq("trip_id", tripId)
-    .eq("advancer_person_id", ghostId);
+  {
+    const { error } = await supabase
+      .from("prepayment_plan")
+      .update({ advancer_person_id: realId })
+      .eq("trip_id", tripId)
+      .eq("advancer_person_id", ghostId);
+    if (error) return mergeStepFailed("prepayment_plan.advancer_person_id", error.message);
+  }
 
   // 8. Ghost-Person + persons_private löschen
-  await supabase.from("persons_private").delete().eq("person_id", ghostId);
+  {
+    const { error } = await supabase.from("persons_private").delete().eq("person_id", ghostId);
+    if (error) return mergeStepFailed("persons_private.delete_ghost", error.message);
+  }
   const { error: delErr } = await supabase.from("persons").delete().eq("id", ghostId);
   if (delErr) {
     return {

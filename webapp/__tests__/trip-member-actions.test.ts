@@ -357,4 +357,44 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
 
     expect(res.status).toBe("ok");
   });
+
+  // Fund 3 (Sanierungsplan PR 9a): bisher verwarf mergeGhostIntoExistingPerson
+  // den Rückgabewert JEDES Zwischenschritts (nur der abschließende
+  // persons-DELETE prüfte {error}) — ein DB-Fehler mittendrin blieb
+  // unbemerkt, die Funktion lief einfach weiter und meldete am Ende
+  // fälschlich {ok:true}. Dieser Test lässt den zweiten transactions-Update
+  // (credit_from) mit einem Fehler scheitern und erwartet, dass
+  // updateMember das SOFORT als Fehler nach oben reicht, statt die
+  // restlichen Schritte (deren Script-Einträge hier bewusst fehlen)
+  // weiterzumachen.
+  it("gibt einen Fehler zurück, wenn ein Zwischenschritt des Merges scheitert (Fund 3)", async () => {
+    const supabase = makeScriptedSupabase([
+      { table: "trips", response: { data: { archived: false } } },
+      { table: "trip_members", response: { data: { person_id: GHOST_ID, persons: { auth_user_id: null } } } },
+      { table: "trip_members", response: { error: null } },
+      { table: "persons_private", response: { data: null } },
+      {
+        table: "persons_private",
+        response: { data: { person_id: REAL_ID, persons: { display_name: "Real Person", auth_user_id: null } } },
+      },
+      { table: "trip_members", response: { count: 0 } },
+      { table: "trip_members", response: { data: null } },
+      { table: "trip_members", response: { count: 0 } },
+      // transactions.update(paid_by) — erfolgreich
+      { table: "transactions", response: { error: null } },
+      // transactions.update(credit_from) — schlägt fehl
+      { table: "transactions", response: { error: { message: "connection reset" } } },
+      // ABSICHTLICH KEINE weiteren Einträge — der alte Code würde hier
+      // weitermachen und mit "Kein Script-Eintrag" abstürzen; der neue Code
+      // muss VORHER mit {ok:false} zurückkehren.
+    ]);
+    mockedAdminClient.mockReturnValue(supabase as never);
+
+    const res = await updateMember({ status: "idle" }, updateMemberFormData());
+
+    expect(res.status).toBe("error");
+    if (res.status === "error") {
+      expect(res.message).toContain("connection reset");
+    }
+  });
 });
