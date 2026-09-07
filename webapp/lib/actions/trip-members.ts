@@ -10,6 +10,7 @@ import { sendInvitationMagicLink } from "@/lib/auth/invite";
 import { resolveOrigin } from "@/lib/auth/origin";
 import { displayNameFromEmail } from "@/lib/utils";
 import { personHasBookingTrace } from "@/lib/auth/cross-trip";
+import { assertTripNotArchived } from "@/lib/auth/trip-state";
 
 const InviteSchema = z.object({
   trip_id: z.string().uuid(),
@@ -53,6 +54,9 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
 
   // Person mit dieser E-Mail finden (über persons_private) oder als Ghost
   // anlegen. E-Mail liegt seit Migration 0013 ausschließlich in
@@ -195,6 +199,9 @@ export async function removeMember(
   if (!auth.ok) return { ok: false, message: auth.message };
   const supabase = createAdminClient();
 
+  const archivedCheck = await assertTripNotArchived(supabase, tripId);
+  if (!archivedCheck.ok) return { ok: false, message: archivedCheck.message };
+
   // IDOR-Schutz (Fund 4, Code-Review 2026-08): memberId wird OHNE trip_id-
   // Filter gelesen/gelöscht — ein Skipper von Törn A könnte sonst eine
   // fremde trip_members.id aus Törn B übergeben (per RLS für jedes Mitglied
@@ -297,6 +304,9 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
 
   // Member + zugehörige Person holen — wir brauchen person_id + Ghost-Status.
   const { data: member } = await supabase
@@ -497,6 +507,9 @@ export async function setSkipperRole(memberId: string, tripId: string, isSkipper
   const auth = await requireSkipperOrAdmin(tripId);
   if (!auth.ok) return;
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, tripId);
+  if (!archivedCheck.ok) return;
 
   // IDOR-Schutz (Fund 4, Code-Review 2026-08): memberId OHNE trip_id-Filter
   // zu lesen/schreiben ließe einen Skipper von Törn A eine fremde

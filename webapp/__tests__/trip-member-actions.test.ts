@@ -230,6 +230,9 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
     // einem ANDEREN Ghost gehört (auto-mergebar), der aber in einem fremden
     // Törn Crew ist":
     const supabase = makeScriptedSupabase([
+      // 0. assertTripNotArchived (Sanierungsplan D3) — erster Supabase-
+      //    Aufruf direkt nach dem Auth-Guard, vor dem Member-Lookup.
+      { table: "trips", response: { data: { archived: false } } },
       // 1. Member-Lookup (Ghost, kein auth_user_id)
       { table: "trip_members", response: { data: { person_id: GHOST_ID, persons: { auth_user_id: null } } } },
       // 2. trip_members-Felder-Update (on_board_from/to, is_alcoholic, note)
@@ -269,6 +272,9 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
     // Törns. Der neue Pre-Check muss VOR mergeGhostIntoExistingPerson
     // greifen — der eigentliche Merge-Helper wird gar nicht mehr erreicht.
     const supabase = makeScriptedSupabase([
+      // 0. assertTripNotArchived (Sanierungsplan D3) — erster Supabase-
+      //    Aufruf direkt nach dem Auth-Guard, vor dem Member-Lookup.
+      { table: "trips", response: { data: { archived: false } } },
       // 1. Member-Lookup (Ghost, kein auth_user_id)
       { table: "trip_members", response: { data: { person_id: GHOST_ID, persons: { auth_user_id: null } } } },
       // 2. trip_members-Felder-Update
@@ -297,6 +303,9 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
 
   it("erlaubt den Merge weiterhin, wenn die Zielperson nur Crew dieses einen Törns ist", async () => {
     const supabase = makeScriptedSupabase([
+      // 0. assertTripNotArchived (Sanierungsplan D3) — erster Supabase-
+      //    Aufruf direkt nach dem Auth-Guard, vor dem Member-Lookup.
+      { table: "trips", response: { data: { archived: false } } },
       // 1. Member-Lookup (Ghost, kein auth_user_id)
       { table: "trip_members", response: { data: { person_id: GHOST_ID, persons: { auth_user_id: null } } } },
       // 2. trip_members-Felder-Update
