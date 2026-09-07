@@ -408,14 +408,41 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
         }).persons;
         const inUse = Array.isArray(inUsePerson) ? inUsePerson[0] : inUsePerson;
         if (inUse?.auth_user_id) {
-          const inUseName = inUse.display_name || "diese Person";
+          // Fund 2 (Sanierungsplan PR 3): kein Anzeigename der fremden Person
+          // in der Fehlermeldung — sonst könnte ein Skipper allein durch
+          // Raten einer E-Mail-Adresse erfahren, wem sie gehört.
           return {
             status: "error",
             message:
-              `Diese E-Mail-Adresse gehört bereits zum Konto von „${inUseName}". ` +
-              `Entferne den aktuellen Creweintrag (ohne E-Mail) und füge „${inUseName}" ` +
-              `über „Crew einladen" mit dieser E-Mail hinzu — die Person behält dann ihr ` +
-              `bestehendes Konto und bekommt einen Login-Link.`,
+              "Diese E-Mail-Adresse gehört bereits zu einem bestehenden Konto. " +
+              "Entferne den aktuellen Creweintrag (ohne E-Mail) und füge die Person " +
+              "stattdessen über „Crew einladen“ mit dieser E-Mail hinzu — sie behält dann ihr " +
+              "bestehendes Konto und bekommt einen Login-Link.",
+          };
+        }
+
+        // Fund 1/5/6 (Sanierungsplan PR 3): ist die per E-Mail gefundene
+        // Zielperson (ein Ghost ohne Login) auch Crew eines ANDEREN Törns,
+        // ist sie ein GETEILTER Ghost. Ein Skipper darf deren Identität
+        // (Name/E-Mail) dann nicht unilateral umbiegen — das würde die
+        // Person auch für den fremden Törn verändern, dessen Skipper hier
+        // gar nicht gefragt wird. Auto-Merge bleibt nur erlaubt, wenn die
+        // Zielperson (noch) ausschließlich Crew dieses einen Törns ist.
+        const { count: targetOtherTripCount, error: targetOtherTripErr } = await supabase
+          .from("trip_members")
+          .select("*", { count: "exact", head: true })
+          .eq("person_id", emailInUse.person_id)
+          .neq("trip_id", trip_id);
+        if (targetOtherTripErr) {
+          console.error("[bordkasse:db]", targetOtherTripErr.message);
+          return { status: "error", message: "Prüfung auf geteilte Crew fehlgeschlagen. Bitte erneut versuchen." };
+        }
+        if ((targetOtherTripCount ?? 0) > 0) {
+          return {
+            status: "error",
+            message:
+              "Diese E-Mail-Adresse gehört zu einer Person, die auch Crew eines anderen Törns ist. " +
+              "Eine automatische Verschmelzung ist deshalb gesperrt — bitte manuell prüfen oder einen Admin einbeziehen.",
           };
         }
 

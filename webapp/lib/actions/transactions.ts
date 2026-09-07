@@ -627,13 +627,29 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
 /**
  * Berechtigung zum Editieren / Löschen einer Transaktion: entweder Skipper
  * oder Admin des Trips, oder die Person, die die Buchung erstellt hat.
+ *
+ * Fund 12 (Sanierungsplan PR 3): der Ersteller-Zweig verlangt zusätzlich,
+ * dass der Ersteller noch MITGLIED dieses Törns ist — wurde er zwischenzeitlich
+ * entfernt (removeMember), soll das alte Ersteller-Recht nicht fortbestehen.
+ * Bewusst NUR dieser Zweig: ein globaler `requireMember`-Aufruf für die ganze
+ * Funktion wäre falsch, weil `requireMember` keinen Admin-Bypass kennt und
+ * damit den Skipper-/Admin-Zweig unnötig einschränken würde.
  */
 async function canEditTransaction(
   tripId: string,
   createdBy: string | null,
   currentPersonId: string,
 ): Promise<boolean> {
-  if (createdBy && createdBy === currentPersonId) return true;
+  if (createdBy && createdBy === currentPersonId) {
+    const supabase = createAdminClient();
+    const { data: member } = await supabase
+      .from("trip_members")
+      .select("person_id")
+      .eq("trip_id", tripId)
+      .eq("person_id", createdBy)
+      .maybeSingle();
+    if (member) return true;
+  }
   const skipperCheck = await requireSkipperOrAdmin(tripId);
   if (skipperCheck.ok) return true;
   return await isAdmin();
@@ -1079,7 +1095,17 @@ export async function deleteTransaction(
   transactionId: string,
   tripId: string,
 ): Promise<{ ok: boolean; wasKaution: boolean }> {
-  const auth = await requireMember(tripId);
+  // Fund 43 (Sanierungsplan PR 3, Grill-Review): `requireMember` sperrt einen
+  // globalen Admin aus, der (noch) nicht Crew dieses Törns ist — laut
+  // App-Konzept soll Admin aber überall Zugriff haben. Lockerung auf
+  // "Mitglied des Trips ODER globaler Admin".
+  let auth = await requireMember(tripId);
+  if (!auth.ok) {
+    if (await isAdmin()) {
+      const person = await getCurrentPerson();
+      if (person) auth = { ok: true, personId: person.id };
+    }
+  }
   if (!auth.ok) return { ok: false, wasKaution: false };
   const supabase = createAdminClient();
   const { data: existing } = await supabase

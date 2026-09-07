@@ -567,3 +567,134 @@ describe("deleteTransaction — nur Ersteller/Skipper/Admin (Fund S-2)", () => {
     expect(res.ok).toBe(false);
   });
 });
+
+describe("canEditTransaction — Ersteller-Recht erlischt bei Trip-Austritt (Fund 12)", () => {
+  /**
+   * Tabellensensitiver Mock: `transactions` liefert die Buchung, `trip_members`
+   * bedient sowohl den `deleteTransaction`-eigenen `requireMember`-Ersatz
+   * (hier bereits über `mockedRequireMember` erledigt) als auch die NEUE
+   * Mitgliedschafts-Prüfung des Ersteller-Zweigs in `canEditTransaction`.
+   * `rpc` bedient `markPostSettlementChange`.
+   */
+  function makeCanEditSupabase(opts: {
+    existing: Record<string, unknown>;
+    creatorIsMember: boolean;
+  }) {
+    const { existing, creatorIsMember } = opts;
+    const make = (table: string) => {
+      const b: Record<string, unknown> = {};
+      const self = () => b;
+      b.select = self;
+      b.eq = self;
+      b.in = self;
+      b.update = self;
+      b.insert = () => Promise.resolve({ error: null }); // logAudit
+      b.maybeSingle = () => {
+        if (table === "transactions") return Promise.resolve({ data: existing });
+        if (table === "trip_members") return Promise.resolve({ data: creatorIsMember ? { person_id: existing.created_by } : null });
+        return Promise.resolve({ data: null });
+      };
+      b.then = (onFulfilled: (v: unknown) => unknown) => Promise.resolve({ error: null }).then(onFulfilled);
+      return b;
+    };
+    return { from: (table: string) => make(table), rpc: () => Promise.resolve({ error: null }) };
+  }
+
+  const CREATOR_ID = "aaaaaaaa-0000-4000-8000-00000000000f";
+
+  beforeEach(() => {
+    mockedRequireMember.mockReset();
+    mockedRequireSkipperOrAdmin.mockReset();
+    mockedIsAdmin.mockReset();
+    mockedAdminClient.mockReset();
+    // Löschender ist der Ersteller selbst (requireMember bezieht sich auf ihn).
+    mockedRequireMember.mockResolvedValue({ ok: true, personId: CREATOR_ID });
+    // Weder Skipper/Admin noch globaler Admin — der Test prüft ausschließlich
+    // den Ersteller-Zweig von canEditTransaction.
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: false, message: "nein" });
+    mockedIsAdmin.mockResolvedValue(false);
+  });
+
+  it("erlaubt dem Ersteller weiterhin das Löschen, solange er noch Mitglied ist", async () => {
+    mockedAdminClient.mockReturnValue(
+      makeCanEditSupabase({
+        existing: { category_id: null, trip_id: TRIP_ID, created_by: CREATOR_ID },
+        creatorIsMember: true,
+      }) as never,
+    );
+    const res = await deleteTransaction("aaaaaaaa-0000-4000-8000-000000000010", TRIP_ID);
+    expect(res.ok).toBe(true);
+  });
+
+  it("verweigert dem Ersteller das Löschen, sobald er kein Mitglied des Törns mehr ist", async () => {
+    // Vor dem Fix reichte `createdBy === currentPersonId` allein — ein
+    // entferntes Ex-Mitglied hätte seine alten Buchungen weiterhin löschen
+    // können.
+    mockedAdminClient.mockReturnValue(
+      makeCanEditSupabase({
+        existing: { category_id: null, trip_id: TRIP_ID, created_by: CREATOR_ID },
+        creatorIsMember: false,
+      }) as never,
+    );
+    const res = await deleteTransaction("aaaaaaaa-0000-4000-8000-000000000011", TRIP_ID);
+    expect(res.ok).toBe(false);
+  });
+});
+
+describe("deleteTransaction — globaler Admin ohne Trip-Mitgliedschaft (Fund 43)", () => {
+  function makeDeleteSupabaseForAdmin(existing: Record<string, unknown>) {
+    const make = (table: string) => {
+      const b: Record<string, unknown> = {};
+      const self = () => b;
+      b.select = self;
+      b.eq = self;
+      b.in = self;
+      b.update = self;
+      b.insert = () => Promise.resolve({ error: null });
+      b.maybeSingle = () => {
+        if (table === "transactions") return Promise.resolve({ data: existing });
+        // Admin ist NICHT Crew — jede trip_members-Mitgliedschaftsabfrage
+        // (auch die im Ersteller-Zweig von canEditTransaction) liefert nichts.
+        return Promise.resolve({ data: null });
+      };
+      b.then = (onFulfilled: (v: unknown) => unknown) => Promise.resolve({ error: null }).then(onFulfilled);
+      return b;
+    };
+    return { from: (table: string) => make(table), rpc: () => Promise.resolve({ error: null }) };
+  }
+
+  const OTHER_CREATOR = "aaaaaaaa-0000-4000-8000-000000000012";
+  const ADMIN_PERSON_ID = "aaaaaaaa-0000-4000-8000-000000000013";
+
+  beforeEach(() => {
+    mockedRequireMember.mockReset();
+    mockedRequireSkipperOrAdmin.mockReset();
+    mockedIsAdmin.mockReset();
+    mockedPerson.mockReset();
+    mockedAdminClient.mockReset();
+    // requireMember schlägt fehl — der Admin ist nicht Crew dieses Törns.
+    mockedRequireMember.mockResolvedValue({ ok: false, message: "Du bist nicht Mitglied dieses Törns." });
+    mockedIsAdmin.mockResolvedValue(true);
+    mockedPerson.mockResolvedValue({ id: ADMIN_PERSON_ID, display_name: "Admin" } as never);
+    // canEditTransaction: Admin ist weder Ersteller noch Skipper — greift
+    // über den isAdmin()-Fallback am Ende der Funktion.
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: false, message: "nein" });
+    mockedAdminClient.mockReturnValue(
+      makeDeleteSupabaseForAdmin({ category_id: null, trip_id: TRIP_ID, created_by: OTHER_CREATOR }) as never,
+    );
+  });
+
+  it("erlaubt einem globalen Admin das Löschen, obwohl er kein Trip-Mitglied ist", async () => {
+    // Vor dem Fix sperrte requireMember(tripId) den Admin komplett aus,
+    // bevor canEditTransaction (das isAdmin() als Fallback kennt) überhaupt
+    // erreicht wurde.
+    const res = await deleteTransaction("aaaaaaaa-0000-4000-8000-000000000014", TRIP_ID);
+    expect(res.ok).toBe(true);
+  });
+
+  it("verweigert das Löschen, wenn weder Mitgliedschaft noch Admin-Status vorliegen", async () => {
+    mockedIsAdmin.mockResolvedValue(false);
+    const res = await deleteTransaction("aaaaaaaa-0000-4000-8000-000000000015", TRIP_ID);
+    expect(res.ok).toBe(false);
+  });
+});
