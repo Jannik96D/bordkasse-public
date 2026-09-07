@@ -57,20 +57,20 @@ export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
       headline = "Anzahlung wurde erfasst";
       introText =
         p.recipientName === p.subjectPersonName
-          ? `${p.actorName} hat soeben eine Anzahlung in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} im Namen von dir erfasst.`
-          : `${p.actorName} hat soeben eine Anzahlung von ${p.subjectPersonName} in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} in der ${vocab.kitty} erfasst.`;
+          ? `${escapeHtml(p.actorName)} hat soeben eine Anzahlung in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} im Namen von dir erfasst.`
+          : `${escapeHtml(p.actorName)} hat soeben eine Anzahlung von ${escapeHtml(p.subjectPersonName)} in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} in der ${vocab.kitty} erfasst.`;
       pillColor = "#1E8449";
       break;
     case "payment_confirmed":
       subject = `Anzahlung bestätigt: ${p.subjectPersonName} (${fmtEuro(p.amount)})`;
       headline = "Anzahlung wurde bestätigt";
-      introText = `${p.actorName} hat soeben die Selbstmeldung von ${p.subjectPersonName} in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} als bestätigt markiert.`;
+      introText = `${escapeHtml(p.actorName)} hat soeben die Selbstmeldung von ${escapeHtml(p.subjectPersonName)} in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} als bestätigt markiert.`;
       pillColor = "#1E8449";
       break;
     case "payment_rejected":
       subject = `Anzahlung abgelehnt: ${p.subjectPersonName} (${fmtEuro(p.amount)})`;
       headline = "Anzahlung wurde abgelehnt";
-      introText = `${p.actorName} hat soeben die Selbstmeldung von ${p.subjectPersonName} in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} abgelehnt.`;
+      introText = `${escapeHtml(p.actorName)} hat soeben die Selbstmeldung von ${escapeHtml(p.subjectPersonName)} in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} abgelehnt.`;
       pillColor = "#A93226";
       break;
   }
@@ -80,7 +80,7 @@ export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
       ? `Falls die Ablehnung ein Versehen war, sprich kurz mit der vorstreckenden Person oder ${skipperDative}, die Buchung kann neu erfasst werden.`
       : `Falls etwas nicht stimmt, sprich kurz mit der vorstreckenden Person oder ${skipperDative}, Buchungen können in der App noch geändert werden.`;
 
-  const detailLine = `${p.subjectPersonName} · ${escapeHtml(p.trancheLabel)} · ${fmtEuro(p.amount)}`;
+  const detailLine = `${escapeHtml(p.subjectPersonName)} · ${escapeHtml(p.trancheLabel)} · ${fmtEuro(p.amount)}`;
 
   const body = `
             <tr>
