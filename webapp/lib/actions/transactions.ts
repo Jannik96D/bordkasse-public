@@ -1149,12 +1149,15 @@ export async function deleteTransaction(
  * Replay einer offline erfassten Buchung von der Outbox aus.
  * Macht KEINEN Redirect — wird vom Client-Sync ohne Navigation aufgerufen.
  * Idempotency-Key verhindert Duplikate, falls dieselbe Buchung schon
- * in einer anderen Session synchronisiert wurde.
+ * in einer anderen Session synchronisiert wurde — in dem Fall trägt die
+ * Antwort zusätzlich `duplicate: true` (Fund 4, PR 5), damit der Sync-Layer
+ * das von einem echten Neu-Insert unterscheiden kann; der Outbox-Eintrag wird
+ * in BEIDEN Fällen entfernt (`ok: true`), nie als Dauerfehler stehen gelassen.
  */
 export async function replayPendingTransaction(
   kind: "expense" | "credit",
   formObject: Record<string, string | string[]>,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true; duplicate?: boolean } | { ok: false; message: string }> {
   const person = await getCurrentPerson();
   if (!person) return { ok: false, message: "Nicht angemeldet." };
 
@@ -1169,7 +1172,16 @@ export async function replayPendingTransaction(
   const supabase = createAdminClient();
 
   if (kind === "expense") {
-    const participantIds = (formObject.participant_ids as string[] | undefined) ?? [];
+    // Fund 1 (PR 5): aus der Outbox gelesenes `participant_ids` ist nicht
+    // garantiert ein Array — ein aus einem gespeicherten Objekt gelesener
+    // Einzelwert kann ein blanker String sein (anders als `FormData.getAll`,
+    // das immer ein Array liefert). Normalisieren, statt blind zu casten.
+    const rawParticipantIds = formObject.participant_ids;
+    const participantIds = Array.isArray(rawParticipantIds)
+      ? rawParticipantIds
+      : rawParticipantIds
+        ? [rawParticipantIds]
+        : [];
     // KEIN tranche_id im Replay (S-1): eine offline erfasste Ausgabe darf nicht
     // in den Anzahlungspool geschoben werden — die Auslassung ist hier bewusst.
     const parsed = ExpenseSchema.safeParse({
@@ -1239,7 +1251,7 @@ export async function replayPendingTransaction(
       .single();
     if (error?.code === PG_UNIQUE_VIOLATION && idempotency_key) {
       revalidatePath(`/trips/${txData.trip_id}/transactions`);
-      return { ok: true };
+      return { ok: true, duplicate: true };
     }
     if (error || !tx) {
       return { ok: false, message: dbErrorMessage(error, "Serverfehler") };
@@ -1269,7 +1281,12 @@ export async function replayPendingTransaction(
 
   // credit
   const creditToRaw = String(formObject.credit_to ?? "");
-  const creditTo = creditToRaw === "ALL" || creditToRaw === "" ? null : creditToRaw;
+  // Fund 3 (PR 5): NUR das explizite Literal "ALL" bedeutet "An Alle" (→ null).
+  // Ein leerer String heißt "nichts ausgewählt" und muss leer bleiben, damit
+  // CreditSchema (requiredUuid().nullable()) ihn als ungültig ablehnt — sonst
+  // würde ein vergessenes Empfänger-Feld beim Replay stillschweigend zu einer
+  // "An Alle"-Gutschrift (gleiche Regel wie in createCredit/updateCredit).
+  const creditTo = creditToRaw === "ALL" ? null : creditToRaw;
   // KEIN tranche_id im Replay (S-1), wie beim Ausgabe-Zweig.
   const parsed = CreditSchema.safeParse({
     ...creditCommonInput((k) => formObject[k], creditTo),
@@ -1329,7 +1346,7 @@ export async function replayPendingTransaction(
     .single();
   if (error?.code === PG_UNIQUE_VIOLATION && parsed.data.idempotency_key) {
     revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
-    return { ok: true };
+    return { ok: true, duplicate: true };
   }
   if (error || !tx) return { ok: false, message: dbErrorMessage(error, "Serverfehler") };
   await logAudit(supabase, {

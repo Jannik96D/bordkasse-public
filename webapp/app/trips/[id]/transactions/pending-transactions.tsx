@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { CloudOff, Pencil, Trash2 } from "lucide-react";
+import { CloudOff, Pencil, Trash2, UserX } from "lucide-react";
 import {
   listAll,
   remove,
@@ -15,6 +15,7 @@ import { useConfirm } from "@/components/confirm-dialog";
 import { useToast } from "@/components/toast-provider";
 import { useTripVocab } from "@/components/trip-vocab-provider";
 import { formatEuro, formatAmount } from "@/lib/utils";
+import { draftEditHref } from "@/lib/offline/draft-hash";
 
 function subscribeOnline(callback: () => void) {
   window.addEventListener("online", callback);
@@ -67,10 +68,14 @@ function describe(item: OutboxItem, names: Record<string, string>) {
 export function PendingTransactions({
   tripId,
   memberNames,
+  currentPersonId,
 }: {
   tripId: string;
   /** person_id → display_name, zum Auflösen von Bezahler/Gutschrift-Parteien. */
   memberNames: Record<string, string>;
+  /** Aktuell eingeloggte Person (Fund 6, PR 5) — grenzt Einträge eines
+   *  ANDEREN, früheren Logins auf diesem Gerät ab (siehe `isForeign` unten). */
+  currentPersonId?: string;
 }) {
   const online = useSyncExternalStore(
     subscribeOnline,
@@ -137,7 +142,49 @@ export function PendingTransactions({
       <ul className="space-y-2">
         {items.map((item) => {
           const info = describe(item, memberNames);
-          const editHref = `/trips/${tripId}/transactions/new?draft=${item.id}`;
+          // Fund 6 (PR 5): ein Eintrag mit gesetzter, aber ABWEICHENDER
+          // personId stammt von einem früheren Login auf diesem Gerät.
+          // `undefined` (Altbestand) gilt als "meiner" (Rückwärtskompatibilität).
+          const isForeign = item.personId !== undefined && item.personId !== currentPersonId;
+
+          if (isForeign) {
+            return (
+              <li
+                key={item.id}
+                className="flex items-stretch overflow-hidden rounded-md border border-dashed border-danger/50 bg-danger/5"
+              >
+                <div className="flex min-w-0 flex-1 items-start justify-between gap-3 p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-1.5 font-medium">
+                      <UserX className="h-3.5 w-3.5 shrink-0 text-danger" aria-hidden />
+                      Gehört zu einem anderen Login
+                    </p>
+                    <p className="mt-1 text-xs text-ink-soft">
+                      Diese Buchung wurde auf diesem Gerät unter einem anderen Konto begonnen und
+                      wird NICHT automatisch übertragen. {info.title} · {info.amountLabel}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1 border-l border-danger/30 px-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(item)}
+                    className="inline-flex min-h-touch min-w-touch items-center justify-center rounded-md text-ink-soft hover:bg-paper-soft hover:text-danger"
+                    aria-label={`Fremden Entwurf „${info.title}" verwerfen`}
+                    title="Verwerfen"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </li>
+            );
+          }
+
+          // Fragment statt Query-String (Fund 2, PR 5): `#draft=` erreicht den
+          // Server nie und übersteht damit die Offline-Auslieferung durch den
+          // Service Worker (der bei `…/new?draft=X` sonst auf das
+          // Query-freie, gecachte `…/new`-Dokument zurückfiele).
+          const editHref = draftEditHref(tripId, item.id);
           return (
             <li
               key={item.id}

@@ -22,6 +22,8 @@ const MESSAGES: Record<string, string> = {
   "draft-synced": "Buchung wurde schon übertragen — bitte über die Liste bearbeiten.",
   "draft-syncing": "Buchung wird gerade übertragen — sie erscheint gleich in der Liste und ist dort bearbeitbar.",
   "draft-deleted": "Entwurf verworfen.",
+  "logout-pending-outbox":
+    "Abgemeldet. Ungesendete Buchungen bleiben auf diesem Gerät gespeichert und werden nach dem nächsten Login übertragen.",
 };
 
 export function Toast() {

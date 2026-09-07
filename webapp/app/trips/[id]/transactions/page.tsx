@@ -42,7 +42,7 @@ export default async function TransactionsListPage({
   return (
     <main className="mx-auto max-w-2xl px-4 pb-36 pt-4">
       {/* Noch nicht gesyncte Offline-Entwürfe (client-seitig aus IndexedDB). */}
-      <PendingTransactions tripId={id} memberNames={memberNames} />
+      <PendingTransactions tripId={id} memberNames={memberNames} currentPersonId={person?.id} />
 
       {!hasMembers ? (
         <div className="rounded-lg border border-dashed border-rule p-10 text-center">

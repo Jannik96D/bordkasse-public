@@ -104,6 +104,50 @@ function makeSupabase(
   return { from: (table: string) => make(table) };
 }
 
+/**
+ * Vollständiger Erfolgs-Mock für den Replay-Pfad (PR 5, Funde 1 + 3): anders
+ * als `makeSupabase` oben (das nur bis zu den frühen Guards reicht) liefert
+ * dieser den kompletten Insert-Erfolg — `transactions` und
+ * `transaction_participants` schreiben durch —, damit ein Test tatsächlich
+ * bis `res.ok === true` bzw. bis zur echten Persistenz-Entscheidung kommt und
+ * altes von neuem Verhalten unterscheiden kann.
+ */
+function makeReplaySuccessSupabase(opts: { personIds: string[]; memberCount?: number }) {
+  const { personIds, memberCount = personIds.length } = opts;
+  return {
+    from: (table: string) => {
+      let counting = false;
+      const b: Record<string, unknown> = {};
+      const self = () => b;
+      b.select = (_cols?: unknown, options?: { count?: string }) => {
+        if (options?.count) counting = true;
+        return b;
+      };
+      b.eq = self;
+      b.in = self;
+      b.insert = self;
+      b.single = () =>
+        Promise.resolve(
+          table === "transactions" ? { data: { id: "tx-replay-1" }, error: null } : { data: null },
+        );
+      b.maybeSingle = () => Promise.resolve({ data: null });
+      // Thenable: erlaubt `await supabase.from(t).select().eq()` ohne Terminator
+      // (personsBelongToTrip, crewCountAtLeastTwo, insertParticipants, logAudit).
+      b.then = (onFulfilled: (v: unknown) => unknown) => {
+        let value: unknown = { data: [], error: null };
+        if (table === "trip_members") {
+          value = counting
+            ? { count: memberCount, data: null }
+            : { data: personIds.map((person_id) => ({ person_id })) };
+        }
+        return Promise.resolve(value).then(onFulfilled);
+      };
+      return b;
+    },
+    rpc: () => Promise.resolve({ error: null }),
+  };
+}
+
 function expenseFormData(extra: Record<string, string> = {}): FormData {
   const fd = new FormData();
   fd.set("trip_id", TRIP_ID);
@@ -320,6 +364,65 @@ describe("replayPendingTransaction — dieselben Guards wie createExpense (Fund 
     });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.message).toContain("niemand an Bord");
+  });
+});
+
+describe("replayPendingTransaction — participant_ids normalisieren (Fund 1, PR 5)", () => {
+  beforeEach(() => {
+    mockedPerson.mockReset();
+    mockedRequireMember.mockReset();
+    mockedAdminClient.mockReset();
+    mockedPerson.mockResolvedValue({ id: PERSON_ID, display_name: "Crew", email: "c@x.de" } as never);
+    mockedRequireMember.mockResolvedValue({ ok: true, personId: PERSON_ID });
+  });
+
+  it("akzeptiert einen einzelnen String statt eines Arrays (Outbox-Sonderfall)", async () => {
+    // Ein direkt aus dem gespeicherten Outbox-Objekt gelesener Einzelwert kann
+    // ein blanker String sein statt eines Arrays (anders als
+    // `FormData.getAll`, das IMMER ein Array liefert). Vor dem Fix wurde
+    // `participant_ids` roh gecastet — ein String scheitert an
+    // `z.array(Uuid)` (kein Array) und der Replay bliebe für immer in der
+    // Outbox hängen, obwohl die Eingabe eigentlich gültig ist.
+    mockedAdminClient.mockReturnValue(makeReplaySuccessSupabase({ personIds: [PERSON_ID] }) as never);
+    const res = await replayPendingTransaction("expense", {
+      trip_id: TRIP_ID,
+      date: "2026-06-07",
+      description: "Offline Individuell",
+      paid_by: PERSON_ID,
+      amount: "12,00",
+      split_type: "individual",
+      participant_ids: PERSON_ID, // bewusst EIN String, kein Array
+    });
+    expect(res.ok).toBe(true);
+  });
+});
+
+describe('replayPendingTransaction — leerer Empfänger bleibt leer (Fund 3, PR 5)', () => {
+  beforeEach(() => {
+    mockedPerson.mockReset();
+    mockedRequireSkipperOrAdmin.mockReset();
+    mockedAdminClient.mockReset();
+    mockedPerson.mockResolvedValue({ id: PERSON_ID, display_name: "Skipper", email: "s@x.de" } as never);
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: true, personId: PERSON_ID });
+  });
+
+  it('macht aus einem NICHT ausgewählten Empfänger ("") NICHT "An Alle"', async () => {
+    // NUR das explizite Literal "ALL" darf zu credit_to=null ("An Alle")
+    // werden. Vor dem Fix wandelte der Replay-Pfad auch einen leeren String
+    // (nichts ausgewählt) in null um — eine vergessene Empfänger-Auswahl hätte
+    // dadurch stillschweigend eine "An Alle"-Gutschrift erzeugt, statt an der
+    // Validierung abgewiesen zu werden (siehe createCredit/updateCredit, die
+    // NUR "ALL" umwandeln).
+    mockedAdminClient.mockReturnValue(makeReplaySuccessSupabase({ personIds: [PERSON_ID], memberCount: 2 }) as never);
+    const res = await replayPendingTransaction("credit", {
+      trip_id: TRIP_ID,
+      date: "2026-06-07",
+      description: "",
+      amount: "10,00",
+      credit_from: PERSON_ID,
+      credit_to: "", // nichts ausgewählt
+    });
+    expect(res.ok).toBe(false);
   });
 });
 

@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import "./globals.css";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
 import { ToastProvider } from "@/components/toast-provider";
+import { Toast } from "@/components/toast";
 
 export const metadata: Metadata = {
   title: "Bordkasse",
@@ -65,6 +67,14 @@ export default function RootLayout({
             relevant, sobald offline Buchungen erfasst werden. */}
         <ServiceWorkerRegister />
         <ToastProvider>
+          {/* Global (nicht nur im Trip-Layout), damit ein `?toast=…`-Redirect
+              auch auf öffentliche Routen wie /login funktioniert — z.B. der
+              Logout-Hinweis auf ungesendete Outbox-Buchungen (PR 5,
+              Sanierungsplan 2026-09), der bisher unsichtbar verpuffte, weil
+              nur das Trip-Layout <Toast/> gemountet hatte. */}
+          <Suspense fallback={null}>
+            <Toast />
+          </Suspense>
           <div id="main-content" tabIndex={-1} className="flex min-h-full flex-1 flex-col outline-none">
             {children}
           </div>
