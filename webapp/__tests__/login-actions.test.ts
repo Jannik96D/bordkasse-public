@@ -12,7 +12,8 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/auth/authz", () => ({ isEmailAllowedToSignIn: vi.fn() }));
 vi.mock("@/lib/auth/origin", () => ({ resolveOrigin: vi.fn(() => "https://bordkasse.dieter.ms") }));
 
-import { resolveClientIp, signInWithMagicLink, type LoginState } from "@/app/login/actions";
+import { signInWithMagicLink, type LoginState } from "@/app/login/actions";
+import { resolveClientIp } from "@/lib/auth/client-ip";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
