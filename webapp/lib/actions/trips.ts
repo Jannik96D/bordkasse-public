@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdmin, requireAdminOrTripCreator, requireSkipperOrAdmin, isAdmin } from "@/lib/auth/authz";
+import { requireAdmin, requireAdminOrTripCreator, requireSkipperOrAdmin, requireTripOwnerOrAdmin, isAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { iconForCategoryName } from "@/lib/categories/icons";
 import { displayNameFromEmail } from "@/lib/utils";
@@ -165,7 +165,9 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
     record_id: trip.id,
     trip_id: trip.id,
     actor_person_id: auth.personId,
-    payload: { ...trip, created_for_skipper_email: parsed.data.skipper_email || null },
+    // Kein Klartext-E-Mail im Audit-Log (DSGVO) — nur die Tatsache, dass
+    // eine Skipper-E-Mail beim Anlegen angegeben wurde.
+    payload: { ...trip, created_for_skipper_email_provided: !!parsed.data.skipper_email },
   });
 
   // Skipper als erstes Crewmitglied dazuschreiben (mit is_skipper=TRUE).
@@ -259,11 +261,18 @@ export async function updateTripDates(
   return { status: "ok" };
 }
 
-export async function toggleArchive(tripId: string, archived: boolean) {
+export async function toggleArchive(
+  tripId: string,
+  archived: boolean,
+): Promise<{ ok: boolean; message?: string }> {
   const auth = await requireSkipperOrAdmin(tripId);
-  if (!auth.ok) return;
+  if (!auth.ok) return { ok: false, message: auth.message };
   const supabase = createAdminClient();
-  await supabase.from("trips").update({ archived }).eq("id", tripId);
+  const { error } = await supabase.from("trips").update({ archived }).eq("id", tripId);
+  if (error) {
+    console.error("[bordkasse:db]", error.message);
+    return { ok: false, message: "Speichern fehlgeschlagen. Bitte erneut versuchen." };
+  }
   await logAudit(supabase, {
     table_name: "trips",
     operation: "UPDATE",
@@ -274,18 +283,28 @@ export async function toggleArchive(tripId: string, archived: boolean) {
   });
   revalidatePath("/");
   revalidatePath(`/trips/${tripId}`);
+  return { ok: true };
 }
 
 /**
  * Reise-Typ umschalten (Segeltörn ↔ Andere Reise). Steuert Wording in der
  * Oberfläche und den Ausschluss aus der Gesamtstatistik. Nur Skipper/Admin.
  */
-export async function updateTripType(tripId: string, tripType: "sailing" | "other") {
-  if (tripType !== "sailing" && tripType !== "other") return;
+export async function updateTripType(
+  tripId: string,
+  tripType: "sailing" | "other",
+): Promise<{ ok: boolean; message?: string }> {
+  if (tripType !== "sailing" && tripType !== "other") {
+    return { ok: false, message: "Ungültige Reise-Art." };
+  }
   const auth = await requireSkipperOrAdmin(tripId);
-  if (!auth.ok) return;
+  if (!auth.ok) return { ok: false, message: auth.message };
   const supabase = createAdminClient();
-  await supabase.from("trips").update({ trip_type: tripType }).eq("id", tripId);
+  const { error } = await supabase.from("trips").update({ trip_type: tripType }).eq("id", tripId);
+  if (error) {
+    console.error("[bordkasse:db]", error.message);
+    return { ok: false, message: "Speichern fehlgeschlagen. Bitte erneut versuchen." };
+  }
   await logAudit(supabase, {
     table_name: "trips",
     operation: "UPDATE",
@@ -297,6 +316,7 @@ export async function updateTripType(tripId: string, tripType: "sailing" | "othe
   revalidatePath("/");
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/settings`);
+  return { ok: true };
 }
 
 /**
@@ -306,14 +326,21 @@ export async function updateTripType(tripId: string, tripType: "sailing" | "othe
  * der Fortschritt-Karte aus; ein existierender Plan gewinnt immer
  * (savePrepaymentPlan löscht das Flag beim Speichern).
  */
-export async function setPrepaymentDeclined(tripId: string, declined: boolean) {
+export async function setPrepaymentDeclined(
+  tripId: string,
+  declined: boolean,
+): Promise<{ ok: boolean; message?: string }> {
   const auth = await requireSkipperOrAdmin(tripId);
-  if (!auth.ok) return;
+  if (!auth.ok) return { ok: false, message: auth.message };
   const supabase = createAdminClient();
-  await supabase
+  const { error } = await supabase
     .from("trips")
     .update({ prepayment_declined_at: declined ? new Date().toISOString() : null })
     .eq("id", tripId);
+  if (error) {
+    console.error("[bordkasse:db]", error.message);
+    return { ok: false, message: "Speichern fehlgeschlagen. Bitte erneut versuchen." };
+  }
   await logAudit(supabase, {
     table_name: "trips",
     operation: "UPDATE",
@@ -324,6 +351,7 @@ export async function setPrepaymentDeclined(tripId: string, declined: boolean) {
   });
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/settings`);
+  return { ok: true };
 }
 
 /**
@@ -332,13 +360,20 @@ export async function setPrepaymentDeclined(tripId: string, declined: boolean) {
  * kuratierten, vom Kurs-Anbieter abgedeckten Codes sind erlaubt. Nur
  * Skipper/Admin.
  */
-export async function updateTripCurrencies(tripId: string, codes: string[]) {
+export async function updateTripCurrencies(
+  tripId: string,
+  codes: string[],
+): Promise<{ ok: boolean; message?: string }> {
   const auth = await requireSkipperOrAdmin(tripId);
-  if (!auth.ok) return;
+  if (!auth.ok) return { ok: false, message: auth.message };
   // Nur unterstützte Codes, dedupliziert, stabile Reihenfolge egal.
   const clean = Array.from(new Set(codes.filter(isSupportedCurrency)));
   const supabase = createAdminClient();
-  await supabase.from("trips").update({ foreign_currencies: clean }).eq("id", tripId);
+  const { error } = await supabase.from("trips").update({ foreign_currencies: clean }).eq("id", tripId);
+  if (error) {
+    console.error("[bordkasse:db]", error.message);
+    return { ok: false, message: "Speichern fehlgeschlagen. Bitte erneut versuchen." };
+  }
   await logAudit(supabase, {
     table_name: "trips",
     operation: "UPDATE",
@@ -350,6 +385,7 @@ export async function updateTripCurrencies(tripId: string, codes: string[]) {
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/settings`);
   revalidatePath(`/trips/${tripId}/transactions/new`);
+  return { ok: true };
 }
 
 /**
@@ -437,11 +473,100 @@ export async function setCanCreateTrips(
   return { ok: true };
 }
 
-export async function deleteTrip(tripId: string) {
-  const auth = await requireSkipperOrAdmin(tripId);
-  if (!auth.ok) return;
+/**
+ * Törn HART löschen (kein Soft-Delete, `DELETE FROM trips`) — anders als
+ * `toggleArchive`/`purgeTripNow` unwiderruflich und ohne DSGVO-Fristlogik.
+ *
+ * Fund 2 (Sanierungsplan PR 9a): bisher durfte jeder Co-Skipper
+ * (`requireSkipperOrAdmin`) das auslösen, ohne jede Prüfung auf vorhandene
+ * Buchungen oder eine bereits verschickte Abrechnung. Jetzt:
+ *   1. Nur der ORIGINAL-Skipper (`trips.skipper_id`) oder ein globaler Admin
+ *      (`requireTripOwnerOrAdmin`) — ein Co-Skipper wird abgewiesen.
+ *   2. Blockiert, solange noch nicht-gelöschte Buchungen existieren ODER die
+ *      Abrechnung schon verschickt wurde — verweist stattdessen auf
+ *      Archivieren bzw. den DSGVO-Purge.
+ */
+export async function deleteTrip(tripId: string): Promise<{ ok: boolean; message?: string }> {
+  const auth = await requireTripOwnerOrAdmin(tripId);
+  if (!auth.ok) return { ok: false, message: auth.message };
   const supabase = createAdminClient();
-  await supabase.from("trips").delete().eq("id", tripId);
+
+  const { data: trip, error: tripErr } = await supabase
+    .from("trips")
+    .select("settlement_announced_at")
+    .eq("id", tripId)
+    .maybeSingle();
+  if (tripErr || !trip) {
+    console.error("[bordkasse:db]", tripErr?.message ?? "trip not found");
+    return { ok: false, message: "Törn nicht gefunden." };
+  }
+
+  if (trip.settlement_announced_at) {
+    return {
+      ok: false,
+      message:
+        'Die Abrechnung für diesen Törn wurde bereits verschickt. Nutze stattdessen „Archivieren“ ' +
+        "oder warte auf die automatische DSGVO-Löschung 30 Tage nach Törnende.",
+    };
+  }
+
+  const { count: txCount, error: txErr } = await supabase
+    .from("transactions")
+    .select("*", { count: "exact", head: true })
+    .eq("trip_id", tripId)
+    .is("deleted_at", null);
+  if (txErr) {
+    console.error("[bordkasse:db]", txErr.message);
+    return { ok: false, message: "Prüfung auf vorhandene Buchungen fehlgeschlagen. Bitte erneut versuchen." };
+  }
+  if ((txCount ?? 0) > 0) {
+    return {
+      ok: false,
+      message:
+        'Dieser Törn hat noch Buchungen — nutze stattdessen „Archivieren“ oder warte auf die ' +
+        "automatische DSGVO-Löschung nach Törnende.",
+    };
+  }
+
+  // Grill-Review-Fund (PR 9a): TOCTOU-Fenster zwischen dem Buchungs-Check
+  // oben und dem DELETE unten — legt jemand in diesem Fenster eine neue
+  // Buchung an, würde transactions.trip_id ON DELETE CASCADE (0001_init.sql)
+  // sie unbemerkt mitlöschen, obwohl der Check sie hätte verhindern sollen.
+  // Unmittelbar vor dem DELETE erneut prüfen, engt das Fenster auf die Zeit
+  // zwischen dieser zweiten Prüfung und dem DELETE-Statement selbst ein
+  // (keine echte DB-Transaktion über den Service-Role-Client verfügbar,
+  // gleiches Restrisiko wie an anderen Stellen dieser Codebase dokumentiert,
+  // z. B. lib/actions/prepayments.ts:replaceMember).
+  const { count: txRecheck, error: txRecheckErr } = await supabase
+    .from("transactions")
+    .select("*", { count: "exact", head: true })
+    .eq("trip_id", tripId)
+    .is("deleted_at", null);
+  if (txRecheckErr) {
+    console.error("[bordkasse:db]", txRecheckErr.message);
+    return { ok: false, message: "Prüfung auf vorhandene Buchungen fehlgeschlagen. Bitte erneut versuchen." };
+  }
+  if ((txRecheck ?? 0) > 0) {
+    return {
+      ok: false,
+      message:
+        "Dieser Törn hat inzwischen eine neue Buchung bekommen. Bitte Seite neu laden und erneut versuchen.",
+    };
+  }
+
+  const { error } = await supabase.from("trips").delete().eq("id", tripId);
+  if (error) {
+    console.error("[bordkasse:db]", error.message);
+    return { ok: false, message: "Löschen fehlgeschlagen. Bitte erneut versuchen." };
+  }
+
+  // trip_id bleibt bewusst `null`: audit_log.trip_id trägt
+  // `REFERENCES trips(id) ON DELETE SET NULL` (Migration 0006) — selbst ein
+  // Insert MIT der echten tripId vor dem DELETE würde vom nachfolgenden
+  // Trip-Delete durch genau diesen Cascade wieder auf NULL gesetzt (er
+  // betrifft jede audit_log-Zeile, die auf den jetzt gelöschten Trip zeigt,
+  // nicht nur ältere). Das Endergebnis wäre identisch — eine Umstellung der
+  // Reihenfolge würde hier also nichts verbessern.
   await logAudit(supabase, {
     table_name: "trips",
     operation: "DELETE",
@@ -450,5 +575,5 @@ export async function deleteTrip(tripId: string) {
     actor_person_id: auth.personId,
   });
   revalidatePath("/");
-  redirect("/");
+  return { ok: true };
 }

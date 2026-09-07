@@ -119,14 +119,25 @@ export type DeleteAccountState =
 /**
  * Selbstservice-Kontolöschung (DSGVO Art. 17).
  *
- * Ruft die SQL-Function `delete_my_account()` (siehe Migration 0021) auf,
- * die alles Personen-bezogene anonymisiert/löscht. Anschließend wird die
- * `auth.users`-Row über die Admin-API gelöscht und der User auf die
- * Startseite umgeleitet — die Session-Cookies sind nach `deleteUser`
- * ungültig, der nächste Request-Roundtrip schickt ihn zum Login.
+ * Ruft die SQL-Function `admin_delete_person_data(p_person_id)` (siehe
+ * Migration 0051) auf, die alles Personen-bezogene anonymisiert/löscht.
+ * Anschließend wird die `auth.users`-Row über die Admin-API gelöscht und
+ * der User auf die Startseite umgeleitet — die Session-Cookies sind nach
+ * `deleteUser` ungültig, der nächste Request-Roundtrip schickt ihn zum
+ * Login.
  *
  * Wenn der User in einem aktiven Trip Buchungen hat, wird die Löschung
  * abgewiesen — Bilanz würde sonst inkonsistent.
+ *
+ * ⚠️ Die Function nimmt die zu löschende Person als PARAMETER entgegen
+ * statt sie serverseitig aus dem JWT zu bestimmen (die alte
+ * `delete_my_account()` tat das über `auth.uid()` — das funktioniert
+ * nicht, wenn die Function über den Service-Role-Client gerufen wird,
+ * dessen JWT keinen zur Person passenden `sub`-Claim trägt; die Function
+ * lieferte deshalb in Produktion IMMER `not_authenticated` und löschte
+ * nie etwas). Die Autorisierung ("nur die eigene Person") liegt deshalb
+ * hier: `person.id` kommt ausschließlich aus `getCurrentPerson()`
+ * (Session-Cookie), niemals aus Nutzereingabe.
  */
 export async function deleteMyAccount(
   _prev: DeleteAccountState,
@@ -139,9 +150,11 @@ export async function deleteMyAccount(
 
   const admin = createAdminClient();
 
-  const { data: result, error: rpcErr } = await admin.rpc("delete_my_account");
+  const { data: result, error: rpcErr } = await admin.rpc("admin_delete_person_data", {
+    p_person_id: person.id,
+  });
   if (rpcErr) {
-    console.error("[bordkasse:self-delete]", rpcErr.message);
+    console.error("[bordkasse:self-delete]", person.id, rpcErr.message);
     return {
       status: "error",
       message: "Konto konnte nicht gelöscht werden. Bitte später erneut versuchen.",
@@ -167,14 +180,20 @@ export async function deleteMyAccount(
 
   // Auth-User physisch entfernen — Magic-Link-Login geht danach nicht mehr.
   const { error: authErr } = await admin.auth.admin.deleteUser(person.auth_user_id);
-  if (authErr) {
-    console.error("[bordkasse:self-delete:auth]", authErr.message);
-    // Personen-Anonymisierung hat geklappt, aber Auth-User hängt — der User
-    // sieht den Fehler nicht (zu spät), aber Admin sollte das wegputzen.
-  }
 
   const cookieClient = await createClient();
   await cookieClient.auth.signOut();
   revalidatePath("/", "layout");
+
+  if (authErr) {
+    // Personen-Daten sind bereits gelöscht/anonymisiert (RPC lief zuerst,
+    // s.o.) — nur das Login-Konto selbst hängt noch. Eigene Meldung statt
+    // stillem "alles ok", damit das nicht unbemerkt bleibt. `person.id` im
+    // Log, damit ein Admin die verwaiste auth.users-Zeile gezielt findet
+    // (es gibt aktuell keine automatische Benachrichtigung).
+    console.error("[bordkasse:self-delete:auth]", person.id, authErr.message);
+    redirect("/?account_deleted=1&login_cleanup_pending=1");
+  }
+
   redirect("/?account_deleted=1");
 }

@@ -142,9 +142,13 @@ async function networkFirst(request, cacheName) {
   } catch (err) {
     const cached = await cache.match(request);
     if (cached) return cached;
-    // Fallback ohne Query-String: eine Navigation zu `…/transactions/new?draft=X`
+    // Fallback ohne Query-String: eine Navigation zu `…/transactions/new?x=y`
     // soll offline auf das vorgewärmte `…/transactions/new`-Dokument fallen.
-    // Die Client-Seite liest `?draft=` und lädt den Entwurf aus IndexedDB.
+    // Die Draft-Kennung selbst reist NICHT als Query-Parameter (das würde am
+    // Server-Request landen und beim ignoreSearch-Match wieder verschwinden),
+    // sondern als URL-FRAGMENT (`#draft=X`, dem Server nie sichtbar, daher
+    // auch kein Cache-Key-Unterschied) — der Client liest es nach dem Laden
+    // per `window.location.hash` und lädt den Entwurf aus IndexedDB.
     const ignoreSearch = await cache.match(request, { ignoreSearch: true });
     if (ignoreSearch) return ignoreSearch;
     // Letzter Fallback für nie besuchte Seiten: markenkonforme Offline-Seite

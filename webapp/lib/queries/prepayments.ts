@@ -156,45 +156,39 @@ export interface PrepaymentPoolBalance {
 
 export async function getPrepaymentPoolBalances(tripId: string): Promise<PrepaymentPoolBalance[]> {
   const supabase = await readClient();
-  const [{ data: oblRows }, { data: planRow }, { data: tripRow }, { data: txRows }] = await Promise.all([
+  const [{ data: oblRows }, { data: txRows }] = await Promise.all([
     supabase
       .from("prepayment_obligations")
       .select("person_id, total_amount")
       .eq("trip_id", tripId),
     supabase
-      .from("prepayment_plan")
-      .select("advancer_person_id")
-      .eq("trip_id", tripId)
-      .maybeSingle(),
-    supabase
-      .from("trips")
-      .select("skipper_id")
-      .eq("id", tripId)
-      .maybeSingle(),
-    supabase
       .from("transactions")
-      .select("type, amount, paid_by, credit_from, credit_to, confirmed_at")
+      .select("type, amount, credit_from, confirmed_at")
       .eq("trip_id", tripId)
       .not("tranche_id", "is", null)
       .is("deleted_at", null),
   ]);
 
-  const advancerId = planRow?.advancer_person_id || tripRow?.skipper_id || null;
-
   const sollById = new Map<string, number>();
   for (const o of oblRows ?? []) sollById.set(o.person_id, Number(o.total_amount));
 
+  // PR 4 / Fix 5: wie v_prepayment_payments (0025_self_payment_confirmation.sql)
+  // zählt JEDE bestätigte Anzahlungs-Gutschrift von credit_from als Pool-
+  // Beitrag dieser Person — unabhängig davon, an wen sie ging (credit_to).
+  // Die vorherige Zusatzbedingung `credit_to === advancerId || Selbst-Credit`
+  // war eine veraltete, striktere Bedingung als die SQL-View: nach einem
+  // Crewwechsel (PR 4 / Fix 1) hängt eine übernommene Zahlung zwar weiterhin
+  // korrekt an credit_from = B, aber ihr ursprüngliches credit_to zeigte auf
+  // den DAMALIGEN Vorstrecker — bei einem (aktuell noch nicht zugelassenen,
+  // aber für Konsistenz relevanten) Vorstrecker-Wechsel wäre eine solche
+  // Zahlung hier verschluckt worden (isToAdvancer wird false), obwohl
+  // v_prepayment_payments sie weiterhin zählt. Beide Datenquellen sollen
+  // dieselbe Grundgesamtheit liefern.
   const paidById = new Map<string, number>();
   for (const t of txRows ?? []) {
     if (!t.confirmed_at) continue;
     if (t.type !== "credit" || !t.credit_from) continue;
-    // Charter-Expenses (paid_by) zählen NICHT — sie sind separat als
-    // Charterauslage zu betrachten, nicht als Crew-Pool-Beitrag.
-    const isSelfCredit = t.credit_from === t.credit_to;
-    const isToAdvancer = t.credit_to === advancerId;
-    if (isSelfCredit || isToAdvancer) {
-      paidById.set(t.credit_from, (paidById.get(t.credit_from) ?? 0) + Number(t.amount));
-    }
+    paidById.set(t.credit_from, (paidById.get(t.credit_from) ?? 0) + Number(t.amount));
   }
 
   const ids = new Set<string>([...sollById.keys(), ...paidById.keys()]);

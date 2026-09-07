@@ -201,6 +201,7 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       b.ilike = self;
       b.update = self;
       b.upsert = self;
+      b.delete = self;
       b.insert = () => Promise.resolve({ error: null });
       b.maybeSingle = () => Promise.resolve(consume(table));
       b.then = (onFulfilled: (v: unknown) => unknown) => Promise.resolve(consume(table)).then(onFulfilled);
@@ -229,6 +230,9 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
     // einem ANDEREN Ghost gehört (auto-mergebar), der aber in einem fremden
     // Törn Crew ist":
     const supabase = makeScriptedSupabase([
+      // 0. assertTripNotArchived (Sanierungsplan D3) — erster Supabase-
+      //    Aufruf direkt nach dem Auth-Guard, vor dem Member-Lookup.
+      { table: "trips", response: { data: { archived: false } } },
       // 1. Member-Lookup (Ghost, kein auth_user_id)
       { table: "trip_members", response: { data: { person_id: GHOST_ID, persons: { auth_user_id: null } } } },
       // 2. trip_members-Felder-Update (on_board_from/to, is_alcoholic, note)
@@ -242,9 +246,14 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
         table: "persons_private",
         response: { data: { person_id: REAL_ID, persons: { display_name: "Real Person", auth_user_id: null } } },
       },
-      // 5. mergeGhostIntoExistingPerson: ist REAL_ID schon Crew DIESES Törns? Nein.
+      // 5. NEUER Pre-Check (Fund 1, PR 3): ist REAL_ID (Zielperson) Crew
+      //    eines ANDEREN Törns? Nein — sonst würde schon hier geblockt,
+      //    bevor mergeGhostIntoExistingPerson überhaupt läuft.
+      { table: "trip_members", response: { count: 0 } },
+      // 6. mergeGhostIntoExistingPerson: ist REAL_ID schon Crew DIESES Törns? Nein.
       { table: "trip_members", response: { data: null } },
-      // 6. NEUER Pre-Check (Fund 5): ist der Ghost Crew eines ANDEREN Törns? Ja.
+      // 7. mergeGhostIntoExistingPerson-eigener Pre-Check (Fund 5): ist der
+      //    Ghost Crew eines ANDEREN Törns? Ja.
       { table: "trip_members", response: { count: 1 } },
     ]);
     mockedAdminClient.mockReturnValue(supabase as never);
@@ -254,6 +263,138 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
     expect(res.status).toBe("error");
     if (res.status === "error") {
       expect(res.message).toContain("anderen Törn");
+    }
+  });
+
+  it("lehnt den Merge ab, wenn die per E-Mail gefundene Zielperson Crew eines anderen Törns ist (Fund 1)", async () => {
+    // Anders als der Test oben: hier ist die ZIELPERSON (per E-Mail
+    // gefunden, kein auth_user_id → Ghost) bereits Crew eines anderen
+    // Törns. Der neue Pre-Check muss VOR mergeGhostIntoExistingPerson
+    // greifen — der eigentliche Merge-Helper wird gar nicht mehr erreicht.
+    const supabase = makeScriptedSupabase([
+      // 0. assertTripNotArchived (Sanierungsplan D3) — erster Supabase-
+      //    Aufruf direkt nach dem Auth-Guard, vor dem Member-Lookup.
+      { table: "trips", response: { data: { archived: false } } },
+      // 1. Member-Lookup (Ghost, kein auth_user_id)
+      { table: "trip_members", response: { data: { person_id: GHOST_ID, persons: { auth_user_id: null } } } },
+      // 2. trip_members-Felder-Update
+      { table: "trip_members", response: { error: null } },
+      // 3. persons_private: bisherige E-Mail des Ghosts (isFirstEmail-Check)
+      { table: "persons_private", response: { data: null } },
+      // 4. persons_private: NEW_EMAIL gehört REAL_ID, ebenfalls Ghost (kein auth_user_id)
+      {
+        table: "persons_private",
+        response: { data: { person_id: REAL_ID, persons: { display_name: "Real Person", auth_user_id: null } } },
+      },
+      // 5. NEUER Pre-Check (Fund 1): ist REAL_ID Crew eines ANDEREN Törns? Ja.
+      { table: "trip_members", response: { count: 1 } },
+    ]);
+    mockedAdminClient.mockReturnValue(supabase as never);
+
+    const res = await updateMember({ status: "idle" }, updateMemberFormData());
+
+    expect(res.status).toBe("error");
+    if (res.status === "error") {
+      expect(res.message).toContain("anderen Törn");
+      // Kein Anzeigename der fremden Person in der Meldung.
+      expect(res.message).not.toContain("Real Person");
+    }
+  });
+
+  it("erlaubt den Merge weiterhin, wenn die Zielperson nur Crew dieses einen Törns ist", async () => {
+    const supabase = makeScriptedSupabase([
+      // 0. assertTripNotArchived (Sanierungsplan D3) — erster Supabase-
+      //    Aufruf direkt nach dem Auth-Guard, vor dem Member-Lookup.
+      { table: "trips", response: { data: { archived: false } } },
+      // 1. Member-Lookup (Ghost, kein auth_user_id)
+      { table: "trip_members", response: { data: { person_id: GHOST_ID, persons: { auth_user_id: null } } } },
+      // 2. trip_members-Felder-Update
+      { table: "trip_members", response: { error: null } },
+      // 3. persons_private: bisherige E-Mail des Ghosts
+      { table: "persons_private", response: { data: null } },
+      // 4. persons_private: NEW_EMAIL gehört REAL_ID, ebenfalls Ghost
+      {
+        table: "persons_private",
+        response: { data: { person_id: REAL_ID, persons: { display_name: "Real Person", auth_user_id: null } } },
+      },
+      // 5. Pre-Check (Fund 1): REAL_ID NICHT Crew eines anderen Törns.
+      { table: "trip_members", response: { count: 0 } },
+      // 6. mergeGhostIntoExistingPerson: ist REAL_ID schon Crew DIESES Törns? Nein.
+      { table: "trip_members", response: { data: null } },
+      // 7. mergeGhostIntoExistingPerson-eigener Pre-Check: Ghost NICHT Crew eines anderen Törns.
+      { table: "trip_members", response: { count: 0 } },
+      // 8. transactions.update (paid_by) — vier Aufrufe im Merge-Helper
+      { table: "transactions", response: { error: null } },
+      { table: "transactions", response: { error: null } },
+      { table: "transactions", response: { error: null } },
+      { table: "transactions", response: { error: null } },
+      // 9. transaction_participants: Ghost-Teilnahmen (leer)
+      { table: "transaction_participants", response: { data: [] } },
+      // 10. prepayment_obligations: Ghost-Obligation + real-Obligation (beide leer)
+      { table: "prepayment_obligations", response: { data: null } },
+      { table: "prepayment_obligations", response: { data: null } },
+      // 11. trip_members: Ghost-Membership auf real umhängen
+      { table: "trip_members", response: { error: null } },
+      // 12. trips: skipper_id-FK
+      { table: "trips", response: { error: null } },
+      // 13. audit_log: actor_person_id
+      { table: "audit_log", response: { error: null } },
+      // 14. settled_debts: from/to
+      { table: "settled_debts", response: { error: null } },
+      { table: "settled_debts", response: { error: null } },
+      // 15. settled_debts: settled_by_person_id
+      { table: "settled_debts", response: { error: null } },
+      // 16. prepayment_plan: advancer_person_id
+      { table: "prepayment_plan", response: { error: null } },
+      // 17. persons_private: Ghost löschen
+      { table: "persons_private", response: { error: null } },
+      // 18. persons: Ghost löschen
+      { table: "persons", response: { error: null } },
+    ]);
+    mockedAdminClient.mockReturnValue(supabase as never);
+
+    const res = await updateMember({ status: "idle" }, updateMemberFormData());
+
+    expect(res.status).toBe("ok");
+  });
+
+  // Fund 3 (Sanierungsplan PR 9a): bisher verwarf mergeGhostIntoExistingPerson
+  // den Rückgabewert JEDES Zwischenschritts (nur der abschließende
+  // persons-DELETE prüfte {error}) — ein DB-Fehler mittendrin blieb
+  // unbemerkt, die Funktion lief einfach weiter und meldete am Ende
+  // fälschlich {ok:true}. Dieser Test lässt den zweiten transactions-Update
+  // (credit_from) mit einem Fehler scheitern und erwartet, dass
+  // updateMember das SOFORT als Fehler nach oben reicht, statt die
+  // restlichen Schritte (deren Script-Einträge hier bewusst fehlen)
+  // weiterzumachen.
+  it("gibt einen Fehler zurück, wenn ein Zwischenschritt des Merges scheitert (Fund 3)", async () => {
+    const supabase = makeScriptedSupabase([
+      { table: "trips", response: { data: { archived: false } } },
+      { table: "trip_members", response: { data: { person_id: GHOST_ID, persons: { auth_user_id: null } } } },
+      { table: "trip_members", response: { error: null } },
+      { table: "persons_private", response: { data: null } },
+      {
+        table: "persons_private",
+        response: { data: { person_id: REAL_ID, persons: { display_name: "Real Person", auth_user_id: null } } },
+      },
+      { table: "trip_members", response: { count: 0 } },
+      { table: "trip_members", response: { data: null } },
+      { table: "trip_members", response: { count: 0 } },
+      // transactions.update(paid_by) — erfolgreich
+      { table: "transactions", response: { error: null } },
+      // transactions.update(credit_from) — schlägt fehl
+      { table: "transactions", response: { error: { message: "connection reset" } } },
+      // ABSICHTLICH KEINE weiteren Einträge — der alte Code würde hier
+      // weitermachen und mit "Kein Script-Eintrag" abstürzen; der neue Code
+      // muss VORHER mit {ok:false} zurückkehren.
+    ]);
+    mockedAdminClient.mockReturnValue(supabase as never);
+
+    const res = await updateMember({ status: "idle" }, updateMemberFormData());
+
+    expect(res.status).toBe("error");
+    if (res.status === "error") {
+      expect(res.message).toContain("connection reset");
     }
   });
 });

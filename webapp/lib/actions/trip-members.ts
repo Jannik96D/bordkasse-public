@@ -9,6 +9,8 @@ import { logAudit } from "@/lib/db/audit";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
 import { resolveOrigin } from "@/lib/auth/origin";
 import { displayNameFromEmail } from "@/lib/utils";
+import { personHasBookingTrace } from "@/lib/auth/cross-trip";
+import { assertTripNotArchived } from "@/lib/auth/trip-state";
 
 const InviteSchema = z.object({
   trip_id: z.string().uuid(),
@@ -52,6 +54,9 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
 
   // Person mit dieser E-Mail finden (über persons_private) oder als Ghost
   // anlegen. E-Mail liegt seit Migration 0013 ausschließlich in
@@ -146,13 +151,16 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
   if (tmError) return { status: "error", message: tmError.message };
 
   if (member) {
+    // Grill-Review-Fund (PR 7, Fund 4): `note` ist ein Freitextfeld und kann
+    // personenbezogene Hinweise enthalten — nicht ins Audit-Log spiegeln.
+    const { note: _memberNote, ...memberAuditPayload } = member;
     await logAudit(supabase, {
       table_name: "trip_members",
       operation: "INSERT",
       record_id: member.id,
       trip_id,
       actor_person_id: auth.personId,
-      payload: member,
+      payload: memberAuditPayload,
     });
   }
 
@@ -191,6 +199,9 @@ export async function removeMember(
   if (!auth.ok) return { ok: false, message: auth.message };
   const supabase = createAdminClient();
 
+  const archivedCheck = await assertTripNotArchived(supabase, tripId);
+  if (!archivedCheck.ok) return { ok: false, message: archivedCheck.message };
+
   // IDOR-Schutz (Fund 4, Code-Review 2026-08): memberId wird OHNE trip_id-
   // Filter gelesen/gelöscht — ein Skipper von Törn A könnte sonst eine
   // fremde trip_members.id aus Törn B übergeben (per RLS für jedes Mitglied
@@ -225,21 +236,10 @@ export async function removeMember(
   // stehen (Σ balance ≠ 0), ohne jede Fehlermeldung — analog zum Blocker in
   // delete_my_account() (Migration 0021), der genau das schon verhindert.
   const personId = memberRow.person_id;
-  const [{ count: txCount }, { count: participantCount }] = await Promise.all([
-    supabase
-      .from("transactions")
-      .select("*", { count: "exact", head: true })
-      .eq("trip_id", tripId)
-      .is("deleted_at", null)
-      .or(`paid_by.eq.${personId},credit_from.eq.${personId},credit_to.eq.${personId}`),
-    supabase
-      .from("transaction_participants")
-      .select("transaction_id, transactions!inner(trip_id, deleted_at)", { count: "exact", head: true })
-      .eq("person_id", personId)
-      .eq("transactions.trip_id", tripId)
-      .is("transactions.deleted_at", null),
-  ]);
-  if ((txCount ?? 0) > 0 || (participantCount ?? 0) > 0) {
+  // Geteilter Helfer mit replaceMember (lib/actions/prepayments.ts, PR 4) —
+  // lib/auth/cross-trip.ts:personHasBookingTrace, DRY statt zweier
+  // driftender Kopien.
+  if (await personHasBookingTrace(supabase, tripId, personId)) {
     return {
       ok: false,
       message:
@@ -305,6 +305,9 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
 
   const supabase = createAdminClient();
 
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
   // Member + zugehörige Person holen — wir brauchen person_id + Ghost-Status.
   const { data: member } = await supabase
     .from("trip_members")
@@ -358,7 +361,9 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
         record_id: member.person_id,
         trip_id,
         actor_person_id: auth.personId,
-        payload: { display_name },
+        // Kein Klartext-Name im Audit-Log (DSGVO) — nur die Tatsache der
+        // Änderung, keine personenbezogenen Werte.
+        payload: { name_changed: true },
       });
     }
     if (email) {
@@ -408,14 +413,41 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
         }).persons;
         const inUse = Array.isArray(inUsePerson) ? inUsePerson[0] : inUsePerson;
         if (inUse?.auth_user_id) {
-          const inUseName = inUse.display_name || "diese Person";
+          // Fund 2 (Sanierungsplan PR 3): kein Anzeigename der fremden Person
+          // in der Fehlermeldung — sonst könnte ein Skipper allein durch
+          // Raten einer E-Mail-Adresse erfahren, wem sie gehört.
           return {
             status: "error",
             message:
-              `Diese E-Mail-Adresse gehört bereits zum Konto von „${inUseName}". ` +
-              `Entferne den aktuellen Creweintrag (ohne E-Mail) und füge „${inUseName}" ` +
-              `über „Crew einladen" mit dieser E-Mail hinzu — die Person behält dann ihr ` +
-              `bestehendes Konto und bekommt einen Login-Link.`,
+              "Diese E-Mail-Adresse gehört bereits zu einem bestehenden Konto. " +
+              "Entferne den aktuellen Creweintrag (ohne E-Mail) und füge die Person " +
+              "stattdessen über „Crew einladen“ mit dieser E-Mail hinzu — sie behält dann ihr " +
+              "bestehendes Konto und bekommt einen Login-Link.",
+          };
+        }
+
+        // Fund 1/5/6 (Sanierungsplan PR 3): ist die per E-Mail gefundene
+        // Zielperson (ein Ghost ohne Login) auch Crew eines ANDEREN Törns,
+        // ist sie ein GETEILTER Ghost. Ein Skipper darf deren Identität
+        // (Name/E-Mail) dann nicht unilateral umbiegen — das würde die
+        // Person auch für den fremden Törn verändern, dessen Skipper hier
+        // gar nicht gefragt wird. Auto-Merge bleibt nur erlaubt, wenn die
+        // Zielperson (noch) ausschließlich Crew dieses einen Törns ist.
+        const { count: targetOtherTripCount, error: targetOtherTripErr } = await supabase
+          .from("trip_members")
+          .select("*", { count: "exact", head: true })
+          .eq("person_id", emailInUse.person_id)
+          .neq("trip_id", trip_id);
+        if (targetOtherTripErr) {
+          console.error("[bordkasse:db]", targetOtherTripErr.message);
+          return { status: "error", message: "Prüfung auf geteilte Crew fehlgeschlagen. Bitte erneut versuchen." };
+        }
+        if ((targetOtherTripCount ?? 0) > 0) {
+          return {
+            status: "error",
+            message:
+              "Diese E-Mail-Adresse gehört zu einer Person, die auch Crew eines anderen Törns ist. " +
+              "Eine automatische Verschmelzung ist deshalb gesperrt — bitte manuell prüfen oder einen Admin einbeziehen.",
           };
         }
 
@@ -445,7 +477,9 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
         record_id: member.person_id,
         trip_id,
         actor_person_id: auth.personId,
-        payload: { email },
+        // Kein Klartext-E-Mail im Audit-Log (DSGVO) — nur die Tatsache der
+        // Änderung, keine personenbezogenen Werte.
+        payload: { email_changed: true },
       });
 
       if (isFirstEmail) {
@@ -473,6 +507,9 @@ export async function setSkipperRole(memberId: string, tripId: string, isSkipper
   const auth = await requireSkipperOrAdmin(tripId);
   if (!auth.ok) return;
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, tripId);
+  if (!archivedCheck.ok) return;
 
   // IDOR-Schutz (Fund 4, Code-Review 2026-08): memberId OHNE trip_id-Filter
   // zu lesen/schreiben ließe einen Skipper von Törn A eine fremde
@@ -600,121 +637,183 @@ async function mergeGhostIntoExistingPerson(
     };
   }
 
+  // Generischer Fehler-Text für alle Zwischenschritte unten — Fund 3
+  // (Sanierungsplan PR 9a): jeder Schritt verwarf bisher den Rückgabewert,
+  // ein Fehler mittendrin blieb unbemerkt und die Funktion log am Ende
+  // trotzdem {ok:true}, obwohl ein teil-gemergter Zustand zurückblieb (keine
+  // echte DB-Transaktion über den Service-Role-Client möglich — siehe
+  // gleiches Limit in lib/actions/prepayments.ts:replaceMember). Ziel hier
+  // ist NUR, den Fehler sichtbar zu machen, kein Rollback.
+  const mergeStepFailed = (step: string, message: string): { ok: false; message: string } => {
+    console.error(`[bordkasse:db] mergeGhostIntoExistingPerson step "${step}" failed:`, message);
+    return {
+      ok: false,
+      message: `Verschmelzung mittendrin fehlgeschlagen (Schritt „${step}"). Daten können jetzt teilweise ` +
+        `verschmolzen sein — bitte einen Admin kontaktieren, statt es erneut zu versuchen: ${message}`,
+    };
+  };
+
   // 1. transactions: paid_by / credit_from / credit_to umhängen — keine
   //    Constraints betroffen, einfache UPDATEs. Durch den Pre-Check oben
   //    ist der Ghost NUR in diesem Törn Crew, ein globales UPDATE ist damit
   //    ungefährlich (der Ghost kann in keinem anderen Törn referenziert sein).
-  await supabase.from("transactions").update({ paid_by: realId }).eq("paid_by", ghostId);
-  await supabase.from("transactions").update({ credit_from: realId }).eq("credit_from", ghostId);
-  await supabase.from("transactions").update({ credit_to: realId }).eq("credit_to", ghostId);
-  await supabase.from("transactions").update({ created_by: realId }).eq("created_by", ghostId);
+  {
+    const { error } = await supabase.from("transactions").update({ paid_by: realId }).eq("paid_by", ghostId);
+    if (error) return mergeStepFailed("transactions.paid_by", error.message);
+  }
+  {
+    const { error } = await supabase.from("transactions").update({ credit_from: realId }).eq("credit_from", ghostId);
+    if (error) return mergeStepFailed("transactions.credit_from", error.message);
+  }
+  {
+    const { error } = await supabase.from("transactions").update({ credit_to: realId }).eq("credit_to", ghostId);
+    if (error) return mergeStepFailed("transactions.credit_to", error.message);
+  }
+  {
+    const { error } = await supabase.from("transactions").update({ created_by: realId }).eq("created_by", ghostId);
+    if (error) return mergeStepFailed("transactions.created_by", error.message);
+  }
 
   // 2. transaction_participants: PK (transaction_id, person_id). Wenn
   //    Ghost+real beide auf der gleichen Buchung waren, behalten wir die
   //    real-Zeile und addieren ggf. den per_person-Betrag des Ghosts dazu.
-  const { data: ghostParticipations } = await supabase
+  const { data: ghostParticipations, error: ghostPartErr } = await supabase
     .from("transaction_participants")
     .select("transaction_id, amount")
     .eq("person_id", ghostId);
+  if (ghostPartErr) return mergeStepFailed("transaction_participants.select", ghostPartErr.message);
   for (const gp of ghostParticipations ?? []) {
-    const { data: realPart } = await supabase
+    const { data: realPart, error: realPartErr } = await supabase
       .from("transaction_participants")
       .select("amount")
       .eq("transaction_id", gp.transaction_id)
       .eq("person_id", realId)
       .maybeSingle();
+    if (realPartErr) return mergeStepFailed("transaction_participants.select_real", realPartErr.message);
     if (realPart) {
       // Doppelte Teilnahme — Ghost-Eintrag verwerfen.
       // Bei per_person addieren wir den Ghost-Betrag aufs real-Konto (sonst
       // würde Σ(participant.amount) plötzlich kleiner als transaction.amount).
       if (gp.amount != null && realPart.amount != null) {
-        await supabase
+        const { error } = await supabase
           .from("transaction_participants")
           .update({ amount: Number(realPart.amount) + Number(gp.amount) })
           .eq("transaction_id", gp.transaction_id)
           .eq("person_id", realId);
+        if (error) return mergeStepFailed("transaction_participants.merge_amount", error.message);
       } else if (gp.amount != null && realPart.amount == null) {
         // real war individual-Teilnehmer ohne Betrag, Ghost war per_person mit Betrag — behalte den Betrag
-        await supabase
+        const { error } = await supabase
           .from("transaction_participants")
           .update({ amount: gp.amount })
           .eq("transaction_id", gp.transaction_id)
           .eq("person_id", realId);
+        if (error) return mergeStepFailed("transaction_participants.take_amount", error.message);
       }
-      await supabase
+      const { error } = await supabase
         .from("transaction_participants")
         .delete()
         .eq("transaction_id", gp.transaction_id)
         .eq("person_id", ghostId);
+      if (error) return mergeStepFailed("transaction_participants.delete_ghost", error.message);
     } else {
       // Nur Ghost war Teilnehmer → einfach umhängen
-      await supabase
+      const { error } = await supabase
         .from("transaction_participants")
         .update({ person_id: realId })
         .eq("transaction_id", gp.transaction_id)
         .eq("person_id", ghostId);
+      if (error) return mergeStepFailed("transaction_participants.reassign", error.message);
     }
   }
 
   // 3. Anzahlungs-Obligation: PK (trip_id, person_id). Wenn beide eine
   //    haben, behalten wir die real-Zeile.
-  const [{ data: ghostObl }, { data: realObl }] = await Promise.all([
+  const [{ data: ghostObl, error: ghostOblErr }, { data: realObl, error: realOblErr }] = await Promise.all([
     supabase.from("prepayment_obligations").select("cabin_type_id, total_amount").eq("trip_id", tripId).eq("person_id", ghostId).maybeSingle(),
     supabase.from("prepayment_obligations").select("person_id").eq("trip_id", tripId).eq("person_id", realId).maybeSingle(),
   ]);
+  if (ghostOblErr) return mergeStepFailed("prepayment_obligations.select_ghost", ghostOblErr.message);
+  if (realOblErr) return mergeStepFailed("prepayment_obligations.select_real", realOblErr.message);
   if (ghostObl) {
     if (!realObl) {
-      await supabase.from("prepayment_obligations").insert({
+      const { error } = await supabase.from("prepayment_obligations").insert({
         trip_id: tripId,
         person_id: realId,
         cabin_type_id: ghostObl.cabin_type_id,
         total_amount: ghostObl.total_amount,
       });
+      if (error) return mergeStepFailed("prepayment_obligations.insert", error.message);
     }
-    await supabase.from("prepayment_obligations").delete().eq("trip_id", tripId).eq("person_id", ghostId);
+    const { error } = await supabase.from("prepayment_obligations").delete().eq("trip_id", tripId).eq("person_id", ghostId);
+    if (error) return mergeStepFailed("prepayment_obligations.delete_ghost", error.message);
   }
 
   // 4. trip_members: Ghost-Eintrag auf real umhängen. Der Pre-Check oben
   //    hat sichergestellt, dass real noch nicht Mitglied dieses Trips ist —
   //    UNIQUE (trip_id, person_id) ist daher safe.
-  await supabase
-    .from("trip_members")
-    .update({ person_id: realId })
-    .eq("trip_id", tripId)
-    .eq("person_id", ghostId);
+  {
+    const { error } = await supabase
+      .from("trip_members")
+      .update({ person_id: realId })
+      .eq("trip_id", tripId)
+      .eq("person_id", ghostId);
+    if (error) return mergeStepFailed("trip_members.reassign", error.message);
+  }
 
   // 5. Trip-Skipper-FK darf nicht auf den Ghost zeigen (RESTRICT beim Delete)
-  await supabase.from("trips").update({ skipper_id: realId }).eq("skipper_id", ghostId);
+  {
+    const { error } = await supabase.from("trips").update({ skipper_id: realId }).eq("skipper_id", ghostId);
+    if (error) return mergeStepFailed("trips.skipper_id", error.message);
+  }
 
   // 6. Audit-Log-Spalte actor_person_id, falls Ghost je Actor war
-  await supabase.from("audit_log").update({ actor_person_id: realId }).eq("actor_person_id", ghostId);
+  {
+    const { error } = await supabase.from("audit_log").update({ actor_person_id: realId }).eq("actor_person_id", ghostId);
+    if (error) return mergeStepFailed("audit_log.actor_person_id", error.message);
+  }
 
   // 7. settled_debts: from_person_id / to_person_id (Schulden-Häkchen)
-  await supabase.from("settled_debts").update({ from_person_id: realId }).eq("from_person_id", ghostId);
-  await supabase.from("settled_debts").update({ to_person_id: realId }).eq("to_person_id", ghostId);
+  {
+    const { error } = await supabase.from("settled_debts").update({ from_person_id: realId }).eq("from_person_id", ghostId);
+    if (error) return mergeStepFailed("settled_debts.from_person_id", error.message);
+  }
+  {
+    const { error } = await supabase.from("settled_debts").update({ to_person_id: realId }).eq("to_person_id", ghostId);
+    if (error) return mergeStepFailed("settled_debts.to_person_id", error.message);
+  }
 
   // 7a. settled_by_person_id (Fund 5): ON DELETE SET NULL würde beim finalen
   //     persons-DELETE sonst still verlieren, WER das Häkchen gesetzt hat.
   //     Auf diesen Törn beschränkt (settled_debts.trip_id) — nach dem
   //     Pre-Check oben ist der Ghost ohnehin nur hier Crew.
-  await supabase
-    .from("settled_debts")
-    .update({ settled_by_person_id: realId })
-    .eq("trip_id", tripId)
-    .eq("settled_by_person_id", ghostId);
+  {
+    const { error } = await supabase
+      .from("settled_debts")
+      .update({ settled_by_person_id: realId })
+      .eq("trip_id", tripId)
+      .eq("settled_by_person_id", ghostId);
+    if (error) return mergeStepFailed("settled_debts.settled_by_person_id", error.message);
+  }
 
   // 7b. prepayment_plan.advancer_person_id (Fund 5): ebenfalls ON DELETE SET
   //     NULL — war der Ghost als Vorstrecker eingetragen, ginge diese Rolle
   //     beim Löschen sonst still verloren und requireSkipperAdminOrAdvancer
   //     fiele unbemerkt auf den Trip-Skipper zurück.
-  await supabase
-    .from("prepayment_plan")
-    .update({ advancer_person_id: realId })
-    .eq("trip_id", tripId)
-    .eq("advancer_person_id", ghostId);
+  {
+    const { error } = await supabase
+      .from("prepayment_plan")
+      .update({ advancer_person_id: realId })
+      .eq("trip_id", tripId)
+      .eq("advancer_person_id", ghostId);
+    if (error) return mergeStepFailed("prepayment_plan.advancer_person_id", error.message);
+  }
 
   // 8. Ghost-Person + persons_private löschen
-  await supabase.from("persons_private").delete().eq("person_id", ghostId);
+  {
+    const { error } = await supabase.from("persons_private").delete().eq("person_id", ghostId);
+    if (error) return mergeStepFailed("persons_private.delete_ghost", error.message);
+  }
   const { error: delErr } = await supabase.from("persons").delete().eq("id", ghostId);
   if (delErr) {
     return {

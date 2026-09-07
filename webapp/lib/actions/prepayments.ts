@@ -6,10 +6,16 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireSkipperOrAdmin, requireMember, requireSkipperAdminOrAdvancer } from "@/lib/auth/authz";
+import { assertTripNotArchived } from "@/lib/auth/trip-state";
 import { sendPushToPersons } from "@/lib/notify/web-push";
 import { pushRecipients } from "@/lib/notify/recipients";
 import { paymentPendingPush, paymentConfirmedPush, paymentRejectedPush } from "@/lib/notify/payloads";
-import { personsBelongToTrip, trancheBelongsToTrip, CROSS_TRIP_PERSON_MSG } from "@/lib/auth/cross-trip";
+import {
+  personsBelongToTrip,
+  trancheBelongsToTrip,
+  personHasBookingTrace,
+  CROSS_TRIP_PERSON_MSG,
+} from "@/lib/auth/cross-trip";
 import { logAudit } from "@/lib/db/audit";
 import {
   PlanSchema,
@@ -69,6 +75,9 @@ export async function savePrepaymentPlan(
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
 
   // Cross-Trip-Schutz (Fund 7, Code-Review 2026-08): advancer_person_id kommt
   // aus dem Client-JSON und wurde bisher nur als UUID-Format geprüft (Zod),
@@ -277,6 +286,9 @@ export async function saveTranches(
 
   const supabase = createAdminClient();
 
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
   // Diff: bestehende IDs vs. eingehende IDs.
   // Löschen einer Tranche setzt zugehörige transactions.tranche_id auf NULL
   // (via ON DELETE SET NULL aus 0023). Die Buchungen wandern dann in den
@@ -357,6 +369,9 @@ export async function recordPayment(
   if (!auth.ok) return { status: "error", message: auth.message };
 
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
 
   // Cross-Trip-Schutz: person_id kommt aus dem Formular (nur als UUID
   // validiert). Der Service-Role-Client umgeht RLS, also hier prüfen, dass
@@ -556,6 +571,9 @@ export async function replaceMember(
 
   const supabase = createAdminClient();
 
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
   // 1. Original-Skipper darf nicht ersetzt werden (Audit-Spur)
   const { data: tripRow } = await supabase
     .from("trips")
@@ -565,6 +583,26 @@ export async function replaceMember(
   if (!tripRow) return { status: "error", message: "Törn nicht gefunden." };
   if (tripRow.skipper_id === old_person_id) {
     return { status: "error", message: "Der ursprüngliche Skipper kann nicht ersetzt werden." };
+  }
+
+  // 1b. PR 4 / Fix 2: der Vorstrecker der Anzahlung darf NICHT über diesen
+  //     Wechsel ersetzt werden. Ein automatisches Mitziehen von
+  //     prepayment_plan.advancer_person_id würde requireSkipperAdminOrAdvancer
+  //     (lib/auth/authz.ts) unbemerkt umbiegen — das gehört bewusst in den
+  //     Anzahlungs-Wizard (explizite Entscheidung des Skippers), nicht in
+  //     einen Crew-Wechsel-Nebenpfad. BEWUSST vor jeder Schreib-Operation,
+  //     wie der Pre-Check darunter.
+  const { data: planForAdvancerCheck } = await supabase
+    .from("prepayment_plan")
+    .select("advancer_person_id")
+    .eq("trip_id", trip_id)
+    .maybeSingle();
+  if (planForAdvancerCheck?.advancer_person_id === old_person_id) {
+    return {
+      status: "error",
+      message:
+        "Der Vorstrecker kann nicht über diesen Wechsel ersetzt werden — das gehört in den Anzahlungs-Wizard.",
+    };
   }
 
   // 2. Pre-Check: eine noch unbestätigte Selbstmeldung von A blockt den
@@ -596,6 +634,38 @@ export async function replaceMember(
     };
   }
 
+  // 2b. PR 4 / Fix 3: Vorab-Buchungsspur-Check, BEVOR irgendetwas geschrieben
+  //     wird. Fix 1 (unten, Schritt 6) hängt gleich ALLE nicht-Selbst-
+  //     Verrechnungs-Gutschriften von A auf B um (UPDATE credit_from) — nach
+  //     diesem Umhängen dürfte an A keine Buchungsspur mehr hängen, sonst
+  //     bliebe die trip_members-Zeile ein Fremdkörper (v_balances ist rein
+  //     mitgliedschaftsgetrieben, siehe 0043) und dürfte NICHT gelöscht
+  //     werden (Fund 6-Analogon aus removeMember).
+  //
+  //     Es gibt keine echte DB-Transaktion über den Service-Role-Client
+  //     (Client macht keine BEGIN/COMMIT-Klammer um mehrere Requests) — statt
+  //     hinterher zu prüfen und bei Fehlschlag kompensierend zurückzurollen,
+  //     wird HIER GEDANKLICH vorweggenommen, was nach dem Umhängen übrig
+  //     bliebe: `includeCreditFrom: false`, weil genau die credit_from-Zeilen
+  //     gleich umgehängt werden und deshalb NICHT als blockierende Spur
+  //     zählen dürfen. paid_by- und credit_to-Zeilen (jemand hat A eine
+  //     Gutschrift gegeben, oder A hat eine Ausgabe bezahlt) werden von
+  //     Fix 1 NICHT angefasst und bleiben daher blockierend — die einzige
+  //     Ausnahme sind Selbstverrechnungen (credit_from = credit_to = A),
+  //     die über `credit_to.eq.A` in personHasBookingTrace ohnehin erfasst
+  //     bleiben (bewusst: A ist per Fix 2 nie Vorstrecker, Selbstverrechnung
+  //     an A wäre also ohnehin ein Datenanomalie-Fall, den wir lieber blocken
+  //     als stillschweigend verlieren).
+  if (await personHasBookingTrace(supabase, trip_id, old_person_id, { includeCreditFrom: false })) {
+    return {
+      status: "error",
+      message:
+        "Diese Person hat noch Buchungen in diesem Törn, die nicht automatisch übertragen werden " +
+        "können (z. B. als Zahler einer Ausgabe, als Empfänger einer Gutschrift oder als Beteiligte " +
+        "einer Pro-Person-/Individuell-Aufteilung). Bitte erst die Buchungen umbuchen, bevor du sie ersetzt.",
+    };
+  }
+
   // 3. Neue Person anlegen (oder bestehende per E-Mail nachladen)
   //
   // Fund 9 (Code-Review 2026-08): `.eq` statt `.ilike` (CITEXT ist bereits
@@ -614,6 +684,21 @@ export async function replaceMember(
   // sich der Collision-Guard von Fund 1 per manipuliertem Hidden-Feld
   // aushebeln). Ghost-ohne-E-Mail und "komplett neue Person per E-Mail"
   // bleiben voll idempotent.
+  //
+  // Weitere bekannte, akzeptierte Lücke (Grill-Review-Fund, PR 4): es gibt
+  // KEINE echte DB-Transaktion über den Service-Role-Client um die
+  // restlichen Schritte dieser Funktion (Person/Crew-Anlage → Obligation-
+  // Transfer → Credit-Reassign → Audience-Upsert → trip_members-DELETE).
+  // Schlägt einer dieser Schritte NACH der Personen-/Crew-Anlage fehl (z.B.
+  // ein DB-Fehler beim Credit-Reassign), bleibt B als angelegte Crew mit
+  // bereits übertragenem Anzahlungssoll stehen, während A's trip_members-
+  // Zeile noch existiert (DELETE kommt erst ganz am Ende) — ein manuell zu
+  // bereinigender Zwischenzustand. Ein Retry mit derselben new_person_id
+  // repariert das größtenteils (die Schritte sind einzeln idempotent), aber
+  // ohne automatischen Rollback. Proportional zum Rest der Codebase
+  // akzeptiert (kompensierende Rollbacks existieren nur an einzelnen,
+  // besonders kritischen Stellen, z.B. updateExpense/S-4) — eine echte
+  // Transaktionsklammer wäre ein eigener, größerer Umbau.
   let newPersonId: string;
   if (new_email) {
     const { data: existingPriv, error: lookupErr } = await supabase
@@ -722,65 +807,114 @@ export async function replaceMember(
     if (oblUpsertErr) return { status: "error", message: dbErr(oblUpsertErr, "Anzahlungssoll konnte nicht übertragen werden.") };
   }
 
-  // 6. Bisher gezahlte Anzahlungs-Gutschriften von A:
-  //    Pro Eintrag erzeugen wir eine Gegen-Gutschrift "B → A" (B hat A privat ausgezahlt),
-  //    sodass B bilanziell in A's Position rutscht und A's Saldo auf 0 geht.
-  //    Nur BESTÄTIGTE Zahlungen (confirmed_at IS NOT NULL, wie v_prepayment_payments) —
-  //    eine unbestätigte Selbstmeldung ist noch kein echter Zahlungseingang (der Pre-Check
-  //    oben blockt den Wechsel ohnehin, solange eine solche offen ist).
-  const { data: oldPayments } = await supabase
+  // 6. PR 4 / Fix 1: ALLE Gutschriften, die A gegeben hat (credit_from =
+  //    old_person_id — Pool- UND Bordkasse-Gutschriften, nicht nur
+  //    Tranchen), werden direkt auf B umgehängt (UPDATE, keine neue Zeile).
+  //
+  //    Vorherige Implementierung erzeugte stattdessen pro bestätigter
+  //    Anzahlungs-Zahlung eine synthetische Gegen-Gutschrift "B → A" — das
+  //    ließ A's ursprüngliche Zahlung an alter Stelle stehen (credit_from
+  //    weiterhin A), obwohl A gerade aus trip_members entfernt wird. Weil
+  //    v_balances rein mitgliedschaftsgetrieben ist (FROM crew, siehe
+  //    0043_review_fixes_q4_q5_q6.sql), verschwindet eine solche Zeile mit
+  //    credit_from auf eine NICHT mehr in trip_members stehende Person
+  //    spurlos aus der Bilanz-Summe — Geld "verdunstet" (Σ balance ≠ 0),
+  //    und `all_debts_settled` wird nie wahr (Purge-Blocker).
+  //
+  //    AUSSER Selbstverrechnungen (credit_from = credit_to = old_person_id,
+  //    seit 0024 für den Vorstrecker erlaubt): ein blindes Umhängen würde
+  //    daraus eine ECHTE Geldbewegung "B → A" machen. Da A laut Fix 2 nie
+  //    Vorstrecker ist, sollte dieser Fall praktisch nie auftreten — trotzdem
+  //    defensiv ausgeschlossen, und über den Fix-3-Pre-Check oben (der
+  //    credit_to = old_person_id als blockierende Spur zählt) hätte eine
+  //    verbleibende Selbstverrechnung den Wechsel ohnehin schon verhindert.
+  //
+  //    Idempotent von Natur aus (kein `idempotency_key`/Unique-Violation-
+  //    Handling nötig wie bei der alten Insert-Variante): ein Retry findet
+  //    beim zweiten Versuch keine Zeilen mehr mit credit_from = old_person_id
+  //    (sie tragen ja schon newPersonId) — die UPDATE-Query matcht dann 0
+  //    Zeilen, kein Doppel-Effekt.
+  const { data: creditsToReassign, error: creditsSelectErr } = await supabase
     .from("transactions")
-    .select("id, tranche_id, amount, date")
+    .select("id, amount, credit_to")
     .eq("trip_id", trip_id)
     .eq("credit_from", old_person_id)
     .eq("type", "credit")
-    .not("tranche_id", "is", null)
-    .not("confirmed_at", "is", null)
     .is("deleted_at", null);
-
-  let transferredSum = 0;
-  for (const p of oldPayments ?? []) {
-    // Fund 3 (Idempotency) + Grill-Review-Fund: `idempotency_key = p.id`
-    // (die ID der QUELL-Zahlung, nicht new_person_id!) statt Check-before-
-    // Insert. p.id ist pro Quell-Zahlung eindeutig — ein früherer Ansatz
-    // über Betrag+Datum hätte zwei unterschiedliche, zufällig gleich hohe
-    // Zahlungen vom selben Tag (z.B. zwei gleich große Tranchen) als
-    // "schon übertragen" verwechselt und die zweite Übertragung ausgelassen
-    // (Geld verschwindet aus der Bilanz). `idempotency_key` ist UNIQUE
-    // (trip_id, idempotency_key) — echte DB-Garantie statt TOCTOU-Race
-    // zwischen SELECT und INSERT, exakt das Muster aus recordPayment/
-    // insertCredit.
-    const { error: transferErr } = await supabase.from("transactions").insert({
-      trip_id,
-      type: "credit",
-      date: p.date,
-      description: `Crewwechsel: ${effectiveName} übernimmt Anzahlung`,
-      amount: p.amount,
-      credit_from: newPersonId,
-      credit_to: old_person_id,
-      tranche_id: null,
-      created_by: person.id,
-      idempotency_key: p.id,
-    });
-    if (transferErr && transferErr.code !== PG_UNIQUE_VIOLATION) {
-      return { status: "error", message: dbErr(transferErr, "Zahlungsübertrag fehlgeschlagen.") };
-    }
-    // Bei Unique-Violation (Retry) ist der Transfer schon passiert — trotzdem
-    // mitzählen, sonst würde der Audit-Log-Betrag beim Retry plötzlich 0 zeigen.
-    transferredSum += Number(p.amount);
+  if (creditsSelectErr) {
+    return { status: "error", message: dbErr(creditsSelectErr, "Gutschriften konnten nicht geladen werden.") };
+  }
+  const reassignable = (creditsToReassign ?? []).filter((c) => c.credit_to !== old_person_id);
+  const transferredSum = reassignable.reduce((sum, c) => sum + Number(c.amount), 0);
+  if (reassignable.length > 0) {
+    const { error: reassignErr } = await supabase
+      .from("transactions")
+      .update({ credit_from: newPersonId })
+      .in(
+        "id",
+        reassignable.map((c) => c.id),
+      );
+    if (reassignErr) return { status: "error", message: dbErr(reassignErr, "Gutschriften konnten nicht übertragen werden.") };
   }
 
-  // 7. A "abreisen lassen" — Anwesenheit auf null, bleibt aber im trip_members
-  //    für Audit. Bei aktiven Buchungen wäre Löschen sowieso geblockt.
-  const { error: departErr } = await supabase
-    .from("trip_members")
-    .update({ on_board_from: null, on_board_to: null, note: `Ersetzt durch ${effectiveName}` })
-    .eq("id", oldMember.id);
-  if (departErr) return { status: "error", message: dbErr(departErr, "Alte Crewperson konnte nicht auf abgereist gesetzt werden.") };
+  // 7. PR 4 / Fix 4: bevor A aus trip_members verschwindet, die Cross-Trip-
+  //    Statistik-Sichtbarkeit sichern (analog purge_trip_data, siehe
+  //    0020_trip_statistics_audience.sql) — sonst verliert A (falls A schon
+  //    mal eingeloggt war) diesen Törn dauerhaft aus /stats, weil die
+  //    dortigen RLS-Policies ohne Mitgliedschaft und ohne Audience-Zeile
+  //    keinen Lesezugriff mehr gewähren.
+  const { data: oldPersonRow } = await supabase
+    .from("persons")
+    .select("auth_user_id")
+    .eq("id", old_person_id)
+    .maybeSingle();
+  if (oldPersonRow?.auth_user_id) {
+    const { error: audienceErr } = await supabase
+      .from("trip_statistics_audience")
+      .upsert({ person_id: old_person_id, trip_id }, { onConflict: "person_id,trip_id" });
+    if (audienceErr) {
+      return { status: "error", message: dbErr(audienceErr, "Statistik-Zugriff konnte nicht gesichert werden.") };
+    }
+  }
+
+  // 7b. Grill-Review-Fund (PR 4): der Pre-Check in Schritt 2b lief GANZ am
+  //     Anfang, bevor irgendetwas geschrieben wurde — zwischen ihm und dem
+  //     DELETE unten liegen mehrere DB-Roundtrips (Personen-/Crew-Anlage,
+  //     Obligation-Transfer, Credit-Reassign, Audience-Upsert) ohne Lock
+  //     oder echte Transaktion. Legt in diesem Fenster jemand parallel eine
+  //     neue Buchung mit paid_by/credit_to = A an, würde das DELETE unten
+  //     sonst unbemerkt durchlaufen und genau den Bilanz-Fehler wieder
+  //     einführen, den Fix 1/3 beheben sollen. Deshalb unmittelbar VOR dem
+  //     DELETE erneut prüfen — engt das Race-Fenster auf die Zeit zwischen
+  //     dieser Prüfung und dem DELETE-Statement selbst ein (kein triviales
+  //     Nullen, aber eine echte DB-Transaktion über den Service-Role-Client
+  //     ist hier nicht verfügbar, siehe andere Stellen in dieser Datei).
+  if (await personHasBookingTrace(supabase, trip_id, old_person_id, { includeCreditFrom: false })) {
+    return {
+      status: "error",
+      message:
+        "Diese Person hat inzwischen eine neue Buchung in diesem Törn bekommen. " +
+        "Bitte Seite neu laden und erneut versuchen.",
+    };
+  }
+
+  // 8. PR 4 / Fix 3: A jetzt WIRKLICH aus trip_members entfernen (DELETE,
+  //    nicht mehr nur on_board_from/on_board_to auf NULL setzen).
+  //
+  //    NULL bedeutet im Schema "ab Törn-Start" / "bis Törnende" — laut
+  //    Schema-Kommentar (0001_init.sql) also VOLLE Anwesenheit, nicht
+  //    Abwesenheit. Die alte Implementierung hat A damit dauerhaft als
+  //    voll anwesende Crew stehen gelassen — exakt das Gegenteil der
+  //    Absicht "A ist abgereist". Die Pre-Checks oben (Fix 2 + Fix 3 +
+  //    Re-Check 7b) plus das Umhängen in Fix 1 stellen sicher, dass an
+  //    dieser Stelle keine Buchungsspur mehr an A hängt — sonst wäre
+  //    bereits VORHER abgebrochen worden, ohne dass hier geschrieben wurde.
+  const { error: deleteErr } = await supabase.from("trip_members").delete().eq("id", oldMember.id);
+  if (deleteErr) return { status: "error", message: dbErr(deleteErr, "Alte Crewmitgliedschaft konnte nicht entfernt werden.") };
 
   await logAudit(supabase, {
     table_name: "trip_members",
-    operation: "UPDATE",
+    operation: "DELETE",
     record_id: oldMember.id,
     trip_id,
     actor_person_id: person.id,
@@ -908,6 +1042,9 @@ export async function submitSelfPayment(
 
   const supabase = createAdminClient();
 
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
   // Vorstrecker (Empfänger) ermitteln
   const [{ data: tripRow }, { data: planRow }, { data: trancheRow }] = await Promise.all([
     supabase.from("trips").select("skipper_id, name").eq("id", trip_id).maybeSingle(),
@@ -1005,6 +1142,9 @@ export async function confirmSelfPayment(
   const auth = await requireSkipperAdminOrAdvancer(tx.trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
 
+  const archivedCheck = await assertTripNotArchived(supabase, tx.trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
   const { error } = await supabase
     .from("transactions")
     .update({ confirmed_at: new Date().toISOString() })
@@ -1074,6 +1214,9 @@ export async function rejectSelfPayment(
   // Vorstrecker darf ablehnen — er sieht das Geld NICHT auf seinem Konto.
   const auth = await requireSkipperAdminOrAdvancer(tx.trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
+
+  const archivedCheck = await assertTripNotArchived(supabase, tx.trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
 
   const { error } = await supabase
     .from("transactions")

@@ -165,6 +165,29 @@ export async function requireSkipperAdminOrAdvancer(tripId: string): Promise<Aut
   };
 }
 
+/**
+ * Eingeloggt UND (ORIGINAL-Skipper von `trips.skipper_id` ODER globaler
+ * Admin). Bewusst enger als `requireSkipperOrAdmin` — die genutzt Co-Skipper
+ * (`trip_members.is_skipper`) mit ein, was für das harte Löschen eines
+ * ganzen Törns (Sanierungsplan PR 9a, Fund 2) zu weit war: ein Co-Skipper
+ * sollte einen Törn nicht unwiderruflich löschen können, den er nicht
+ * angelegt hat.
+ */
+export async function requireTripOwnerOrAdmin(tripId: string): Promise<AuthzResult> {
+  const auth = await requireAuth();
+  if (!auth.ok) return auth;
+  if (await isAdmin()) return auth;
+
+  const supabase = createAdminClient();
+  const { data: trip } = await supabase
+    .from("trips")
+    .select("skipper_id")
+    .eq("id", tripId)
+    .maybeSingle();
+  if (trip?.skipper_id === auth.personId) return auth;
+  return { ok: false, message: "Nur der ursprüngliche Skipper oder ein Admin darf das." };
+}
+
 /** Eingeloggt UND Crewmitglied dieses Trips (Skipper-Flag egal). */
 export async function requireMember(tripId: string): Promise<AuthzResult> {
   const auth = await requireAuth();

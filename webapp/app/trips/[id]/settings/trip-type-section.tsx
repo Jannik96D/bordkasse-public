@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import { updateTripType } from "@/lib/actions/trips";
+import { useToast } from "@/components/toast-provider";
 import type { TripType } from "@/lib/trip-vocab";
 
 const OPTIONS: { value: TripType; label: string; hint: string }[] = [
@@ -31,10 +32,14 @@ export function TripTypeSection({
   tripType: TripType;
 }) {
   const [pending, startTransition] = useTransition();
+  const toast = useToast();
 
   const onSelect = (next: TripType) => {
     if (next === tripType || pending) return;
-    startTransition(() => updateTripType(tripId, next));
+    startTransition(async () => {
+      const result = await updateTripType(tripId, next);
+      if (!result.ok) toast.show(result.message ?? "Speichern fehlgeschlagen.", { variant: "error" });
+    });
   };
 
   return (

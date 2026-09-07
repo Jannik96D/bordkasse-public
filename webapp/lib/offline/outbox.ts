@@ -13,7 +13,14 @@
  */
 
 const DB_NAME = "bordkasse";
-const DB_VERSION = 1;
+// v2 (Fund 6, PR 5): `OutboxItem.personId` kommt dazu (Cross-Login-Schutz).
+// Der bestehende Object Store braucht dafür KEINE strukturelle Änderung
+// (IndexedDB-Values sind schemalos, `personId` ist einfach ein neues, dann
+// vorhandenes Feld) — der Versionsbump existiert trotzdem, damit
+// `onupgradeneeded` zuverlässig einmal für jeden Client läuft und ein
+// zukünftiger, WIRKLICH strukturneller Schritt (z. B. ein Index auf
+// `personId`) an derselben Stelle andocken kann.
+const DB_VERSION = 2;
 const STORE = "outbox";
 
 export type OutboxItem = {
@@ -22,6 +29,15 @@ export type OutboxItem = {
   kind: "expense" | "credit";
   formData: Record<string, string | string[]>;
   createdAt: number;
+  /**
+   * Person, die eingeloggt war, als der Eintrag geschrieben wurde (Fund 6,
+   * PR 5). `undefined` = Altbestand VOR diesem Feld — gilt als "meine", sonst
+   * wären alle zum Zeitpunkt des Updates schon wartenden Buchungen auf
+   * Crew-Handys plötzlich nicht mehr anzeigbar/synchronisierbar. Ein Eintrag
+   * mit einer TATSÄCHLICH abweichenden personId (Geräte-/Account-Wechsel)
+   * gehört zu einem anderen Login und wird nie automatisch verarbeitet.
+   */
+  personId?: string;
 };
 
 /** Ein formData-Feld als String (leer bei Array/undefined). Geteilt von den

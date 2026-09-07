@@ -79,7 +79,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: trancheErr.message }, { status: 500 });
   }
   if (!tranches || tranches.length === 0) {
-    return NextResponse.json({ ok: true, processed: 0, sent: 0, skipped: 0, ranAt: new Date().toISOString() });
+    return NextResponse.json({
+      ok: true,
+      processed: 0,
+      sent: 0,
+      skipped: 0,
+      failed: 0,
+      ranAt: new Date().toISOString(),
+    });
   }
 
   const tripIds = Array.from(new Set(tranches.map((t) => t.trip_id)));
@@ -249,9 +256,18 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // `skipped` = Job war schlicht nicht (mehr) zutreffend (keine Mail-Adresse,
+  // keine offenen Tranchen, Trip/Person nicht mehr vorhanden) — kein Fehler.
+  // `failed` = etwas ist TATSÄCHLICH schiefgegangen (Mail-Zustellung, der
+  // Dedup-Log-Insert oder eine geworfene Exception) — analog zum Purge-Cron,
+  // der `purged`/`failed` getrennt zurückgibt (Fund 3, PR 6). Vorher landete
+  // ein echter Fehlschlag nur in `skipped` + einem weichen `console.error`,
+  // ohne dass ein Coolify-„Recent executions"-Blick erkennen konnte, ob in
+  // der Nacht tatsächlich etwas schiefging.
   let sent = 0;
   let skipped = 0;
-  const errors: Array<{ job: ReminderJob; message: string }> = [];
+  let failed = 0;
+  const errors: Array<{ job: ReminderJob; message: string; kind: "skipped" | "failed" }> = [];
 
   for (const job of jobs) {
     try {
@@ -262,8 +278,14 @@ export async function GET(request: NextRequest) {
         isAutomated: true,
       });
       if (!result.ok) {
-        skipped++;
-        errors.push({ job, message: result.message });
+        if (result.reason === "send_failed") {
+          failed++;
+          console.error("[bordkasse:cron] mail send failed:", { job, message: result.message });
+          errors.push({ job, message: result.message, kind: "failed" });
+        } else {
+          skipped++;
+          errors.push({ job, message: result.message, kind: "skipped" });
+        }
         continue;
       }
       const { error: logErr } = await supabase.from("prepayment_reminder_log").insert({
@@ -273,8 +295,17 @@ export async function GET(request: NextRequest) {
         reminder_type: job.type,
       });
       if (logErr) {
-        // Unique-Violation = parallele Cron-Instanz hat schon gelogged — egal.
-        console.warn("[bordkasse:cron] log insert:", logErr.message);
+        if (logErr.code === "23505") {
+          // Unique-Violation = parallele Cron-Instanz hat schon gelogged — egal.
+          console.warn("[bordkasse:cron] log insert (dedupe, parallel run):", logErr.message);
+        } else {
+          // Mail ist raus, aber der Dedup-Eintrag fehlt → der nächste Lauf
+          // würde dieselbe Person erneut mahnen. Kein Grund, sent-- zu
+          // machen (die Mail kam an), aber sichtbar als failed melden.
+          failed++;
+          console.error("[bordkasse:cron] log insert failed:", { job, message: logErr.message });
+          errors.push({ job, message: `Dedup-Log fehlgeschlagen: ${logErr.message}`, kind: "failed" });
+        }
       }
 
       // Push zusätzlich zur Mail (additiv, wirft nie). Kein Actor → keine
@@ -298,8 +329,8 @@ export async function GET(request: NextRequest) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[bordkasse:cron] job failed:", { job, msg });
-      errors.push({ job, message: msg });
-      skipped++;
+      errors.push({ job, message: msg, kind: "failed" });
+      failed++;
     }
   }
 
@@ -308,7 +339,8 @@ export async function GET(request: NextRequest) {
     processed: jobs.length,
     sent,
     skipped,
-    errors: errors.map((e) => ({ type: e.job.type, message: e.message })),
+    failed,
+    errors: errors.map((e) => ({ type: e.job.type, message: e.message, kind: e.kind })),
     ranAt: new Date().toISOString(),
   });
 }

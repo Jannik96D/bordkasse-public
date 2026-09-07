@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { updateTripCurrencies } from "@/lib/actions/trips";
+import { useToast } from "@/components/toast-provider";
 import { FOREIGN_CURRENCIES } from "@/lib/rates/currencies";
 
 // Regionen in Anzeige-Reihenfolge (nach Vorkommen in der kuratierten Liste).
@@ -23,13 +24,21 @@ export function CurrencySection({
 }) {
   const [active, setActive] = useState<Set<string>>(() => new Set(selected));
   const [pending, startTransition] = useTransition();
+  const toast = useToast();
 
   const toggle = (code: string) => {
+    const previous = active;
     const next = new Set(active);
     if (next.has(code)) next.delete(code);
     else next.add(code);
     setActive(next);
-    startTransition(() => updateTripCurrencies(tripId, [...next]));
+    startTransition(async () => {
+      const result = await updateTripCurrencies(tripId, [...next]);
+      if (!result.ok) {
+        setActive(previous);
+        toast.show(result.message ?? "Speichern fehlgeschlagen.", { variant: "error" });
+      }
+    });
   };
 
   return (

@@ -16,6 +16,7 @@ import {
   personsBelongToTrip,
   CROSS_TRIP_PERSON_MSG,
 } from "@/lib/auth/cross-trip";
+import { assertTripNotArchived } from "@/lib/auth/trip-state";
 import { logAudit } from "@/lib/db/audit";
 import { tripVocab } from "@/lib/trip-vocab";
 import { round2 } from "@/lib/utils";
@@ -436,6 +437,11 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
 
   const supabase = createAdminClient();
 
+  // Schreibschutz für archivierte Törns (Sanierungsplan D3) — NACH dem
+  // Auth-Guard, VOR jeder Schreib-Operation.
+  const archivedCheck = await assertTripNotArchived(supabase, txData.trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
   // Min-1-Cent-pro-Person-Check vor dem Insert.
   const minCheck = await checkMinShare(supabase, txData.trip_id, {
     amount: txData.amount,
@@ -546,6 +552,9 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
 
   const supabase = createAdminClient();
 
+  const archivedCheck = await assertTripNotArchived(supabase, parsed.data.trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
   // „An Alle" (credit_to IS NULL) braucht ≥ 2 Crewmitglieder, sonst kann
   // die Bilanz nicht ausgeglichen werden (creditFrom bekommt +amount, aber
   // niemand bekommt es gegengebucht).
@@ -608,13 +617,19 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
   }
   if (error || !tx) return { status: "error", message: dbErrorMessage(error, "Gutschrift konnte nicht angelegt werden. Bitte erneut versuchen.") };
 
+  // Grill-Review-Fund (PR 7, Fund 4): description enthält bei Gutschriften
+  // systematisch Namen im Klartext ("Crewwechsel: X übernimmt Anzahlung für
+  // Y") — dieselbe Begründung, aus der Migration 0054 (D5) description beim
+  // Purge nur bei Gutschriften nullt. Der Audit-Log-Eintrag trüge diesen
+  // Klartext sonst bis zum Purge weiter (Monate/Jahre bei laufenden Törns).
+  const { description: _creditDescription, ...creditAuditPayload } = parsed.data;
   await logAudit(supabase, {
     table_name: "transactions",
     operation: "INSERT",
     record_id: tx.id,
     trip_id: parsed.data.trip_id,
     actor_person_id: person.id,
-    payload: { type: "credit", ...parsed.data },
+    payload: { type: "credit", ...creditAuditPayload },
   });
 
   await markPostSettlementChange(supabase, parsed.data.trip_id);
@@ -627,13 +642,29 @@ export async function createCredit(_prev: TxState, formData: FormData): Promise<
 /**
  * Berechtigung zum Editieren / Löschen einer Transaktion: entweder Skipper
  * oder Admin des Trips, oder die Person, die die Buchung erstellt hat.
+ *
+ * Fund 12 (Sanierungsplan PR 3): der Ersteller-Zweig verlangt zusätzlich,
+ * dass der Ersteller noch MITGLIED dieses Törns ist — wurde er zwischenzeitlich
+ * entfernt (removeMember), soll das alte Ersteller-Recht nicht fortbestehen.
+ * Bewusst NUR dieser Zweig: ein globaler `requireMember`-Aufruf für die ganze
+ * Funktion wäre falsch, weil `requireMember` keinen Admin-Bypass kennt und
+ * damit den Skipper-/Admin-Zweig unnötig einschränken würde.
  */
 async function canEditTransaction(
   tripId: string,
   createdBy: string | null,
   currentPersonId: string,
 ): Promise<boolean> {
-  if (createdBy && createdBy === currentPersonId) return true;
+  if (createdBy && createdBy === currentPersonId) {
+    const supabase = createAdminClient();
+    const { data: member } = await supabase
+      .from("trip_members")
+      .select("person_id")
+      .eq("trip_id", tripId)
+      .eq("person_id", createdBy)
+      .maybeSingle();
+    if (member) return true;
+  }
   const skipperCheck = await requireSkipperOrAdmin(tripId);
   if (skipperCheck.ok) return true;
   return await isAdmin();
@@ -702,6 +733,9 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   if (!(await canEditTransaction(txData.trip_id, existing.created_by, person.id))) {
     return { status: "error", message: "Nur Skipper, Admin oder die Person, die gebucht hat, dürfen ändern." };
   }
+
+  const archivedCheck = await assertTripNotArchived(supabase, txData.trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
 
   // Wurde eine Kaution-Buchung berührt? (alte oder neue Kategorie = "Kaution")
   // Dann nach dem Speichern den Skipper an die Abrechnung erinnern.
@@ -958,6 +992,9 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     return { status: "error", message: "Nur Skipper oder Admin dürfen eine Gutschrift ändern." };
   }
 
+  const archivedCheck = await assertTripNotArchived(supabase, parsed.data.trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
   // „An Alle"-Validierung wie bei createCredit
   if (parsed.data.credit_to == null && !(await crewCountAtLeastTwo(supabase, parsed.data.trip_id))) {
     return {
@@ -1046,13 +1083,16 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     .eq("trip_id", parsed.data.trip_id);
   if (error) return { status: "error", message: dbErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
 
+  // Grill-Review-Fund (PR 7, Fund 4): description ausklammern, siehe
+  // createCredit oben.
+  const { description: _creditDescriptionUpd, ...creditAuditPayloadUpd } = parsed.data;
   await logAudit(supabase, {
     table_name: "transactions",
     operation: "UPDATE",
     record_id: transactionId,
     trip_id: parsed.data.trip_id,
     actor_person_id: person.id,
-    payload: { type: "credit", ...parsed.data },
+    payload: { type: "credit", ...creditAuditPayloadUpd },
   });
 
   // balanceChanged wurde bereits vor dem Update berechnet (für den
@@ -1079,9 +1119,23 @@ export async function deleteTransaction(
   transactionId: string,
   tripId: string,
 ): Promise<{ ok: boolean; wasKaution: boolean }> {
-  const auth = await requireMember(tripId);
+  // Fund 43 (Sanierungsplan PR 3, Grill-Review): `requireMember` sperrt einen
+  // globalen Admin aus, der (noch) nicht Crew dieses Törns ist — laut
+  // App-Konzept soll Admin aber überall Zugriff haben. Lockerung auf
+  // "Mitglied des Trips ODER globaler Admin".
+  let auth = await requireMember(tripId);
+  if (!auth.ok) {
+    if (await isAdmin()) {
+      const person = await getCurrentPerson();
+      if (person) auth = { ok: true, personId: person.id };
+    }
+  }
   if (!auth.ok) return { ok: false, wasKaution: false };
   const supabase = createAdminClient();
+
+  const archivedCheck = await assertTripNotArchived(supabase, tripId);
+  if (!archivedCheck.ok) return { ok: false, wasKaution: false };
+
   const { data: existing } = await supabase
     .from("transactions")
     .select("category_id, trip_id, created_by")
@@ -1123,12 +1177,15 @@ export async function deleteTransaction(
  * Replay einer offline erfassten Buchung von der Outbox aus.
  * Macht KEINEN Redirect — wird vom Client-Sync ohne Navigation aufgerufen.
  * Idempotency-Key verhindert Duplikate, falls dieselbe Buchung schon
- * in einer anderen Session synchronisiert wurde.
+ * in einer anderen Session synchronisiert wurde — in dem Fall trägt die
+ * Antwort zusätzlich `duplicate: true` (Fund 4, PR 5), damit der Sync-Layer
+ * das von einem echten Neu-Insert unterscheiden kann; der Outbox-Eintrag wird
+ * in BEIDEN Fällen entfernt (`ok: true`), nie als Dauerfehler stehen gelassen.
  */
 export async function replayPendingTransaction(
   kind: "expense" | "credit",
   formObject: Record<string, string | string[]>,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true; duplicate?: boolean } | { ok: false; message: string }> {
   const person = await getCurrentPerson();
   if (!person) return { ok: false, message: "Nicht angemeldet." };
 
@@ -1142,8 +1199,25 @@ export async function replayPendingTransaction(
 
   const supabase = createAdminClient();
 
+  // Ein Draft kann offline erfasst worden sein, während der Törn noch nicht
+  // archiviert war, und erst beim Reconnect (deutlich später) synchronisiert
+  // werden — der Törn kann inzwischen archiviert worden sein. Klare Meldung
+  // statt stillem Erfolg, damit der Sync-Layer den Eintrag nicht kommentarlos
+  // verschluckt.
+  const archivedCheck = await assertTripNotArchived(supabase, tripId);
+  if (!archivedCheck.ok) return { ok: false, message: archivedCheck.message };
+
   if (kind === "expense") {
-    const participantIds = (formObject.participant_ids as string[] | undefined) ?? [];
+    // Fund 1 (PR 5): aus der Outbox gelesenes `participant_ids` ist nicht
+    // garantiert ein Array — ein aus einem gespeicherten Objekt gelesener
+    // Einzelwert kann ein blanker String sein (anders als `FormData.getAll`,
+    // das immer ein Array liefert). Normalisieren, statt blind zu casten.
+    const rawParticipantIds = formObject.participant_ids;
+    const participantIds = Array.isArray(rawParticipantIds)
+      ? rawParticipantIds
+      : rawParticipantIds
+        ? [rawParticipantIds]
+        : [];
     // KEIN tranche_id im Replay (S-1): eine offline erfasste Ausgabe darf nicht
     // in den Anzahlungspool geschoben werden — die Auslassung ist hier bewusst.
     const parsed = ExpenseSchema.safeParse({
@@ -1213,7 +1287,7 @@ export async function replayPendingTransaction(
       .single();
     if (error?.code === PG_UNIQUE_VIOLATION && idempotency_key) {
       revalidatePath(`/trips/${txData.trip_id}/transactions`);
-      return { ok: true };
+      return { ok: true, duplicate: true };
     }
     if (error || !tx) {
       return { ok: false, message: dbErrorMessage(error, "Serverfehler") };
@@ -1243,7 +1317,12 @@ export async function replayPendingTransaction(
 
   // credit
   const creditToRaw = String(formObject.credit_to ?? "");
-  const creditTo = creditToRaw === "ALL" || creditToRaw === "" ? null : creditToRaw;
+  // Fund 3 (PR 5): NUR das explizite Literal "ALL" bedeutet "An Alle" (→ null).
+  // Ein leerer String heißt "nichts ausgewählt" und muss leer bleiben, damit
+  // CreditSchema (requiredUuid().nullable()) ihn als ungültig ablehnt — sonst
+  // würde ein vergessenes Empfänger-Feld beim Replay stillschweigend zu einer
+  // "An Alle"-Gutschrift (gleiche Regel wie in createCredit/updateCredit).
+  const creditTo = creditToRaw === "ALL" ? null : creditToRaw;
   // KEIN tranche_id im Replay (S-1), wie beim Ausgabe-Zweig.
   const parsed = CreditSchema.safeParse({
     ...creditCommonInput((k) => formObject[k], creditTo),
@@ -1303,16 +1382,19 @@ export async function replayPendingTransaction(
     .single();
   if (error?.code === PG_UNIQUE_VIOLATION && parsed.data.idempotency_key) {
     revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);
-    return { ok: true };
+    return { ok: true, duplicate: true };
   }
   if (error || !tx) return { ok: false, message: dbErrorMessage(error, "Serverfehler") };
+  // Grill-Review-Fund (PR 7, Fund 4): description ausklammern, siehe
+  // createCredit oben.
+  const { description: _creditDescriptionReplay, ...creditAuditPayloadReplay } = parsed.data;
   await logAudit(supabase, {
     table_name: "transactions",
     operation: "INSERT",
     record_id: tx.id,
     trip_id: parsed.data.trip_id,
     actor_person_id: person.id,
-    payload: { type: "credit", source: "outbox-replay", ...parsed.data },
+    payload: { type: "credit", source: "outbox-replay", ...creditAuditPayloadReplay },
   });
   await markPostSettlementChange(supabase, parsed.data.trip_id);
   revalidatePath(`/trips/${parsed.data.trip_id}/transactions`);

@@ -1,7 +1,12 @@
+"use client";
+
+import { useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Coins } from "lucide-react";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { setPrepaymentDeclined } from "@/lib/actions/trips";
+import { useToast } from "@/components/toast-provider";
 import { tripVocab, type TripType } from "@/lib/trip-vocab";
 
 /**
@@ -30,6 +35,21 @@ export function PrepaymentPlanSection({
 }) {
   const vocab = tripVocab(tripType);
   const tripDem = vocab.trip === "Reise" ? "diese Reise" : "diesen Törn";
+  const [pending, startTransition] = useTransition();
+  const toast = useToast();
+  const router = useRouter();
+
+  const handleDecline = () => {
+    startTransition(async () => {
+      const result = await setPrepaymentDeclined(tripId, true);
+      if (!result.ok) {
+        toast.show(result.message ?? "Speichern fehlgeschlagen.", { variant: "error" });
+        return;
+      }
+      router.refresh();
+    });
+  };
+
   return (
     <section>
       <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold text-primary">
@@ -63,14 +83,14 @@ export function PrepaymentPlanSection({
           {/* Entscheidung umkehrbar machen — nur solange kein Plan existiert
               (mit Plan ist die Frage entschieden). */}
           {!planExists && !declined && (
-            <form action={setPrepaymentDeclined.bind(null, tripId, true)}>
-              <button
-                type="submit"
-                className="inline-flex min-h-[44px] items-center rounded-md border border-rule bg-paper px-4 py-2 text-sm font-medium text-ink-soft hover:border-primary/40 hover:text-primary"
-              >
-                Keine Anzahlung für {tripDem}
-              </button>
-            </form>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={handleDecline}
+              className="inline-flex min-h-[44px] items-center rounded-md border border-rule bg-paper px-4 py-2 text-sm font-medium text-ink-soft hover:border-primary/40 hover:text-primary disabled:opacity-60"
+            >
+              Keine Anzahlung für {tripDem}
+            </button>
           )}
         </div>
       </div>

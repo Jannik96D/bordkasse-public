@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMember, requireSkipperOrAdmin } from "@/lib/auth/authz";
+import { assertTripNotArchived } from "@/lib/auth/trip-state";
 
 /**
  * Minimiert/öffnet die Törn-Fortschritt-Karte für das aktuelle Crewmitglied.
@@ -44,6 +45,13 @@ export async function setDepositSettled(
   if (!auth.ok) return { ok: false };
 
   const supabase = createAdminClient();
+
+  // Schreibschutz für archivierte Törns (Sanierungsplan D3, Grill-Review-
+  // Fund) — trip-level Finanz-Fakt, genau der Anzahlungs-Scope, den D3
+  // schützen soll.
+  const archivedCheck = await assertTripNotArchived(supabase, tripId);
+  if (!archivedCheck.ok) return { ok: false };
+
   const { error } = await supabase
     .from("trips")
     .update({ deposit_settled_at: settled ? new Date().toISOString() : null })
