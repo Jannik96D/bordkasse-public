@@ -247,7 +247,54 @@ export async function removeMember(
     };
   }
 
+  // Fund E (Sanierungsplan PR 9b): personHasBookingTrace prüft nur
+  // transactions/transaction_participants — eine Person, die aus dem Törn
+  // entfernt wird, kann trotzdem noch ein offenes Anzahlungs-Soll in
+  // prepayment_obligations(trip_id, person_id) stehen haben (z. B. ein Törn
+  // mit Anzahlungsplan, in dem diese Person nie selbst gebucht hat).
+  //
+  // ⚠️ Grill-Review-Fund: ein stilles Löschen dieser Zeile lässt
+  // Σ obligations.total_amount < prepayment_plan.total_amount zurück, ohne
+  // dass irgendetwas das neu verteilt oder den Vorstrecker warnt — bei
+  // gleichmaessig/zeitanteilig sammelt er dauerhaft weniger ein, als die
+  // Charter kostet, ohne sichtbares Signal (die Matrix zeigt nur noch aktive
+  // Crew, keinen Fehlbetrag). Deshalb: BLOCKEN statt still löschen, solange
+  // ein offenes (>0) Soll besteht — der Skipper muss den Anzahlungsplan im
+  // Wizard neu speichern (verteilt bei gleichmaessig/zeitanteilig automatisch
+  // neu, siehe savePrepaymentPlan/calculateObligations) oder das Soll bei
+  // individuell/kojen bewusst auf 0 setzen, BEVOR die Person entfernt wird.
+  const { data: obligationRow } = await supabase
+    .from("prepayment_obligations")
+    .select("total_amount")
+    .eq("trip_id", tripId)
+    .eq("person_id", personId)
+    .maybeSingle();
+  if (obligationRow && Number(obligationRow.total_amount) > 0) {
+    return {
+      ok: false,
+      message:
+        "Diese Person hat noch ein offenes Anzahlungs-Soll. Bitte zuerst den Anzahlungsplan anpassen (Einstellungen → Anzahlungsplan), bevor du sie entfernst.",
+    };
+  }
+
   await supabase.from("trip_members").delete().eq("id", memberId).eq("trip_id", tripId);
+
+  // Kein offenes Soll (0 oder keine Zeile) → die Obligation-Zeile selbst
+  // (falls vorhanden, mit total_amount = 0) kann gefahrlos mitgelöscht
+  // werden — sie hätte ohnehin nichts mehr beigetragen.
+  await supabase.from("prepayment_obligations").delete().eq("trip_id", tripId).eq("person_id", personId);
+
+  // settled_debts referenziert die Person direkt (from_person_id/
+  // to_person_id, kein FK auf trip_members) — ein Fantom-Häkchen für eine
+  // nicht mehr existierende Crew-Person wäre verwirrend, auch wenn es wegen
+  // fehlender Buchungsspur (Bilanzbeitrag = 0) praktisch nie neu entsteht.
+  // Defensiv trotzdem aufräumen, statt auf diese Invariante zu vertrauen.
+  await supabase
+    .from("settled_debts")
+    .delete()
+    .eq("trip_id", tripId)
+    .or(`from_person_id.eq.${personId},to_person_id.eq.${personId}`);
+
   await logAudit(supabase, {
     table_name: "trip_members",
     operation: "DELETE",

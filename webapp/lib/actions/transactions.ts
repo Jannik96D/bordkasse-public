@@ -1138,7 +1138,7 @@ export async function deleteTransaction(
 
   const { data: existing } = await supabase
     .from("transactions")
-    .select("category_id, trip_id, created_by")
+    .select("category_id, trip_id, created_by, type")
     .eq("id", transactionId)
     .maybeSingle();
   // IDOR-Schutz: requireMember(tripId) prüft nur die Mitgliedschaft im
@@ -1150,7 +1150,23 @@ export async function deleteTransaction(
   // Löschen darf nur, wer auch editieren darf: Ersteller, Skipper oder Admin.
   // Vorher reichte bloße Mitgliedschaft — die destruktive Aktion war damit
   // schwächer geschützt als das Editieren derselben Buchung (Fund S-2).
-  if (!(await canEditTransaction(tripId, existing.created_by, auth.personId))) {
+  //
+  // Fund D (Sanierungsplan PR 9b): für GUTSCHRIFTEN gilt bewusst eine engere
+  // Regel als für Ausgaben — OHNE Ersteller-Ausnahme, nur Skipper/Admin.
+  // `updateCredit` (siehe dortiger Kommentar zu Fund 3, Code-Review 2026-08)
+  // verweigert dem Ersteller absichtlich das Editieren einer Gutschrift,
+  // weil sonst ein Crewmitglied seine EIGENE, vom Vorstrecker bereits
+  // bestätigte Anzahlungsmeldung (submitSelfPayment, created_by = es selbst)
+  // nachträglich frei verändern könnte. `canEditTransaction`s Ersteller-Zweig
+  // ist für Ausgaben gedacht und griff bisher unverändert auch beim LÖSCHEN
+  // von Gutschriften — Löschen ist dabei mindestens so sensibel wie Ändern
+  // (die Buchung verschwindet aus Anzahlungspool/Matrix/Bilanz), aber sogar
+  // NIEDRIGER geschützt gewesen als das von updateCredit verweigerte Editieren.
+  const canDelete =
+    existing.type === "credit"
+      ? (await requireSkipperOrAdmin(tripId)).ok
+      : await canEditTransaction(tripId, existing.created_by, auth.personId);
+  if (!canDelete) {
     return { ok: false, wasKaution: false };
   }
   const wasKaution = await isKautionCategory(supabase, tripId, existing.category_id);
