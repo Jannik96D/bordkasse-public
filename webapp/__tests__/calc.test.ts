@@ -349,7 +349,7 @@ describe("S7: Schulden-Greedy", () => {
     expect(debts[0]).toMatchObject({ fromPersonId: "x", toPersonId: "y", amount: 50 });
   });
 
-  it("Tiebreaker (Fund 21, PR 9d): bei exakt gleichem Betrag entscheidet die kleinere Person-ID", () => {
+  it("Tiebreaker Schuldner-Seite (Fund 21, PR 9d): bei exakt gleichem Betrag entscheidet die kleinere Person-ID", () => {
     // Zwei Schuldner UND zwei Gläubiger exakt gleich hoch (je 20€). `Array.sort`
     // ist seit ES2019 stabil — bei Gleichstand OHNE Tiebreak bliebe also die
     // Array-Reihenfolge erhalten. Damit ein Regressions-Fund (Tiebreak entfernt)
@@ -357,8 +357,14 @@ describe("S7: Schulden-Greedy", () => {
     // gegenüber der Gläubiger bewusst GEGENLÄUFIG zur erwarteten lexikografischen
     // Ordnung sein: Schuldner absteigend (z vor a) eingefügt, Gläubiger bereits
     // aufsteigend (b vor w) — nur so ergibt "keine Umsortierung" (Bug) eine
-    // ANDERE Paarung (z↔b, a↔w) als der Tiebreak (a↔b, z↔w). Mutationsgetestet:
-    // ohne den `byIdAsc`-Tiebreak in lib/calc/debts.ts schlägt dieser Test fehl.
+    // ANDERE Paarung (z↔b, a↔w) als der Tiebreak (a↔b, z↔w).
+    //
+    // ⚠️ Deckt NUR den Schuldner-Tiebreak ab — weil die Gläubiger hier bereits
+    // in aufsteigender (= korrekter) Reihenfolge eingefügt sind, würde ein
+    // Regressions-Fund, der NUR den Gläubiger-Tiebreak entfernt, diesen Test
+    // NICHT kippen (Grill-Review-Fund F-2). Siehe nächster Test für die
+    // Gläubiger-Seite. Mutationsgetestet: ohne den `byIdAsc`-Tiebreak auf der
+    // Schuldner-Sortierung in lib/calc/debts.ts schlägt dieser Test fehl.
     const balances: BalanceRow[] = [
       { personId: "z-debtor", paid: 0, share: 20, creditGiven: 0, creditReceived: 0, balance: -20 },
       { personId: "b-creditor", paid: 20, share: 0, creditGiven: 0, creditReceived: 0, balance: 20 },
@@ -373,6 +379,30 @@ describe("S7: Schulden-Greedy", () => {
       amount: 20,
     });
     // Größte Schuldner-ID (z-debtor) → größte Gläubiger-ID (w-creditor).
+    expect(debts.find((d) => d.fromPersonId === "z-debtor")).toMatchObject({
+      toPersonId: "w-creditor",
+      amount: 20,
+    });
+  });
+
+  it("Tiebreaker Gläubiger-Seite (Fund 21, PR 9d, Grill-Review-Fund F-2): spiegelbildlicher Fall", () => {
+    // Gegenstück zum vorigen Test: hier sind die SCHULDNER bereits aufsteigend
+    // (klein vor groß) eingefügt, die GLÄUBIGER bewusst absteigend (groß vor
+    // klein) — isoliert damit den Gläubiger-Tiebreak. Mutationsgetestet: ohne
+    // den `byIdAsc`-Tiebreak auf der Gläubiger-Sortierung schlägt dieser Test
+    // fehl, auch wenn der Schuldner-Tiebreak intakt bleibt.
+    const balances: BalanceRow[] = [
+      { personId: "a-debtor", paid: 0, share: 20, creditGiven: 0, creditReceived: 0, balance: -20 },
+      { personId: "w-creditor", paid: 20, share: 0, creditGiven: 0, creditReceived: 0, balance: 20 },
+      { personId: "z-debtor", paid: 0, share: 20, creditGiven: 0, creditReceived: 0, balance: -20 },
+      { personId: "b-creditor", paid: 20, share: 0, creditGiven: 0, creditReceived: 0, balance: 20 },
+    ];
+    const debts = simplifyDebts(balances);
+    expect(debts).toHaveLength(2);
+    expect(debts.find((d) => d.fromPersonId === "a-debtor")).toMatchObject({
+      toPersonId: "b-creditor",
+      amount: 20,
+    });
     expect(debts.find((d) => d.fromPersonId === "z-debtor")).toMatchObject({
       toPersonId: "w-creditor",
       amount: 20,
