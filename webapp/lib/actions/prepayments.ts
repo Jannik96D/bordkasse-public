@@ -113,12 +113,42 @@ export async function savePrepaymentPlan(
   //    Obligations) stabil bleiben. Spec: kojen entfernen setzt FK auf NULL.
   // Client generiert UUIDs für neue Kojen (s. Wizard); deshalb haben ALLE
   // eingehenden Kojen eine ID, und wir können einheitlich per UPSERT arbeiten.
-  const { data: existingCabins } = await supabase
+  const { data: existingCabins, error: existingCabinsErr } = await supabase
     .from("cabin_types")
     .select("id")
     .eq("trip_id", trip_id);
+  // Grill-Review-Fund: ein transienter DB-Fehler hier ließ existingCabinIds
+  // fälschlich leer — die Fund-B-Prüfung unten hätte dann JEDE Koje DIESES
+  // Törns als "fremd" behandelt (foreignIncomingCabinIds = alle) und den Save
+  // dauerhaft mit "gehört nicht zu diesem Törn" blockiert. Fail-loud statt
+  // stillem Fallback auf ein leeres Set.
+  if (existingCabinsErr) {
+    return { status: "error", message: dbErr(existingCabinsErr, "Kojen konnten nicht geladen werden.") };
+  }
   const existingCabinIds = new Set((existingCabins ?? []).map((c) => c.id as string));
   const incomingCabinIds = new Set(cabin_types.filter((c) => c.id).map((c) => c.id as string));
+
+  // Fund B (Sanierungsplan PR 9b, IDOR-Schutz): eine eingehende cabin_type_id,
+  // die nicht zu DIESEM Törn gehört, könnte trotzdem bereits in der DB
+  // existieren — als Koje eines FREMDEN Törns. Der `upsert(..., {onConflict:
+  // "id"})` unten würde diese Zeile sonst stillschweigend übernehmen (trip_id/
+  // label/Preis/Kapazität überschreiben), weil bisher nur ids DIESES Törns
+  // (existingCabinIds) bekannt waren. Global nachschlagen und ablehnen, statt
+  // eine fremde Koje zu kapern — analog zum trip_id-Filter bei Tranchen
+  // (saveTranches) und den personsBelongToTrip-Checks in dieser Datei.
+  const foreignIncomingCabinIds = [...incomingCabinIds].filter((id) => !existingCabinIds.has(id));
+  if (foreignIncomingCabinIds.length > 0) {
+    const { data: foreignCheck } = await supabase
+      .from("cabin_types")
+      .select("id")
+      .in("id", foreignIncomingCabinIds);
+    if ((foreignCheck ?? []).length > 0) {
+      return {
+        status: "error",
+        message: "Eine ausgewählte Koje gehört nicht zu diesem Törn. Bitte Seite neu laden.",
+      };
+    }
+  }
 
   // Löschen: existierend ABER nicht im Payload
   const toDelete = [...existingCabinIds].filter((id) => !incomingCabinIds.has(id));
@@ -301,6 +331,37 @@ export async function saveTranches(
   const incomingIds = new Set(tranches.filter((t) => t.id).map((t) => t.id as string));
   const toDelete = [...existingIds].filter((id) => !incomingIds.has(id));
   if (toDelete.length > 0) {
+    // Fund A (Sanierungsplan PR 9b): eine Tranche mit bereits BESTÄTIGTEN
+    // Zahlungen darf nicht stillschweigend gelöscht werden. `ON DELETE SET
+    // NULL` (0023) würde die betroffenen Buchungen zwar erhalten, sie fallen
+    // aber unbemerkt aus dem Anzahlungs-Pool/der Matrix in den Bordkasse-Saldo
+    // — niemand bekommt das mit, die Zahlung wirkt danach "verschwunden".
+    // Bewusst KEINE DB-Constraint (ON DELETE RESTRICT): der tägliche
+    // DSGVO-Purge (0048) verlässt sich auf SET NULL beim Löschen von
+    // prepayment_tranches, ein RESTRICT würde den Purge wieder brechen.
+    //
+    // ⚠️ Grill-Review-Fund: die Prüfung galt ursprünglich nur `type="credit"`
+    // (Crew-Zahlungen an den Vorstrecker). Die Charter-Zahlung selbst (Vor-
+    // strecker → Vercharterer) ist aber ein `type="expense"` mit derselben
+    // `tranche_id` (siehe getCharterPaidTotal/-PerTranche in
+    // lib/queries/prepayments.ts) — OHNE den Type-Filter hätte das Löschen
+    // einer Tranche mit bereits gezahlter Charter-Rate diese Ausgabe
+    // unbemerkt in den Bordkasse-Pool fallen lassen (Split auf die ganze
+    // Crew statt Anzahlungs-Soll). Kein Type-Filter mehr — beide Buchungsarten
+    // zählen; `confirmed_at` hat für Ausgaben ohnehin `DEFAULT now()`.
+    const { count: confirmedCount } = await supabase
+      .from("transactions")
+      .select("id", { count: "exact", head: true })
+      .in("tranche_id", toDelete)
+      .not("confirmed_at", "is", null)
+      .is("deleted_at", null);
+    if ((confirmedCount ?? 0) > 0) {
+      return {
+        status: "error",
+        message:
+          "Mindestens eine Tranche hat bereits bestätigte Zahlungen und kann nicht gelöscht werden.",
+      };
+    }
     await supabase.from("prepayment_tranches").delete().in("id", toDelete);
   }
 
@@ -418,7 +479,12 @@ export async function recordPayment(
   const trancheLabel = trancheRow.label;
   const trancheSoll = Number(oblRow?.total_amount ?? 0) * Number(trancheRow.percent) / 100;
 
-  // Bereits gezahlt
+  // Bereits gezahlt — NUR bestätigte Zahlungen zählen (Fund C, Sanierungsplan
+  // PR 9b). Ohne den confirmed_at-Filter würde eine noch unbestätigte
+  // Selbstmeldung (submitSelfPayment, confirmed_at = NULL) hier bereits als
+  // "bezahlt" mitgezählt, bevor der Skipper sie überhaupt bestätigt hat —
+  // "open" (offener Betrag) wäre künstlich zu niedrig, und ein legitimer
+  // Overflow-Split würde falsch berechnet.
   const { data: paidRows } = await supabase
     .from("transactions")
     .select("amount")
@@ -426,6 +492,7 @@ export async function recordPayment(
     .eq("tranche_id", tranche_id)
     .eq("credit_from", person_id)
     .eq("type", "credit")
+    .not("confirmed_at", "is", null)
     .is("deleted_at", null);
   const alreadyPaid = (paidRows ?? []).reduce((s, r) => s + Number(r.amount), 0);
   const open = trancheSoll - alreadyPaid;

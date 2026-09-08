@@ -671,6 +671,89 @@ describe("deleteTransaction — nur Ersteller/Skipper/Admin (Fund S-2)", () => {
   });
 });
 
+describe("deleteTransaction — Gutschriften nur Skipper/Admin, OHNE Ersteller-Ausnahme (Fund D, PR 9b)", () => {
+  // Analog zu updateCredit (siehe dortiger Fund-3-Kommentar): der bloße
+  // Ersteller einer Gutschrift — z. B. ein Crewmitglied über
+  // submitSelfPayment, created_by = es selbst — darf seine eigene, ggf.
+  // schon vom Vorstrecker bestätigte Anzahlungsmeldung nicht selbst löschen.
+  // Vor dem Fix griff hier ungefiltert `canEditTransaction`, dessen
+  // Ersteller-Zweig für AUSGABEN gedacht ist.
+  const CREDIT_CREATOR = "aaaaaaaa-0000-4000-8000-000000000016";
+  function makeDeleteSupabase(existing: Record<string, unknown> | null) {
+    const make = () => {
+      const b: Record<string, unknown> = {};
+      const self = () => b;
+      b.select = self;
+      b.eq = self;
+      b.update = self;
+      b.insert = () => Promise.resolve({ error: null }); // logAudit
+      b.maybeSingle = () => Promise.resolve({ data: existing });
+      b.then = (onFulfilled: (v: unknown) => unknown) => Promise.resolve({ error: null }).then(onFulfilled);
+      return b;
+    };
+    return { from: () => make(), rpc: () => Promise.resolve({ error: null }) };
+  }
+
+  beforeEach(() => {
+    mockedRequireMember.mockReset();
+    mockedRequireSkipperOrAdmin.mockReset();
+    mockedIsAdmin.mockReset();
+    mockedAdminClient.mockReset();
+    // Der Löschende IST der Ersteller der Gutschrift (Mitglied, kein Skipper).
+    mockedRequireMember.mockResolvedValue({ ok: true, personId: CREDIT_CREATOR });
+  });
+
+  it("verweigert dem bloßen Ersteller das Löschen einer eigenen Gutschrift", async () => {
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: false, message: "nein" });
+    mockedIsAdmin.mockResolvedValue(false);
+    mockedAdminClient.mockReturnValue(
+      makeDeleteSupabase({
+        category_id: null,
+        trip_id: TRIP_ID,
+        created_by: CREDIT_CREATOR,
+        type: "credit",
+      }) as never,
+    );
+
+    const res = await deleteTransaction("aaaaaaaa-0000-4000-8000-000000000017", TRIP_ID);
+
+    // Vor dem Fix: canEditTransaction erkennt createdBy === currentPersonId
+    // und erlaubt das Löschen — GENAU das soll bei Gutschriften nicht mehr gehen.
+    expect(res.ok).toBe(false);
+  });
+
+  it("erlaubt Skipper/Admin weiterhin das Löschen einer Gutschrift", async () => {
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: true, personId: CREDIT_CREATOR });
+    mockedAdminClient.mockReturnValue(
+      makeDeleteSupabase({
+        category_id: null,
+        trip_id: TRIP_ID,
+        created_by: CREDIT_CREATOR,
+        type: "credit",
+      }) as never,
+    );
+
+    const res = await deleteTransaction("aaaaaaaa-0000-4000-8000-000000000018", TRIP_ID);
+    expect(res.ok).toBe(true);
+  });
+
+  it("lässt Ausgaben (type=expense) unverändert über den Ersteller-Pfad löschbar", async () => {
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: false, message: "nein" });
+    mockedIsAdmin.mockResolvedValue(false);
+    mockedAdminClient.mockReturnValue(
+      makeDeleteSupabase({
+        category_id: null,
+        trip_id: TRIP_ID,
+        created_by: CREDIT_CREATOR,
+        type: "expense",
+      }) as never,
+    );
+
+    const res = await deleteTransaction("aaaaaaaa-0000-4000-8000-000000000019", TRIP_ID);
+    expect(res.ok).toBe(true);
+  });
+});
+
 describe("canEditTransaction — Ersteller-Recht erlischt bei Trip-Austritt (Fund 12)", () => {
   /**
    * Tabellensensitiver Mock: `transactions` liefert die Buchung, `trip_members`

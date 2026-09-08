@@ -41,8 +41,9 @@ function makeTripMemberSupabase(opts: {
   memberRow?: { person_id: string } | null;
   txCount?: number;
   participantCount?: number;
+  obligationAmount?: number | null;
 }) {
-  const { tripRow = null, memberRow = null, txCount = 0, participantCount = 0 } = opts;
+  const { tripRow = null, memberRow = null, txCount = 0, participantCount = 0, obligationAmount = null } = opts;
   const calls: Call[] = [];
   const make = (table: string) => {
     let counting = false;
@@ -68,6 +69,11 @@ function makeTripMemberSupabase(opts: {
     b.maybeSingle = () => {
       if (table === "trips") return Promise.resolve({ data: tripRow });
       if (table === "trip_members") return Promise.resolve({ data: memberRow });
+      if (table === "prepayment_obligations") {
+        return Promise.resolve({
+          data: obligationAmount == null ? null : { total_amount: obligationAmount },
+        });
+      }
       return Promise.resolve({ data: null });
     };
     b.then = (onFulfilled: (v: unknown) => unknown) => {
@@ -135,6 +141,78 @@ describe("removeMember — trip_id-Filter + transaction_participants-Check (Fund
       memberRow: { person_id: PERSON_ID },
       txCount: 0,
       participantCount: 0,
+    });
+    mockedAdminClient.mockReturnValue(supabase as never);
+
+    const res = await removeMember(MEMBER_ID, TRIP_ID);
+    expect(res.ok).toBe(true);
+  });
+
+  it("räumt verwaiste prepayment_obligations UND settled_debts der entfernten Person auf (Fund E, PR 9b)", async () => {
+    // personHasBookingTrace deckt nur transactions/transaction_participants
+    // ab — ein Anzahlungs-Soll (prepayment_obligations) oder ein altes
+    // Schulden-Häkchen (settled_debts, referenziert die Person direkt ohne
+    // FK auf trip_members) blieb bisher als Leiche stehen, sobald die Person
+    // aus trip_members entfernt wurde.
+    const { supabase, calls } = makeTripMemberSupabase({
+      tripRow: { skipper_id: OWNER_ID },
+      memberRow: { person_id: PERSON_ID },
+      txCount: 0,
+      participantCount: 0,
+    });
+    mockedAdminClient.mockReturnValue(supabase as never);
+
+    const res = await removeMember(MEMBER_ID, TRIP_ID);
+
+    expect(res.ok).toBe(true);
+    expect(
+      calls.some((c) => c.table === "prepayment_obligations" && c.method === "delete"),
+    ).toBe(true);
+    expect(hasEqCall(calls, "prepayment_obligations", "trip_id", TRIP_ID)).toBe(true);
+    expect(hasEqCall(calls, "prepayment_obligations", "person_id", PERSON_ID)).toBe(true);
+    expect(calls.some((c) => c.table === "settled_debts" && c.method === "delete")).toBe(true);
+    expect(hasEqCall(calls, "settled_debts", "trip_id", TRIP_ID)).toBe(true);
+    expect(
+      calls.some(
+        (c) =>
+          c.table === "settled_debts" &&
+          c.method === "or" &&
+          typeof c.args[0] === "string" &&
+          (c.args[0] as string).includes(PERSON_ID),
+      ),
+    ).toBe(true);
+  });
+
+  it("blockt das Entfernen, solange die Person ein offenes Anzahlungs-Soll hat (Grill-Review-Fix, PR 9b)", async () => {
+    // Ein stilles Löschen der Obligation-Zeile ließe Σ obligations <
+    // prepayment_plan.total_amount zurück, ohne dass der Vorstrecker gewarnt
+    // wird — bei gleichmaessig/zeitanteilig sammelt er dauerhaft zu wenig ein.
+    const { supabase, calls } = makeTripMemberSupabase({
+      tripRow: { skipper_id: OWNER_ID },
+      memberRow: { person_id: PERSON_ID },
+      txCount: 0,
+      participantCount: 0,
+      obligationAmount: 240,
+    });
+    mockedAdminClient.mockReturnValue(supabase as never);
+
+    const res = await removeMember(MEMBER_ID, TRIP_ID);
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.message).toContain("Anzahlungs-Soll");
+    expect(calls.some((c) => c.table === "trip_members" && c.method === "delete")).toBe(false);
+    expect(
+      calls.some((c) => c.table === "prepayment_obligations" && c.method === "delete"),
+    ).toBe(false);
+  });
+
+  it("entfernt die Person weiterhin, wenn das Anzahlungs-Soll bereits 0 ist", async () => {
+    const { supabase } = makeTripMemberSupabase({
+      tripRow: { skipper_id: OWNER_ID },
+      memberRow: { person_id: PERSON_ID },
+      txCount: 0,
+      participantCount: 0,
+      obligationAmount: 0,
     });
     mockedAdminClient.mockReturnValue(supabase as never);
 
