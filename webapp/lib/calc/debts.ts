@@ -23,15 +23,31 @@ export function simplifyDebts(balances: BalanceRow[]): DebtTransfer[] {
     balance: round2(b.balance),
   }));
 
+  // Tiebreak (Sanierungsplan PR 9d, Fund 21): bei exakt gleichem offenem
+  // Betrag lieferte `Array.sort`/Postgres' `ORDER BY` bisher keine stabile
+  // Reihenfolge über mehrere Aufrufe hinweg (analog zur MATCH-Falle der
+  // alten Sheets-Lösung). Da `toggleDebtSettled` gegen die LIVE neu
+  // berechnete Zuordnung validiert und `settled_debts` auf (from, to,
+  // amount) verschlüsselt ist, konnte ein erneuter Aufruf bei Gleichstand
+  // eine andere Person-Zuordnung liefern und ein bestehendes Häkchen
+  // entwerten. Fix: Person-ID als deterministischer Sekundärschlüssel
+  // (aufsteigend) — muss exakt der SQL-Fassung (0055) entsprechen, sonst
+  // driftet der Mirror bei Gleichstand vom echten Törn-Ergebnis ab.
+  // Bewusst KEIN `localeCompare` (locale-abhängige Kollation, z. B. würde
+  // eine deutsche Locale Groß-/Kleinschreibung oder Umlaute anders sortieren
+  // als Postgres' Standard-Kollation) — reiner Ordinalvergleich der UUID-
+  // Codepoints entspricht Postgres' `text <`-Vergleich für ASCII-Strings.
+  const byIdAsc = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
   const debtors = rounded
     .filter((b) => b.balance < -0.005)
     .map((b) => ({ personId: b.personId, open: -b.balance }))
-    .sort((a, b) => b.open - a.open); // größte Schuld zuerst
+    .sort((a, b) => b.open - a.open || byIdAsc(a.personId, b.personId)); // größte Schuld zuerst, dann ID
 
   const creditors = rounded
     .filter((b) => b.balance > 0.005)
     .map((b) => ({ personId: b.personId, open: b.balance }))
-    .sort((a, b) => b.open - a.open); // größte Forderung zuerst
+    .sort((a, b) => b.open - a.open || byIdAsc(a.personId, b.personId)); // größte Forderung zuerst, dann ID
 
   const transfers: DebtTransfer[] = [];
   let si = 0;

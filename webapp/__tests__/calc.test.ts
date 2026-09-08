@@ -348,6 +348,36 @@ describe("S7: Schulden-Greedy", () => {
     expect(debts).toHaveLength(1);
     expect(debts[0]).toMatchObject({ fromPersonId: "x", toPersonId: "y", amount: 50 });
   });
+
+  it("Tiebreaker (Fund 21, PR 9d): bei exakt gleichem Betrag entscheidet die kleinere Person-ID", () => {
+    // Zwei Schuldner UND zwei Gläubiger exakt gleich hoch (je 20€). `Array.sort`
+    // ist seit ES2019 stabil — bei Gleichstand OHNE Tiebreak bliebe also die
+    // Array-Reihenfolge erhalten. Damit ein Regressions-Fund (Tiebreak entfernt)
+    // den Test WIRKLICH kippt, muss die Einfüge-Reihenfolge der Schuldner
+    // gegenüber der Gläubiger bewusst GEGENLÄUFIG zur erwarteten lexikografischen
+    // Ordnung sein: Schuldner absteigend (z vor a) eingefügt, Gläubiger bereits
+    // aufsteigend (b vor w) — nur so ergibt "keine Umsortierung" (Bug) eine
+    // ANDERE Paarung (z↔b, a↔w) als der Tiebreak (a↔b, z↔w). Mutationsgetestet:
+    // ohne den `byIdAsc`-Tiebreak in lib/calc/debts.ts schlägt dieser Test fehl.
+    const balances: BalanceRow[] = [
+      { personId: "z-debtor", paid: 0, share: 20, creditGiven: 0, creditReceived: 0, balance: -20 },
+      { personId: "b-creditor", paid: 20, share: 0, creditGiven: 0, creditReceived: 0, balance: 20 },
+      { personId: "a-debtor", paid: 0, share: 20, creditGiven: 0, creditReceived: 0, balance: -20 },
+      { personId: "w-creditor", paid: 20, share: 0, creditGiven: 0, creditReceived: 0, balance: 20 },
+    ];
+    const debts = simplifyDebts(balances);
+    expect(debts).toHaveLength(2);
+    // Kleinste Schuldner-ID (a-debtor) → kleinste Gläubiger-ID (b-creditor).
+    expect(debts.find((d) => d.fromPersonId === "a-debtor")).toMatchObject({
+      toPersonId: "b-creditor",
+      amount: 20,
+    });
+    // Größte Schuldner-ID (z-debtor) → größte Gläubiger-ID (w-creditor).
+    expect(debts.find((d) => d.fromPersonId === "z-debtor")).toMatchObject({
+      toPersonId: "w-creditor",
+      amount: 20,
+    });
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────
