@@ -93,6 +93,35 @@ export async function savePrepaymentPlan(
     return { status: "error", message: CROSS_TRIP_PERSON_MSG };
   }
 
+  // Alle Reads, die für die Soll-Berechnung gebraucht werden, laufen VOR dem
+  // ersten Write. Ein Lesefehler darf hier nicht erst nach dem Plan-Upsert
+  // auffallen: dann trüge die Plan-Zeile schon die neue Methode + Summe,
+  // während prepayment_obligations noch die Werte der alten Methode hält —
+  // ein Teilzustand, den niemand sieht. Fehler NICHT verschlucken: ohne Crew
+  // rechnet calculateObligations reihenweise 0 € Soll, und der Delete+Insert
+  // weiter unten überschriebe die echten Sollbeträge damit.
+  let members: { person_id: string; on_board_from: string | null; on_board_to: string | null }[] = [];
+  let tripRow: { start_date: string; end_date: string } | null = null;
+  if (split_method === "gleichmaessig" || split_method === "zeitanteilig") {
+    const membersRes = await supabase
+      .from("trip_members")
+      .select("person_id, on_board_from, on_board_to")
+      .eq("trip_id", trip_id);
+    if (membersRes.error) {
+      return { status: "error", message: dbErr(membersRes.error, "Mitglieder konnten nicht geladen werden.") };
+    }
+    members = membersRes.data ?? [];
+    const tripRes = await supabase
+      .from("trips")
+      .select("start_date, end_date")
+      .eq("id", trip_id)
+      .single();
+    if (tripRes.error) {
+      return { status: "error", message: dbErr(tripRes.error, "Törndaten konnten nicht geladen werden.") };
+    }
+    tripRow = tripRes.data;
+  }
+
   // 1. Plan-Row upserten
   const { error: planErr } = await supabase
     .from("prepayment_plan")
@@ -182,20 +211,10 @@ export async function savePrepaymentPlan(
   let computedObligations = obligations;
 
   if (split_method === "gleichmaessig" || split_method === "zeitanteilig") {
-    // Crew laden + Tage berechnen
-    const { data: members } = await supabase
-      .from("trip_members")
-      .select("person_id, on_board_from, on_board_to")
-      .eq("trip_id", trip_id);
-    const { data: tripRow } = await supabase
-      .from("trips")
-      .select("start_date, end_date")
-      .eq("id", trip_id)
-      .single();
     const tripStart = tripRow?.start_date ?? "";
     const tripEnd = tripRow?.end_date ?? "";
 
-    const calcMembers: PrepaymentMember[] = (members ?? []).map((m) => {
+    const calcMembers: PrepaymentMember[] = members.map((m) => {
       const from = m.on_board_from ?? tripStart;
       const to = m.on_board_to ?? tripEnd;
       const days = daysBetween(from, to);
@@ -209,10 +228,26 @@ export async function savePrepaymentPlan(
     }));
   } else if (split_method === "kojen") {
     // Aktuelle Kojen-IDs neu laden (nach Diff)
-    const { data: freshCabins } = await supabase
+    // Auch hier fail-loud: ohne Kojen findet calculateObligations für
+    // niemanden einen Preis und setzt ALLE Sollbeträge auf 0 (siehe
+    // lib/calc/prepayment-shares.ts) — der Delete+Insert unten würde die
+    // echten Beträge damit überschreiben.
+    const { data: freshCabins, error: freshCabinsErr } = await supabase
       .from("cabin_types")
       .select("id, price_per_person, capacity")
       .eq("trip_id", trip_id);
+    if (freshCabinsErr) {
+      return {
+        status: "error",
+        // Anders als die Reads oben lässt sich dieser nicht vorziehen: er braucht
+        // die IDs aus dem Kojen-Diff. Plan + Kojen sind hier also schon
+        // gespeichert, die Sollbeträge nicht — das muss die Meldung sagen.
+        message: dbErr(
+          freshCabinsErr,
+          "Kojen konnten nicht geladen werden — Plan und Kojen sind gespeichert, die Sollbeträge noch nicht. Bitte erneut speichern.",
+        ),
+      };
+    }
     const cabins: PrepaymentCabin[] = (freshCabins ?? []).map((c) => ({
       id: c.id as string,
       pricePerPerson: Number(c.price_per_person),

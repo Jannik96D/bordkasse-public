@@ -6,7 +6,7 @@ import { Plus, Trash2, UserPlus } from "lucide-react";
 import { savePrepaymentPlan, saveTranches } from "@/lib/actions/prepayments";
 import { inviteMember } from "@/lib/actions/trip-members";
 import { defaultWhatsappTemplate } from "@/lib/prepayments/whatsapp";
-import { formatEuro, formatAmount, todayIso } from "@/lib/utils";
+import { formatEuro, formatAmount, parseAmountDe, todayIso } from "@/lib/utils";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { tripVocab, type TripType, type TripVocab } from "@/lib/trip-vocab";
 import type {
@@ -52,7 +52,12 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
   const [pending, startTransition] = useTransition();
 
   const [splitMethod, setSplitMethod] = useState<PrepaymentSplitMethod>(plan?.split_method ?? "kojen");
-  const [totalAmount, setTotalAmount] = useState(plan ? formatAmount(plan.total_amount) : "");
+  // Bestandspläne aus der Zeit, in der das Feld optional war, tragen 0 — als
+  // „0,00" wäre das ein Wert, der nach Absicht aussieht. Leer lassen, damit
+  // Platzhalter, Σ-Übernahme-Button und Pflicht-Hinweis greifen.
+  const [totalAmount, setTotalAmount] = useState(
+    plan && plan.total_amount > 0 ? formatAmount(plan.total_amount) : "",
+  );
   const [advancerId, setAdvancerId] = useState<string>(plan?.advancer_person_id ?? "");
   const [weroId, setWeroId] = useState(plan?.wero_id ?? "");
   const [whatsappTemplate, setWhatsappTemplate] = useState(plan?.whatsapp_template ?? defaultWhatsappTemplate(vocab));
@@ -100,11 +105,16 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
     [trancheDrafts],
   );
 
-  // Bei „gleichmäßig"/„zeitanteilig" wird das Soll aus der Gesamtsumme
-  // berechnet — ohne Betrag > 0 wäre alles 0. „individuell"/„kojen" leiten das
-  // Soll aus Einzel-/Kojenpreisen ab, da darf die Gesamtsumme leer bleiben.
-  const needsTotalAmount = splitMethod === "gleichmaessig" || splitMethod === "zeitanteilig";
-  const totalAmountNum = Number(totalAmount.replace(",", ".")) || 0;
+  // Die Gesamtsumme ist bei JEDER Methode Pflicht: bei „gleichmäßig"/
+  // „zeitanteilig" wird das Soll daraus berechnet, bei „individuell"/„kojen"
+  // ist sie das Charter-Soll (was der Vorstrecker dem Vercharterer schuldet).
+  // Sie durfte dort früher leer bleiben und landete als 0 in der DB — womit
+  // Tranchen-Vorbelegung (Betrag 0,00 €), Charter-Banner, Fortschritts-Prozent
+  // und die Vorstrecker-Erinnerung mit 0 rechneten. Bewusst NICHT automatisch
+  // aus Σ Soll abgeleitet: dann wäre nach dem ersten Speichern nicht mehr
+  // unterscheidbar, ob die Zahl abgeleitet oder gewollt ist, und eine später
+  // geänderte Koje/Einzelsumme würde still von der Plansumme weglaufen.
+  const totalAmountNum = parseAmountDe(totalAmount) ?? 0;
   const percentValid = Math.abs(percentSum - 100) <= 0.01;
 
   // Tranchen werden automatisch durchnummeriert (schlankes Design, kein freies
@@ -120,7 +130,7 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
         return { person_id: m.id, total_amount: 0, cabin_type_id: memberCabin[m.id] || null };
       }
       if (splitMethod === "individuell") {
-        return { person_id: m.id, total_amount: Number((memberManual[m.id] ?? "0").replace(",", ".")) || 0 };
+        return { person_id: m.id, total_amount: parseAmountDe(memberManual[m.id] ?? "") ?? 0 };
       }
       return { person_id: m.id, total_amount: 0 };
     });
@@ -128,7 +138,7 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
     const payload = {
       trip_id: tripId,
       split_method: splitMethod,
-      total_amount: Number(totalAmount.replace(",", ".")) || 0,
+      total_amount: totalAmountNum,
       advancer_person_id: advancerId || null,
       wero_id: weroId || "",
       whatsapp_template: whatsappTemplate || "",
@@ -136,7 +146,7 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
         ? cabinDrafts.map((c, i) => ({
             id: c.id,
             label: c.label,
-            price_per_person: Number(c.price_per_person.replace(",", ".")) || 0,
+            price_per_person: parseAmountDe(c.price_per_person) ?? 0,
             capacity: Number(c.capacity) || 1,
             sort_order: i,
           }))
@@ -203,10 +213,30 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
   // landet sonst stillschweigend in der Bordkasse).
   const cabinSum = useMemo(() => {
     const priceById = new Map(
-      cabinDrafts.map((c) => [c.id, Number((c.price_per_person || "0").replace(",", ".")) || 0]),
+      cabinDrafts.map((c) => [c.id, parseAmountDe(c.price_per_person) ?? 0]),
     );
     return members.reduce((s, m) => s + (priceById.get(memberCabin[m.id] ?? "") ?? 0), 0);
   }, [cabinDrafts, memberCabin, members]);
+
+  // Σ der manuell getippten Sollbeträge („individuell") — dieselbe Rolle wie
+  // cabinSum bei „kojen".
+  const manualSum = useMemo(
+    () =>
+      members.reduce(
+        (s, m) => s + (parseAmountDe(memberManual[m.id] ?? "") ?? 0),
+        0,
+      ),
+    [memberManual, members],
+  );
+
+  // Vorschlag für die Gesamtsumme: bei „individuell"/„kojen" kennt der Wizard
+  // Σ Soll und kann sie per Klick übernehmen, damit die Pflicht-Gesamtsumme
+  // kein Abtippen bedeutet. 0 = kein Vorschlag (Methode leitet das Soll aus
+  // der Gesamtsumme ab, ein Vorschlag wäre zirkulär).
+  const suggestedTotal =
+    splitMethod === "kojen" ? cabinSum : splitMethod === "individuell" ? manualSum : 0;
+  const suggestionDiffers =
+    suggestedTotal > 0.005 && Math.abs(suggestedTotal - totalAmountNum) > 0.005;
 
   return (
     <div className="space-y-4">
@@ -227,7 +257,22 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
               placeholder="z.B. 3.700,00"
               className="mt-1 w-full rounded-md border border-rule px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
+            <span className="mt-1 block text-xs text-ink-soft">
+              Was dem {vocab.provider} insgesamt geschuldet wird.
+            </span>
           </label>
+
+          {/* Bei „individuell"/„kojen" kennt der Wizard Σ Soll — ein Klick
+              übernimmt sie, damit die Pflicht-Gesamtsumme kein Abtippen ist. */}
+          {suggestionDiffers && (
+            <button
+              type="button"
+              onClick={() => setTotalAmount(formatAmount(suggestedTotal))}
+              className="min-h-touch rounded-md border border-primary/30 bg-navy-light/30 px-3 py-2 text-xs font-medium text-primary hover:bg-navy-light/60"
+            >
+              Σ Soll übernehmen ({formatEuro(suggestedTotal)})
+            </button>
+          )}
 
           <label className="block text-sm">
             <span className="text-ink-soft">
@@ -366,8 +411,20 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
                 </label>
               ))}
               <p className="text-xs text-ink-soft">
-                Summe: <strong>{formatEuro(Object.values(memberManual).reduce((s, v) => s + (Number(v.replace(",", ".")) || 0), 0))}</strong>
+                Summe: <strong>{formatEuro(manualSum)}</strong>
               </p>
+
+              {/* Gleicher nicht-blockierender Abgleich wie bei „kojen": weicht
+                  Σ Soll von der Gesamtsumme ab, läuft die Differenz über die
+                  Bordkasse. Hier fehlte der Hinweis bisher komplett. */}
+              {totalAmountNum > 0 && Math.abs(manualSum - totalAmountNum) > 0.005 && (
+                <p className="rounded-md border border-gold/30 bg-gold-soft px-3 py-2 text-xs text-ink" role="status">
+                  Σ Soll {formatEuro(manualSum)} weicht von der Gesamtsumme {formatEuro(totalAmountNum)} ab
+                  {manualSum < totalAmountNum
+                    ? ` — die Differenz läuft über die ${vocab.kitty}.`
+                    : " — die Einzelbeträge übersteigen die Gesamtsumme, bitte prüfen."}
+                </p>
+              )}
             </div>
           )}
 
@@ -426,17 +483,25 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
 
           {error && <p role="alert" className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
 
-          {needsTotalAmount && totalAmountNum <= 0 && (
+          {totalAmountNum <= 0 && (
             <p className="text-xs text-ink-soft">
-              Trage zuerst eine Gesamtsumme &gt; 0 € ein. Daraus werden die
-              Sollbeträge der Crew berechnet.
+              Trage zuerst eine Gesamtsumme &gt; 0 € ein — sie ist das Soll
+              gegenüber dem {vocab.provider}
+              {/* Der Zusatz hängt an der METHODE, nicht an `suggestedTotal`:
+                  bei „kojen"/„individuell" ist Σ Soll am Anfang noch 0 (keine
+                  Preise eingetragen), und der Satz „daraus werden die
+                  Sollbeträge berechnet" wäre dort genau der Irrtum, den dieser
+                  Änderungssatz aufräumt. */}
+              {splitMethod === "kojen" || splitMethod === "individuell"
+                ? `, die Sollbeträge der ${vocab.crew} kommen aus den Beträgen unten.`
+                : `, aus dem auch die Sollbeträge der ${vocab.crew} berechnet werden.`}
             </p>
           )}
 
           <div className="flex justify-end">
             <button
               type="button"
-              disabled={pending || (needsTotalAmount && totalAmountNum <= 0)}
+              disabled={pending || totalAmountNum <= 0}
               onClick={() => savePlan(() => setStep(2))}
               className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-paper hover:bg-navy-dark disabled:opacity-50"
             >

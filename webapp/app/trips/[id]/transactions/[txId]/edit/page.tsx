@@ -168,7 +168,11 @@ export default async function EditTransactionPage({
           id: t.id,
           label: t.label,
           due_date: t.due_date,
-          amount: plan ? round2((plan.total_amount * t.percent) / 100) : undefined,
+          // Ohne Plansumme (> 0) kein ableitbarer Betrag → keine Vorbelegung.
+          amount:
+            plan && plan.total_amount > 0
+              ? round2((plan.total_amount * t.percent) / 100)
+              : undefined,
         }))}
         canEditTranche={admin || isMyTripSkipper || (!!plan && (plan.advancer_person_id ?? trip.skipper_id) === person.id)}
         currencyOptions={currencyOptions}

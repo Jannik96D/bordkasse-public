@@ -4,9 +4,16 @@
  */
 
 import { z } from "zod";
+import { parseAmountDe } from "@/lib/utils";
 
-const decimalString = (v: unknown) =>
-  typeof v === "string" ? v.replace(",", ".") : v;
+// Tausenderpunkte mitverstehen: „3.700,00" wurde als `NaN` abgelehnt und
+// „3.700" stillschweigend zu 3.7 — bei der Anzahlungs-Gesamtsumme also
+// Charter-Soll 3,70 € statt 3.700 €. Details in parseAmountDe.
+const decimalString = (v: unknown) => {
+  if (typeof v !== "string") return v;
+  const parsed = parseAmountDe(v);
+  return parsed === null ? v : parsed;
+};
 
 const Amount = z.preprocess(
   decimalString,
@@ -58,7 +65,19 @@ export const PlanSchema = z
   .refine(
     (d) => d.split_method !== "kojen" || d.cabin_types.length > 0,
     { message: "Bei 'Nach Kojen' mindestens einen Kojentyp definieren.", path: ["cabin_types"] },
-  );
+  )
+  // Die Gesamtsumme ist das Charter-Soll (was der Vorstrecker dem
+  // Vercharterer schuldet) und damit für JEDE Aufteilungsmethode Pflicht —
+  // auch für „individuell"/„kojen", wo die Sollbeträge aus Einzel-/Kojen-
+  // preisen kommen. Vorher durfte das Feld dort leer bleiben und landete als
+  // 0 in der DB; damit rechneten Tranchen-Vorbelegung (Betrag 0,00 €),
+  // Charter-Banner, Fortschritts-Prozent und Vorstrecker-Erinnerung mit 0.
+  // Sie darf von Σ Soll abweichen (die Differenz läuft über die Bordkasse) —
+  // nur eben nicht 0 sein.
+  .refine((d) => d.total_amount > 0, {
+    message: "Gesamtsumme der Anzahlung muss > 0 € sein.",
+    path: ["total_amount"],
+  });
 
 export const TrancheInput = z.object({
   id: Uuid.optional(),

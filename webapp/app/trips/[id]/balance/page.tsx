@@ -175,9 +175,16 @@ function PrepaymentsSummary({
             const open = Math.max(0, p.soll - p.paid);
             const overpaid = p.paid > p.soll + 0.005;
             const erfuellt = p.soll > 0 && open <= 0.005 && !overpaid;
+            // „overpaid" MUSS vor der 0-Soll-Abkürzung stehen: wer kein Soll
+            // hat, aber trotzdem in den Pool gezahlt hat, ist überzahlt und
+            // nicht „bezahlt" (echte Auslöser: 0-€-Soll bei „individuell",
+            // Zahlung vor dem Speichern des Plans, gelöschte 0-€-Obligation).
+            // In der alten Reihenfolge tarnte diese Abkürzung jedes fehlende
+            // Soll als grünes „bezahlt" — genau deshalb fiel der RLS-Fund
+            // (Crew sah fremdes Soll als 0) nicht als Fehler auf.
             const status: "open" | "partial" | "paid" | "overpaid" =
-              p.soll <= 0.005 ? "paid" :
               overpaid ? "overpaid" :
+              p.soll <= 0.005 ? "paid" :
               erfuellt ? "paid" :
               p.paid > 0.005 ? "partial" :
               "open";

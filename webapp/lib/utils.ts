@@ -17,6 +17,38 @@ export function formatEuro(amount: number): string {
 }
 
 /**
+ * Deutsche Betragseingabe → Zahl. Umkehrung von `formatAmount`, aber
+ * toleranter: versteht zusätzlich **Tausenderpunkte**.
+ *
+ * Warum das nötig ist: die naive Variante `Number(s.replace(",", "."))` macht
+ * aus dem Platzhalter-Beispiel „3.700,00" ein `NaN` und — deutlich schlimmer —
+ * aus „3.700" die Zahl `3.7`. Genau so eine Eingabe landete als
+ * Anzahlungs-Gesamtsumme in der DB: Charter-Soll 3,70 € statt 3.700 €, ohne
+ * jede Fehlermeldung.
+ *
+ * Regeln (bewusst konservativ, damit nichts umgedeutet wird):
+ * - Enthält die Eingabe ein Komma, ist das Komma das Dezimaltrennzeichen und
+ *   alle Punkte sind Tausenderpunkte: „3.700,50" → 3700.5.
+ * - Ohne Komma gilt ein Punkt nur dann als Tausendertrenner, wenn die ganze
+ *   Eingabe dem Muster `1.234(.567)*` folgt: „3.700" → 3700, aber „3.7"
+ *   bleibt 3.7 (jemand tippt einen Dezimalpunkt) und „3.70" bleibt 3.7.
+ *
+ * @returns die Zahl, oder `null` bei leerer/unparsbarer Eingabe.
+ */
+export function parseAmountDe(input: string): number | null {
+  if (typeof input !== "string") return null;
+  const s = input.trim();
+  if (!s) return null;
+  const normalized = s.includes(",")
+    ? s.replace(/\./g, "").replace(",", ".")
+    : /^\d{1,3}(\.\d{3})+$/.test(s)
+      ? s.replace(/\./g, "")
+      : s;
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
  * Betrag mit deutschem Dezimalkomma, 2 Nachkommastellen, OHNE Währungszeichen:
  * `47.3` → "47,30". Für Eingabefelder + Beträge, die ihre Einheit separat
  * anzeigen (z. B. "500,00 SEK"). Geteilte Quelle statt vieler Inline-

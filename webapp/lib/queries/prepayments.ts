@@ -91,10 +91,13 @@ export async function getTranches(tripId: string): Promise<Tranche[]> {
 
 export async function getObligations(tripId: string): Promise<Obligation[]> {
   const supabase = await readClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("prepayment_obligations")
     .select("trip_id, person_id, cabin_type_id, total_amount")
     .eq("trip_id", tripId);
+  // Wie in getPrepaymentPoolBalances: ein stiller Fehler ließe die Matrix
+  // „Soll 0" für alle anzeigen und würde damit Geldstände erfinden.
+  if (error) throw new Error(`Anzahlungs-Sollbeträge konnten nicht geladen werden: ${error.message}`);
   return (data ?? []).map((o) => ({
     ...o,
     total_amount: Number(o.total_amount),
@@ -114,10 +117,14 @@ export interface PaymentAggregate {
  */
 export async function getPaymentAggregates(tripId: string): Promise<PaymentAggregate[]> {
   const supabase = await readClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("v_prepayment_payments")
     .select("tranche_id, person_id, paid_amount")
     .eq("trip_id", tripId);
+  // Wie getObligations: ein verschluckter Fehler hier zeigt in der Matrix für
+  // JEDEN „nichts bezahlt" — der Vorstrecker mahnt dann Leute, die längst
+  // gezahlt haben. Lieber eine Fehlerseite als eine falsche Geldaussage.
+  if (error) throw new Error(`Anzahlungs-Zahlungen konnten nicht geladen werden: ${error.message}`);
   return (data ?? [])
     .filter((p) => p.tranche_id && p.person_id)
     .map((p) => ({
@@ -156,7 +163,7 @@ export interface PrepaymentPoolBalance {
 
 export async function getPrepaymentPoolBalances(tripId: string): Promise<PrepaymentPoolBalance[]> {
   const supabase = await readClient();
-  const [{ data: oblRows }, { data: txRows }] = await Promise.all([
+  const [{ data: oblRows, error: oblErr }, { data: txRows, error: txErr }] = await Promise.all([
     supabase
       .from("prepayment_obligations")
       .select("person_id, total_amount")
@@ -168,6 +175,12 @@ export async function getPrepaymentPoolBalances(tripId: string): Promise<Prepaym
       .not("tranche_id", "is", null)
       .is("deleted_at", null),
   ]);
+  // Fail-loud statt „0 Zeilen": ein verschluckter Lesefehler auf einer der
+  // beiden Seiten sieht auf der Bilanz-Seite wie „Soll 0 / alles bezahlt" aus
+  // (bzw. „nichts bezahlt") — eine falsche Geldaussage ohne jede Spur. Wirft
+  // wie getTrip in die Error-Boundary (markiert, deutsch), statt zu lügen.
+  if (oblErr) throw new Error(`Anzahlungs-Sollbeträge konnten nicht geladen werden: ${oblErr.message}`);
+  if (txErr) throw new Error(`Anzahlungs-Buchungen konnten nicht geladen werden: ${txErr.message}`);
 
   const sollById = new Map<string, number>();
   for (const o of oblRows ?? []) sollById.set(o.person_id, Number(o.total_amount));
@@ -308,12 +321,25 @@ export async function getPrepaymentNavState(
   // seltenen „Plan ohne Tranchen"-Trips kosten dann ein paar günstige,
   // ungenutzte Queries — der Gegenwert ist eine gesparte Round-Trip-Welle bei
   // jedem Charter-Törn-Render. getCharterPaidTotal bleibt manager-only (unten).
-  const [tranches, obligations, payments, pending] = await Promise.all([
-    getTranches(tripId),
-    getObligations(tripId),
-    getPaymentAggregates(tripId),
-    getPendingPayments(tripId),
-  ]);
+  // ⚠️ Diese Funktion läuft im Trip-LAYOUT (app/trips/[id]/layout.tsx) und
+  // entscheidet nur, ob der Anzahlungs-Tab sichtbar ist. Die Queries darin
+  // werfen inzwischen bei Lesefehlern (bewusst — sie tragen Geldaussagen);
+  // ungefangen würde das jeden Tab des Törns in die Root-Error-Boundary
+  // reißen, obwohl hier gar kein Betrag angezeigt wird. Deshalb: einfangen
+  // und den Tab EINBLENDEN (`show: true`). Fail-safe in die harmlose
+  // Richtung — der Nutzer landet höchstens auf einer Seite, die den Fehler
+  // dann selbst und sichtbar meldet, statt einen unbenutzbaren Törn zu haben.
+  let tranches, obligations, payments, pending;
+  try {
+    [tranches, obligations, payments, pending] = await Promise.all([
+      getTranches(tripId),
+      getObligations(tripId),
+      getPaymentAggregates(tripId),
+      getPendingPayments(tripId),
+    ]);
+  } catch {
+    return { show: true };
+  }
   if (tranches.length === 0) return { show: false };
 
   const advancerId = plan.advancer_person_id ?? viewer.tripSkipperId;
