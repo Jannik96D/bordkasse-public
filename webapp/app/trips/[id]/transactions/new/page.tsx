@@ -73,7 +73,13 @@ export default async function NewTransactionPage({
         id: t.id,
         label: t.label,
         due_date: t.due_date,
-        amount: plan ? round2((plan.total_amount * t.percent) / 100) : undefined,
+        // Ohne Plansumme (> 0) ist kein Betrag ableitbar → gar keine
+        // Vorbelegung statt einer sinnlosen 0,00 €, die wie ein leeres Feld
+        // aussieht und den echten Betrag überschreiben würde.
+        amount:
+          plan && plan.total_amount > 0
+            ? round2((plan.total_amount * t.percent) / 100)
+            : undefined,
       }))
     : [];
 

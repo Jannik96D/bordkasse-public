@@ -122,6 +122,46 @@ Skipper tippt pro Person einen Betrag.
 - Bei „Pro Person"-Eingabe gilt: der Preis wird so eingetippt, wie ihn der Charterer angibt — z.B. „Doppelkoje 800 € pro Person" heißt: beide Bewohner zahlen je 800 €. Doppel-belegt = doppelter Erlös für den Charterer.
 - **Σ-Abgleich (nicht-blockierend):** Weicht die Summe der zugeordneten Kojenpreise von der eingetragenen Gesamtsumme ab (> 0,005 €), zeigt der Wizard eine Hinweiszeile („Σ Kojen X € weicht von der Gesamtsumme Y € ab — die Differenz läuft über die Bordkasse"). Blockiert das Speichern **nicht** — der Rest wird bewusst über die laufende Bordkasse abgerechnet.
 
+### Gesamtsumme ist Pflicht — auch bei „Individuell" / „Nach Kojen" (Migration 0056)
+
+Früher durfte das Feld „Gesamtsumme der Anzahlung" bei diesen beiden Methoden
+leer bleiben (das Soll kommt dort aus Einzel- bzw. Kojenpreisen; der Wizard
+blockte „Weiter" nur bei `gleichmaessig`/`zeitanteilig`).
+
+`prepayment_plan.total_amount` ist aber **gleichzeitig das Charter-Soll**
+(was der Vorstrecker dem Vercharterer schuldet). Eine leere Eingabe landete
+als `0` und machte alles kaputt, was gegen den Vercharterer rechnet:
+
+- Tranchen-Vorbelegung im Buchungsformular setzte **0,00 €** statt
+  `total_amount × percent / 100` (der eigentliche Grund für „die Vorbelegung
+  der Yachtanzahlung funktioniert nicht" — das Betragsfeld hat „0,00" als
+  Platzhalter, die Vorbelegung war also nicht mal sichtbar).
+- Charter-Reminder-Banner + Fortschritts-Prozent in der Matrix zeigten 0 €.
+- `advancerOwes` in `getPrepaymentNavState` hielt die Anzahlung für
+  vollständig überwiesen (steuert u. a. die Sichtbarkeit des Tranchen-Felds).
+- Die Vorstrecker-Erinnerung (`advancer_3d`) fiel aus demselben Grund aus.
+
+**Verhalten jetzt:** Die Gesamtsumme ist für **jede** Methode Pflicht —
+`PlanSchema` verlangt `> 0` (`lib/validation/prepayment-schema.ts`), der
+Wizard deaktiviert „Speichern & weiter" solange sie fehlt. Damit es kein
+Abtippen bedeutet, zeigt der Wizard bei `individuell`/`kojen` einen Button
+**„Σ Soll übernehmen (X €)"** (sobald Σ Soll > 0 ist und von der Eingabe
+abweicht — bei noch leeren Kojenpreisen also nicht), und der Σ-Abgleich-Hinweis existiert jetzt auch
+für `individuell` (vorher nur für `kojen`). Eine Abweichung von Σ Soll bleibt
+erlaubt — die Differenz läuft laut Σ-Abgleich über die Bordkasse.
+
+> **Warum nicht automatisch ableiten?** Ein erster Fix leitete `total_amount`
+> im Schreibpfad aus Σ Soll ab, wenn das Feld leer war. Der Grill-Review fand
+> den Folgebug: der Wizard belegt das Feld beim nächsten Öffnen mit dem
+> abgeleiteten Wert vor, der damit zum „bewusst gesetzten" wird — ändert der
+> Skipper danach eine Koje oder einen Einzelbetrag, läuft die Plansumme still
+> davon weg (bei `individuell` ohne jede Warnung). Ein abgeleiteter Wert ist
+> nach dem Speichern nicht mehr von einem gewollten unterscheidbar. Deshalb:
+> eine Quelle der Wahrheit, ein Klick zum Übernehmen.
+
+Migration 0056 ist eine **Einmal-Reparatur** der Bestandsdaten (Pläne mit
+`total_amount = 0` bekommen Σ Soll), keine dauerhafte Ableitung.
+
 ## Tranchen (Schritt 2 im Wizard)
 
 Skipper definiert eine Liste von Tranchen mit `due_date` + `percent`. Validierung: `Σ percent = 100` (Toleranz ±0,01). Das **Label wird automatisch durchnummeriert** (`trancheLabel(index, total)`): alle bis auf die letzte heißen „N. Anzahlung", die letzte „Endzahlung" (bei nur einer Tranche → „Endzahlung"). Kein freies Label-Feld — schlankeres Design, weniger Tipp-Aufwand. Beispiel:
@@ -246,6 +286,8 @@ Sobald die Tranche zugeordnet ist:
 **Reihenfolge ist egal:** der Skipper kann die Charteranzahlung erst überweisen und dann die Crew-Eingänge erfassen, oder umgekehrt. Der Anzahlungs-Pool-Saldo zeigt zu jedem Zeitpunkt den korrekten Stand.
 
 **Auto-Vorbelegung (implementiert):** Wählt man im Ausgabe-Formular eine Tranche, füllt die Maske automatisch **Betrag** (= `prepayment_plan.total_amount × tranche.percent / 100`), **Beschreibung** (= Tranchen-Label, z. B. „1. Anzahlung") und **Kategorie** (= Törn-Kategorie mit „Yacht" im Namen; fehlt sie, bleibt die Kategorie unangetastet) vor — der häufige Fall „Charter-Überweisung erfassen", ohne den Betrag aus dem Plan abzutippen. Das Datum bleibt auf heute. „Smart overwrite": es werden nur leere oder noch automatisch gefüllte Felder gesetzt, manuell Eingegebenes bleibt; ein Tranchen-Wechsel aktualisiert die Vorbelegung, „Keine" leert nur die Auto-Werte. Reine Logik: `lib/prepayments/tranche-autofill.ts:computeTrancheAutofill` (Vitest). Das Gutschrift-Formular bekommt bewusst KEIN Autofill — Crew-Anteile laufen über die Matrix (`recordPayment`), wo der Betrag personenabhängig ist.
+
+Ist keine Plansumme (> 0) vorhanden, wird der **Betrag gar nicht** vorbelegt (`amount: undefined` in `transactions/new/page.tsx` + `[txId]/edit/page.tsx`) statt einer sinnlosen 0,00 € — siehe „Gesamtsumme bei Individuell / Nach Kojen". Im **Edit-Modus** greift die Vorbelegung erwartungsgemäß nicht, wenn Betrag/Beschreibung/Kategorie schon gefüllt sind: „Smart overwrite" schützt hier bestehende Werte.
 
 **Berechtigung (UI + Server):** Das Tranche-Feld ist nur für Skipper/Co-Skipper/Admin/Vorstrecker sichtbar (`canEditTranche`). Weil Server Actions mit dem Service-Role-Client schreiben (RLS umgangen), erzwingen `createExpense`/`updateExpense` dieselbe Rolle zusätzlich im App-Layer: eine Buchung darf nur dann eine `tranche_id` tragen, wenn `requireSkipperAdminOrAdvancer` erfüllt ist — sonst könnte ein gewöhnliches Crewmitglied (das via `requireMember` normale Bordkasse-Buchungen anlegen darf) eine Ausgabe per manipuliertem Request in den Anzahlungspool schieben. `updateExpense` nutzt einen `tranche_field_present`-Marker (vom Formular nur gerendert, wenn das Feld sichtbar ist), um „Feld nicht angezeigt" von „bewusst auf Keine gesetzt" zu unterscheiden → fehlt der Marker, bleibt die bestehende Zuordnung unverändert (kein versehentliches Lösen aus dem Pool durch einen nicht-berechtigten Ersteller). Gutschriften sind über `requireSkipperOrAdmin` ohnehin Skipper/Admin-only.
 
@@ -388,7 +430,22 @@ Platzhalter werden zur Render-Zeit ersetzt. Modal hat „In Zwischenablage kopie
 | Crewmitglied (eingeloggt, kein Manage-Recht) | CrewSelfView: nur eigene Zeile mit eigenen Tranchen + „Ich habe gezahlt"-Button |
 | Ghost-Crew (kein Login) | Keine — nutzt nur die vom Skipper ausgelösten WhatsApp-Texte |
 
-RLS-Policy auf `prepayment_obligations`: Self-Read für eigene `person_id`, Skipper-Read für gesamten Trip (analog zu `persons_private`). Vorstrecker-Aktionen laufen über App-Layer-Authz (`lib/auth/authz.ts:requireSkipperAdminOrAdvancer`), Schreib-Pfad nutzt ohnehin den Service-Role-Client.
+RLS-Policy auf `prepayment_obligations` (**seit Migration 0057**): Read für die ganze Crew — `is_trip_member OR is_trip_skipper OR person_id = current_person_id()`, wie bei `prepayment_plan` / `prepayment_tranches` / `cabin_types`. Vorstrecker-Aktionen laufen über App-Layer-Authz (`lib/auth/authz.ts:requireSkipperAdminOrAdvancer`), Schreib-Pfad nutzt ohnehin den Service-Role-Client.
+
+> **Warum geändert (Betriebsfund):** ursprünglich (0023) stand hier nur
+> „Skipper ODER eigene Zeile" (analog `persons_private`). Die Bilanz-Seite
+> rendert den Anzahlungs-Pool aber **ungegatet für jedes Crewmitglied**: das
+> „bezahlt"-Ist kommt aus `transactions` (member-lesbar), das Soll aus dieser
+> Tabelle. Ein normales Crewmitglied sah deshalb bei allen anderen `soll = 0`
+> — und weil die Statuslogik `soll <= 0.005` als „bezahlt" wertet, stand
+> neben „471,29 € / 0,00 €" ein grünes Häkchen: nicht bloß eine Lücke,
+> sondern eine falsche Aussage (alle wirkten schuldenfrei). Zweiter Treffer
+> derselben Lücke: ein Vorstrecker, der nicht Trip-Skipper ist, darf die
+> Matrix laut App-Layer verwalten, bekam per RLS aber nur die eigene Zeile.
+> Entscheidung: Transparenz — wer wie viel zur Anzahlung beisteuert, ist
+> dieselbe Klasse geteilter Kassendaten wie die Bilanz, die ohnehin jedes
+> Crewmitglied für die ganze Crew sieht. Regression:
+> `supabase/tests/obligations_crew_read_test.sql`.
 
 ## Implementierte Erweiterungen (Stand heute)
 

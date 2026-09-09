@@ -16,7 +16,45 @@ import {
   type Transaction,
   type BalanceRow,
 } from "@/lib/calc";
-import { round2 as libRound2 } from "@/lib/utils";
+import { round2 as libRound2, parseAmountDe, formatAmount } from "@/lib/utils";
+
+// ── parseAmountDe: deutsche Eingaben inkl. Tausenderpunkt ──────────────────
+// Die naive Variante `Number(s.replace(",", "."))` machte aus „3.700" die Zahl
+// 3.7 — als Anzahlungs-Gesamtsumme also ein Charter-Soll von 3,70 € statt
+// 3.700 €, ohne jede Fehlermeldung. Und der Platzhalter des Felds lautet
+// wörtlich „z.B. 3.700,00", was dieselbe Funktion als NaN ablehnte.
+describe("parseAmountDe — deutsche Betragseingaben", () => {
+  it("liest Komma als Dezimaltrennzeichen", () => {
+    expect(parseAmountDe("47,30")).toBe(47.3);
+    expect(parseAmountDe("0,05")).toBe(0.05);
+  });
+
+  it("liest Tausenderpunkte, auch zusammen mit Komma", () => {
+    expect(parseAmountDe("3.700,00")).toBe(3700);
+    expect(parseAmountDe("3.700")).toBe(3700);
+    expect(parseAmountDe("1.234.567,89")).toBe(1234567.89);
+  });
+
+  it("deutet einen Dezimalpunkt NICHT als Tausenderpunkt um", () => {
+    // Wer „3.7" tippt, meint 3,70 € — nicht 37 € und nicht 3700 €.
+    expect(parseAmountDe("3.7")).toBe(3.7);
+    expect(parseAmountDe("3.70")).toBe(3.7);
+    expect(parseAmountDe("0.5")).toBe(0.5);
+  });
+
+  it("liefert null bei leer/unparsbar (Aufrufer entscheidet über den Default)", () => {
+    expect(parseAmountDe("")).toBeNull();
+    expect(parseAmountDe("   ")).toBeNull();
+    expect(parseAmountDe("abc")).toBeNull();
+    expect(parseAmountDe("3,,7")).toBeNull();
+  });
+
+  it("ist die Umkehrung von formatAmount", () => {
+    for (const n of [0, 0.05, 47.3, 675, 3700, 1234567.89]) {
+      expect(parseAmountDe(formatAmount(n))).toBe(n);
+    }
+  });
+});
 
 // ── round2: halbe Cents von Null weg, wie Postgres ROUND (Fund C-6) ─────────
 describe("round2 — Rundungsparität mit Postgres ROUND", () => {
