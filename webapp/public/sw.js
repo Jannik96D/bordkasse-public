@@ -29,7 +29,11 @@
 // abgelaufene Session hätte sonst die Login-Seite unter dem Buchungsformular-
 // Key abgelegt → Offline-Sackgasse); rscNetworkFirst awaitet cache.put nicht
 // mehr (QuotaExceededError machte eine erfolgreiche Online-Navigation kaputt).
-const CACHE_VERSION = "bordkasse-v13";
+// v14: Anzahlungs-Fixes (#259) — das gewärmte Buchungsformular-Dokument im
+// -pages-Cache trägt die Tranchen-Vorbelegung. Online holt `networkFirst` das
+// neue Dokument ohnehin; der Bump verwirft zusätzlich die alte Kopie bei allen,
+// die zwischenzeitlich offline waren.
+const CACHE_VERSION = "bordkasse-v14";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE = `${CACHE_VERSION}-pages`;
 const RSC_CACHE = `${CACHE_VERSION}-rsc`;
