@@ -115,6 +115,21 @@ type MockOpts = {
   planRow?: { trip_id: string; advancer_person_id: string | null } | null;
   /** persons-Zeile für old_person_id — steuert den Audience-Check (Fix D). */
   oldPersonRow?: { id: string; auth_user_id: string | null } | null;
+  /** Törnzeitraum — Default liegt in der Zukunft (klassischer Pfad). */
+  tripStart?: string;
+  tripEnd?: string;
+  /** Anwesenheitsfenster von A (Variante b prüft das Wechseldatum dagegen). */
+  oldOnBoardFrom?: string | null;
+  oldOnBoardTo?: string | null;
+  /** Ist A Co-Skipper? Steuert den is_skipper-Transfer (Fund F5). */
+  oldIsSkipper?: boolean;
+  /**
+   * Vorbelegte persons-Zeilen. Default enthält NUR old_person_id — die ID
+   * der neuen Person darf noch NICHT existieren, sonst greift der
+   * F1-Guard `assertFreshPersonId` (client-kontrollierte ID darf keine
+   * bestehende Zeile adressieren).
+   */
+  extraPersons?: Array<Record<string, unknown>>;
 };
 
 /**
@@ -129,16 +144,26 @@ function makeSupabase(calls: Call[], transactionsRows: Array<Record<string, unkn
     trip_members: () => ({ id: "new-member-id" }),
   };
   const readData: Record<string, Array<Record<string, unknown>>> = {
-    trips: [{ id: TRIP_ID, skipper_id: SKIPPER_ID }],
+    // Törnzeitraum bewusst in der Zukunft: Default dieser Tests ist der
+    // klassische Wechsel VOR Törnbeginn. Variante b bekommt eigene Tests.
+    trips: [
+      {
+        id: TRIP_ID,
+        skipper_id: SKIPPER_ID,
+        start_date: opts.tripStart ?? "2099-08-01",
+        end_date: opts.tripEnd ?? "2099-08-10",
+      },
+    ],
     trip_members: [
       {
         id: OLD_MEMBER_ROW_ID,
         trip_id: TRIP_ID,
         person_id: OLD_PERSON_ID,
-        on_board_from: null,
-        on_board_to: null,
+        on_board_from: opts.oldOnBoardFrom ?? null,
+        on_board_to: opts.oldOnBoardTo ?? null,
         is_alcoholic: null,
         note: null,
+        is_skipper: opts.oldIsSkipper ?? false,
       },
       {
         id: EXISTING_MEMBER_ROW_ID,
@@ -154,8 +179,12 @@ function makeSupabase(calls: Call[], transactionsRows: Array<Record<string, unkn
       { trip_id: TRIP_ID, person_id: OLD_PERSON_ID, cabin_type_id: CABIN_ID, total_amount: 675 },
     ],
     persons_private: [{ person_id: EXISTING_MEMBER_PERSON_ID, email: "existing@example.com" }],
+    // NEW_PERSON_ID fehlt hier bewusst — der F1-Guard weist eine bereits
+    // vergebene ID ab. Die Zeile entsteht erst durch den insert unten
+    // (der Mock persistiert Inserts, damit der spätere auth_user_id-Lookup
+    // für die Invite-Mail dieselbe Zeile findet wie in der echten DB).
     persons: [
-      { id: NEW_PERSON_ID, auth_user_id: null },
+      ...(opts.extraPersons ?? []),
       opts.oldPersonRow ?? { id: OLD_PERSON_ID, auth_user_id: null },
     ],
     transactions: transactionsRows,
@@ -199,6 +228,12 @@ function makeSupabase(calls: Call[], transactionsRows: Array<Record<string, unkn
       }
       return b;
     };
+    // `.gte(col, val)` — Datumsfilter des tripUnderway-Checks (Grill-Fund
+    // P3: nur Bordkasse-Buchungen AB Törnbeginn zählen als „läuft schon").
+    b.gte = (col: string, val: unknown) => {
+      if (mode === "select") rows = rows.filter((r) => String(r[col]) >= String(val));
+      return b;
+    };
     b.in = (col: string, vals: unknown[]) => {
       if (mode === "select") rows = rows.filter((r) => (vals as unknown[]).includes(r[col]));
       if (mode === "update") calls[calls.length - 1] = { ...calls[calls.length - 1], payload: { ...(lastPayload as object), __in: { col, vals } } };
@@ -208,6 +243,14 @@ function makeSupabase(calls: Call[], transactionsRows: Array<Record<string, unkn
       mode = "insert";
       lastPayload = payload;
       calls.push({ table, op: "insert", payload });
+      // Inserts persistieren: sonst fände der spätere auth_user_id-Lookup
+      // die eben angelegte Person nicht und der Test liefe an einem
+      // anderen Zweig entlang als die echte DB.
+      if (!insertError) {
+        for (const row of Array.isArray(payload) ? payload : [payload]) {
+          (readData[table] ??= []).push(row as Record<string, unknown>);
+        }
+      }
       return b;
     };
     b.upsert = (payload: unknown) => {
@@ -243,7 +286,15 @@ function makeSupabase(calls: Call[], transactionsRows: Array<Record<string, unkn
     };
     return b;
   };
-  return { from: (table: string) => make(table) };
+  return {
+    from: (table: string) => make(table),
+    // mark_post_settlement_change (Fund F2) — der Marker für den
+    // "Bilanz hat sich geändert"-Banner nach verschickter Abrechnung.
+    rpc: (fn: string, args: unknown) => {
+      calls.push({ table: `rpc:${fn}`, op: "rpc", payload: args });
+      return Promise.resolve({ data: null, error: null });
+    },
+  };
 }
 
 function replaceFormData(extra: Record<string, string> = {}): FormData {
@@ -332,7 +383,11 @@ describe("replaceMember", () => {
       paid_by: OLD_PERSON_ID,
       credit_from: null,
       credit_to: null,
-      tranche_id: null,
+      // Anzahlungs-Ausgabe (A hat eine Charter-Tranche überwiesen), damit
+      // dieser Test den KLASSISCHEN Pfad prüft: eine Bordkasse-Buchung
+      // (tranche_id NULL) würde den Törn als "läuft bereits" markieren und
+      // stattdessen ein Wechseldatum verlangen (Variante b).
+      tranche_id: TRANCHE_ID,
       deleted_at: null,
       confirmed_at: "2026-08-01T10:00:00Z",
       amount: 50,
@@ -546,15 +601,404 @@ describe("replaceMember", () => {
     expect(calls.filter((c) => c.table === "trip_members" && c.op === "upsert")).toHaveLength(0);
   });
 
-  it("legt die neue Person mit der client-generierten ID an (upsert-by-id statt insert)", async () => {
+  it("legt die neue Person mit der client-generierten ID an (insert-by-id)", async () => {
     const calls: Call[] = [];
     mockedAdminClient.mockReturnValue(makeSupabase(calls, [CONFIRMED_PAYMENT]) as never);
 
     const res = await replaceMember({ status: "idle" }, replaceFormData());
     expect(res).toEqual({ status: "ok" });
 
-    const personsUpserts = calls.filter((c) => c.table === "persons" && c.op === "upsert");
-    expect(personsUpserts).toHaveLength(1);
-    expect((personsUpserts[0].payload as { id: string }).id).toBe(NEW_PERSON_ID);
+    const personsInserts = calls.filter((c) => c.table === "persons" && c.op === "insert");
+    expect(personsInserts).toHaveLength(1);
+    expect((personsInserts[0].payload as { id: string }).id).toBe(NEW_PERSON_ID);
+    // Fund F1: NIEMALS upsert auf persons — das war der Hebel, mit dem eine
+    // untergeschobene fremde ID eine bestehende Personen-Zeile überschrieb.
+    expect(calls.filter((c) => c.table === "persons" && c.op === "upsert")).toHaveLength(0);
+    expect(calls.filter((c) => c.table === "persons_private" && c.op === "upsert")).toHaveLength(0);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// Sanierungsrunde 2026-09 (Funde F1–F7) + Variante b (Wechsel im Törn)
+// ────────────────────────────────────────────────────────────────────────
+
+describe("replaceMember — F1: client-kontrollierte new_person_id", () => {
+  beforeEach(() => {
+    mockedPerson.mockReset();
+    mockedAuth.mockReset();
+    mockedAdminClient.mockReset();
+    mockedPerson.mockResolvedValue({ id: ACTOR_ID, display_name: "Skipper" } as never);
+    mockedAuth.mockResolvedValue({ ok: true, personId: ACTOR_ID } as never);
+  });
+
+  // Kern des Fundes: `persons` ist für jeden Eingeloggten lesbar, also sind
+  // alle Personen-UUIDs bekannt. Über das Hidden-Feld liess sich damit eine
+  // FREMDE Personenzeile (Ghost aus einem anderen Törn) überschreiben —
+  // display_name + persons_private.email — und anschliessend per
+  // Ghost-Verlinkung übernehmen.
+  it("weist eine bereits vergebene Personen-ID ab, ohne irgendetwas zu schreiben", async () => {
+    const VICTIM_ID = "aaaaaaaa-0000-4000-8000-0000000000f1";
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(
+      makeSupabase(calls, [], { extraPersons: [{ id: VICTIM_ID, auth_user_id: null }] }) as never,
+    );
+
+    const res = await replaceMember(
+      { status: "idle" },
+      replaceFormData({ new_person_id: VICTIM_ID, new_email: "angreifer@example.com" }),
+    );
+
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).toMatch(/ID bereits vergeben/i);
+    // Nichts geschrieben — insbesondere kein Überschreiben des Opfers.
+    expect(calls.filter((c) => c.op !== "rpc")).toHaveLength(0);
+  });
+
+  // F4: schlug der Crew-Lookup fehl (A parallel entfernt, veralteter Tab),
+  // blieb vorher eine Personen-Zeile ohne jede Mitgliedschaft zurück, deren
+  // E-Mail die UNIQUE-Constraint belegte und die Login-Whitelist passierte.
+  it("legt keine Person an, wenn A gar nicht (mehr) Crew ist", async () => {
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(makeSupabase(calls, []) as never);
+
+    const res = await replaceMember(
+      { status: "idle" },
+      replaceFormData({ old_person_id: OTHER_PERSON_ID, new_email: "neu@example.com" }),
+    );
+
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).toMatch(/nicht gefunden/i);
+    expect(calls.filter((c) => c.table === "persons")).toHaveLength(0);
+    expect(calls.filter((c) => c.table === "persons_private")).toHaveLength(0);
+  });
+
+  it("weist new_person_id = old_person_id ab (Selbst-Überschreiben)", async () => {
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(makeSupabase(calls, []) as never);
+
+    const res = await replaceMember(
+      { status: "idle" },
+      replaceFormData({ new_person_id: OLD_PERSON_ID }),
+    );
+
+    expect(res.status).toBe("error");
+    expect(calls.filter((c) => c.table === "trip_members" && c.op === "delete")).toHaveLength(0);
+  });
+});
+
+describe("replaceMember — F2/F3/F5/F7: Aufräumen im klassischen Pfad", () => {
+  beforeEach(() => {
+    mockedPerson.mockReset();
+    mockedAuth.mockReset();
+    mockedAdminClient.mockReset();
+    mockedPerson.mockResolvedValue({ id: ACTOR_ID, display_name: "Skipper" } as never);
+    mockedAuth.mockResolvedValue({ ok: true, personId: ACTOR_ID } as never);
+  });
+
+  it("setzt den Settlement-Marker, räumt settled_debts auf und überträgt is_skipper", async () => {
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(
+      makeSupabase(calls, [CONFIRMED_PAYMENT], { oldIsSkipper: true }) as never,
+    );
+
+    const res = await replaceMember({ status: "idle" }, replaceFormData());
+    expect(res).toEqual({ status: "ok" });
+
+    // F2 — ohne den Marker bliebe die Crew auf der veralteten
+    // Abrechnungsmail sitzen (resendSettlement ist sonst gesperrt).
+    expect(calls.some((c) => c.table === "rpc:mark_post_settlement_change")).toBe(true);
+    // F3 — Häkchen einer Person, die es im Törn nicht mehr gibt.
+    expect(calls.some((c) => c.table === "settled_debts" && c.op === "delete")).toBe(true);
+    // F5 — Co-Skipper-Rechte müssen mitwandern, sonst steht die Crew ohne
+    // handlungsfähigen Ansprechpartner da.
+    const tmUpsert = calls.find((c) => c.table === "trip_members" && c.op === "upsert");
+    expect((tmUpsert?.payload as { is_skipper?: boolean })?.is_skipper).toBe(true);
+  });
+});
+
+describe("replaceMember — Variante b: Wechsel mitten im Törn", () => {
+  // Törn läuft: Start in der Vergangenheit, Ende in der Zukunft.
+  const RUNNING = { tripStart: "2020-08-01", tripEnd: "2099-08-10" };
+  const HANDOVER = "2020-08-05";
+
+  const BORDKASSE_EXPENSE_BY_OTHER = {
+    id: "aaaaaaaa-0000-4000-8000-0000000000e1",
+    trip_id: TRIP_ID,
+    type: "expense",
+    paid_by: SKIPPER_ID,
+    credit_from: null,
+    credit_to: null,
+    tranche_id: null,
+    deleted_at: null,
+    confirmed_at: "2020-08-03T10:00:00Z",
+    amount: 300,
+    date: "2020-08-03",
+  };
+
+  // Bordkasse-Gutschrift von A — DARF in Variante b nicht auf B wandern:
+  // A bleibt in der Crew, das ist weiterhin A's eigenes Geld.
+  const BORDKASSE_CREDIT_BY_A = {
+    id: "aaaaaaaa-0000-4000-8000-0000000000e2",
+    trip_id: TRIP_ID,
+    type: "credit",
+    paid_by: null,
+    credit_from: OLD_PERSON_ID,
+    credit_to: SKIPPER_ID,
+    tranche_id: null,
+    deleted_at: null,
+    confirmed_at: "2020-08-03T10:00:00Z",
+    amount: 40,
+    date: "2020-08-03",
+  };
+
+  beforeEach(() => {
+    mockedPerson.mockReset();
+    mockedAuth.mockReset();
+    mockedAdminClient.mockReset();
+    mockedPerson.mockResolvedValue({ id: ACTOR_ID, display_name: "Skipper" } as never);
+    mockedAuth.mockResolvedValue({ ok: true, personId: ACTOR_ID } as never);
+  });
+
+  // Der eigentliche Geldfehler: ohne Wechseldatum würde A gelöscht und alle
+  // Ausgaben VOR dem Wechsel rückwirkend auf B umverteilt (v_transaction_shares
+  // leitet die Crew rein aus trip_members ab).
+  it("verlangt ein Wechseldatum, sobald Bordkasse-Buchungen existieren", async () => {
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(
+      makeSupabase(calls, [BORDKASSE_EXPENSE_BY_OTHER], RUNNING) as never,
+    );
+
+    const res = await replaceMember({ status: "idle" }, replaceFormData());
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).toMatch(/Wechseldatum/i);
+    expect(calls.filter((c) => c.op !== "rpc")).toHaveLength(0);
+  });
+
+  it("verkürzt A statt zu löschen und setzt B ab dem Wechseltag", async () => {
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(
+      makeSupabase(calls, [BORDKASSE_EXPENSE_BY_OTHER], RUNNING) as never,
+    );
+
+    const res = await replaceMember(
+      { status: "idle" },
+      replaceFormData({ handover_date: HANDOVER }),
+    );
+    expect(res).toEqual({ status: "ok" });
+
+    // A bleibt Crew — kein DELETE.
+    expect(calls.filter((c) => c.table === "trip_members" && c.op === "delete")).toHaveLength(0);
+    const shorten = calls.find((c) => c.table === "trip_members" && c.op === "update");
+    expect((shorten?.payload as { on_board_to?: string })?.on_board_to).toBe(HANDOVER);
+
+    const tmUpsert = calls.find((c) => c.table === "trip_members" && c.op === "upsert");
+    const p = tmUpsert?.payload as { on_board_from?: string; on_board_to?: string; is_skipper?: boolean };
+    expect(p.on_board_from).toBe(HANDOVER);
+    // A's Originalwert — hier NULL („bis Törnende"), siehe Re-Grill P5.
+    expect(p.on_board_to).toBeNull();
+    // A behält ihre Rolle, B erbt sie nicht (A ist ja noch da).
+    expect(p.is_skipper).toBe(false);
+  });
+
+  it("blockiert NICHT, wenn A schon Buchungen hat — genau dafür ist der Modus da", async () => {
+    const expenseByA = { ...BORDKASSE_EXPENSE_BY_OTHER, paid_by: OLD_PERSON_ID };
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(makeSupabase(calls, [expenseByA], RUNNING) as never);
+
+    const res = await replaceMember(
+      { status: "idle" },
+      replaceFormData({ handover_date: HANDOVER }),
+    );
+    expect(res).toEqual({ status: "ok" });
+  });
+
+  it("überträgt Anzahlungszahlungen, lässt Bordkasse-Gutschriften aber bei A", async () => {
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(
+      makeSupabase(calls, [CONFIRMED_PAYMENT, BORDKASSE_CREDIT_BY_A], RUNNING) as never,
+    );
+
+    const res = await replaceMember(
+      { status: "idle" },
+      replaceFormData({ handover_date: HANDOVER }),
+    );
+    expect(res).toEqual({ status: "ok" });
+
+    const reassign = calls.find(
+      (c) => c.table === "transactions" && c.op === "update",
+    );
+    const ids = (reassign?.payload as { __in?: { vals: string[] } })?.__in?.vals ?? [];
+    expect(ids).toContain(CONFIRMED_PAYMENT.id);
+    // Würde diese Zeile mitwandern, bekäme B eine Zahlung gutgeschrieben,
+    // die B nie geleistet hat — und A verlöre ihr Guthaben.
+    expect(ids).not.toContain(BORDKASSE_CREDIT_BY_A.id);
+  });
+
+  // Grill-Fund P5: der bisherige Test lief mit einem Törn, der bereits
+  // BEGONNEN hatte — die Buchungs-Klausel (`txCount > 0`) war damit gar
+  // nicht abgedeckt, ihr Entfernen liess den Test grün. Hier ein Törn in
+  // der Zukunft MIT einer Bordkasse-Buchung ab Törnbeginn.
+  it("verlangt ein Wechseldatum auch bei künftigem Törn, sobald Bordkasse-Buchungen ab Törnbeginn existieren", async () => {
+    const FUTURE = { tripStart: "2099-08-01", tripEnd: "2099-08-10" };
+    const bookingDuringTrip = {
+      ...BORDKASSE_EXPENSE_BY_OTHER,
+      date: "2099-08-02",
+      confirmed_at: "2099-08-02T10:00:00Z",
+    };
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(makeSupabase(calls, [bookingDuringTrip], FUTURE) as never);
+
+    const res = await replaceMember({ status: "idle" }, replaceFormData());
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).toMatch(/Wechseldatum/i);
+  });
+
+  // Gegenprobe zu P3: eine Bordkasse-Buchung VOR Törnbeginn (Versicherung,
+  // Vorab-Einkauf) darf den klassischen Absage-Pfad NICHT sperren.
+  it("lässt den klassischen Pfad zu, wenn die Bordkasse-Buchung vor Törnbeginn datiert ist", async () => {
+    const FUTURE = { tripStart: "2099-08-01", tripEnd: "2099-08-10" };
+    const insuranceBeforeTrip = {
+      ...BORDKASSE_EXPENSE_BY_OTHER,
+      date: "2099-06-15",
+      confirmed_at: "2099-06-15T10:00:00Z",
+    };
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(makeSupabase(calls, [insuranceBeforeTrip], FUTURE) as never);
+
+    const res = await replaceMember({ status: "idle" }, replaceFormData());
+    expect(res).toEqual({ status: "ok" });
+    expect(calls.filter((c) => c.table === "trip_members" && c.op === "delete")).toHaveLength(1);
+  });
+
+  // P6: ohne JS schickt der Browser das Datumsfeld auch dann mit, wenn der
+  // Nutzer nativ „hat abgesagt" gewählt hat — das Radio muss gewinnen.
+  it("ignoriert ein mitgeschicktes Wechseldatum, wenn repl_mode=cancelled gewählt wurde", async () => {
+    const FUTURE = { tripStart: "2099-08-01", tripEnd: "2099-08-10" };
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(makeSupabase(calls, [], FUTURE) as never);
+
+    const res = await replaceMember(
+      { status: "idle" },
+      replaceFormData({ repl_mode: "cancelled", handover_date: "2099-08-05" }),
+    );
+    expect(res).toEqual({ status: "ok" });
+    // Klassischer Pfad: A wird gelöscht, NICHT verkürzt.
+    expect(calls.filter((c) => c.table === "trip_members" && c.op === "delete")).toHaveLength(1);
+    expect(calls.filter((c) => c.table === "trip_members" && c.op === "update")).toHaveLength(0);
+  });
+
+  // P5: in Variante b darf NICHTS aufgeräumt werden — A bleibt ja Crew.
+  it("räumt in Variante b weder settled_debts noch reminder_log auf und schreibt keine Audience-Zeile", async () => {
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(
+      makeSupabase(calls, [BORDKASSE_EXPENSE_BY_OTHER], {
+        ...RUNNING,
+        oldIsSkipper: true,
+        oldPersonRow: { id: OLD_PERSON_ID, auth_user_id: "auth-1" },
+      }) as never,
+    );
+
+    const res = await replaceMember(
+      { status: "idle" },
+      replaceFormData({ handover_date: HANDOVER }),
+    );
+    expect(res).toEqual({ status: "ok" });
+    expect(calls.some((c) => c.table === "settled_debts")).toBe(false);
+    expect(calls.some((c) => c.table === "prepayment_reminder_log")).toBe(false);
+    expect(calls.some((c) => c.table === "trip_statistics_audience")).toBe(false);
+    // A behält ihre Co-Skipper-Rolle (sie ist ja noch an Bord), B erbt sie nicht.
+    const tmUpsert = calls.find((c) => c.table === "trip_members" && c.op === "upsert");
+    expect((tmUpsert?.payload as { is_skipper?: boolean })?.is_skipper).toBe(false);
+    // Der Settlement-Marker muss trotzdem gesetzt werden — die Bilanz ändert sich.
+    expect(calls.some((c) => c.table === "rpc:mark_post_settlement_change")).toBe(true);
+  });
+
+  // P7: on_board_from darf NICHT materialisiert werden, sonst folgt A als
+  // einziges Mitglied einer späteren Törnstart-Verschiebung nicht mehr.
+  it("lässt on_board_from von A unangetastet", async () => {
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(
+      makeSupabase(calls, [BORDKASSE_EXPENSE_BY_OTHER], RUNNING) as never,
+    );
+
+    await replaceMember({ status: "idle" }, replaceFormData({ handover_date: HANDOVER }));
+    const shorten = calls.find((c) => c.table === "trip_members" && c.op === "update");
+    expect(Object.keys(shorten?.payload as object)).toEqual(["on_board_to"]);
+  });
+
+  // Re-Grill P6: die `todayIso >= start_date`-Klausel war nicht abgedeckt —
+  // der bestehende Test hatte IMMER auch eine Buchung. Hier: laufender Törn,
+  // NULL Buchungen. Ohne die Klausel dürfte der Klassiker mitten im Törn
+  // löschen.
+  it("verlangt ein Wechseldatum bei laufendem Törn auch ganz ohne Buchungen", async () => {
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(makeSupabase(calls, [], RUNNING) as never);
+
+    const res = await replaceMember({ status: "idle" }, replaceFormData());
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).toMatch(/Wechseldatum/i);
+    expect(calls.filter((c) => c.op !== "rpc")).toHaveLength(0);
+  });
+
+  // Re-Grill P4: Gegenstück zum repl_mode-Vorrang. „handover" ohne Datum
+  // fiel vorher still in den Lösch-Pfad — das exakte Gegenteil der Wahl.
+  it("lehnt repl_mode=handover ohne Wechseltag ab, statt A zu löschen", async () => {
+    const FUTURE = { tripStart: "2099-08-01", tripEnd: "2099-08-10" };
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(makeSupabase(calls, [], FUTURE) as never);
+
+    const res = await replaceMember(
+      { status: "idle" },
+      replaceFormData({ repl_mode: "handover", handover_date: "" }),
+    );
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).toMatch(/Wechseltag/i);
+    expect(calls.filter((c) => c.table === "trip_members" && c.op === "delete")).toHaveLength(0);
+  });
+
+  // Re-Grill P5: war A's on_board_to NULL („bis Törnende"), muss auch B NULL
+  // bekommen — sonst folgt B einer späteren Törnverlängerung nicht mehr.
+  it("materialisiert das offene Törnende der neuen Person nicht", async () => {
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(
+      makeSupabase(calls, [BORDKASSE_EXPENSE_BY_OTHER], RUNNING) as never,
+    );
+
+    await replaceMember({ status: "idle" }, replaceFormData({ handover_date: HANDOVER }));
+    const tmUpsert = calls.find((c) => c.table === "trip_members" && c.op === "upsert");
+    expect((tmUpsert?.payload as { on_board_to?: string | null })?.on_board_to).toBeNull();
+  });
+
+  it("weist ein Wechseldatum ausserhalb des Törnzeitraums ab", async () => {
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(
+      makeSupabase(calls, [BORDKASSE_EXPENSE_BY_OTHER], RUNNING) as never,
+    );
+
+    const res = await replaceMember(
+      { status: "idle" },
+      replaceFormData({ handover_date: "2019-01-01" }),
+    );
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).toMatch(/Törnzeitraum/i);
+    expect(calls.filter((c) => c.op !== "rpc")).toHaveLength(0);
+  });
+
+  it("weist ein Wechseldatum ausserhalb von A's Anwesenheit ab", async () => {
+    const calls: Call[] = [];
+    mockedAdminClient.mockReturnValue(
+      makeSupabase(calls, [BORDKASSE_EXPENSE_BY_OTHER], {
+        ...RUNNING,
+        oldOnBoardFrom: "2020-08-06",
+        oldOnBoardTo: "2099-08-10",
+      }) as never,
+    );
+
+    const res = await replaceMember(
+      { status: "idle" },
+      replaceFormData({ handover_date: HANDOVER }), // vor A's Ankunft
+    );
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).toMatch(/Anwesenheitszeitraum/i);
   });
 });

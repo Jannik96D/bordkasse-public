@@ -1,4 +1,5 @@
 import { getTrip, getTripMembers, getCategories } from "@/lib/queries/trips";
+import { countPresenceBlindBookings } from "@/lib/queries/date-blind-expenses";
 import { getPlan } from "@/lib/queries/prepayments";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
@@ -18,13 +19,17 @@ export default async function SettingsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [trip, members, categories, person, admin, plan] = await Promise.all([
+  const [trip, members, categories, person, admin, plan, presenceBlindCount] = await Promise.all([
     getTrip(id),
     getTripMembers(id),
     getCategories(id),
     getCurrentPerson(),
     isAdmin(),
     getPlan(id),
+    // Für die Crewwechsel-Warnung: Buchungen mit anwesenheitsblinder
+    // Aufteilung treffen nach einem Wechsel mitten im Törn beide Personen
+    // (siehe countPresenceBlindBookings).
+    countPresenceBlindBookings(id),
   ]);
   if (!trip) return null;
 
@@ -62,6 +67,7 @@ export default async function SettingsPage({
         ownerId={trip.skipper_id}
         startDate={trip.start_date}
         endDate={trip.end_date}
+        presenceBlindCount={presenceBlindCount}
         tripType={trip.trip_type === "other" ? "other" : "sailing"}
       />
       {canEdit && (

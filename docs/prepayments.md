@@ -332,17 +332,131 @@ Skipper darf Crew anlegen, ohne E-Mail-Adresse zu kennen:
 
 ## Crew-Wechsel-Workflow
 
-Action **„Crewmitglied ersetzen"** in der Crew-Verwaltung. Annahme aus Iteration: „Ersatz übernimmt Anzahlung direkt" — d.h. B hat A privat ausbezahlt.
+Action **„Crewmitglied ersetzen"** (⇄-Icon in der Crew-Verwaltung, `replaceMember`
+in [`lib/actions/prepayments.ts`](../webapp/lib/actions/prepayments.ts)). Für die
+Anzahlung gilt in beiden Modi die Annahme aus der Iteration: **„Ersatz übernimmt
+Anzahlung direkt"** — B hat A privat ausbezahlt, deshalb wandern Soll UND bereits
+geleistete Zahlungen auf B. Die App bildet die private Rückzahlung B → A bewusst
+nicht ab; sie steht nur als `transferred_sum` im Audit-Log.
 
-Schritte:
-1. Skipper wählt A → klickt „Ersetzen" → Modal fragt nach Daten von B (Name + E-Mail optional).
-2. B wird als neues Crewmitglied angelegt (ggf. ohne E-Mail).
-3. A's `prepayment_obligations`-Zeile wird auf B übertragen (`person_id` umgeschrieben, `cabin_type_id` bleibt).
-4. A's bisher gezahlte Gutschriften werden umgebucht: pro Gutschrift wird eine **kompensierende Gutschrift** erzeugt:
-   - „Von B → An A" in Höhe der gezahlten Summe (= B hat A ausbezahlt, jetzt steht B in der App in A's ursprünglicher Position)
-   - Buchhalterisch landet B in der Bilanz dort, wo A war; A geht auf 0 €
-5. A wird auf `on_board_from = NULL, on_board_to = NULL` gesetzt (= „nicht mehr dabei"), aber **nicht gelöscht** — wegen Audit-Spur der ursprünglichen Anzahlung.
-6. Audit-Log-Eintrag „Crew-Wechsel A → B am Datum X, Anzahlung übertragen: Y €".
+Der Skipper wählt im Formular explizit einen von zwei Modi.
+
+### Modus 1 — „hat abgesagt und war nie dabei" (nur vor Törnbeginn)
+
+1. B wird als neue Person + Crewmitglied angelegt (ggf. ohne E-Mail als Ghost).
+2. B übernimmt A's Anwesenheitsfenster, `cabin_type_id`, `prepayment_obligations`
+   und — seit Fund F5 — auch A's `is_skipper`-Rolle (sonst stünde die Crew nach
+   dem Wechsel ohne handlungsfähigen Co-Skipper da).
+3. **Alle** Gutschriften von A (`credit_from`, Pool UND Bordkasse) werden per
+   `UPDATE` auf B umgehängt — keine kompensierende Gegen-Gutschrift. Grund:
+   `v_balances` ist rein mitgliedschaftsgetrieben, eine Zeile mit `credit_from`
+   auf eine nicht mehr in `trip_members` stehende Person fällt spurlos aus der
+   Bilanzsumme (Σ ≠ 0, `all_debts_settled` nie wahr → Purge-Blocker).
+   Selbstverrechnungen (`credit_from = credit_to`) sind ausgenommen.
+4. A wird **wirklich gelöscht** (`DELETE FROM trip_members`), nicht auf
+   `on_board_from/to = NULL` gesetzt — NULL bedeutet laut Schema volle
+   Anwesenheit, also exakt das Gegenteil der Absicht. Vorher wird A's
+   `trip_statistics_audience`-Zeile gesichert (sonst verliert A den Törn aus
+   `/stats`) und `settled_debts` + `prepayment_reminder_log` aufgeräumt.
+5. Setzt voraus, dass an A keine Buchungsspur mehr hängt (`paid_by`,
+   `credit_to`, `transaction_participants`) — sonst Block mit Fehlermeldung.
+
+### Modus 2 — „ist abgereist am …" (Variante b, Pflicht sobald der Törn läuft)
+
+Existiert, weil `v_transaction_shares` die Crew **ausschließlich** aus
+`trip_members` ableitet und für `equal`/`on_board`/`time_proportional` keine
+Anteile speichert: löscht man A mitten im Törn, werden **rückwirkend auch alle
+Ausgaben vor dem Wechsel** auf B umverteilt. A ginge mit 0 € raus, B zahlte A's
+Einkäufe mit. Verifiziert mit `calculateShares`: 300 € „gleichmäßig" am 03.08.
+bei Crew {S, A} → S 150 / A 150; nach dem Löschen von A → S 150 / **C 150**.
+
+**⚠️ Was Modus 2 NICHT repariert — „Gleichmäßig".** Das aktive Set ist dort
+laut `is_in_active_set` schlicht `TRUE`, also ALLE `trip_members`, völlig
+datumsblind. Ein zusätzliches Mitglied senkt damit rückwirkend den Anteil aller
+an jeder bisherigen „Gleichmäßig"-Ausgabe. Numerisch (14-Tage-Törn, 4 Personen,
+400 € an Tag 2, Wechsel an Tag 7):
+
+| Aufteilung | vorher | nachher |
+|---|---|---|
+| `equal` | X/Y/Z/A je 100 € | X/Y/Z/**A je 80 €**, **B 80 €** |
+| `time_proportional` | je 100 € | X/Y/Z je 98,25 €, A 49,12 €, B 56,14 € |
+| `on_board` | je 100 € | **unverändert je 100 €, B 0 €** ✓ |
+
+`on_board` (und `individual`/`per_person`) sind also korrekt. `equal` und
+`time_proportional` sind BEIDE datumsblind — bei `time_proportional` ist der
+Anteil `amount * days / active_days`, das Buchungsdatum kommt in der Formel
+schlicht nicht vor.
+
+**Der Effekt geht in beide Richtungen.** Rückwärts zahlt der Nachrücker an
+Ausgaben von vor seiner Ankunft mit (Tabelle oben). Vorwärts bleibt die
+abgereiste Person Crewmitglied und zahlt bei `equal` einen **vollen Anteil an
+jeder Ausgabe nach ihrer Abreise** — 300 € Lebensmittel an Tag 8 nach einem
+Wechsel an Tag 5 belasten A mit 60 €, obwohl A längst zu Hause ist. Auch
+Gutschriften „An Alle" (`credit_to_all`) sind betroffen: `credit_received_alle`
+in 0043 verteilt `/(n-1)` ohne Datumsbezug.
+
+Deshalb warnt das Formular vor dem Absenden mit der **Zahl aller betroffenen
+Buchungen des Törns** — bewusst nicht nur derer vor dem Wechseltag
+(`countPresenceBlindBookings` in
+[`lib/queries/date-blind-expenses.ts`](../webapp/lib/queries/date-blind-expenses.ts)):
+`equal`- und `time_proportional`-Ausgaben plus „An Alle"-Gutschriften. Der
+Skipper kann sie vorher auf „An Bord" umstellen. Bewusst keine automatische
+Umschreibung — das wäre eine irreversible Änderung an fremden Buchungen.
+
+**Fazit für die Praxis:** ein Törn mit Crewwechsel sollte durchgängig „An Bord"
+(oder Individuell/Pro Person) verwenden. „Gleichmäßig" lässt sich mit einem
+Wechsel mitten im Törn grundsätzlich nicht korrekt abbilden — weder mit noch
+ohne Variante b.
+
+1. Das Formular verlangt einen **Wechseltag**; er muss im Törnzeitraum *und* im
+   Anwesenheitsfenster von A liegen.
+2. A **bleibt in der Crew**, `on_board_to` endet am Wechseltag. A zahlt damit
+   weiter für die eigenen Tage, keine historische Ausgabe wird umverteilt.
+3. B startet am Wechseltag und läuft bis zu A's ursprünglichem Ende. Der
+   Übergabetag gehört bewusst **beiden** — an einem Crewwechsel-Tag sind
+   Abreisende und Nachrücker typischerweise zusammen an Bord.
+4. Nur **tranche-getaggte** Gutschriften (= Anzahlungszahlungen) wandern auf B.
+   Bordkasse-Gutschriften bleiben bei A — A ist ja noch da, es ist weiterhin
+   A's eigenes Geld.
+5. `is_skipper` wandert **nicht** mit (A behält die Rolle), keine
+   `trip_statistics_audience`-Zeile nötig (A bleibt Mitglied), kein
+   `settled_debts`-Cleanup (A's Häkchen bleiben gültig).
+6. Der Buchungsspur-Check entfällt — dass A Buchungen hat, ist hier der
+   Normalfall und genau der Grund für diesen Modus.
+
+**⚠️ Bekannte Grenze von Modus 2:** nach einem Wechsel mitten im Törn sind A UND B
+Crewmitglieder. Speichert der Skipper danach den **Anzahlungsplan neu**, verteilt
+`savePrepaymentPlan` → `calculateObligations` das Charter-Soll über alle aktuellen
+Mitglieder — bei `zeitanteilig` korrigiert sich das selbst (A und B haben zusammen
+die Tage einer Koje), bei `gleichmaessig` bekäme die eine Koje zwei volle Anteile.
+In der Praxis kaum relevant, weil die Anzahlung typischerweise lange vor Törnbeginn
+abgeschlossen ist. Ein sauberer Fix bräuchte ein „zählt für die Anzahlung"-Flag auf
+`trip_members` — bewusst nicht gebaut.
+
+Ob Modus 1 überhaupt erlaubt ist, entscheidet der Server: sobald der Törn
+begonnen hat **oder** eine Bordkasse-Buchung (`tranche_id IS NULL`) **mit Datum
+ab Törnbeginn** existiert, ist ein Wechseltag Pflicht. Zwei bewusste Ausnahmen,
+sonst wäre der häufigste Fall überhaupt — Absage vor dem Törn — blockiert:
+Anzahlungsbuchungen entstehen planmäßig Monate vorher und werden ohnehin
+explizit übertragen; und Bordkasse-Buchungen dürfen laut Spec ein Datum VOR dem
+Törn tragen (Versicherung, Vorab-Einkauf).
+
+Den Modus bestimmt das Radio (`repl_mode`), **nicht** allein die Anwesenheit des
+Datumsfelds: ohne JavaScript schickt der Browser das Feld auch dann mit, wenn
+der Nutzer „hat abgesagt" gewählt hat — explizites `cancelled` gewinnt.
+Symmetrisch wird `handover` ohne Datum **abgelehnt** statt in den Lösch-Pfad zu
+fallen (bei einem Törn ohne Buchungen greift der `tripUnderway`-Guard nicht).
+
+In beiden Modi setzt die Action `mark_post_settlement_change` (Fund F2): ein
+Crewwechsel verändert die Bilanz, nach verschickter Abrechnung muss die Crew
+deshalb den „Bilanz hat sich geändert"-Banner sehen.
+
+**⚠️ `new_person_id` ist client-kontrolliert** (Hidden-Input für die
+Retry-Idempotenz) und darf deshalb **nur eine Neuanlage** adressieren — der
+Guard `assertFreshPersonId` weist jede bereits vergebene ID ab, und geschrieben
+wird mit `insert`, nicht `upsert` (Fund F1). Vorher ließ sich damit über den
+Service-Role-Client eine fremde Ghost-Person überschreiben (`display_name` +
+`persons_private.email`) und anschließend per Ghost-Verlinkung übernehmen.
 
 **Edge Case Crew-Wechsel zwischen Tranchen:** A hat Tranche 1 voll bezahlt, ist vor Tranche 2 abgesprungen. B übernimmt → bekommt Tranche-1-Status „bezahlt" geerbt, Tranche-2-Soll auf B.
 

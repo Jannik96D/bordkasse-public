@@ -26,6 +26,7 @@ export function CrewSection({
   ownerId,
   startDate,
   endDate,
+  presenceBlindCount = 0,
   tripType = "sailing",
 }: {
   tripId: string;
@@ -34,6 +35,8 @@ export function CrewSection({
   ownerId: string;
   startDate: string;
   endDate: string;
+  /** Buchungen mit anwesenheitsblinder Aufteilung (Crewwechsel-Warnung). */
+  presenceBlindCount?: number;
   tripType?: TripType;
 }) {
   const vocab = tripVocab(tripType);
@@ -234,6 +237,9 @@ export function CrewSection({
               <ReplaceMemberForm
                 member={m}
                 tripId={tripId}
+                startDate={startDate}
+                endDate={endDate}
+                presenceBlindCount={presenceBlindCount}
                 vocab={vocab}
                 onClose={() => setReplacingId(null)}
               />
@@ -582,27 +588,39 @@ function EditMemberForm({
 }
 
 /**
- * Crewwechsel: A (member) wird durch eine neue Person B ersetzt. Übernimmt
- * Anwesenheit/Koje/Anzahlungssoll von A, hängt A's Gutschriften direkt auf
- * B um und entfernt A anschließend WIRKLICH aus der Crew (PR 4, Sanierungsplan
- * 2026-09 — vorher nur Anwesenheit auf null gesetzt, was laut Schema
- * "volle Anwesenheit" statt "abwesend" bedeutet und A dauerhaft fälschlich
- * in der Bilanz hielt). A bleibt im Audit-Log sichtbar (payload trägt
- * old_person_id/new_person_id), aber NICHT mehr als Crew-Zeile. Setzt daher
- * voraus, dass A keine sonstige Buchungsspur mehr hat (sonst Block, siehe
- * Fehlermeldung) — löst das Remove-Schutz-Dilemma: eine Person mit
- * Buchungen/Anzahlungssoll kann nicht einfach entfernt werden, aber ein
- * Crewwechsel (z.B. Person sagt ab, jemand anderes rückt nach) ist ein
- * eigener, häufiger Fall.
+ * Crewwechsel: A (member) wird durch eine neue Person B ersetzt. Zwei Modi,
+ * die der Skipper im Formular explizit wählt:
+ *
+ *  1. "Abgesagt" (nur vor Törnbeginn möglich) — B übernimmt A's
+ *     Anwesenheitsfenster, Koje, Anzahlungssoll und Co-Skipper-Rolle 1:1,
+ *     A's Gutschriften werden auf B umgehängt und A verschwindet komplett
+ *     aus der Crew (bleibt im Audit-Log sichtbar).
+ *
+ *  2. "Abgereist am …" (Variante b) — A BLEIBT in der Crew, das
+ *     Anwesenheitsfenster endet am Wechseltag; B kommt ab dem Wechseltag
+ *     dazu. Nur Anzahlungssoll und Anzahlungszahlungen wandern auf B,
+ *     Bordkasse-Buchungen bleiben bei A.
+ *
+ * Der zweite Modus existiert, weil die Anteile in `v_transaction_shares`
+ * rein aus `trip_members` abgeleitet werden: löscht man A mitten im Törn,
+ * werden RÜCKWIRKEND auch alle Ausgaben vor dem Wechsel auf B umverteilt.
+ * Sobald der Törn läuft oder Buchungen existieren, erzwingt der Server
+ * deshalb ein Wechseldatum.
  */
 function ReplaceMemberForm({
   member,
   tripId,
+  startDate,
+  endDate,
+  presenceBlindCount,
   vocab,
   onClose,
 }: {
   member: TripMemberRow;
   tripId: string;
+  startDate: string;
+  endDate: string;
+  presenceBlindCount: number;
   vocab: TripVocab;
   onClose: () => void;
 }) {
@@ -612,6 +630,18 @@ function ReplaceMemberForm({
   // serverseitig idempotent (Fund 3, Grill-Review). Gleiches Muster wie
   // idempotencyKey in transaction-form-parts.tsx.
   const [newPersonId] = useState(() => crypto.randomUUID());
+  // Heute einmalig beim Mount festhalten (react-hooks/purity: kein Date.now
+  // im Render). Läuft der Törn schon, ist "abgereist am" die Vorauswahl —
+  // der Server erzwingt sie dann ohnehin.
+  const [today] = useState(() => new Date().toISOString().slice(0, 10));
+  const tripStarted = today >= startDate;
+  const [mode, setMode] = useState<"cancelled" | "handover">(
+    tripStarted ? "handover" : "cancelled",
+  );
+  // Wechseltag: heute, aber innerhalb des Törnzeitraums gehalten.
+  const defaultHandover = today < startDate ? startDate : today > endDate ? endDate : today;
+  // Live mitgeführt, weil der Skipper den Wechseltag im Formular ändern kann.
+  const [handover, setHandover] = useState(defaultHandover);
 
   useEffect(() => {
     if (state.status !== "ok") return;
@@ -633,7 +663,7 @@ function ReplaceMemberForm({
           {member.display_name} ersetzen
           <InfoTooltip
             label="Was passiert dabei?"
-            text={`Anwesenheit, ${vocab.cabin} und Anzahlungssoll von ${member.display_name} gehen auf die neue Person über. Bereits geleistete Anzahlungszahlungen werden auf die neue Person umgebucht. ${member.display_name} wird danach komplett aus der Crew entfernt (bleibt aber im Audit-Log sichtbar) — das geht nur, wenn ${member.display_name} sonst keine Buchungen mehr in diesem Törn hat.`}
+            text={`Anzahlungssoll, ${vocab.cabin} und bereits geleistete Anzahlungszahlungen von ${member.display_name} gehen in beiden Fällen auf die neue Person über — es wird angenommen, dass die neue Person ${member.display_name} privat ausbezahlt hat. Bei „hat abgesagt" wird ${member.display_name} komplett aus der Crew entfernt (nur möglich, solange es noch keine Buchungen gibt). Bei „ist abgereist am" bleibt ${member.display_name} in der Crew und zahlt weiter für die eigenen Tage; nur so bleiben die bisherigen Ausgaben korrekt zugeordnet.`}
           />
         </h4>
         <button
@@ -645,6 +675,88 @@ function ReplaceMemberForm({
           <X className="h-4 w-4" />
         </button>
       </div>
+
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium">
+          Was ist mit {member.display_name} passiert?
+        </legend>
+        <label className="flex min-h-touch items-start gap-2 text-sm">
+          <input
+            type="radio"
+            name="repl_mode"
+            value="cancelled"
+            checked={mode === "cancelled"}
+            onChange={() => setMode("cancelled")}
+            className="mt-1 h-4 w-4 accent-[var(--color-primary)]"
+          />
+          <span>
+            Hat abgesagt und war nie dabei
+            <span className="block text-xs text-ink-soft">
+              Wird komplett aus der {vocab.crew} entfernt. Nur möglich, solange es noch keine
+              Buchungen gibt.
+            </span>
+          </span>
+        </label>
+        <label className="flex min-h-touch items-start gap-2 text-sm">
+          <input
+            type="radio"
+            name="repl_mode"
+            value="handover"
+            checked={mode === "handover"}
+            onChange={() => setMode("handover")}
+            className="mt-1 h-4 w-4 accent-[var(--color-primary)]"
+          />
+          <span>
+            Ist abgereist — die neue Person rückt nach
+            <span className="block text-xs text-ink-soft">
+              Bleibt in der {vocab.crew} und zahlt weiter für die eigenen Tage. Die bisherigen
+              Ausgaben bleiben korrekt zugeordnet.
+            </span>
+          </span>
+        </label>
+      </fieldset>
+
+      {mode === "handover" && (
+        <div>
+          <label htmlFor={`repl-date-${member.id}`} className="block text-sm font-medium">
+            Wechseltag
+          </label>
+          <input
+            id={`repl-date-${member.id}`}
+            name="handover_date"
+            type="date"
+            required
+            min={member.on_board_from ?? startDate}
+            max={member.on_board_to ?? endDate}
+            value={handover}
+            onChange={(e) => setHandover(e.target.value)}
+            className="mt-1 w-full rounded-md border border-rule bg-paper px-3 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+          <p className="mt-1 text-xs text-ink-soft">
+            {member.display_name} ist bis zu diesem Tag an Bord, die neue Person ab diesem Tag.
+            Der Übergabetag zählt für beide.
+          </p>
+          {presenceBlindCount > 0 && (
+            <p
+              className="mt-2 rounded-md border border-gold/60 bg-gold-soft px-3 py-2 text-xs text-ink"
+              role="status"
+            >
+              <strong>
+                {presenceBlindCount}{" "}
+                {presenceBlindCount === 1 ? "Buchung" : "Buchungen"}
+              </strong>{" "}
+              {presenceBlindCount === 1 ? "ist" : "sind"}{" "}
+              &bdquo;Gleichm&auml;&szlig;ig&ldquo; oder &bdquo;Zeitanteilig&ldquo;
+              aufgeteilt (oder eine Gutschrift an alle). Diese Aufteilungen kennen keine
+              Anwesenheit: die neue Person zahlt auch an Ausgaben von <em>vor</em> ihrer
+              Ankunft mit, und {member.display_name}{" "}zahlt bei
+              &bdquo;Gleichm&auml;&szlig;ig&ldquo; weiter vollen Anteil an Ausgaben{" "}
+              <em>nach</em>{" "}der Abreise. Stelle diese Buchungen vorher auf
+              &bdquo;An Bord&ldquo; um, wenn das nicht gewollt ist.
+            </p>
+          )}
+        </div>
+      )}
 
       <div>
         <label htmlFor={`repl-email-${member.id}`} className="block text-sm font-medium">

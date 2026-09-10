@@ -653,16 +653,36 @@ export async function replaceMember(
     new_display_name: formData.get("new_display_name"),
     new_email: formData.get("new_email") || "",
     new_person_id: formData.get("new_person_id") || undefined,
+    handover_date: formData.get("handover_date") || "",
   });
   if (!parsed.success) {
     return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
   const { trip_id, old_person_id, new_display_name, new_email } = parsed.data;
+  // Grill-Fund P6: der Modus wird vom Radio bestimmt, NICHT allein von der
+  // Anwesenheit des Datumsfelds. Ohne JavaScript (oder vor der Hydration)
+  // rendert das Formular das Datumsfeld anhand des SSR-Defaults; klickt der
+  // Nutzer dann nativ auf „hat abgesagt", schickt der Browser das Datum
+  // trotzdem mit — der Server hätte gegen die ausdrückliche Wahl des Nutzers
+  // einen Wechsel-mit-Datum ausgeführt. Explizites „cancelled" gewinnt.
+  //
+  // Re-Grill P4: symmetrisch muss auch „handover ohne Datum" abgelehnt
+  // werden, statt in den Lösch-Pfad zu fallen. Sonst löscht ein Submit mit
+  // `repl_mode=handover`, aber leerem Datumsfeld (fehlendes `required` ohne
+  // JS, altes Bundle, Retry) A aus der Crew — das exakte Gegenteil der
+  // ausdrücklichen Wahl, und bei einem Törn ohne Buchungen greift auch der
+  // tripUnderway-Guard nicht.
+  const explicitMode = formData.get("repl_mode");
+  const handover_date = explicitMode === "cancelled" ? "" : parsed.data.handover_date;
+  if (explicitMode === "handover" && !handover_date) {
+    return { status: "error", message: "Bitte den Wechseltag angeben." };
+  }
   // Fund 3 (Idempotency, Grill-Review): ohne clientseitig stabile ID würde
   // ein Netzwerk-Retry (Yacht-WLAN — siehe 0005_idempotency.sql) die neue
-  // Person, den Anzahlungs-Transfer und die Gegen-Gutschrift duplizieren.
-  // Fallback nur zur Absicherung gegen einen Client ohne dieses Feld — dann
-  // ist der jeweilige Aufruf einfach nicht idempotent, wie bisher.
+  // Person und den Anzahlungs-Transfer duplizieren. Der Wert ist aber
+  // client-kontrolliert und wird deshalb NUR als Wunsch-ID für eine
+  // Neuanlage verwendet — `assertFreshPersonId` unten weist jede ID ab, die
+  // schon zu einer existierenden Person gehört (Fund F1).
   const effectiveNewPersonId = parsed.data.new_person_id ?? crypto.randomUUID();
   // Name optional: fehlt er, aus der E-Mail ableiten. Das Schema-Refine
   // garantiert, dass mindestens eins von beidem gesetzt ist.
@@ -679,12 +699,69 @@ export async function replaceMember(
   // 1. Original-Skipper darf nicht ersetzt werden (Audit-Spur)
   const { data: tripRow } = await supabase
     .from("trips")
-    .select("skipper_id")
+    .select("skipper_id, start_date, end_date")
     .eq("id", trip_id)
     .maybeSingle();
   if (!tripRow) return { status: "error", message: "Törn nicht gefunden." };
   if (tripRow.skipper_id === old_person_id) {
     return { status: "error", message: "Der ursprüngliche Skipper kann nicht ersetzt werden." };
+  }
+
+  // 1a. Variante b (Wechsel mitten im Törn) vs. klassischer Wechsel.
+  //
+  //     Der klassische Pfad löscht A aus `trip_members`. Weil
+  //     `v_transaction_shares` (0031) die Crew AUSSCHLIESSLICH aus
+  //     `trip_members` ableitet und für equal/on_board/time_proportional
+  //     keine Anteile speichert, werden dabei RÜCKWIRKEND auch alle
+  //     Ausgaben VOR dem Wechsel neu verteilt: A geht mit 0 € raus, B zahlt
+  //     A's Einkäufe mit. Vor Törnbeginn ist das genau richtig (es gibt
+  //     nichts umzuverteilen) — sobald der Törn läuft oder Buchungen
+  //     existieren, ist es ein echter Geldfehler.
+  //
+  //     Deshalb: läuft der Törn schon, ist ein Wechseldatum PFLICHT. Dann
+  //     bleibt A mit verkürzter Anwesenheit in der Crew und zahlt weiter
+  //     für die eigenen Tage; B kommt ab dem Wechseltag dazu.
+  //
+  //     Gezählt werden NUR Bordkasse-Buchungen (`tranche_id IS NULL`) MIT
+  //     Datum ab Törnbeginn. Zwei bewusste Ausnahmen, die sonst den
+  //     häufigsten Fall überhaupt blockieren würden — jemand sagt VOR dem
+  //     Törn ab:
+  //       • Anzahlungsbuchungen entstehen planmäßig Monate vorher und werden
+  //         unten ohnehin explizit auf B übertragen.
+  //       • Bordkasse-Buchungen dürfen laut Spec ein Datum VOR dem Törn
+  //         tragen (Versicherung, Vorab-Einkauf). Ohne den Datumsfilter
+  //         machte eine einzige Versicherungsbuchung sechs Wochen vor
+  //         Abfahrt den klassischen Pfad unerreichbar — der Skipper müsste
+  //         die Absage als „Wechsel mitten im Törn" erfassen und hätte A
+  //         danach dauerhaft mit einem Ein-Tages-Fenster in der Crew stehen
+  //         (Grill-Fund P3).
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const { count: txCount, error: txCountErr } = await supabase
+    .from("transactions")
+    .select("id", { count: "exact", head: true })
+    .eq("trip_id", trip_id)
+    .is("tranche_id", null)
+    .is("deleted_at", null)
+    .gte("date", tripRow.start_date);
+  if (txCountErr) {
+    return { status: "error", message: dbErr(txCountErr, "Buchungen konnten nicht geprüft werden.") };
+  }
+  const tripUnderway = todayIso >= tripRow.start_date || (txCount ?? 0) > 0;
+  const handoverMode = !!handover_date;
+
+  if (tripUnderway && !handoverMode) {
+    return {
+      status: "error",
+      message:
+        "Dieser Törn läuft bereits oder hat schon Buchungen. Bitte gib ein Wechseldatum an — " +
+        "sonst würden alle bisherigen Ausgaben rückwirkend auf die neue Person umverteilt.",
+    };
+  }
+  if (handoverMode && (handover_date < tripRow.start_date || handover_date > tripRow.end_date)) {
+    return {
+      status: "error",
+      message: "Das Wechseldatum muss innerhalb des Törnzeitraums liegen.",
+    };
   }
 
   // 1b. PR 4 / Fix 2: der Vorstrecker der Anzahlung darf NICHT über diesen
@@ -758,13 +835,102 @@ export async function replaceMember(
   //     bleiben (bewusst: A ist per Fix 2 nie Vorstrecker, Selbstverrechnung
   //     an A wäre also ohnehin ein Datenanomalie-Fall, den wir lieber blocken
   //     als stillschweigend verlieren).
-  if (await personHasBookingTrace(supabase, trip_id, old_person_id, { includeCreditFrom: false })) {
+  //
+  //     Variante b: im Wechseldatum-Modus bleibt A in der Crew, es wird also
+  //     gar nichts gelöscht — eine Buchungsspur ist dort völlig unschädlich
+  //     (A zahlt weiter für die eigenen Tage) und darf den Wechsel nicht
+  //     blockieren. Genau das ist der Fall, für den Variante b gebaut wurde:
+  //     mitten im Törn hat die abreisende Person praktisch immer Buchungen.
+  if (
+    !handoverMode &&
+    (await personHasBookingTrace(supabase, trip_id, old_person_id, { includeCreditFrom: false }))
+  ) {
     return {
       status: "error",
       message:
         "Diese Person hat noch Buchungen in diesem Törn, die nicht automatisch übertragen werden " +
         "können (z. B. als Zahler einer Ausgabe, als Empfänger einer Gutschrift oder als Beteiligte " +
         "einer Pro-Person-/Individuell-Aufteilung). Bitte erst die Buchungen umbuchen, bevor du sie ersetzt.",
+    };
+  }
+
+  // 2c. Fund F1 (Security): `new_person_id` kommt roh aus einem Hidden-Input
+  //     und wurde bisher ungeprüft als Upsert-Schlüssel auf `persons` /
+  //     `persons_private` / `trip_members` benutzt — über den Service-Role-
+  //     Client, also ohne RLS. Weil `persons` für jeden Eingeloggten lesbar
+  //     ist (0004_rls.sql, USING TRUE), sind alle Personen-UUIDs bekannt:
+  //     ein Skipper von Törn X konnte damit `display_name` und
+  //     `persons_private.email` einer Ghost-Person aus Törn Y überschreiben,
+  //     sich anschließend mit dieser Adresse einloggen (die Whitelist prüft
+  //     nur, ob die E-Mail in `persons_private` steht) und wurde per
+  //     Ghost-Verlinkung (get-current-person.ts) zu dieser Person — inklusive
+  //     Zugriff auf den fremden Törn. Nebenvarianten: eine ID aus DIESEM Törn
+  //     überschreibt Anwesenheit + Anzahlungssoll des Opfers, und
+  //     `new_person_id = old_person_id` ließ das finale DELETE genau die eben
+  //     angelegte Zeile treffen (verwaiste Obligation, Σ Soll ≠ Plan).
+  //
+  //     Fix analog zum Kojen-Check in savePrepaymentPlan: die ID darf nur
+  //     eine NEUANLAGE adressieren, nie eine bestehende Zeile.
+  //
+  //     ⚠️ Das kostet die Retry-Idempotenz (Grill-Fund P4): hat Attempt 1 die
+  //     Person schon angelegt und scheiterte erst danach, meldet Attempt 2
+  //     mit derselben ID „bereits vergeben", und ein Reload würfelt eine
+  //     neue ID — der Skipper muss in der Crewliste nachsehen, was von
+  //     Attempt 1 übrig ist. Bewusst so gewählt: eine bestehende Zeile per
+  //     Client-ID adressierbar zu lassen WAR die Lücke. Ein „reuse, wenn es
+  //     ein spurloser Ghost ist" würde sie wieder öffnen, weil ein fremdes
+  //     Crewmitglied desselben Törns von einer frisch angelegten Waise nicht
+  //     unterscheidbar ist.
+  const ID_TAKEN_MSG =
+    "Die neue Person konnte nicht angelegt werden (ID bereits vergeben). " +
+    "Bitte lade die Seite neu und versuche es erneut.";
+  // Zwei parallele Submits passieren beide den Vorab-Check; der Verlierer
+  // prallt am Primärschlüssel ab. Dieselbe freundliche Meldung wie beim
+  // Vorab-Check, statt einer nackten DB-Fehlermeldung.
+  const personInsertError = (err: { code?: string; message: string } | null): string =>
+    err?.code === PG_UNIQUE_VIOLATION ? ID_TAKEN_MSG : dbErr(err, "Person konnte nicht angelegt werden.");
+
+  const assertFreshPersonId = async (): Promise<string | null> => {
+    const { data: clash, error } = await supabase
+      .from("persons")
+      .select("id")
+      .eq("id", effectiveNewPersonId)
+      .maybeSingle();
+    if (error) return dbErr(error, "Personen-Prüfung fehlgeschlagen.");
+    if (clash) return ID_TAKEN_MSG;
+    return null;
+  };
+
+  // 2d. Fund F4: A's Creweintrag laden, BEVOR irgendetwas geschrieben wird.
+  //     Dieser Lookup hing früher hinter der Personen-Anlage — schlug er fehl
+  //     ("Alte Crewperson nicht gefunden", z. B. weil A parallel entfernt
+  //     wurde oder der Tab veraltet war), blieb eine Personen-Zeile ohne jede
+  //     Mitgliedschaft zurück, deren E-Mail die UNIQUE-Constraint auf
+  //     persons_private.email belegte und die zudem die Login-Whitelist
+  //     passiert hätte.
+  const { data: oldMember, error: oldMemberErr } = await supabase
+    .from("trip_members")
+    .select("id, on_board_from, on_board_to, is_alcoholic, note, is_skipper")
+    .eq("trip_id", trip_id)
+    .eq("person_id", old_person_id)
+    .maybeSingle();
+  if (oldMemberErr) {
+    return { status: "error", message: dbErr(oldMemberErr, "Creweintrag konnte nicht geladen werden.") };
+  }
+  if (!oldMember) return { status: "error", message: "Alte Crewperson nicht gefunden." };
+
+  // Variante b: das Wechseldatum muss im Anwesenheitsfenster von A liegen —
+  // sonst entstünde entweder ein negatives Fenster für A (Wechsel vor A's
+  // Ankunft) oder ein B, das erst nach A's Abreise anfängt und die Lücke
+  // dazwischen unbesetzt lässt.
+  const oldFrom = oldMember.on_board_from ?? tripRow.start_date;
+  const oldTo = oldMember.on_board_to ?? tripRow.end_date;
+  if (handoverMode && (handover_date < oldFrom || handover_date > oldTo)) {
+    return {
+      status: "error",
+      message:
+        `Das Wechseldatum muss im Anwesenheitszeitraum der bisherigen Person liegen ` +
+        `(${oldFrom} bis ${oldTo}).`,
     };
   }
 
@@ -831,51 +997,74 @@ export async function replaceMember(
       }
       newPersonId = existingPriv.person_id;
     } else {
-      // upsert-by-id statt insert: mit stabiler effectiveNewPersonId ist ein
-      // Retry (verlorene Antwort bei flakey Yacht-WLAN) idempotent — legt
-      // dieselbe Person nicht zweimal an (Fund 3).
+      // insert-by-id statt upsert (Fund F1): die ID ist client-kontrolliert
+      // und darf nur eine Neuanlage adressieren. `assertFreshPersonId`
+      // schließt eine bestehende Zeile vorab aus, `insert` ist danach der
+      // sichere Schreibbefehl — ein paralleler Zweitversuch prallt an der
+      // Primärschlüssel-Constraint ab, statt fremde Daten zu überschreiben.
+      const idClash = await assertFreshPersonId();
+      if (idClash) return { status: "error", message: idClash };
       const { data: created, error } = await supabase
         .from("persons")
-        .upsert({ id: effectiveNewPersonId, display_name: effectiveName }, { onConflict: "id" })
+        .insert({ id: effectiveNewPersonId, display_name: effectiveName })
         .select("id")
         .single();
-      if (error || !created) return { status: "error", message: dbErr(error, "Person konnte nicht angelegt werden.") };
+      if (error || !created) return { status: "error", message: personInsertError(error) };
       newPersonId = created.id;
       const { error: privErr } = await supabase
         .from("persons_private")
-        .upsert({ person_id: newPersonId, email: new_email }, { onConflict: "person_id" });
-      if (privErr) return { status: "error", message: dbErr(privErr, "E-Mail konnte nicht gespeichert werden.") };
+        .insert({ person_id: newPersonId, email: new_email });
+      if (privErr) {
+        // Kompensierende Aktion (Grill-Fund P4): ohne sie bliebe eine
+        // Personen-Zeile ohne E-Mail und ohne Mitgliedschaft zurück, die ein
+        // Retry mit derselben ID nie wieder erreichen könnte (der F1-Guard
+        // weist die ID ab) — der Wechsel wäre dauerhaft blockiert.
+        await supabase.from("persons").delete().eq("id", newPersonId);
+        return { status: "error", message: dbErr(privErr, "E-Mail konnte nicht gespeichert werden.") };
+      }
     }
   } else {
-    // Ghost-Person ohne E-Mail — ebenfalls upsert-by-id (Fund 3).
+    // Ghost-Person ohne E-Mail — ebenfalls insert-by-id (Fund F1).
+    const idClash = await assertFreshPersonId();
+    if (idClash) return { status: "error", message: idClash };
     const { data: created, error } = await supabase
       .from("persons")
-      .upsert({ id: effectiveNewPersonId, display_name: effectiveName }, { onConflict: "id" })
+      .insert({ id: effectiveNewPersonId, display_name: effectiveName })
       .select("id")
       .single();
-    if (error || !created) return { status: "error", message: dbErr(error, "Person konnte nicht angelegt werden.") };
+    if (error || !created) return { status: "error", message: personInsertError(error) };
     newPersonId = created.id;
   }
 
-  // 4. Neue Person als Crew anlegen (übernimmt Daten von A — Koje, Anwesenheit)
-  const { data: oldMember } = await supabase
-    .from("trip_members")
-    .select("id, on_board_from, on_board_to, is_alcoholic, note")
-    .eq("trip_id", trip_id)
-    .eq("person_id", old_person_id)
-    .maybeSingle();
-  if (!oldMember) return { status: "error", message: "Alte Crewperson nicht gefunden." };
-
+  // 4. Neue Person als Crew anlegen.
+  //
+  //    Klassisch (vor Törnbeginn): B übernimmt A's Anwesenheitsfenster 1:1.
+  //    Variante b: B startet am Wechseltag und bleibt bis zu A's
+  //    ursprünglichem Ende; A wird weiter unten auf den Wechseltag verkürzt.
+  //    Der Wechseltag selbst gehört bewusst BEIDEN — an einem Übergabetag
+  //    sind Abreisende und Nachrücker typischerweise zusammen an Bord.
+  //
+  //    `is_skipper` (Fund F5): im klassischen Pfad verschwindet A komplett,
+  //    also müssen ihre Co-Skipper-Rechte auf B übergehen — sonst steht eine
+  //    Crew ohne handlungsfähigen Ansprechpartner an Bord, sobald der
+  //    Original-Skipper nicht mitsegelt. In Variante b bleibt A in der Crew
+  //    und behält die Rechte; B bekommt sie NICHT automatisch.
   const { data: newMember, error: tmErr } = await supabase
     .from("trip_members")
     .upsert(
       {
         trip_id,
         person_id: newPersonId,
-        on_board_from: oldMember.on_board_from,
+        on_board_from: handoverMode ? handover_date : oldMember.on_board_from,
+        // Re-Grill P5: NICHT `oldTo` (das materialisierte Törnende), sondern
+        // A's Originalwert — war er NULL („bis Törnende"), soll auch B NULL
+        // bekommen, sonst folgt B als einziges Mitglied einer späteren
+        // Törnverlängerung (updateTripDates) nicht mehr. Gleiche Begründung
+        // wie beim Verkürzen von A's `on_board_from` weiter unten.
         on_board_to: oldMember.on_board_to,
         is_alcoholic: oldMember.is_alcoholic,
         note: oldMember.note,
+        is_skipper: handoverMode ? false : oldMember.is_skipper,
       },
       { onConflict: "trip_id,person_id" },
     )
@@ -936,13 +1125,23 @@ export async function replaceMember(
   //    beim zweiten Versuch keine Zeilen mehr mit credit_from = old_person_id
   //    (sie tragen ja schon newPersonId) — die UPDATE-Query matcht dann 0
   //    Zeilen, kein Doppel-Effekt.
-  const { data: creditsToReassign, error: creditsSelectErr } = await supabase
+  //
+  //    ⚠️ Variante b: dort werden NUR die tranche-getaggten Gutschriften
+  //    (= Anzahlungszahlungen) übertragen. A bleibt in der Crew, also ist
+  //    eine gewöhnliche Bordkasse-Gutschrift von A weiterhin A's eigene
+  //    Geldbewegung — sie umzuhängen würde A's Guthaben stehlen und B eine
+  //    Zahlung gutschreiben, die B nie geleistet hat. Im klassischen Pfad
+  //    verschwindet A dagegen komplett, dort MÜSSEN alle Gutschriften mit,
+  //    sonst verdunstet Geld aus der Bilanzsumme (siehe oben).
+  const creditQuery = supabase
     .from("transactions")
     .select("id, amount, credit_to")
     .eq("trip_id", trip_id)
     .eq("credit_from", old_person_id)
     .eq("type", "credit")
     .is("deleted_at", null);
+  if (handoverMode) creditQuery.not("tranche_id", "is", null);
+  const { data: creditsToReassign, error: creditsSelectErr } = await creditQuery;
   if (creditsSelectErr) {
     return { status: "error", message: dbErr(creditsSelectErr, "Gutschriften konnten nicht geladen werden.") };
   }
@@ -965,12 +1164,13 @@ export async function replaceMember(
   //    mal eingeloggt war) diesen Törn dauerhaft aus /stats, weil die
   //    dortigen RLS-Policies ohne Mitgliedschaft und ohne Audience-Zeile
   //    keinen Lesezugriff mehr gewähren.
+  //    In Variante b bleibt A Crew — die Audience-Zeile ist dort unnötig.
   const { data: oldPersonRow } = await supabase
     .from("persons")
     .select("auth_user_id")
     .eq("id", old_person_id)
     .maybeSingle();
-  if (oldPersonRow?.auth_user_id) {
+  if (!handoverMode && oldPersonRow?.auth_user_id) {
     const { error: audienceErr } = await supabase
       .from("trip_statistics_audience")
       .upsert({ person_id: old_person_id, trip_id }, { onConflict: "person_id,trip_id" });
@@ -991,7 +1191,13 @@ export async function replaceMember(
   //     dieser Prüfung und dem DELETE-Statement selbst ein (kein triviales
   //     Nullen, aber eine echte DB-Transaktion über den Service-Role-Client
   //     ist hier nicht verfügbar, siehe andere Stellen in dieser Datei).
-  if (await personHasBookingTrace(supabase, trip_id, old_person_id, { includeCreditFrom: false })) {
+  //
+  //     In Variante b entfällt der Re-Check: dort wird nichts gelöscht, eine
+  //     parallel entstandene Buchung von A bleibt einfach bei A.
+  if (
+    !handoverMode &&
+    (await personHasBookingTrace(supabase, trip_id, old_person_id, { includeCreditFrom: false }))
+  ) {
     return {
       status: "error",
       message:
@@ -1000,28 +1206,82 @@ export async function replaceMember(
     };
   }
 
-  // 8. PR 4 / Fix 3: A jetzt WIRKLICH aus trip_members entfernen (DELETE,
-  //    nicht mehr nur on_board_from/on_board_to auf NULL setzen).
+  // 8. A aus der Crew nehmen — auf zwei Arten, je nach Modus.
   //
-  //    NULL bedeutet im Schema "ab Törn-Start" / "bis Törnende" — laut
-  //    Schema-Kommentar (0001_init.sql) also VOLLE Anwesenheit, nicht
-  //    Abwesenheit. Die alte Implementierung hat A damit dauerhaft als
-  //    voll anwesende Crew stehen gelassen — exakt das Gegenteil der
-  //    Absicht "A ist abgereist". Die Pre-Checks oben (Fix 2 + Fix 3 +
-  //    Re-Check 7b) plus das Umhängen in Fix 1 stellen sicher, dass an
-  //    dieser Stelle keine Buchungsspur mehr an A hängt — sonst wäre
-  //    bereits VORHER abgebrochen worden, ohne dass hier geschrieben wurde.
-  const { error: deleteErr } = await supabase.from("trip_members").delete().eq("id", oldMember.id);
-  if (deleteErr) return { status: "error", message: dbErr(deleteErr, "Alte Crewmitgliedschaft konnte nicht entfernt werden.") };
+  //    Variante b (Wechseldatum): A bleibt Crew, nur das Anwesenheitsfenster
+  //    endet am Wechseltag. Damit zahlt A weiterhin für die eigenen Tage.
+  //    ⚠️ Das repariert `on_board` (und individual/per_person) vollständig,
+  //    NICHT aber `equal`: dort ist das aktive Set laut v_transaction_shares
+  //    (0031) ALLE trip_members, völlig datumsblind — das zusätzliche
+  //    Mitglied senkt rückwirkend den Anteil aller an jeder bisherigen
+  //    „Gleichmäßig"-Ausgabe (Grill-Fund P1, numerisch nachgestellt: 400 €
+  //    an Tag 2 bei 4 Personen → je 100 €; nach dem Wechsel 5 Zeilen → je
+  //    80 €, und der Nachrücker zahlt 80 € für einen Einkauf von vor seiner
+  //    Ankunft). Bei `time_proportional` bleibt ein kleiner Effekt (der
+  //    Übergabetag zählt für beide, Σ Tage steigt um eins). Das Formular
+  //    warnt deshalb mit der Zahl der betroffenen Buchungen; automatisch
+  //    umschreiben würde fremde Buchungen irreversibel verändern.
+  //
+  //    Klassisch (vor Törnbeginn): A WIRKLICH aus trip_members entfernen
+  //    (DELETE, nicht on_board_from/to auf NULL setzen — NULL bedeutet im
+  //    Schema "ab Törn-Start" / "bis Törnende", also VOLLE Anwesenheit, exakt
+  //    das Gegenteil der Absicht). Die Pre-Checks oben plus das Umhängen der
+  //    Gutschriften stellen sicher, dass an A keine Buchungsspur mehr hängt.
+  if (handoverMode) {
+    const { error: shortenErr } = await supabase
+      .from("trip_members")
+      // Grill-Fund P7: `on_board_from` bewusst NICHT mitschreiben. War es
+      // NULL („ab Törnbeginn"), soll es NULL bleiben — sonst folgt A als
+      // einziges Crewmitglied einer späteren Törnstart-Verschiebung
+      // (updateTripDates) nicht mehr.
+      .update({ on_board_to: handover_date })
+      .eq("id", oldMember.id);
+    if (shortenErr) {
+      return { status: "error", message: dbErr(shortenErr, "Anwesenheit der bisherigen Person konnte nicht angepasst werden.") };
+    }
+  } else {
+    const { error: deleteErr } = await supabase.from("trip_members").delete().eq("id", oldMember.id);
+    if (deleteErr) return { status: "error", message: dbErr(deleteErr, "Alte Crewmitgliedschaft konnte nicht entfernt werden.") };
+
+    // Fund F3: `settled_debts` referenziert die Person direkt (kein FK auf
+    // trip_members) — ohne Aufräumen bliebe ein Häkchen für eine Person
+    // stehen, die es im Törn nicht mehr gibt. `removeMember` tut das schon
+    // lange (trip-members.ts), `replaceMember` hat es nie getan.
+    const { error: sdErr } = await supabase
+      .from("settled_debts")
+      .delete()
+      .eq("trip_id", trip_id)
+      .or(`from_person_id.eq.${old_person_id},to_person_id.eq.${old_person_id}`);
+    if (sdErr) console.error("[bordkasse:db] settled_debts cleanup:", sdErr.message);
+
+    // Fund F7: dieselbe Klasse — tote Dedup-Zeilen des Anzahlungs-Reminders.
+    // Folgenlos für B (eigene person_id), würde aber eine fällige Mahnung
+    // unterdrücken, falls A dem Törn später erneut beitritt.
+    const { data: trancheIds } = await supabase
+      .from("prepayment_tranches")
+      .select("id")
+      .eq("trip_id", trip_id);
+    const ids = (trancheIds ?? []).map((t) => t.id);
+    if (ids.length > 0) {
+      const { error: logErr } = await supabase
+        .from("prepayment_reminder_log")
+        .delete()
+        .eq("person_id", old_person_id)
+        .in("tranche_id", ids);
+      if (logErr) console.error("[bordkasse:db] reminder_log cleanup:", logErr.message);
+    }
+  }
 
   await logAudit(supabase, {
     table_name: "trip_members",
-    operation: "DELETE",
+    operation: handoverMode ? "UPDATE" : "DELETE",
     record_id: oldMember.id,
     trip_id,
     actor_person_id: person.id,
     payload: {
       kind: "crew-replacement",
+      mode: handoverMode ? "handover" : "remove",
+      handover_date: handoverMode ? handover_date : null,
       old_person_id,
       new_person_id: newPersonId,
       transferred_sum: transferredSum,
@@ -1057,9 +1317,26 @@ export async function replaceMember(
     }
   }
 
+  // Fund F2: ein Crewwechsel verändert die Bilanz gleich zweifach (die
+  // Anteile folgen der Mitgliedschaft, und die Anzahlungszahlungen wechseln
+  // den Zahler) — nach verschickter Abrechnung muss die Crew deshalb den
+  // "Bilanz hat sich geändert"-Banner sehen, genau wie bei einer
+  // nachträglichen Buchung (lib/actions/transactions.ts). Ohne den Marker
+  // ist `resendSettlement` gesperrt und die Crew rechnet dauerhaft mit der
+  // veralteten Abrechnungsmail weiter. Mail-Fehler dürfen den Wechsel nicht
+  // scheitern lassen — deshalb nur geloggt.
+  {
+    const { error: markErr } = await supabase.rpc("mark_post_settlement_change", { p_trip_id: trip_id });
+    if (markErr) console.error("[bordkasse:db] mark_post_settlement_change:", markErr.message);
+  }
+
   revalidatePath(`/trips/${trip_id}/prepayments`);
   revalidatePath(`/trips/${trip_id}/balance`);
   revalidatePath(`/trips/${trip_id}/settings`);
+  // Fund F6: die Schulden-Seite zeigt den kompletten Zahlungsplan und die
+  // Buchungsliste den Gutschrift-Geber — beide ändern sich hier.
+  revalidatePath(`/trips/${trip_id}/debts`);
+  revalidatePath(`/trips/${trip_id}/transactions`);
   revalidatePath(`/trips/${trip_id}`);
   return { status: "ok" };
 }

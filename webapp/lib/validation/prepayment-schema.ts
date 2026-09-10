@@ -123,10 +123,15 @@ export const ReplaceMemberSchema = z
     new_email: z.string().email().optional().or(z.literal("")),
     // Client-generierte ID für die neue Person (Idempotenz — Fund 3,
     // Grill-Review beim UI-Anbinden): stabil über Retries desselben
-    // Form-Submits, macht persons/trip_members/prepayment_obligations
-    // upsert-fähig statt insert-only. Optional mit Server-Fallback, falls
-    // ein älterer Client sie mal nicht mitschickt.
+    // Form-Submits. ⚠️ NUR als Wunsch-ID für eine NEUANLAGE zu behandeln —
+    // der Wert ist client-kontrolliert und darf niemals eine BESTEHENDE
+    // persons-Zeile adressieren (Guard `assertFreshPersonId` in
+    // replaceMember, Fund F1).
     new_person_id: Uuid.optional(),
+    // Wechseldatum für den Austausch mitten im Törn (Variante b): A bleibt
+    // in der Crew und ist bis zu diesem Tag an Bord, B ab diesem Tag. Leer
+    // = Austausch vor Törnbeginn (A wird vollständig aus der Crew entfernt).
+    handover_date: DateString.optional().or(z.literal("")),
   })
   .refine(
     (d) => !!d.new_email || !!(d.new_display_name && d.new_display_name.length >= 1),
