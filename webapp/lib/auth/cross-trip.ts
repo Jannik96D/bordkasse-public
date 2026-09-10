@@ -79,7 +79,7 @@ export async function personHasBookingTrace(
   const orParts = [`paid_by.eq.${personId}`, `credit_to.eq.${personId}`];
   if (includeCreditFrom) orParts.push(`credit_from.eq.${personId}`);
 
-  const [{ count: txCount }, { count: participantCount }] = await Promise.all([
+  const [txRes, partRes] = await Promise.all([
     supabase
       .from("transactions")
       .select("*", { count: "exact", head: true })
@@ -93,5 +93,21 @@ export async function personHasBookingTrace(
       .eq("transactions.trip_id", tripId)
       .is("transactions.deleted_at", null),
   ]);
-  return (txCount ?? 0) > 0 || (participantCount ?? 0) > 0;
+
+  // FAIL-CLOSED (Grill-Fund P7): ein verschluckter Query-Fehler lieferte
+  // vorher `count: undefined → 0 → "keine Spur"`. Beide Aufrufer nutzen das
+  // Ergebnis als Freigabe zum LÖSCHEN der Mitgliedschaft — ein transienter
+  // DB-Fehler hätte also eine Person mit lebenden `paid_by`-Zeilen entfernt.
+  // Deren `paid` fällt dann aus v_balances heraus, während die Anteile
+  // bleiben: Σ Bilanz ≠ 0 auf Dauer, `all_debts_settled` nie wahr, der Törn
+  // dauerhaft nicht purgebar. Im Zweifel lieber „hat eine Spur" melden und
+  // den Wechsel ablehnen.
+  if (txRes.error || partRes.error) {
+    console.error(
+      "[bordkasse:db] personHasBookingTrace:",
+      txRes.error?.message ?? partRes.error?.message,
+    );
+    return true;
+  }
+  return (txRes.count ?? 0) > 0 || (partRes.count ?? 0) > 0;
 }
