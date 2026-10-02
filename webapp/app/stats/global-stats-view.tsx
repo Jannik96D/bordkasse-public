@@ -1,13 +1,20 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Anchor, CalendarDays, ChevronRight, Tag } from "lucide-react";
+import { Anchor, BarChart3, CalendarDays, ChevronRight, Tag } from "lucide-react";
+import { CategoryFilter } from "@/components/category-filter";
 import { CategoryIcon } from "@/components/category-icon";
 import { SummaryCard } from "@/components/summary-card";
 import { formatDate, formatEuro } from "@/lib/utils";
-import type { GlobalStats } from "@/lib/queries/global-stats";
+import { applyGlobalFilter, listCategories } from "@/lib/calc/stats-filter";
+import type { GlobalStatsData } from "@/lib/queries/global-stats";
 
 /**
- * Präsentation der Cross-Trip-Statistik. Reine Server-Component — keine
- * Interaktivität nötig, alle Klicks sind <Link>-Navigation.
+ * Präsentation der Cross-Trip-Statistik. Client-Component: die Kategorie-
+ * Auswahl und der Alkoholanteil-Schalter rechnen Summen, „Nach Törn/Jahr",
+ * Törn-Anzahl und Ø pro Törn aus den vorverdichteten Zeilen neu
+ * (`applyGlobalFilter`); Törns ohne verbleibende Buchungen verschwinden.
  *
  * Vier Sections, gleiche Reihenfolge wie auf der Per-Trip-Seite:
  *   1. Summary-Karten (Gesamt, Anzahl Törns, Anzahl Buchungen, Ø pro Törn)
@@ -16,18 +23,45 @@ import type { GlobalStats } from "@/lib/queries/global-stats";
  *   4. Nach Jahr / Saison
  */
 export function GlobalStatsView({
-  stats,
+  data,
   admin,
 }: {
-  stats: GlobalStats;
+  data: GlobalStatsData;
   admin: boolean;
 }) {
-  const maxCat = Math.max(...stats.byCategory.map((c) => c.total), 1);
-  const maxTrip = Math.max(...stats.byTrip.map((t) => t.total), 1);
-  const maxYear = Math.max(...stats.byYear.map((y) => y.total), 1);
+  const categories = useMemo(() => listCategories(data.rows), [data.rows]);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(
+    () => new Set(categories.map((c) => c.key)),
+  );
+  const [excludeAlcohol, setExcludeAlcohol] = useState(false);
+  const stats = useMemo(
+    () => applyGlobalFilter(data.rows, data.trips, { categories: selected, excludeAlcohol }),
+    [data.rows, data.trips, selected, excludeAlcohol],
+  );
+  const { maxCat, maxTrip, maxYear } = stats;
 
   return (
     <>
+      <CategoryFilter
+        categories={categories}
+        selected={selected}
+        onChange={setSelected}
+        excludeAlcohol={excludeAlcohol}
+        onExcludeAlcohol={setExcludeAlcohol}
+        alcoholHint="Zieht den bei der Buchung angegebenen Alkoholanteil vom Betrag ab. Reine Alkohol-Buchungen zählen dann nicht mit. Trinkgeld ist in der Statistik nie enthalten."
+      />
+
+      <div aria-live="polite" aria-atomic="false">
+      {selected.size === 0 ? (
+        <div className="mt-6 rounded-lg border border-rule bg-paper-soft p-8 text-center">
+          <BarChart3 className="mx-auto mb-3 h-10 w-10 text-ink-soft" aria-hidden />
+          <p className="font-medium">Keine Kategorie gewählt</p>
+          <p className="mt-1 text-sm text-ink-soft">
+            Wähle oben mindestens eine Kategorie, um die Auswertung zu sehen.
+          </p>
+        </div>
+      ) : (
+      <>
       {/* ── Summary ─────────────────────────────────────────────────── */}
       <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <SummaryCard label="Gesamt" value={formatEuro(stats.total)} />
@@ -50,20 +84,20 @@ export function GlobalStatsView({
         </h2>
         <ul className="space-y-2">
           {stats.byCategory.map((c) => {
-            const pct = (c.total / stats.total) * 100;
+            const pct = c.pct;
             return (
               <li
-                key={c.category_name}
+                key={c.key}
                 className="rounded-md border border-rule bg-paper p-3"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="flex min-w-0 items-center gap-1.5 truncate font-medium">
                     <CategoryIcon
-                      icon={c.category_icon}
-                      name={c.category_name}
+                      icon={c.icon}
+                      name={c.name}
                       className="h-4 w-4 shrink-0 text-primary"
                     />
-                    <span className="truncate">{c.category_name}</span>
+                    <span className="truncate">{c.name}</span>
                   </span>
                   <span className="shrink-0 font-mono text-sm">
                     {formatEuro(c.total)}
@@ -178,6 +212,9 @@ export function GlobalStatsView({
           </ul>
         </section>
       )}
+      </>
+      )}
+      </div>
     </>
   );
 }

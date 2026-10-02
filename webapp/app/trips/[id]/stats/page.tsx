@@ -9,7 +9,7 @@ export default async function StatsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [stats, members] = await Promise.all([
+  const [data, members] = await Promise.all([
     getTripStats(id),
     getTripMembers(id),
   ]);
@@ -18,7 +18,7 @@ export default async function StatsPage({
   // ohne eigenen App-Login.
   const memberCount = members.length;
 
-  if (stats.count === 0) {
+  if (data.rows.length === 0) {
     return (
       <main className="mx-auto w-full max-w-2xl px-4 py-8">
         <h1 className="text-2xl font-bold text-primary">Statistik</h1>
@@ -39,7 +39,7 @@ export default async function StatsPage({
       <h1 className="text-2xl font-bold text-primary">Statistik</h1>
       <p className="mt-1 text-sm text-ink-soft">Liveauswertung der Ausgaben.</p>
 
-      <StatsView tripId={id} stats={stats} memberCount={memberCount} />
+      <StatsView tripId={id} data={data} memberCount={memberCount} />
     </main>
   );
 }
