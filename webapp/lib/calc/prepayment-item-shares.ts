@@ -135,31 +135,39 @@ export function allocateItemProviderShares(
     .filter((s) => s.amount > 0);
 }
 
-/** Status einer Soll-Zelle — dieselbe Logik wie die Tranchen-Zellen der Matrix. */
-export type ItemCellStatus = "open" | "partial" | "paid" | "overpaid" | "pending";
+/**
+ * Status einer Soll-Zelle (Entscheidung M4, PR4a-Review): Über- und
+ * Unterzahlung werden ausdrücklich benannt, damit die Matrix (PR4b) und die
+ * Bilanz sie sichtbar machen können:
+ *   open      — nichts gezahlt, nichts gemeldet
+ *   pending   — nichts/zu wenig bestätigt, aber eine Selbstmeldung offen
+ *   underpaid — teilweise bezahlt (bestätigt), Rest offen
+ *   paid      — exakt gedeckt (auf den Cent)
+ *   overpaid  — mehr bezahlt als Soll (auch bei Soll 0)
+ */
+export type ItemCellStatus = "open" | "pending" | "underpaid" | "paid" | "overpaid";
 
 export function itemCellStatus(soll: number, paid: number, pending: number): ItemCellStatus {
   // „overpaid" vor der 0-Soll-Abkürzung — sonst tarnt ein fehlendes Soll jede
   // Zahlung als grünes „bezahlt" (Lehre aus der Bilanz-Seite, Migration 0057).
   if (paid > soll + 0.005) return "overpaid";
-  if (soll <= 0.005) return "paid";
   if (paid >= soll - 0.005) return "paid";
   if (pending > 0.005) return "pending";
-  if (paid > 0.005) return "partial";
+  if (paid > 0.005) return "underpaid";
   return "open";
 }
 
 /**
- * Ein Posten ist abgeschlossen, wenn alle Soll-Zellen ✓ sind UND der Anbieter
- * vollständig bezahlt ist (Plan Teil B: beide Zahlungen werden dem Posten
- * zugeordnet und dort abgehakt).
+ * Ein Posten ist abgeschlossen, wenn JEDE Soll-Zelle exakt gedeckt ist (keine
+ * Über-, keine Unterzahlung) UND der Anbieter exakt bezahlt ist (M4). Eine
+ * Überzahlung ist kein „fertig" — das Geld muss zurück.
  */
 export function isItemComplete(args: {
   totalAmount: number;
   providerPaid: number;
   cells: { soll: number; paid: number }[];
 }): boolean {
-  const providerOk = args.providerPaid >= args.totalAmount - 0.005;
-  const crewOk = args.cells.every((c) => c.soll <= 0.005 || c.paid >= c.soll - 0.005);
+  const providerOk = Math.abs(args.providerPaid - args.totalAmount) <= 0.005;
+  const crewOk = args.cells.every((c) => Math.abs(c.paid - c.soll) <= 0.005);
   return providerOk && crewOk;
 }

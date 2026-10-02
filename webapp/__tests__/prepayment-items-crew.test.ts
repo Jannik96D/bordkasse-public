@@ -37,8 +37,9 @@ const A_MEMBER_ROW = "bbbbbbbb-0000-4000-8000-0000000000a4";
 const PROVIDER_TX = "bbbbbbbb-0000-4000-8000-0000000000f1";
 
 let fake: ReturnType<typeof createFakeSupabase>;
-function useFake(tables: Record<string, Row[]>) {
+function setupFake(tables: Record<string, Row[]>) {
   fake = createFakeSupabase(tables);
+  fake.onRpc("mark_post_settlement_change", () => ({ data: null }));
   mockedAdmin.mockReturnValue(fake.client as never);
   return fake;
 }
@@ -98,7 +99,7 @@ beforeEach(() => {
 describe("requireSkipperAdminOrItemPayee", () => {
   it("Empfänger (noch Crew) darf — liefert tripId + Empfänger des Postens", async () => {
     const { requireSkipperAdminOrItemPayee } = await import("@/lib/auth/authz");
-    useFake(tables());
+    setupFake(tables());
     mockedPerson.mockResolvedValue({ id: PAYEE, display_name: "Payee" } as never);
     expect(await requireSkipperAdminOrItemPayee(ITEM)).toEqual({ ok: true, personId: PAYEE, tripId: TRIP, payeePersonId: PAYEE });
   });
@@ -107,14 +108,14 @@ describe("requireSkipperAdminOrItemPayee", () => {
     const { requireSkipperAdminOrItemPayee } = await import("@/lib/auth/authz");
     const t = tables();
     t.trip_members = t.trip_members.filter((m) => m.person_id !== PAYEE);
-    useFake(t);
+    setupFake(t);
     mockedPerson.mockResolvedValue({ id: PAYEE, display_name: "Payee" } as never);
     expect((await requireSkipperAdminOrItemPayee(ITEM)).ok).toBe(false);
   });
 
   it("Skipper des Törns darf, gewöhnliches Crewmitglied nicht", async () => {
     const { requireSkipperAdminOrItemPayee } = await import("@/lib/auth/authz");
-    useFake(tables());
+    setupFake(tables());
     expect((await requireSkipperAdminOrItemPayee(ITEM)).ok).toBe(true);
     mockedPerson.mockResolvedValue({ id: A, display_name: "A" } as never);
     expect((await requireSkipperAdminOrItemPayee(ITEM)).ok).toBe(false);
@@ -122,14 +123,14 @@ describe("requireSkipperAdminOrItemPayee", () => {
 
   it("Skipper eines ANDEREN Törns darf nicht", async () => {
     const { requireSkipperAdminOrItemPayee } = await import("@/lib/auth/authz");
-    useFake(tables());
+    setupFake(tables());
     mockedPerson.mockResolvedValue({ id: OTHER, display_name: "Other" } as never);
     expect((await requireSkipperAdminOrItemPayee(ITEM)).ok).toBe(false);
   });
 
   it("Lesefehler → abgelehnt (fail-closed)", async () => {
     const { requireSkipperAdminOrItemPayee } = await import("@/lib/auth/authz");
-    useFake(tables());
+    setupFake(tables());
     fake.failOn({ table: "prepayment_items", action: "select" });
     expect((await requireSkipperAdminOrItemPayee(ITEM)).ok).toBe(false);
   });
@@ -138,7 +139,7 @@ describe("requireSkipperAdminOrItemPayee", () => {
 describe("cross-trip: itemBelongsToTrip / personHasBookingTrace", () => {
   it("itemBelongsToTrip: fremder Törn → false, Lesefehler → false, null → true", async () => {
     const { itemBelongsToTrip } = await import("@/lib/auth/cross-trip");
-    useFake(tables());
+    setupFake(tables());
     expect(await itemBelongsToTrip(fake.client as never, ITEM, TRIP)).toBe(true);
     expect(await itemBelongsToTrip(fake.client as never, ITEM, OTHER_TRIP)).toBe(false);
     expect(await itemBelongsToTrip(fake.client as never, null, TRIP)).toBe(true);
@@ -151,14 +152,14 @@ describe("cross-trip: itemBelongsToTrip / personHasBookingTrace", () => {
     const t = tables();
     t.transactions = [];
     t.transaction_participants = [];
-    useFake(t);
+    setupFake(t);
     expect(await personHasBookingTrace(fake.client as never, TRIP, PAYEE)).toBe(true);
     expect(await personHasBookingTrace(fake.client as never, TRIP, A)).toBe(false);
   });
 
   it("personHasBookingTrace: excludeItemParticipants ignoriert nur Anteile an Posten-Ausgaben", async () => {
     const { personHasBookingTrace } = await import("@/lib/auth/cross-trip");
-    useFake(tables());
+    setupFake(tables());
     expect(await personHasBookingTrace(fake.client as never, TRIP, A)).toBe(true);
     expect(await personHasBookingTrace(fake.client as never, TRIP, A, { excludeItemParticipants: true })).toBe(false);
   });
@@ -172,22 +173,77 @@ describe("removeMember mit Posten", () => {
     t.transactions = [];
     t.transaction_participants = [];
     t.prepayment_item_obligations = [];
-    useFake(t);
+    setupFake(t);
     const res = await removeMember("bbbbbbbb-0000-4000-8000-0000000000a3", TRIP);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.message).toContain("Empfänger");
     expect(fake.rows("trip_members").some((m) => m.person_id === PAYEE)).toBe(true);
   });
 
-  it("blockt bei offenem Posten-Soll", async () => {
+  it("M3: offenes Soll (gleichmäßig, keine Zahlung) wird auf die verbleibende Crew neu verteilt", async () => {
     const { removeMember } = await import("@/lib/actions/trip-members");
     const t = tables();
     t.transactions = [];
     t.transaction_participants = [];
-    useFake(t);
+    setupFake(t);
+    const res = await removeMember(A_MEMBER_ROW, TRIP);
+    expect(res.ok).toBe(true);
+    expect(fake.rows("trip_members").some((m) => m.person_id === A)).toBe(false);
+    const obl = fake.rows("prepayment_item_obligations").filter((o) => o.item_id === ITEM);
+    expect(obl.some((o) => o.person_id === A)).toBe(false);
+    expect(obl.map((o) => o.amount).sort()).toEqual([150, 150]);
+  });
+
+  it("M3: nach dem Entfernen bleibt das neu verteilte Soll beim Umbenennen des Postens stehen", async () => {
+    const { removeMember } = await import("@/lib/actions/trip-members");
+    const { saveItem } = await import("@/lib/actions/prepayment-items");
+    const t = tables();
+    t.transactions = [];
+    t.transaction_participants = [];
+    setupFake(t);
+    expect((await removeMember(A_MEMBER_ROW, TRIP)).ok).toBe(true);
+    const f = new FormData();
+    f.set("payload", JSON.stringify({ trip_id: TRIP, id: ITEM, label: "Flüge neu", total_amount: "300", split_type: "gleichmaessig", payee_person_id: PAYEE }));
+    expect((await saveItem({ status: "idle" }, f)).status).toBe("ok");
+    const obl = fake.rows("prepayment_item_obligations").filter((o) => o.item_id === ITEM);
+    expect(obl.map((o) => o.amount).sort()).toEqual([150, 150]);
+  });
+
+  it("M3: offenes Soll mit Anbieter-Zahlung → blockt mit Hinweis", async () => {
+    const { removeMember } = await import("@/lib/actions/trip-members");
+    const t = tables();
+    t.transaction_participants = t.transaction_participants.filter((p) => p.person_id !== A);
+    setupFake(t);
     const res = await removeMember(A_MEMBER_ROW, TRIP);
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.message).toContain("Soll");
+    if (!res.ok) expect(res.message).toContain("Anbieter");
+    expect(fake.rows("trip_members").some((m) => m.person_id === A)).toBe(true);
+    expect(fake.rows("prepayment_item_obligations").find((o) => o.person_id === A)?.amount).toBe(100);
+  });
+
+  it("M3: offenes Soll bei „individuell“ → blockt", async () => {
+    const { removeMember } = await import("@/lib/actions/trip-members");
+    const t = tables();
+    t.transactions = [];
+    t.transaction_participants = [];
+    t.prepayment_items[0].split_type = "individuell";
+    setupFake(t);
+    const res = await removeMember(A_MEMBER_ROW, TRIP);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.message).toContain("auf andere verteilen");
+    expect(fake.rows("prepayment_item_obligations").find((o) => o.person_id === A)?.amount).toBe(100);
+  });
+
+  it("M3: Aufräumen schlägt fehl → Person bleibt Crew (fail-loud)", async () => {
+    const { removeMember } = await import("@/lib/actions/trip-members");
+    const t = tables();
+    t.transactions = [];
+    t.transaction_participants = [];
+    t.prepayment_item_obligations = t.prepayment_item_obligations.map((o) => (o.person_id === A ? { ...o, amount: 0 } : o));
+    setupFake(t);
+    fake.failOn({ table: "prepayment_item_obligations", action: "delete" });
+    const res = await removeMember(A_MEMBER_ROW, TRIP);
+    expect(res.ok).toBe(false);
     expect(fake.rows("trip_members").some((m) => m.person_id === A)).toBe(true);
   });
 
@@ -197,7 +253,7 @@ describe("removeMember mit Posten", () => {
     t.transactions = [];
     t.transaction_participants = [];
     t.prepayment_item_obligations = t.prepayment_item_obligations.map((o) => (o.person_id === A ? { ...o, amount: 0 } : o));
-    useFake(t);
+    setupFake(t);
     const res = await removeMember(A_MEMBER_ROW, TRIP);
     expect(res.ok).toBe(true);
     expect(fake.rows("trip_members").some((m) => m.person_id === A)).toBe(false);
@@ -219,27 +275,41 @@ describe("replaceMember mit Posten", () => {
 
   it("lehnt den Empfänger eines Postens ab (Payee-Guard), bevor irgendetwas geschrieben wird", async () => {
     const { replaceMember } = await import("@/lib/actions/prepayments");
-    useFake(tables({ payee: A }));
+    setupFake(tables({ payee: A }));
     const res = await replaceMember({ status: "idle" }, fdReplace());
     expect(res.status).toBe("error");
     if (res.status === "error") expect(res.message).toContain("Posten");
     expect(fake.writes.filter((w) => w.table !== "audit_log")).toHaveLength(0);
   });
 
-  it("Payee-Guard greift auch im Wechsel mitten im Törn (dort gibt es keinen Buchungsspur-Check)", async () => {
+  it("H2: im Wechsel mitten im Törn bleibt ein Empfänger Crew UND Empfänger — kein Payee-Guard", async () => {
     const { replaceMember } = await import("@/lib/actions/prepayments");
-    useFake(tables({ payee: A, start: "2026-09-01", end: "2026-12-31" }));
+    setupFake(tables({ payee: A, start: "2026-09-01", end: "2026-12-31" }));
     const res = await replaceMember({ status: "idle" }, fdReplace({ repl_mode: "handover", handover_date: "2026-10-15" }));
+    expect(res).toEqual({ status: "ok" });
+    expect(fake.rows("prepayment_items")[0].payee_person_id).toBe(A);
+    expect(fake.rows("trip_members").some((m) => m.person_id === A)).toBe(true);
+  });
+
+  it("L3: scheitert das Entfernen von A, werden die Posten-Zeilen auf A zurückgesetzt", async () => {
+    const { replaceMember } = await import("@/lib/actions/prepayments");
+    const t = tables();
+    t.transactions.push({ id: "paid", trip_id: TRIP, type: "credit", item_id: ITEM, tranche_id: null, credit_from: A, credit_to: PAYEE, amount: 100, confirmed_at: "x", deleted_at: null, date: "2099-01-11" });
+    setupFake(t);
+    fake.failOn({ table: "trip_members", action: "delete" });
+    const res = await replaceMember({ status: "idle" }, fdReplace());
     expect(res.status).toBe("error");
-    if (res.status === "error") expect(res.message).toContain("Posten");
-    expect(fake.writes.filter((w) => w.table !== "audit_log")).toHaveLength(0);
+    expect(fake.rows("prepayment_item_obligations").find((o) => o.person_id === A)?.amount).toBe(100);
+    expect(fake.rows("prepayment_item_obligations").some((o) => o.person_id === B_NEW)).toBe(false);
+    expect(fake.rows("transaction_participants").find((p) => p.person_id === A)?.transaction_id).toBe(PROVIDER_TX);
+    expect(fake.rows("transactions").find((x) => x.id === "paid")?.credit_from).toBe(A);
   });
 
   it("offene Posten-Selbstmeldung blockt den Wechsel", async () => {
     const { replaceMember } = await import("@/lib/actions/prepayments");
     const t = tables();
     t.transactions.push({ id: "pend", trip_id: TRIP, type: "credit", item_id: ITEM, tranche_id: null, credit_from: A, credit_to: PAYEE, amount: 100, confirmed_at: null, deleted_at: null, date: "2099-01-11" });
-    useFake(t);
+    setupFake(t);
     const res = await replaceMember({ status: "idle" }, fdReplace());
     expect(res.status).toBe("error");
     if (res.status === "error") expect(res.message).toContain("Selbstmeldung");
@@ -250,7 +320,7 @@ describe("replaceMember mit Posten", () => {
     const { replaceMember } = await import("@/lib/actions/prepayments");
     const t = tables();
     t.transactions.push({ id: "paid", trip_id: TRIP, type: "credit", item_id: ITEM, tranche_id: null, credit_from: A, credit_to: PAYEE, amount: 100, confirmed_at: "x", deleted_at: null, date: "2099-01-11" });
-    useFake(t);
+    setupFake(t);
     const res = await replaceMember({ status: "idle" }, fdReplace());
     expect(res).toEqual({ status: "ok" });
     expect(fake.rows("prepayment_item_obligations").find((o) => o.person_id === B_NEW)?.amount).toBe(100);
@@ -265,7 +335,7 @@ describe("replaceMember mit Posten", () => {
     const { replaceMember } = await import("@/lib/actions/prepayments");
     const t = tables();
     t.transactions.push({ id: "a-item-credit", trip_id: TRIP, type: "credit", item_id: ITEM, tranche_id: null, credit_from: A, credit_to: PAYEE, amount: 100, confirmed_at: "x", deleted_at: null, date: "2099-01-11" });
-    useFake(t);
+    setupFake(t);
     // Zwischen erstem und letztem Check bucht jemand parallel eine Ausgabe mit
     // paid_by = A (Hook auf den persons-Lookup in Schritt 7).
     let personsCalls = 0;
@@ -288,7 +358,7 @@ describe("replaceMember mit Posten", () => {
     t.persons.push({ id: B_NEW, auth_user_id: null, display_name: "Bea" });
     t.persons_private.push({ person_id: B_NEW, email: "bea@example.test" });
     t.prepayment_item_obligations.push({ item_id: ITEM, trip_id: TRIP, person_id: B_NEW, amount: 0 });
-    useFake(t);
+    setupFake(t);
     const res = await replaceMember({ status: "idle" }, fdReplace({ new_email: "bea@example.test" }));
     expect(res.status).toBe("error");
     if (res.status === "error") expect(res.message).toContain("Posten");
@@ -302,7 +372,7 @@ describe("replaceMember mit Posten", () => {
       { id: "item-paid", trip_id: TRIP, type: "credit", item_id: ITEM, tranche_id: null, credit_from: A, credit_to: PAYEE, amount: 100, confirmed_at: "x", deleted_at: null, date: "2026-09-02" },
       { id: "kasse", trip_id: TRIP, type: "credit", item_id: null, tranche_id: null, credit_from: A, credit_to: SKIPPER, amount: 20, confirmed_at: "x", deleted_at: null, date: "2026-09-03" },
     );
-    useFake(t);
+    setupFake(t);
     const res = await replaceMember({ status: "idle" }, fdReplace({ repl_mode: "handover", handover_date: "2026-10-15" }));
     expect(res).toEqual({ status: "ok" });
     expect(fake.rows("trip_members").find((m) => m.person_id === A)?.on_board_to).toBe("2026-10-15");
@@ -341,13 +411,15 @@ describe("Ghost-Merge mit Posten", () => {
 
   it("hängt den Empfänger per move_item_payee um — direkt nach der Mitgliedschaft — und übernimmt das Posten-Soll", async () => {
     const { updateMember } = await import("@/lib/actions/trip-members");
-    useFake(mergeSetup());
+    setupFake(mergeSetup());
     // move_item_payee nachbilden: Posten + credit_to atomar. Merkt sich, ob
     // die Mitgliedschaft beim Aufruf schon auf das echte Konto zeigte und ob
     // bis dahin keine Posten-Gutschrift per normalem UPDATE angefasst wurde.
     let realIsMemberAtMove = false;
     let itemCreditTouchedBeforeMove = false;
     fake.onRpc("move_item_payee", (args) => {
+      const cur = fake.rows("prepayment_items").find((i) => i.id === args.p_item_id)!;
+      if (cur.payee_person_id === args.p_new_payee) return { data: 0 }; // No-op-Probe (Review P1)
       realIsMemberAtMove = fake.rows("trip_members").some((m) => m.trip_id === TRIP && m.person_id === REAL);
       itemCreditTouchedBeforeMove = fake.rows("transactions").some((x) => x.item_id === ITEM && x.type === "credit" && x.credit_to === REAL);
       const item = fake.rows("prepayment_items").find((i) => i.id === args.p_item_id)!;
@@ -364,7 +436,9 @@ describe("Ghost-Merge mit Posten", () => {
 
     // Reihenfolge (Grill-Fund P2-4): erst Mitgliedschaft, dann Empfänger —
     // und die Posten-Gutschriften nur über move_item_payee (sonst Trigger).
+    // Erst die No-op-Probe (Review P1), dann der echte Wechsel.
     expect(fake.rpcCalls.filter((c) => c.name === "move_item_payee")).toEqual([
+      { name: "move_item_payee", args: { p_item_id: ITEM, p_new_payee: PAYEE } },
       { name: "move_item_payee", args: { p_item_id: ITEM, p_new_payee: REAL } },
     ]);
     expect(realIsMemberAtMove).toBe(true);
@@ -377,9 +451,30 @@ describe("Ghost-Merge mit Posten", () => {
     expect(fake.rows("persons").some((p) => p.id === PAYEE)).toBe(false);
   });
 
+  it("P1: fehlt move_item_payee (Migration nicht eingespielt), bricht der Merge VOR jedem Schreibschritt ab", async () => {
+    const { updateMember } = await import("@/lib/actions/trip-members");
+    setupFake(mergeSetup()); // bewusst KEIN onRpc("move_item_payee")
+    const res = await updateMember({ status: "idle" }, fdMerge());
+    expect(res.status).toBe("error");
+    const mergeWrites = fake.writes.filter((w) => !["audit_log", "trip_members"].includes(w.table));
+    expect(mergeWrites).toHaveLength(0);
+    expect(fake.rows("trip_members").some((m) => m.person_id === PAYEE)).toBe(true);
+  });
+
+  it("P3: ist der Ghost Empfänger in einem ANDEREN Törn, wird vorab abgelehnt", async () => {
+    const { updateMember } = await import("@/lib/actions/trip-members");
+    const t = mergeSetup();
+    t.prepayment_items.push({ id: "bbbbbbbb-0000-4000-8000-0000000000d9", trip_id: OTHER_TRIP, label: "X", total_amount: 10, payee_person_id: PAYEE, split_type: "gleichmaessig", sort_order: 0 });
+    setupFake(t);
+    const res = await updateMember({ status: "idle" }, fdMerge());
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).toContain("anderen Törn");
+    expect(fake.writes.filter((w) => !["audit_log", "trip_members"].includes(w.table))).toHaveLength(0);
+  });
+
   it("Lesefehler beim Empfänger-Check → Abbruch OHNE jeden Schreibschritt", async () => {
     const { updateMember } = await import("@/lib/actions/trip-members");
-    useFake(mergeSetup());
+    setupFake(mergeSetup());
     fake.failOn({ table: "prepayment_items", action: "select" });
 
     const res = await updateMember({ status: "idle" }, fdMerge());

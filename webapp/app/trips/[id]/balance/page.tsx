@@ -90,7 +90,20 @@ export default async function BalancePage({
 
       {/* Reise-Posten (PR4a): bewusst minimal — das eigentliche Layout
           (Drei-Topf-Erklärung, Status je Person) kommt mit PR4b. */}
-      {hasItems && <ItemsSummary tripId={id} items={items} />}
+      {hasItems && (
+        <ItemsSummary
+          tripId={id}
+          items={items}
+          // M1 (PR4a-Review): je Person Posten-Saldo + Gesamtsaldo sichtbar —
+          // die Bordkasse-Tabelle oben zeigt Posten bewusst nicht mehr.
+          people={rows.map((r) => ({
+            person_id: r.person_id,
+            name: r.display_name,
+            itemBalance: itemBalanceFor(items, r.person_id),
+            total: r.balance,
+          }))}
+        />
+      )}
 
       {tripStarted && hasPlan && (
         <PrepaymentsSummary
@@ -237,8 +250,26 @@ function PrepaymentsSummary({
   );
 }
 
+/** Posten-Saldo einer Person: Σ (bestätigt gezahlt − Soll) über alle Posten. */
+function itemBalanceFor(items: PrepaymentItemView[], personId: string): number {
+  let b = 0;
+  for (const it of items) {
+    const c = it.cells.find((x) => x.person_id === personId);
+    if (c) b += c.paid - c.soll;
+  }
+  return Math.round(b * 100) / 100;
+}
+
 /** Kurzübersicht der Reise-Posten: Crew-Beiträge und Anbieter-Zahlung je Posten. */
-function ItemsSummary({ tripId, items }: { tripId: string; items: PrepaymentItemView[] }) {
+function ItemsSummary({
+  tripId,
+  items,
+  people,
+}: {
+  tripId: string;
+  items: PrepaymentItemView[];
+  people: { person_id: string; name: string; itemBalance: number; total: number }[];
+}) {
   return (
     <section className="mb-4 rounded-lg border border-rule bg-paper p-4" aria-labelledby="items-summary-heading">
       <div className="mb-2 flex items-baseline justify-between gap-2">
@@ -258,6 +289,19 @@ function ItemsSummary({ tripId, items }: { tripId: string; items: PrepaymentItem
                 {formatEuro(it.providerPaid)} / {formatEuro(it.total_amount)}
               </span>
               <span className="sr-only">{it.complete ? "abgeschlossen" : "noch offen"}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {/* Minimal (Layout kommt mit PR4b): je Person Posten-Saldo und Gesamt. */}
+      <ul className="mt-3 divide-y divide-rule border-t border-rule text-xs text-ink-soft">
+        {people.map((p) => (
+          <li key={p.person_id} className="flex justify-between gap-2 py-1">
+            <span>{p.name}</span>
+            <span className="tabular-nums">
+              Posten {p.itemBalance > 0.005 ? "+" : p.itemBalance < -0.005 ? "−" : ""}
+              {formatEuro(Math.abs(p.itemBalance))} · Gesamt {p.total > 0.005 ? "+" : p.total < -0.005 ? "−" : ""}
+              {formatEuro(Math.abs(p.total))}
             </span>
           </li>
         ))}

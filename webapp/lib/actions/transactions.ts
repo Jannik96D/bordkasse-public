@@ -92,6 +92,10 @@ function poolErrorMessage(error: { message: string } | null, fallback: string): 
   if (msg.includes("tx_pool_exclusive")) return POOL_EXCLUSIVE_MSG;
   if (msg.includes("tx_item_credit_direct")) return ITEM_CREDIT_DIRECT_MSG;
   if (msg.includes("prepayment_item_credit_wrong_payee")) return ITEM_CREDIT_PAYEE_MSG;
+  if ((error as { code?: string } | null)?.code === "40P01" || msg.includes("deadlock detected")) {
+    console.error("[bordkasse:db]", msg);
+    return "Gerade wurde gleichzeitig etwas geändert. Bitte erneut versuchen.";
+  }
   return dbErrorMessage(error, fallback);
 }
 

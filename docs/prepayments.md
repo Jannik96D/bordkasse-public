@@ -697,6 +697,8 @@ formData) → ItemActionState` = `{status:"ok", itemId?, duplicate?} |
 - **Audit ohne Klartext:** keine Bezeichnung, keine Notiz, nur IDs/Beträge.
 - **Kein Mail/Push** (Templates sind tranchenspezifisch, Erinnerungen sind ein
   Folgeschritt).
+- `removeMember`, `replaceMember` (Payee-Guard nur klassisch), Abrechnungsmail
+  und Empfängerwechsel: siehe „Entscheidungen aus dem Review" unten.
 
 **Empfängerwechsel — `move_item_payee` (Migration 0059):** hängt
 `payee_person_id` UND die `credit_to` der Posten-Gutschriften in EINER
@@ -710,7 +712,8 @@ danach die Gutschriften — die passen dann zum neuen Empfänger, der Trigger
 `session_replication_role` (schaltet alle Trigger + FKs ab), `DISABLE
 TRIGGER` (Owner-Recht, Tabellen-Lock). `SECURITY INVOKER`, EXECUTE nur für
 `service_role`, `search_path` gepinnt; prüft am Ende die Invariante selbst.
-Genutzt von `saveItem` (nur ohne Anbieter-Zahlung) und vom Ghost-Merge.
+Genutzt von `saveItem` (nur ohne Zahlungen, siehe H1 unten) und vom
+Ghost-Merge.
 pgTAP: `supabase/tests/move_item_payee_test.sql`.
 
 **Crew:**
@@ -755,10 +758,61 @@ bewusst kein `item_id` (wie `tranche_id`, S-1).
 **Bilanz/Abrechnung:** die Bilanz-Seite nutzt `v_balances_bordkasse_only`,
 sobald es einen Plan ODER Posten gibt, und zeigt einen minimalen
 Posten-Block (`getItems` in `lib/queries/prepayment-items.ts`, fail-loud).
-Die Abrechnungsmail bleibt bewusst bei Saldo = Gesamtbilanz (`v_balances`,
-inkl. offener Posten) und Zahlungsplan = nur Bordkasse — wie bei Tranchen.
+Die Abrechnungsmail zeigt seit der zweiten Review-Runde den Bordkasse-Saldo
+und Anzahlung/Posten getrennt (M1, unten).
 
-**Deploy-Reihenfolge:** Migration 0059 VOR dem App-Merge auf Produktion.
+**Entscheidungen aus dem Review zu PR 271 (zweite Runde):**
+
+- **H1 — Empfängerwechsel nur ohne Zahlungen:** `saveItem` verweigert den
+  Wechsel, sobald lebende Posten-Gutschriften existieren (bestätigt ODER
+  offen, inkl. Selbstverrechnung des Empfängers) oder eine Anbieter-Zahlung
+  gebucht ist. Ausweg: Zahlungen löschen bzw. Meldungen ablehnen. Damit
+  entsteht nie eine verdeckte Schuld zwischen altem und neuem Empfänger. Die
+  einzige Stelle, an der Gutschriften per `move_item_payee` mitwandern, ist
+  der Ghost-Merge (gleiche Person). Migration **0060** lässt `move_item_payee`
+  zusätzlich scheitern (`prepayment_item_provider_paid_by_other`), wenn eine
+  lebende Anbieter-Zahlung existiert, die nicht der neue Empfänger geleistet
+  hat (schließt das Race; der Ghost-Merge hängt `paid_by` vorher um).
+- **H2 —** der Payee-Guard in `replaceMember` gilt nur im klassischen Pfad;
+  in Variante b bleibt A Crew UND Empfänger.
+- **M1 — Abrechnungsmail:** Saldo = Bordkasse-Saldo
+  (`v_balances_bordkasse_only`, passt zum Zahlungsplan), offene Beträge aus
+  Anzahlung und Posten stehen getrennt darunter
+  (`lib/calc/settlement-balances.ts`). Ohne Plan/Posten ist der getrennte
+  Anteil 0. Die Bilanz-Seite zeigt im Posten-Block je Person Posten-Saldo und
+  Gesamtsaldo (Layout folgt in PR4b).
+- **M2 — Soll nur bei Bedarf neu verteilen:** `saveItem` verteilt nur neu bei
+  neuem Posten, geändertem Betrag, geänderter Aufteilung, geänderten
+  Einzelbeträgen oder mit `redistribute: true`. Umbenennen/Kategorie/
+  Fälligkeit lassen das Soll unangetastet — auch ohne Anbieter-Zahlung.
+- **M3 — removeMember:** offenes Soll bei gleichmäßig/zeitanteilig ohne
+  Anbieter-Zahlung und ohne Zahlung/Meldung der Person wird auf die
+  verbleibende Crew neu verteilt (Σ = Summe exakt); sonst wird mit konkretem
+  Hinweis geblockt (Anbieter-Zahlung, eigene Zahlung, Einzelbeträge).
+  Aufräumen der Sollzeilen ist fail-loud und läuft vor dem Entfernen der
+  Mitgliedschaft.
+- **M4 — Über-/Unterzahlung:** Zellstatus `open`/`pending`/`underpaid`/
+  `paid`/`overpaid`; `getItems` liefert `overpaidTotal`/`underpaidTotal`.
+  „Abgeschlossen" heißt jetzt: jede Zelle exakt gedeckt (auch keine
+  Überzahlung) UND Anbieter exakt bezahlt.
+- **Niedrig:** `idempotency_key` ist bei allen Posten-Zahlungen Pflicht;
+  `replaceMember` setzt die Posten-Zeilen auf A zurück, wenn ein späterer
+  Schritt (inkl. Entfernen von A) scheitert; der Ghost-Merge ruft
+  `move_item_payee` vor jedem Schreibschritt als No-op-Probe auf (fehlt die
+  Funktion, bricht er ab, bevor etwas geschrieben ist) und blockt einen
+  Ghost, der in einem ANDEREN Törn Empfänger ist; Deadlocks (40P01) melden
+  „bitte erneut versuchen"; Bestätigen/Ablehnen und die Posten-Rolle
+  antworten Fremden einheitlich „nicht gefunden oder keine Berechtigung"
+  (kein Existenz-Leck).
+
+**Bekannte Grenze (L2):** zwei gleichzeitig gebuchte Teil-Anbieterzahlungen
+können je nach Reihenfolge um Rundungs-Cents von der kumulativen Verteilung
+abweichen; ihre jeweilige Summe stimmt, und zusammen überschreiten sie den
+Deckel nicht (Nachkontrolle). Ein echter Lock bräuchte eine SQL-Funktion für
+die Anbieter-Zahlung — bewusst nicht gebaut.
+
+**Deploy-Reihenfolge:** 0058 ist vorhanden → **0059 und 0060** VOR dem
+App-Merge auf Produktion einspielen, danach `NOTIFY pgrst, 'reload schema';`.
 
 ## Mail-Templates + WhatsApp-Texte
 

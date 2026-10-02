@@ -115,8 +115,15 @@ function fd(values: Record<string, string>): FormData {
 }
 
 let fake: ReturnType<typeof createFakeSupabase>;
-function useFake(tables: Record<string, Row[]>) {
+function setupFake(tables: Record<string, Row[]>) {
   fake = createFakeSupabase(tables);
+  // Jede RPC muss registriert sein (sonst liefert der Fake einen Fehler).
+  fake.onRpc("mark_post_settlement_change", () => ({ data: null }));
+  fake.onRpc("move_item_payee", (args) => {
+    const item = fake.rows("prepayment_items").find((i) => i.id === args.p_item_id);
+    if (item) item.payee_person_id = args.p_new_payee;
+    return { data: 0 };
+  });
   mockedAdmin.mockReturnValue(fake.client as never);
   return fake;
 }
@@ -149,7 +156,7 @@ function totalBalance(tables: Record<string, Row[]>, person: string): number {
 // ─────────────────────────────────────────────────────────────────────────
 describe("saveItem — anlegen", () => {
   it("legt einen gleichmäßigen Posten an: Σ Soll = Summe exakt, Empfänger = Skipper als Default", async () => {
-    useFake(baseTables());
+    setupFake(baseTables());
     const res = await saveItem({ status: "idle" }, payloadFd({
       trip_id: TRIP, id: ITEM, category_id: CAT, label: "Bahn", total_amount: "100,00", split_type: "gleichmaessig",
     }));
@@ -164,7 +171,7 @@ describe("saveItem — anlegen", () => {
   });
 
   it("weist einen Empfänger ab, der nicht Crew dieses Törns ist", async () => {
-    useFake(baseTables());
+    setupFake(baseTables());
     const res = await saveItem({ status: "idle" }, payloadFd({
       trip_id: TRIP, id: ITEM, label: "Bahn", total_amount: "100", split_type: "gleichmaessig", payee_person_id: STRANGER,
     }));
@@ -173,7 +180,7 @@ describe("saveItem — anlegen", () => {
   });
 
   it("weist eine Kategorie eines fremden Törns ab", async () => {
-    useFake(baseTables());
+    setupFake(baseTables());
     const res = await saveItem({ status: "idle" }, payloadFd({
       trip_id: TRIP, id: ITEM, category_id: FOREIGN_CAT, label: "Bahn", total_amount: "100", split_type: "gleichmaessig",
     }));
@@ -183,7 +190,7 @@ describe("saveItem — anlegen", () => {
   });
 
   it("weist eine Posten-ID eines FREMDEN Törns ab und lässt den fremden Posten unangetastet (Klasse F1)", async () => {
-    useFake(baseTables());
+    setupFake(baseTables());
     const res = await saveItem({ status: "idle" }, payloadFd({
       // Empfänger explizit aus DIESEM Törn — sonst fiele der Versuch schon am
       // Empfänger-Check und der ID-Guard bliebe ungetestet.
@@ -198,7 +205,7 @@ describe("saveItem — anlegen", () => {
   });
 
   it("individuell: Σ Einzelbeträge ≠ Summe wird abgewiesen", async () => {
-    useFake(baseTables());
+    setupFake(baseTables());
     const res = await saveItem({ status: "idle" }, payloadFd({
       trip_id: TRIP, id: ITEM, label: "Flüge", total_amount: "300", split_type: "individuell",
       obligations: [{ person_id: ANNA, amount: "100" }, { person_id: BEN, amount: "150" }],
@@ -208,7 +215,7 @@ describe("saveItem — anlegen", () => {
   });
 
   it("individuell: eine Person aus einem fremden Törn wird abgewiesen", async () => {
-    useFake(baseTables());
+    setupFake(baseTables());
     const res = await saveItem({ status: "idle" }, payloadFd({
       trip_id: TRIP, id: ITEM, label: "Flüge", total_amount: "300", split_type: "individuell",
       obligations: [{ person_id: ANNA, amount: "150" }, { person_id: STRANGER, amount: "150" }],
@@ -220,7 +227,7 @@ describe("saveItem — anlegen", () => {
   it("archivierter Törn → kein Schreiben", async () => {
     const tables = baseTables();
     tables.trips[0].archived = true;
-    useFake(tables);
+    setupFake(tables);
     const res = await saveItem({ status: "idle" }, payloadFd({
       trip_id: TRIP, id: ITEM, label: "Bahn", total_amount: "100", split_type: "gleichmaessig",
     }));
@@ -230,7 +237,7 @@ describe("saveItem — anlegen", () => {
   });
 
   it("ohne Skipper-/Admin-Recht → kein Schreiben", async () => {
-    useFake(baseTables());
+    setupFake(baseTables());
     mockedSkipper.mockResolvedValue({ ok: false, message: "Nur Skipper dürfen das ändern." });
     const res = await saveItem({ status: "idle" }, payloadFd({
       trip_id: TRIP, id: ITEM, label: "Bahn", total_amount: "100", split_type: "gleichmaessig",
@@ -240,7 +247,7 @@ describe("saveItem — anlegen", () => {
   });
 
   it("Rollback: scheitert das Soll, verschwindet der eben angelegte Posten wieder", async () => {
-    useFake(baseTables());
+    setupFake(baseTables());
     fake.failOn({ table: "prepayment_item_obligations", action: "insert" });
     const res = await saveItem({ status: "idle" }, payloadFd({
       trip_id: TRIP, id: ITEM, label: "Bahn", total_amount: "100", split_type: "gleichmaessig",
@@ -250,7 +257,7 @@ describe("saveItem — anlegen", () => {
   });
 
   it("Audit-Log ohne Freitext-Bezeichnung", async () => {
-    useFake(baseTables());
+    setupFake(baseTables());
     await saveItem({ status: "idle" }, payloadFd({
       trip_id: TRIP, id: ITEM, label: "Flug für Anna Müller", total_amount: "100", split_type: "gleichmaessig",
     }));
@@ -267,7 +274,7 @@ describe("saveItem — ändern", () => {
   const providerTx = { id: "tx-prov", trip_id: TRIP, type: "expense", item_id: ITEM, amount: 300, paid_by: SKIPPER, deleted_at: null, confirmed_at: "x" };
 
   it("verteilt das Soll neu (Delete + Insert)", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     const res = await saveItem({ status: "idle" }, payloadFd(indiv([[ANNA, "150"], [BEN, "150"]])));
     expect(res.status).toBe("ok");
     const obl = fake.rows("prepayment_item_obligations").filter((r) => r.item_id === ITEM);
@@ -275,7 +282,7 @@ describe("saveItem — ändern", () => {
   });
 
   it("sperrt eine Soll-Änderung, sobald eine Anbieter-Zahlung gebucht ist", async () => {
-    useFake(withItem({ transactions: [providerTx] }));
+    setupFake(withItem({ transactions: [providerTx] }));
     const res = await saveItem({ status: "idle" }, payloadFd(indiv([[ANNA, "150"], [BEN, "150"]])));
     expect(res.status).toBe("error");
     if (res.status === "error") expect(res.message).toContain("Anbieter");
@@ -284,7 +291,7 @@ describe("saveItem — ändern", () => {
   });
 
   it("erlaubt trotz Anbieter-Zahlung eine reine Umbenennung (Soll unverändert)", async () => {
-    useFake(withItem({ transactions: [providerTx] }));
+    setupFake(withItem({ transactions: [providerTx] }));
     const res = await saveItem({ status: "idle" }, payloadFd({
       ...indiv([[SKIPPER, "50"], [ANNA, "100"], [BEN, "150"], [CLARA, "0"]]), label: "Flüge Hin+Rück",
     }));
@@ -293,7 +300,7 @@ describe("saveItem — ändern", () => {
   });
 
   it("Empfängerwechsel läuft über move_item_payee (atomar in SQL)", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     const res = await saveItem({ status: "idle" }, payloadFd({
       ...indiv([[SKIPPER, "50"], [ANNA, "100"], [BEN, "150"]]), payee_person_id: ANNA,
     }));
@@ -307,8 +314,50 @@ describe("saveItem — ändern", () => {
     expect(fake.rpcCalls.some((c) => c.name === "mark_post_settlement_change")).toBe(true);
   });
 
+  it("H1: Empfängerwechsel bei bestätigter Posten-Gutschrift → abgelehnt, kein RPC", async () => {
+    setupFake(withItem({ transactions: [{ id: "c1", trip_id: TRIP, type: "credit", item_id: ITEM, credit_from: ANNA, credit_to: SKIPPER, amount: 100, confirmed_at: "x", deleted_at: null }] }));
+    const res = await saveItem({ status: "idle" }, payloadFd({ ...indiv([[SKIPPER, "50"], [ANNA, "100"], [BEN, "150"]]), payee_person_id: ANNA }));
+    expect(res).toMatchObject({ status: "error", field: "payee_person_id" });
+    expect(fake.rpcCalls.some((c) => c.name === "move_item_payee")).toBe(false);
+    expect(fake.rows("prepayment_items").find((r) => r.id === ITEM)!.payee_person_id).toBe(SKIPPER);
+  });
+
+  it("H1: auch eine offene Selbstmeldung oder die Selbstverrechnung des Empfängers blockt", async () => {
+    for (const credit of [
+      { credit_from: BEN, confirmed_at: null },
+      { credit_from: SKIPPER, confirmed_at: "x" },
+    ]) {
+      setupFake(withItem({ transactions: [{ id: "c1", trip_id: TRIP, type: "credit", item_id: ITEM, credit_to: SKIPPER, amount: 50, deleted_at: null, ...credit }] }));
+      const res = await saveItem({ status: "idle" }, payloadFd({ ...indiv([[SKIPPER, "50"], [ANNA, "100"], [BEN, "150"]]), payee_person_id: ANNA }));
+      expect(res.status).toBe("error");
+    }
+  });
+
+  it("H1: eine soft-gelöschte Gutschrift blockt den Wechsel nicht", async () => {
+    setupFake(withItem({ transactions: [{ id: "c1", trip_id: TRIP, type: "credit", item_id: ITEM, credit_from: ANNA, credit_to: SKIPPER, amount: 100, confirmed_at: "x", deleted_at: "y" }] }));
+    const res = await saveItem({ status: "idle" }, payloadFd({ ...indiv([[SKIPPER, "50"], [ANNA, "100"], [BEN, "150"]]), payee_person_id: ANNA }));
+    expect(res.status).toBe("ok");
+  });
+
+  it("M2: Umbenennen ohne Anbieter-Zahlung verteilt bei gleichmäßig NICHT aus der aktuellen Crew neu", async () => {
+    const t = withItem();
+    t.prepayment_items = t.prepayment_items.map((i) => (i.id === ITEM ? { ...i, split_type: "gleichmaessig" } : i));
+    t.prepayment_item_obligations = [
+      { item_id: ITEM, trip_id: TRIP, person_id: SKIPPER, amount: 100 },
+      { item_id: ITEM, trip_id: TRIP, person_id: ANNA, amount: 100 },
+      { item_id: ITEM, trip_id: TRIP, person_id: BEN, amount: 100 },
+    ];
+    setupFake(t);
+    const body = { trip_id: TRIP, id: ITEM, label: "Umbenannt", total_amount: "300", split_type: "gleichmaessig" };
+    expect((await saveItem({ status: "idle" }, payloadFd(body))).status).toBe("ok");
+    expect(fake.rows("prepayment_item_obligations").map((o) => o.amount)).toEqual([100, 100, 100]);
+    // Mit redistribute: aus der aktuellen Crew (4 Personen) neu.
+    expect((await saveItem({ status: "idle" }, payloadFd({ ...body, redistribute: true }))).status).toBe("ok");
+    expect(fake.rows("prepayment_item_obligations").map((o) => o.amount)).toEqual([75, 75, 75, 75]);
+  });
+
   it("Empfängerwechsel scheitert → Posten und Soll werden zurückgerollt", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     fake.onRpc("move_item_payee", () => ({ error: { message: "prepayment_item_payee_invalid" } }));
     const res = await saveItem({ status: "idle" }, payloadFd({
       ...indiv([[ANNA, "150"], [BEN, "150"]]), label: "Neu", payee_person_id: ANNA,
@@ -322,7 +371,7 @@ describe("saveItem — ändern", () => {
   });
 
   it("sperrt den Empfängerwechsel, sobald der bisherige Empfänger an den Anbieter gezahlt hat", async () => {
-    useFake(withItem({ transactions: [providerTx] }));
+    setupFake(withItem({ transactions: [providerTx] }));
     const res = await saveItem({ status: "idle" }, payloadFd({
       ...indiv([[SKIPPER, "50"], [ANNA, "100"], [BEN, "150"], [CLARA, "0"]]), payee_person_id: ANNA,
     }));
@@ -340,7 +389,7 @@ describe("saveItem — ändern", () => {
       { item_id: ITEM, trip_id: TRIP, person_id: ANNA, amount: 100 },
       { item_id: ITEM, trip_id: TRIP, person_id: BEN, amount: 100 },
     ];
-    useFake(t);
+    setupFake(t);
     const res = await saveItem({ status: "idle" }, payloadFd({
       trip_id: TRIP, id: ITEM, category_id: CAT, label: "Flüge (gebucht)", total_amount: "300", split_type: "gleichmaessig",
     }));
@@ -352,7 +401,7 @@ describe("saveItem — ändern", () => {
   });
 
   it("Race: wird WÄHREND des Neuverteilens eine Anbieter-Zahlung gebucht, wird zurückgerollt", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     // 3. from("transactions") = Nachkontrolle nach dem Soll-Insert.
     fake.onFrom("transactions", 2, () => fake.rows("transactions").push({ ...providerTx }));
     const res = await saveItem({ status: "idle" }, payloadFd(indiv([[ANNA, "150"], [BEN, "150"]])));
@@ -362,7 +411,7 @@ describe("saveItem — ändern", () => {
   });
 
   it("Race: hat die parallele Anbieter-Zahlung schon nach dem NEUEN Soll verteilt, bleibt das neue Soll", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     fake.onFrom("transactions", 2, () => {
       fake.rows("transactions").push({ ...providerTx });
       fake.rows("transaction_participants").push(
@@ -376,7 +425,7 @@ describe("saveItem — ändern", () => {
   });
 
   it("scheitert auch das Zurücksetzen, sagt die Meldung das", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     fake.failOn({ table: "prepayment_item_obligations", action: "insert" });
     fake.failOn({ table: "prepayment_item_obligations", action: "insert", nth: 2 });
     const res = await saveItem({ status: "idle" }, payloadFd({ ...indiv([[ANNA, "150"], [BEN, "150"]]), label: "Neu" }));
@@ -385,7 +434,7 @@ describe("saveItem — ändern", () => {
   });
 
   it("Rollback: scheitert das neue Soll, kommt das alte zurück", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     fake.failOn({ table: "prepayment_item_obligations", action: "insert" });
     const res = await saveItem({ status: "idle" }, payloadFd({ ...indiv([[ANNA, "150"], [BEN, "150"]]), label: "Neu" }));
     expect(res.status).toBe("error");
@@ -400,7 +449,7 @@ describe("deleteItem — Löschschutz", () => {
   const del = (item = ITEM) => deleteItem({ status: "idle" }, fd({ trip_id: TRIP, item_id: item }));
 
   it("blockt bei bestätigter Zahlung", async () => {
-    useFake(withItem({ transactions: [{ id: "c1", trip_id: TRIP, type: "credit", item_id: ITEM, amount: 100, confirmed_at: "x", deleted_at: null }] }));
+    setupFake(withItem({ transactions: [{ id: "c1", trip_id: TRIP, type: "credit", item_id: ITEM, amount: 100, confirmed_at: "x", deleted_at: null }] }));
     const res = await del();
     expect(res.status).toBe("error");
     if (res.status === "error") expect(res.message).toContain("bestätigte");
@@ -408,7 +457,7 @@ describe("deleteItem — Löschschutz", () => {
   });
 
   it("blockt bei offener Selbstmeldung", async () => {
-    useFake(withItem({ transactions: [{ id: "c1", trip_id: TRIP, type: "credit", item_id: ITEM, amount: 100, confirmed_at: null, deleted_at: null }] }));
+    setupFake(withItem({ transactions: [{ id: "c1", trip_id: TRIP, type: "credit", item_id: ITEM, amount: 100, confirmed_at: null, deleted_at: null }] }));
     const res = await del();
     expect(res.status).toBe("error");
     if (res.status === "error") expect(res.message).toContain("unbestätigte");
@@ -416,21 +465,21 @@ describe("deleteItem — Löschschutz", () => {
   });
 
   it("löscht, wenn nur soft-gelöschte Zeilen daran hängen", async () => {
-    useFake(withItem({ transactions: [{ id: "c1", trip_id: TRIP, type: "credit", item_id: ITEM, amount: 100, confirmed_at: "x", deleted_at: "y" }] }));
+    setupFake(withItem({ transactions: [{ id: "c1", trip_id: TRIP, type: "credit", item_id: ITEM, amount: 100, confirmed_at: "x", deleted_at: "y" }] }));
     const res = await del();
     expect(res.status).toBe("ok");
     expect(fake.rows("prepayment_items").some((r) => r.id === ITEM)).toBe(false);
   });
 
   it("ein Posten eines fremden Törns wird nicht gelöscht (IDOR)", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     const res = await del(FOREIGN_ITEM);
     expect(res.status).toBe("error");
     expect(fake.rows("prepayment_items").some((r) => r.id === FOREIGN_ITEM)).toBe(true);
   });
 
   it("übersetzt den Trigger-Fehler bei einem Race in eine verständliche Meldung", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     fake.failOn({ table: "prepayment_items", action: "delete", error: { code: "P0001", message: "prepayment_item_has_payments" } });
     const res = await del();
     expect(res.status).toBe("error");
@@ -446,7 +495,7 @@ describe("recordItemPayment — Crew → Empfänger", () => {
     }));
 
   it("bucht eine bestätigte Gutschrift an den Empfänger AUS DEM POSTEN", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     const res = await rec({ credit_to: BEN }); // untergeschobener Empfänger wird ignoriert
     expect(res.status).toBe("ok");
     const tx = fake.rows("transactions");
@@ -457,7 +506,7 @@ describe("recordItemPayment — Crew → Empfänger", () => {
   });
 
   it("Retry mit gleichem idempotency_key bucht nicht doppelt", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     expect((await rec()).status).toBe("ok");
     const second = await rec();
     expect(second).toMatchObject({ status: "ok", duplicate: true });
@@ -465,7 +514,7 @@ describe("recordItemPayment — Crew → Empfänger", () => {
   });
 
   it("Posten eines fremden Törns (Auth liefert anderen Törn) → kein Insert", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     mockedPayee.mockResolvedValue({ ok: true, personId: SKIPPER, tripId: OTHER_TRIP, payeePersonId: STRANGER });
     const res = await rec({ item_id: FOREIGN_ITEM });
     expect(res.status).toBe("error");
@@ -473,29 +522,44 @@ describe("recordItemPayment — Crew → Empfänger", () => {
   });
 
   it("ein idempotency_key, der zu einer ANDEREN Buchung gehört, ist kein „Duplikat“", async () => {
-    useFake(withItem({ transactions: [{ id: "other", trip_id: TRIP, type: "expense", item_id: null, idempotency_key: KEY1, amount: 5, deleted_at: null }] }));
+    setupFake(withItem({ transactions: [{ id: "other", trip_id: TRIP, type: "expense", item_id: null, idempotency_key: KEY1, amount: 5, deleted_at: null }] }));
     const res = await rec();
     expect(res.status).toBe("error");
     expect(fake.rows("transactions")).toHaveLength(1);
   });
 
   it("Audit-Log zeigt auf die neue Buchung, nicht auf den Posten", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     await rec();
     const txId = fake.rows("transactions")[0].id;
     const audit = fake.rows("audit_log").find((a) => (a.payload as Row)?.kind === "item-payment")!;
     expect(audit.record_id).toBe(txId);
   });
 
+  it("L1: ohne idempotency_key wird nichts gebucht", async () => {
+    setupFake(withItem());
+    const res = await recordItemPayment({ status: "idle" }, fd({ trip_id: TRIP, item_id: ITEM, person_id: ANNA, amount: "10", date: "2027-02-01" }));
+    expect(res.status).toBe("error");
+    expect(fake.rows("transactions")).toHaveLength(0);
+  });
+
+  it("P3: Deadlock (40P01) → „bitte erneut versuchen“", async () => {
+    setupFake(withItem());
+    fake.failOn({ table: "transactions", action: "insert", error: { code: "40P01", message: "deadlock detected" } });
+    const res = await rec();
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).toContain("erneut versuchen");
+  });
+
   it("Zahler aus einem fremden Törn → kein Insert", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     const res = await rec({ person_id: STRANGER });
     expect(res.status).toBe("error");
     expect(fake.rows("transactions")).toHaveLength(0);
   });
 
   it("ohne Empfänger-/Skipper-Recht → kein Insert", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     mockedPayee.mockResolvedValue({ ok: false, message: "Nur Skipper, Admin oder die Person, die diesen Posten empfängt, dürfen das." });
     expect((await rec()).status).toBe("error");
     expect(fake.rows("transactions")).toHaveLength(0);
@@ -504,13 +568,13 @@ describe("recordItemPayment — Crew → Empfänger", () => {
   it("archivierter Törn → kein Insert", async () => {
     const tables = withItem();
     tables.trips[0].archived = true;
-    useFake(tables);
+    setupFake(tables);
     expect((await rec()).status).toBe("error");
     expect(fake.rows("transactions")).toHaveLength(0);
   });
 
   it("Audit-Log ohne Notiz-Freitext", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     await rec({ note: "von Anna Müller per PayPal" });
     const audit = fake.rows("audit_log").find((a) => (a.payload as Row)?.kind === "item-payment")!;
     expect(JSON.stringify(audit.payload)).not.toContain("Müller");
@@ -520,9 +584,9 @@ describe("recordItemPayment — Crew → Empfänger", () => {
 // ─────────────────────────────────────────────────────────────────────────
 describe("Selbstmeldung → Bestätigung / Ablehnung", () => {
   it("submit: pending, credit_from = meldende Person (nie aus dem Formular), credit_to = Empfänger", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     const res = await submitItemSelfPayment({ status: "idle" }, fd({
-      trip_id: TRIP, item_id: ITEM, amount: "100", date: "2027-02-01", person_id: BEN, credit_from: BEN,
+      trip_id: TRIP, item_id: ITEM, amount: "100", date: "2027-02-01", person_id: BEN, credit_from: BEN, idempotency_key: KEY1,
     }));
     expect(res.status).toBe("ok");
     const tx = fake.rows("transactions")[0];
@@ -532,16 +596,16 @@ describe("Selbstmeldung → Bestätigung / Ablehnung", () => {
   });
 
   it("submit: Nicht-Mitglied → kein Insert", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     mockedMember.mockResolvedValue({ ok: false, message: "Du bist nicht Mitglied dieses Törns." });
-    const res = await submitItemSelfPayment({ status: "idle" }, fd({ trip_id: TRIP, item_id: ITEM, amount: "100", date: "2027-02-01" }));
+    const res = await submitItemSelfPayment({ status: "idle" }, fd({ trip_id: TRIP, item_id: ITEM, amount: "100", date: "2027-02-01", idempotency_key: KEY1 }));
     expect(res.status).toBe("error");
     expect(fake.rows("transactions")).toHaveLength(0);
   });
 
   it("submit: Posten eines fremden Törns → kein Insert", async () => {
-    useFake(withItem());
-    const res = await submitItemSelfPayment({ status: "idle" }, fd({ trip_id: TRIP, item_id: FOREIGN_ITEM, amount: "100", date: "2027-02-01" }));
+    setupFake(withItem());
+    const res = await submitItemSelfPayment({ status: "idle" }, fd({ trip_id: TRIP, item_id: FOREIGN_ITEM, amount: "100", date: "2027-02-01", idempotency_key: KEY1 }));
     expect(res.status).toBe("error");
     expect(fake.rows("transactions")).toHaveLength(0);
   });
@@ -550,7 +614,7 @@ describe("Selbstmeldung → Bestätigung / Ablehnung", () => {
 
   it("confirm: bestätigt die offene Meldung", async () => {
     const id = "aaaaaaaa-0000-4000-8000-0000000000f1";
-    useFake(withItem({ transactions: [{ ...pending, id }] }));
+    setupFake(withItem({ transactions: [{ ...pending, id }] }));
     const res = await confirmItemSelfPayment({ status: "idle" }, fd({ transaction_id: id }));
     expect(res.status).toBe("ok");
     expect(fake.rows("transactions")[0].confirmed_at).toBeTruthy();
@@ -560,7 +624,7 @@ describe("Selbstmeldung → Bestätigung / Ablehnung", () => {
 
   it("confirm: ohne Empfänger-Recht am Posten der Buchung → unverändert", async () => {
     const id = "aaaaaaaa-0000-4000-8000-0000000000f1";
-    useFake(withItem({ transactions: [{ ...pending, id }] }));
+    setupFake(withItem({ transactions: [{ ...pending, id }] }));
     mockedPayee.mockResolvedValue({ ok: false, message: "nope" });
     expect((await confirmItemSelfPayment({ status: "idle" }, fd({ transaction_id: id }))).status).toBe("error");
     expect(fake.rows("transactions")[0].confirmed_at).toBeNull();
@@ -568,7 +632,7 @@ describe("Selbstmeldung → Bestätigung / Ablehnung", () => {
 
   it("confirm: Rolle für einen ANDEREN Törn als die Buchung → unverändert (IDOR)", async () => {
     const id = "aaaaaaaa-0000-4000-8000-0000000000f1";
-    useFake(withItem({ transactions: [{ ...pending, id }] }));
+    setupFake(withItem({ transactions: [{ ...pending, id }] }));
     mockedPayee.mockResolvedValue({ ok: true, personId: STRANGER, tripId: OTHER_TRIP, payeePersonId: STRANGER });
     expect((await confirmItemSelfPayment({ status: "idle" }, fd({ transaction_id: id }))).status).toBe("error");
     expect(fake.rows("transactions")[0].confirmed_at).toBeNull();
@@ -576,7 +640,7 @@ describe("Selbstmeldung → Bestätigung / Ablehnung", () => {
 
   it("confirm: eine Tranchen-Gutschrift ist keine Posten-Zahlung", async () => {
     const id = "aaaaaaaa-0000-4000-8000-0000000000f1";
-    useFake(withItem({ transactions: [{ ...pending, id, item_id: null, tranche_id: "t1" }] }));
+    setupFake(withItem({ transactions: [{ ...pending, id, item_id: null, tranche_id: "t1" }] }));
     expect((await confirmItemSelfPayment({ status: "idle" }, fd({ transaction_id: id }))).status).toBe("error");
     expect(fake.rows("transactions")[0].confirmed_at).toBeNull();
   });
@@ -585,14 +649,27 @@ describe("Selbstmeldung → Bestätigung / Ablehnung", () => {
     const id = "aaaaaaaa-0000-4000-8000-0000000000f1";
     const tables = withItem({ transactions: [{ ...pending, id }] });
     tables.trips[0].archived = true;
-    useFake(tables);
+    setupFake(tables);
     expect((await confirmItemSelfPayment({ status: "idle" }, fd({ transaction_id: id }))).status).toBe("error");
     expect(fake.rows("transactions")[0].confirmed_at).toBeNull();
   });
 
+  it("P3: unbekannte Buchung und fehlende Rechte liefern DIESELBE Meldung (kein Existenz-Leck)", async () => {
+    const id = "aaaaaaaa-0000-4000-8000-0000000000f1";
+    setupFake(withItem({ transactions: [{ ...pending, id }] }));
+    mockedPayee.mockResolvedValue({ ok: false, message: "x" });
+    const forbidden = await confirmItemSelfPayment({ status: "idle" }, fd({ transaction_id: id }));
+    const missing = await confirmItemSelfPayment({ status: "idle" }, fd({ transaction_id: "aaaaaaaa-0000-4000-8000-0000000000f9" }));
+    expect(forbidden).toEqual(missing);
+    // Auch für Fremde keine Auskunft „schon bestätigt".
+    setupFake(withItem({ transactions: [{ ...pending, id, confirmed_at: "x" }] }));
+    mockedPayee.mockResolvedValue({ ok: false, message: "x" });
+    expect(await confirmItemSelfPayment({ status: "idle" }, fd({ transaction_id: id }))).toEqual(missing);
+  });
+
   it("reject: soft-löscht die offene Meldung, ohne Settlement-Marker", async () => {
     const id = "aaaaaaaa-0000-4000-8000-0000000000f1";
-    useFake(withItem({ transactions: [{ ...pending, id }] }));
+    setupFake(withItem({ transactions: [{ ...pending, id }] }));
     const res = await rejectItemSelfPayment({ status: "idle" }, fd({ transaction_id: id }));
     expect(res.status).toBe("ok");
     expect(fake.rows("transactions")[0].deleted_at).toBeTruthy();
@@ -601,7 +678,7 @@ describe("Selbstmeldung → Bestätigung / Ablehnung", () => {
 
   it("reject: eine bereits bestätigte Zahlung kann nicht abgelehnt werden", async () => {
     const id = "aaaaaaaa-0000-4000-8000-0000000000f1";
-    useFake(withItem({ transactions: [{ ...pending, id, confirmed_at: "x" }] }));
+    setupFake(withItem({ transactions: [{ ...pending, id, confirmed_at: "x" }] }));
     const res = await rejectItemSelfPayment({ status: "idle" }, fd({ transaction_id: id }));
     expect(res.status).toBe("error");
     expect(fake.rows("transactions")[0].deleted_at).toBeNull();
@@ -616,7 +693,7 @@ describe("recordItemProviderPayment — Empfänger → Anbieter", () => {
     }));
 
   it("schreibt per_person mit den Soll-Beträgen, paid_by = Empfänger, Clara (kein Soll) ohne Anteil", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     // Handelnde Person ≠ Empfänger (z. B. Admin bucht für den Empfänger):
     // paid_by muss trotzdem der Empfänger sein.
     mockedPerson.mockResolvedValue({ id: ANNA, display_name: "Anna" } as never);
@@ -632,7 +709,7 @@ describe("recordItemProviderPayment — Empfänger → Anbieter", () => {
   });
 
   it("Gesamtbilanz je Person ist 0, sobald alle ihr (ungleiches) Soll gezahlt haben", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     await pay("300");
     await recordItemPayment({ status: "idle" }, fd({ trip_id: TRIP, item_id: ITEM, person_id: SKIPPER, amount: "50", date: "2027-02-02", idempotency_key: KEY2 }));
     await recordItemPayment({ status: "idle" }, fd({ trip_id: TRIP, item_id: ITEM, person_id: ANNA, amount: "100", date: "2027-02-02", idempotency_key: "aaaaaaaa-0000-4000-8000-0000000000e3" }));
@@ -641,7 +718,7 @@ describe("recordItemProviderPayment — Empfänger → Anbieter", () => {
   });
 
   it("Teilzahlungen: kumulative Verteilung, am Ende trägt jede Person exakt ihr Soll", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     expect((await pay("100,01", KEY1)).status).toBe("ok");
     expect((await pay("199,99", KEY2)).status).toBe("ok");
     const byPerson = new Map<string, number>();
@@ -659,7 +736,7 @@ describe("recordItemProviderPayment — Empfänger → Anbieter", () => {
   });
 
   it("Teilzahlungen bei gleichem Soll: die Rundungs-Cents wandern nicht jedes Mal zur selben Person", async () => {
-    useFake(withItem({
+    setupFake(withItem({
       prepayment_item_obligations: [
         { item_id: ITEM, trip_id: TRIP, person_id: SKIPPER, amount: 100 },
         { item_id: ITEM, trip_id: TRIP, person_id: ANNA, amount: 100 },
@@ -678,7 +755,7 @@ describe("recordItemProviderPayment — Empfänger → Anbieter", () => {
   });
 
   it("über die Posten-Summe hinaus → abgewiesen", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     await pay("250", KEY1);
     const res = await pay("60", KEY2);
     expect(res.status).toBe("error");
@@ -686,7 +763,7 @@ describe("recordItemProviderPayment — Empfänger → Anbieter", () => {
   });
 
   it("Race: zwei parallele Anbieter-Zahlungen übersteigen zusammen den Posten → diese wird zurückgerollt", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     // Nach dem Anteils-Insert (Nachkontrolle) taucht eine parallele Zahlung auf.
     fake.onFrom("transaction_participants", 1, () =>
       fake.rows("transactions").push({ id: "parallel", trip_id: TRIP, type: "expense", item_id: ITEM, amount: 200, deleted_at: null }),
@@ -698,7 +775,7 @@ describe("recordItemProviderPayment — Empfänger → Anbieter", () => {
   });
 
   it("Race: ändert sich das Soll gleichzeitig, wird die Zahlung zurückgerollt", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     fake.onFrom("transaction_participants", 1, () => {
       const anna = fake.rows("prepayment_item_obligations").find((o) => o.person_id === ANNA)!;
       anna.amount = 120;
@@ -709,7 +786,7 @@ describe("recordItemProviderPayment — Empfänger → Anbieter", () => {
   });
 
   it("Rollback: scheitern die Anteile, verschwindet die Ausgabe wieder", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     fake.failOn({ table: "transaction_participants", action: "insert" });
     const res = await pay("300");
     expect(res.status).toBe("error");
@@ -717,7 +794,7 @@ describe("recordItemProviderPayment — Empfänger → Anbieter", () => {
   });
 
   it("Retry mit gleichem idempotency_key bucht nicht doppelt", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     await pay("100", KEY1);
     const res = await pay("100", KEY1);
     expect(res).toMatchObject({ status: "ok", duplicate: true });
@@ -726,14 +803,14 @@ describe("recordItemProviderPayment — Empfänger → Anbieter", () => {
   });
 
   it("ohne Empfänger-/Skipper-Recht → keine Ausgabe", async () => {
-    useFake(withItem());
+    setupFake(withItem());
     mockedPayee.mockResolvedValue({ ok: false, message: "nope" });
     expect((await pay("100")).status).toBe("error");
     expect(fake.rows("transactions")).toHaveLength(0);
   });
 
   it("Posten ohne Soll → abgewiesen", async () => {
-    useFake(withItem({ prepayment_item_obligations: [] }));
+    setupFake(withItem({ prepayment_item_obligations: [] }));
     expect((await pay("100")).status).toBe("error");
     expect(fake.rows("transactions")).toHaveLength(0);
   });

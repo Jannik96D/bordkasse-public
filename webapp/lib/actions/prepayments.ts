@@ -794,7 +794,10 @@ export async function replaceMember(
   //     A's echte Zahlung von den Rückzahlungen trennen. Ein Empfängerwechsel
   //     ist eine bewusste Entscheidung im Posten (saveItem → move_item_payee).
   //     Fail-closed bei einem Lesefehler.
-  {
+  //     Entscheidung H2 (PR4a-Review): NUR im klassischen Pfad. In Variante b
+  //     bleibt A Crew UND Empfänger — die Crew zahlt weiter an A, A hat den
+  //     Anbieter bezahlt; nichts wird umgehängt.
+  if (!handoverMode) {
     const { count: payeeCount, error: payeeErr } = await supabase
       .from("prepayment_items")
       .select("id", { count: "exact", head: true })
@@ -1316,6 +1319,69 @@ export async function replaceMember(
   //     nichts verändert. B ist neu bzw. per Pre-Check ohne Posten-Spur
   //     (Schritt 3) → keine PK-Kollision auf (item_id, person_id) bzw.
   //     (transaction_id, person_id).
+  //
+  //     Kompensation (Review L3): scheitert ein späterer Schritt — inkl. des
+  //     DELETE von A in Schritt 8 —, werden die bereits umgehängten Posten-
+  //     Zeilen wieder auf A zurückgesetzt, statt B mit A's Soll, aber ohne
+  //     A's Zahlungen (oder umgekehrt) stehen zu lassen.
+  const itemMoved = {
+    obligations: [] as { item_id: string; amount: number }[],
+    participantTxIds: [] as string[],
+    creditIds: [] as string[],
+  };
+  const undoItemTransfer = async (): Promise<boolean> => {
+    let ok = true;
+    if (itemMoved.creditIds.length > 0) {
+      const { error } = await supabase
+        .from("transactions")
+        .update({ credit_from: old_person_id })
+        .eq("trip_id", trip_id)
+        .in("id", itemMoved.creditIds);
+      if (error) { ok = false; console.error("[bordkasse:db] undoItemTransfer credits:", error.message); }
+    }
+    if (itemMoved.participantTxIds.length > 0) {
+      const { error } = await supabase
+        .from("transaction_participants")
+        .update({ person_id: old_person_id })
+        .eq("person_id", newPersonId)
+        .in("transaction_id", itemMoved.participantTxIds);
+      if (error) { ok = false; console.error("[bordkasse:db] undoItemTransfer participants:", error.message); }
+    }
+    if (itemMoved.obligations.length > 0) {
+      const { data: aRows } = await supabase
+        .from("prepayment_item_obligations")
+        .select("item_id")
+        .eq("trip_id", trip_id)
+        .eq("person_id", old_person_id);
+      const aHas = new Set((aRows ?? []).map((r) => r.item_id as string));
+      const missing = itemMoved.obligations.filter((o) => !aHas.has(o.item_id));
+      if (missing.length > 0) {
+        const { error } = await supabase
+          .from("prepayment_item_obligations")
+          .insert(missing.map((o) => ({ item_id: o.item_id, trip_id, person_id: old_person_id, amount: o.amount })));
+        if (error) { ok = false; console.error("[bordkasse:db] undoItemTransfer obligations/insert:", error.message); }
+      }
+      if (ok) {
+        const { error } = await supabase
+          .from("prepayment_item_obligations")
+          .delete()
+          .eq("trip_id", trip_id)
+          .eq("person_id", newPersonId);
+        if (error) { ok = false; console.error("[bordkasse:db] undoItemTransfer obligations/delete:", error.message); }
+      }
+    }
+    return ok;
+  };
+  const failWithUndo = async (message: string): Promise<PrepaymentState> => {
+    const undone = await undoItemTransfer();
+    return {
+      status: "error",
+      message: undone
+        ? message
+        : `${message} Achtung: das Zurücksetzen der Posten ist ebenfalls fehlgeschlagen — bitte Posten prüfen oder einen Admin fragen.`,
+    };
+  };
+
   if (!handoverMode) {
     const { data: oldItemObl, error: itemOblErr } = await supabase
       .from("prepayment_item_obligations")
@@ -1330,12 +1396,13 @@ export async function replaceMember(
         (oldItemObl ?? []).map((o) => ({ item_id: o.item_id, trip_id, person_id: newPersonId, amount: o.amount })),
       );
       if (insErr) return { status: "error", message: dbErr(insErr, "Posten-Soll konnte nicht übertragen werden.") };
+      itemMoved.obligations = (oldItemObl ?? []).map((o) => ({ item_id: o.item_id as string, amount: Number(o.amount) }));
       const { error: delErr } = await supabase
         .from("prepayment_item_obligations")
         .delete()
         .eq("trip_id", trip_id)
         .eq("person_id", old_person_id);
-      if (delErr) return { status: "error", message: dbErr(delErr, "Posten-Soll konnte nicht übertragen werden.") };
+      if (delErr) return failWithUndo(dbErr(delErr, "Posten-Soll konnte nicht übertragen werden."));
     }
 
     const { data: itemExpenses, error: itemExpErr } = await supabase
@@ -1345,7 +1412,7 @@ export async function replaceMember(
       .eq("type", "expense")
       .not("item_id", "is", null);
     if (itemExpErr) {
-      return { status: "error", message: dbErr(itemExpErr, "Posten-Zahlungen konnten nicht geladen werden.") };
+      return failWithUndo(dbErr(itemExpErr, "Posten-Zahlungen konnten nicht geladen werden."));
     }
     const itemExpenseIds = (itemExpenses ?? []).map((t) => t.id as string);
     if (itemExpenseIds.length > 0) {
@@ -1355,8 +1422,9 @@ export async function replaceMember(
         .eq("person_id", old_person_id)
         .in("transaction_id", itemExpenseIds);
       if (partErr) {
-        return { status: "error", message: dbErr(partErr, "Anteile an Posten-Zahlungen konnten nicht übertragen werden.") };
+        return failWithUndo(dbErr(partErr, "Anteile an Posten-Zahlungen konnten nicht übertragen werden."));
       }
+      itemMoved.participantTxIds = itemExpenseIds;
     }
 
     // A ist per Payee-Guard (1c) nie Empfänger → keine Selbstverrechnung
@@ -1369,7 +1437,7 @@ export async function replaceMember(
       .eq("type", "credit")
       .not("item_id", "is", null);
     if (itemCreditSelErr) {
-      return { status: "error", message: dbErr(itemCreditSelErr, "Posten-Gutschriften konnten nicht geladen werden.") };
+      return failWithUndo(dbErr(itemCreditSelErr, "Posten-Gutschriften konnten nicht geladen werden."));
     }
     const itemCreditIds = (itemCredits ?? []).filter((c) => c.credit_to !== old_person_id).map((c) => c.id as string);
     if (itemCreditIds.length > 0) {
@@ -1379,8 +1447,9 @@ export async function replaceMember(
         .eq("trip_id", trip_id)
         .in("id", itemCreditIds);
       if (itemCreditErr) {
-        return { status: "error", message: dbErr(itemCreditErr, "Posten-Gutschriften konnten nicht übertragen werden.") };
+        return failWithUndo(dbErr(itemCreditErr, "Posten-Gutschriften konnten nicht übertragen werden."));
       }
+      itemMoved.creditIds = itemCreditIds;
     }
   }
 
@@ -1419,7 +1488,7 @@ export async function replaceMember(
     }
   } else {
     const { error: deleteErr } = await supabase.from("trip_members").delete().eq("id", oldMember.id);
-    if (deleteErr) return { status: "error", message: dbErr(deleteErr, "Alte Crewmitgliedschaft konnte nicht entfernt werden.") };
+    if (deleteErr) return failWithUndo(dbErr(deleteErr, "Alte Crewmitgliedschaft konnte nicht entfernt werden."));
 
     // Fund F3: `settled_debts` referenziert die Person direkt (kein FK auf
     // trip_members) — ohne Aufräumen bliebe ein Häkchen für eine Person

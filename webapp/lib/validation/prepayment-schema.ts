@@ -192,6 +192,12 @@ export const SaveItemSchema = z.object({
   split_type: ItemSplitTypeSchema,
   /** Nur für „individuell": Betrag pro Person. */
   obligations: z.array(ItemObligationInput).max(200).default([]),
+  /**
+   * Soll aus der aktuellen Crew neu verteilen, obwohl sich Betrag/Aufteilung
+   * nicht geändert haben (z. B. nach einem Crewzuwachs). Ohne das Flag lässt
+   * ein reines Umbenennen das gespeicherte Soll unangetastet (Entscheidung M2).
+   */
+  redistribute: z.boolean().optional().default(false),
   sort_order: z.coerce.number().int().nonnegative().max(10_000).default(0),
 });
 
@@ -207,7 +213,8 @@ export const RecordItemPaymentSchema = z.object({
   amount: ItemAmount,
   date: DateString,
   note: z.string().trim().max(120).optional().or(z.literal("")),
-  idempotency_key: Uuid.optional(),
+  // Pflicht (Review L1): ohne Key wäre ein Doppelklick eine Doppelbuchung.
+  idempotency_key: z.string({ error: "Technischer Schlüssel fehlt. Bitte Seite neu laden." }).uuid("Technischer Schlüssel fehlt. Bitte Seite neu laden."),
 });
 
 export const SubmitItemSelfPaymentSchema = z.object({
@@ -216,7 +223,8 @@ export const SubmitItemSelfPaymentSchema = z.object({
   amount: ItemAmount,
   date: DateString,
   note: z.string().trim().max(120).optional().or(z.literal("")),
-  idempotency_key: Uuid.optional(),
+  // Pflicht (Review L1): ohne Key wäre ein Doppelklick eine Doppelbuchung.
+  idempotency_key: z.string({ error: "Technischer Schlüssel fehlt. Bitte Seite neu laden." }).uuid("Technischer Schlüssel fehlt. Bitte Seite neu laden."),
 });
 
 export const RecordItemProviderPaymentSchema = z.object({
@@ -225,7 +233,8 @@ export const RecordItemProviderPaymentSchema = z.object({
   amount: ItemAmount,
   date: DateString,
   description: z.string().trim().max(120).optional().or(z.literal("")),
-  idempotency_key: Uuid.optional(),
+  // Pflicht (Review L1): ohne Key wäre ein Doppelklick eine Doppelbuchung.
+  idempotency_key: z.string({ error: "Technischer Schlüssel fehlt. Bitte Seite neu laden." }).uuid("Technischer Schlüssel fehlt. Bitte Seite neu laden."),
 });
 
 export type SaveItemInput = z.infer<typeof SaveItemSchema>;

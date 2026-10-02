@@ -197,6 +197,15 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
       }
       if (action === "update") {
         const hit = t(table).filter(matches);
+        // PK-Kollision wie beim INSERT (z. B. person_id umhängen auf eine
+        // Person, die für dieselbe Buchung schon eine Zeile hat).
+        const others = t(table).filter((r) => !hit.includes(r));
+        const after = hit.map((r) => ({ ...r, ...(payload as Row) }));
+        const keys = new Set(others.map(pkOf));
+        for (const a of after) {
+          if (keys.has(pkOf(a))) return { data: null, error: { code: "23505", message: `duplicate key ${table}` } };
+          keys.add(pkOf(a));
+        }
         for (const r of hit) Object.assign(r, payload as Row);
         writes.push({ table, action, payload, filters: filterDesc });
         return { data: wantsRows ? hit.map((r) => ({ ...r })) : null, error: null };
@@ -217,6 +226,10 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
       const res = exec();
       if (res.error) return Promise.resolve(res);
       const rows = (res.data as Row[] | null) ?? [];
+      // Wie PostgREST: mehr als eine Zeile ist ein Fehler, kein „erste nehmen".
+      if (rows.length > 1) {
+        return Promise.resolve({ data: null, error: { code: "PGRST116", message: "multiple rows returned" } });
+      }
       return Promise.resolve({ data: rows[0] ?? null, error: null });
     };
     b.single = () => {
@@ -245,7 +258,10 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
     rpc: (name: string, args: Record<string, unknown>) => {
       rpcCalls.push({ name, args });
       const h = rpcHandlers[name];
-      const res = h ? h(args) : { data: null, error: null };
+      // Ohne registrierten Handler KEIN stiller Erfolg: Fehler wie bei einer
+      // fehlenden Funktion (PostgREST PGRST202). Tests müssen jede erwartete
+      // RPC ausdrücklich registrieren.
+      const res = h ? h(args) : { data: null, error: { code: "PGRST202", message: `Could not find the function public.${name}` } };
       return Promise.resolve({ data: res.data ?? null, error: res.error ?? null });
     },
   };

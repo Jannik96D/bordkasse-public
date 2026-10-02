@@ -75,8 +75,10 @@ describe("getItems", () => {
     expect(flights.paidTotal).toBe(140);
     expect(flights.pendingTotal).toBe(100);
     const status = Object.fromEntries(flights.cells.map((c) => [c.person_id, c.status]));
-    expect(status).toEqual({ [P]: "paid", [A]: "partial", [B]: "pending" });
+    expect(status).toEqual({ [P]: "paid", [A]: "underpaid", [B]: "pending" });
     expect(flights.complete).toBe(false);
+    expect(flights.underpaidTotal).toBe(160);
+    expect(flights.overpaidTotal).toBe(0);
 
     const train = items[1];
     expect(train.complete).toBe(true);

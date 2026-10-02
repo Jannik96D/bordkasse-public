@@ -235,7 +235,9 @@ export async function requireSkipperAdminOrItemPayee(itemId: string): Promise<It
     console.error("[bordkasse:db] requireSkipperAdminOrItemPayee:", error.message);
     return { ok: false, message: "Posten konnte nicht geladen werden. Bitte erneut versuchen." };
   }
-  if (!item) return { ok: false, message: "Posten nicht gefunden." };
+  // Einheitliche Meldung für „gibt es nicht" und „keine Rechte" (Review P3) —
+  // sonst verriete die Antwort, ob eine Posten-ID existiert.
+  if (!item) return { ok: false, message: ITEM_FORBIDDEN_MSG };
 
   const granted = { ok: true as const, personId: auth.personId, tripId: item.trip_id as string, payeePersonId: item.payee_person_id as string };
   if (item.payee_person_id === auth.personId) {
@@ -252,8 +254,8 @@ export async function requireSkipperAdminOrItemPayee(itemId: string): Promise<It
   if (await isAdmin()) return granted;
   const skipper = await requireSkipper(item.trip_id as string);
   if (skipper.ok) return granted;
-  return {
-    ok: false,
-    message: "Nur Skipper, Admin oder die Person, die diesen Posten empfängt, dürfen das.",
-  };
+  return { ok: false, message: ITEM_FORBIDDEN_MSG };
 }
+
+const ITEM_FORBIDDEN_MSG =
+  "Posten nicht gefunden oder keine Berechtigung (nur Skipper, Admin oder die Person, die den Posten empfängt).";

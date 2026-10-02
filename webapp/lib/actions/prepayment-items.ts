@@ -61,6 +61,7 @@ export type ItemActionState =
 
 const PG_UNIQUE_VIOLATION = "23505";
 const ITEM_FOREIGN_MSG = "Dieser Posten gehört nicht zu diesem Törn. Bitte Seite neu laden.";
+const NOT_FOUND_OR_FORBIDDEN_MSG = "Buchung nicht gefunden oder keine Berechtigung.";
 const ROLLBACK_FAILED_SUFFIX =
   "Achtung: das Zurücksetzen ist ebenfalls fehlgeschlagen — bitte den Posten prüfen oder einen Admin fragen.";
 
@@ -118,6 +119,14 @@ function itemDbErrorMessage(err: DbError, fallback: string): string {
   }
   if (msg.includes("tx_item_credit_direct")) {
     return "Eine Zahlung für einen Posten braucht einen konkreten Empfänger (nicht „An Alle“).";
+  }
+  if (msg.includes("prepayment_item_provider_paid_by_other")) {
+    return "Der Empfänger kann nicht wechseln: die Zahlung an den Anbieter hat jemand anderes geleistet.";
+  }
+  // Deadlock zwischen parallelen Requests (FOR SHARE/FOR UPDATE in 0058/0059).
+  if (err?.code === "40P01" || msg.includes("deadlock detected")) {
+    console.error("[bordkasse:db]", msg);
+    return "Gerade wurde gleichzeitig etwas am Posten geändert. Bitte erneut versuchen.";
   }
   return dbErr(err, fallback);
 }
@@ -279,10 +288,14 @@ function sollSignature(rows: ItemShare[]): string {
  *     Schulden-Tab zeigt (Posten sind dort bewusst ausgeschlossen).
  * Bezeichnung, Kategorie, Fälligkeit und Reihenfolge bleiben immer änderbar;
  * dabei bleibt das gespeicherte Soll unangetastet (es wird NICHT aus der
- * inzwischen evtl. geänderten Crew neu berechnet).
+ * inzwischen evtl. geänderten Crew neu berechnet). Neu verteilt wird nur bei
+ * geändertem Betrag/Aufteilung/Einzelbeträgen oder mit `redistribute: true`
+ * (Entscheidung M2).
  *
- * Empfängerwechsel OHNE Anbieter-Zahlung läuft über `move_item_payee`
- * (Migration 0059): bisherige Crew-Gutschriften wandern zum neuen Empfänger.
+ * Empfängerwechsel nur, solange weder Anbieter-Zahlungen noch lebende
+ * Posten-Gutschriften existieren (Entscheidung H1); er läuft trotzdem über
+ * `move_item_payee` (0059/0060), damit die SQL-Prüfung das Race mit einer
+ * gleichzeitigen Anbieter-Zahlung schließt.
  */
 export async function saveItem(_prev: ItemActionState, formData: FormData): Promise<ItemActionState> {
   const person = await getCurrentPerson();
@@ -348,56 +361,66 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
     }
   }
 
-  // Soll berechnen.
-  let members: ItemMember[];
-  if (input.split_type === "individuell") {
-    const ids = input.obligations.map((o) => o.person_id);
-    if (new Set(ids).size !== ids.length) {
-      return { status: "error", message: "Eine Person ist doppelt eingetragen.", field: "obligations" };
-    }
-    if (!(await personsBelongToTrip(supabase, ids, tripId))) {
-      return { status: "error", message: CROSS_TRIP_PERSON_MSG, field: "obligations" };
-    }
-    members = input.obligations.map((o) => ({ personId: o.person_id, days: 0, manualAmount: o.amount }));
-  } else {
-    // Fail-loud: ohne Crew würde calculateItemObligations scheitern, ein
-    // verschluckter Fehler sähe aber aus wie „niemand eingetragen".
-    const membersRes = await supabase
-      .from("trip_members")
-      .select("person_id, on_board_from, on_board_to")
-      .eq("trip_id", tripId);
-    if (membersRes.error) return { status: "error", message: dbErr(membersRes.error, "Mitglieder konnten nicht geladen werden.") };
-    members = (membersRes.data ?? []).map((m) => ({
-      personId: m.person_id as string,
-      days: daysBetween(m.on_board_from ?? trip.start_date, m.on_board_to ?? trip.end_date),
-    }));
-  }
-  const calc = calculateItemObligations(input.split_type, input.total_amount, members);
-  if (!calc.ok) return { status: "error", message: calc.message, field: "total_amount" };
-  const shares = calc.shares;
+  // Soll neu verteilen? (Entscheidung M2, PR4a-Review) Nur bei einem neuen
+  // Posten, bei geändertem Betrag / geänderter Aufteilung / geänderten
+  // Einzelbeträgen oder auf ausdrücklichen Wunsch (`redistribute`). Reines
+  // Umbenennen, Kategorie oder Fälligkeit lassen das gespeicherte Soll
+  // unangetastet — auch ohne Anbieter-Zahlung. Sonst verteilte bei
+  // gleichmäßig/zeitanteilig jedes Speichern still aus der AKTUELLEN Crew neu
+  // (z. B. bekäme nach einem Crewwechsel auch der Nachrücker ein Soll).
+  const baseChanged =
+    !existing ||
+    input.redistribute ||
+    Math.round(existing.total_amount * 100) !== Math.round(input.total_amount * 100) ||
+    existing.split_type !== input.split_type;
 
   let oldObligations: ItemShare[] = [];
-  const payeeChanged = !!existing && existing.payee_person_id !== payeeId;
-  // Nur Metadaten speichern (Soll unangetastet lassen)? Gilt, sobald eine
-  // Anbieter-Zahlung existiert und Betrag + Aufteilung (+ bei individuell die
-  // Einzelbeträge) unverändert sind. Grill-Fund P1-2: bei gleichmäßig/
-  // zeitanteilig würde ein Neuberechnen aus der AKTUELLEN Crew sonst nach
-  // jeder Crew-/Datumsänderung ein „anderes" Soll ergeben — und damit selbst
-  // eine reine Umbenennung sperren.
-  let keepObligations = false;
   if (existing) {
     const obl = await loadObligations(supabase, tripId, existing.id);
     if (!obl.ok) return { status: "error", message: obl.message };
     oldObligations = obl.rows;
+  }
 
+  // Soll berechnen — bei individuell immer (Einzelbeträge vergleichen), bei
+  // gleichmäßig/zeitanteilig nur, wenn ohnehin neu verteilt wird.
+  let shares: ItemShare[] = oldObligations;
+  if (input.split_type === "individuell" || baseChanged) {
+    let members: ItemMember[];
+    if (input.split_type === "individuell") {
+      const ids = input.obligations.map((o) => o.person_id);
+      if (new Set(ids).size !== ids.length) {
+        return { status: "error", message: "Eine Person ist doppelt eingetragen.", field: "obligations" };
+      }
+      if (!(await personsBelongToTrip(supabase, ids, tripId))) {
+        return { status: "error", message: CROSS_TRIP_PERSON_MSG, field: "obligations" };
+      }
+      members = input.obligations.map((o) => ({ personId: o.person_id, days: 0, manualAmount: o.amount }));
+    } else {
+      // Fail-loud: ohne Crew würde calculateItemObligations scheitern, ein
+      // verschluckter Fehler sähe aber aus wie „niemand eingetragen".
+      const membersRes = await supabase
+        .from("trip_members")
+        .select("person_id, on_board_from, on_board_to")
+        .eq("trip_id", tripId);
+      if (membersRes.error) return { status: "error", message: dbErr(membersRes.error, "Mitglieder konnten nicht geladen werden.") };
+      members = (membersRes.data ?? []).map((m) => ({
+        personId: m.person_id as string,
+        days: daysBetween(m.on_board_from ?? trip.start_date, m.on_board_to ?? trip.end_date),
+      }));
+    }
+    const calc = calculateItemObligations(input.split_type, input.total_amount, members);
+    if (!calc.ok) return { status: "error", message: calc.message, field: "total_amount" };
+    shares = calc.shares;
+  }
+  const distributionChanged =
+    baseChanged || (input.split_type === "individuell" && sollSignature(oldObligations) !== sollSignature(shares));
+  const keepObligations = !!existing && !distributionChanged;
+
+  const payeeChanged = !!existing && existing.payee_person_id !== payeeId;
+  if (existing) {
     const provider = await loadProviderPayments(supabase, tripId, existing.id);
     if (!provider.ok) return { status: "error", message: provider.message };
     if (provider.rows.length > 0) {
-      const distributionChanged =
-        Math.round(existing.total_amount * 100) !== Math.round(input.total_amount * 100) ||
-        existing.split_type !== input.split_type ||
-        (input.split_type === "individuell" && sollSignature(oldObligations) !== sollSignature(shares));
-      keepObligations = true;
       if (distributionChanged) {
         return {
           status: "error",
@@ -414,6 +437,32 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
           message:
             "Für diesen Posten hat der bisherige Empfänger schon an den Anbieter gezahlt. Der Empfänger lässt " +
             "sich deshalb nicht mehr wechseln.",
+          field: "payee_person_id",
+        };
+      }
+    }
+    // Entscheidung H1 (PR4a-Review): kein Empfängerwechsel, solange lebende
+    // Posten-Gutschriften (bestätigt ODER offen, inkl. Selbstverrechnung des
+    // Empfängers) existieren. Sonst wanderten sie zum neuen Empfänger, obwohl
+    // das Geld beim alten liegt — eine echte Schuld zwischen den beiden, die
+    // nirgends sichtbar wäre. Ausweg: Zahlungen erst löschen bzw. Meldungen
+    // ablehnen. (Der Ghost-Merge — gleiche Person — ist die einzige Stelle,
+    // die Gutschriften per move_item_payee mitnimmt.)
+    if (payeeChanged) {
+      const { count, error } = await supabase
+        .from("transactions")
+        .select("id", { count: "exact", head: true })
+        .eq("trip_id", tripId)
+        .eq("item_id", existing.id)
+        .eq("type", "credit")
+        .is("deleted_at", null);
+      if (error) return { status: "error", message: dbErr(error, "Zahlungen konnten nicht geprüft werden.") };
+      if ((count ?? 0) > 0) {
+        return {
+          status: "error",
+          message:
+            "An den bisherigen Empfänger wurde für diesen Posten schon gezahlt bzw. eine Zahlung gemeldet. Der " +
+            "Empfänger lässt sich erst wechseln, wenn diese Zahlungen gelöscht bzw. die Meldungen abgelehnt sind.",
           field: "payee_person_id",
         };
       }
@@ -830,6 +879,11 @@ async function loadPendingItemCredit(
   const parsed = ItemTxSchema.safeParse({ transaction_id: formData.get("transaction_id") });
   if (!parsed.success) return { ok: false, message: "Ungültige Buchungs-ID." };
 
+  // Review P3: ERST autorisieren, dann Details melden. Wer am Posten der
+  // Buchung keine Rolle hat, bekommt für „gibt es nicht", „keine
+  // Posten-Zahlung" und „keine Rechte" dieselbe Meldung — sonst ließe sich
+  // über die Antwort erraten, ob eine Buchungs-ID existiert und welcher Art
+  // sie ist.
   const supabase = createAdminClient();
   const { data: tx, error } = await supabase
     .from("transactions")
@@ -837,14 +891,14 @@ async function loadPendingItemCredit(
     .eq("id", parsed.data.transaction_id)
     .maybeSingle();
   if (error) return { ok: false, message: dbErr(error, "Buchung konnte nicht geladen werden.") };
-  if (!tx || tx.deleted_at) return { ok: false, message: "Buchung nicht gefunden." };
-  if (tx.type !== "credit" || !tx.item_id) return { ok: false, message: "Keine Posten-Zahlung." };
-  if (tx.confirmed_at) return { ok: false, message: "Schon bestätigt." };
+  if (!tx || tx.type !== "credit" || !tx.item_id) return { ok: false, message: NOT_FOUND_OR_FORBIDDEN_MSG };
 
   // Rolle am Posten der Buchung — nicht an einem Formularwert.
   const auth = await requireSkipperAdminOrItemPayee(tx.item_id);
-  if (!auth.ok) return { ok: false, message: auth.message };
-  if (auth.tripId !== tx.trip_id) return { ok: false, message: ITEM_FOREIGN_MSG };
+  if (!auth.ok || auth.tripId !== tx.trip_id) return { ok: false, message: NOT_FOUND_OR_FORBIDDEN_MSG };
+
+  if (tx.deleted_at) return { ok: false, message: "Diese Meldung wurde bereits abgelehnt." };
+  if (tx.confirmed_at) return { ok: false, message: "Schon bestätigt." };
 
   const archivedCheck = await assertTripNotArchived(supabase, tx.trip_id);
   if (!archivedCheck.ok) return { ok: false, message: archivedCheck.message };

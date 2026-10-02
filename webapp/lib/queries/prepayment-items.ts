@@ -52,6 +52,10 @@ export interface PrepaymentItemView {
   sollTotal: number;
   paidTotal: number;
   pendingTotal: number;
+  /** Σ Überzahlungen (paid − soll > 0) — muss zurück an die Personen (M4). */
+  overpaidTotal: number;
+  /** Σ offene Restbeträge (soll − paid > 0). */
+  underpaidTotal: number;
   pendingPayments: ItemPendingPayment[];
   /** Σ Anbieter-Zahlungen (Ausgaben mit item_id) — Pendant getCharterPaidTotal. */
   providerPaid: number;
@@ -168,6 +172,8 @@ export const getItems = cache(async (tripId: string): Promise<PrepaymentItemView
       sollTotal: cells.reduce((s, c) => s + c.soll, 0),
       paidTotal: cells.reduce((s, c) => s + c.paid, 0),
       pendingTotal: cells.reduce((s, c) => s + c.pending, 0),
+      overpaidTotal: cells.reduce((s, c) => s + Math.max(0, c.paid - c.soll), 0),
+      underpaidTotal: cells.reduce((s, c) => s + Math.max(0, c.soll - c.paid), 0),
       pendingPayments,
       providerPaid,
       providerOpen,

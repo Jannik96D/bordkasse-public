@@ -113,7 +113,8 @@ describe("allocateItemProviderShares", () => {
 describe("itemCellStatus / isItemComplete", () => {
   it("Statuslogik inkl. überzahlt vor 0-Soll", () => {
     expect(itemCellStatus(100, 0, 0)).toBe("open");
-    expect(itemCellStatus(100, 40, 0)).toBe("partial");
+    expect(itemCellStatus(100, 40, 0)).toBe("underpaid");
+    expect(itemCellStatus(100, 40, 60)).toBe("pending");
     expect(itemCellStatus(100, 100, 0)).toBe("paid");
     expect(itemCellStatus(100, 0, 100)).toBe("pending");
     expect(itemCellStatus(0, 20, 0)).toBe("overpaid");
@@ -125,5 +126,8 @@ describe("itemCellStatus / isItemComplete", () => {
     expect(isItemComplete({ totalAmount: 100, providerPaid: 100, cells })).toBe(true);
     expect(isItemComplete({ totalAmount: 100, providerPaid: 99.99, cells })).toBe(false);
     expect(isItemComplete({ totalAmount: 100, providerPaid: 100, cells: [{ soll: 100, paid: 50 }] })).toBe(false);
+    // M4: Überzahlung ist nicht „abgeschlossen" — das Geld muss zurück.
+    expect(isItemComplete({ totalAmount: 100, providerPaid: 100, cells: [{ soll: 100, paid: 120 }] })).toBe(false);
+    expect(isItemComplete({ totalAmount: 100, providerPaid: 100, cells: [{ soll: 0, paid: 5 }] })).toBe(false);
   });
 });

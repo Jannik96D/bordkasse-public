@@ -5,7 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireMember, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
-import { getBalances, getSimplifiedDebts } from "@/lib/queries/balances";
+import { getBalances, getBordkasseOnlyBalances, getSimplifiedDebts } from "@/lib/queries/balances";
+import { splitMailBalances } from "@/lib/calc/settlement-balances";
 import { sendMails, type MailMessage } from "@/lib/email/send";
 import { renderSettlementMail, type DebtItem } from "@/lib/email/settlement-template";
 import { sendPushToPersons } from "@/lib/notify/web-push";
@@ -64,18 +65,17 @@ export async function announceSettlement(tripId: string): Promise<Result> {
 
   // Aktuelle Bilanz + Schulden-Plan ziehen.
   //
-  // Bewusste Entscheidung (Reise-Posten, PR4a): der SALDO in der Mail kommt
-  // weiter aus v_balances (Gesamtbilanz über alle drei Töpfe), der
-  // ZAHLUNGSPLAN aus simplify_debts (nur Bordkasse). Posten und Charter-Pool
-  // laufen über die Anzahlungs-Matrix (Crew → Empfänger), nicht über den
-  // Schulden-Tab — eine Überweisung für Flüge darf dort nicht auftauchen.
-  // Den Saldo trotzdem gesamt zu zeigen ist ehrlich: wer seinen Flug noch
-  // nicht bezahlt hat, sieht das als negativen Saldo, statt fälschlich „0".
-  // Identisch zum Verhalten bei Tranchen seit 0026 — keine Änderung hier.
-  const [balances, debts] = await Promise.all([
+  // Entscheidung M1 (PR4a-Review): der Saldo in der Mail ist der
+  // BORDKASSE-Saldo — er passt damit zum Zahlungsplan (simplify_debts, nur
+  // Bordkasse) und zur Bilanz-Seite. Offene Beträge aus Anzahlung/Posten
+  // werden getrennt ausgewiesen (lib/calc/settlement-balances.ts). Vorher
+  // stand dort die Gesamtbilanz, die mit dem Zahlungsplan nicht aufging.
+  const [totalBalances, kittyBalances, debts] = await Promise.all([
     getBalances(tripId),
+    getBordkasseOnlyBalances(tripId),
     getSimplifiedDebts(tripId),
   ]);
+  const mailBalances = splitMailBalances(totalBalances, kittyBalances);
 
   // Crew + Mails laden (über Admin-Client, RLS-Bypass).
   type MemberRow = {
@@ -123,7 +123,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
       skipped += 1;
       continue;
     }
-    const balanceRow = balances.find((b) => b.person_id === m.person_id);
+    const mailBalance = mailBalances.get(m.person_id);
 
     // Zahlungsanweisungen aus dem Schulden-Plan
     const myDebts: DebtItem[] = [];
@@ -139,7 +139,8 @@ export async function announceSettlement(tripId: string): Promise<Result> {
       recipientName: displayName(m),
       tripName: trip.name,
       tripDates,
-      balance: balanceRow?.balance ?? 0,
+      balance: mailBalance?.kitty ?? 0,
+      poolBalance: mailBalance?.pool ?? 0,
       debts: myDebts,
       appUrl,
       skipperName,
@@ -306,10 +307,12 @@ export async function resendSettlement(tripId: string): Promise<Result> {
     }
   }
 
-  const [balances, debts] = await Promise.all([
+  const [totalBalances, kittyBalances, debts] = await Promise.all([
     getBalances(tripId),
+    getBordkasseOnlyBalances(tripId),
     getSimplifiedDebts(tripId),
   ]);
+  const mailBalances = splitMailBalances(totalBalances, kittyBalances);
 
   type MemberRow = {
     person_id: string;
@@ -351,7 +354,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
       skipped += 1;
       continue;
     }
-    const balanceRow = balances.find((b) => b.person_id === m.person_id);
+    const mailBalance = mailBalances.get(m.person_id);
 
     const myDebts: DebtItem[] = [];
     for (const d of debts) {
@@ -366,7 +369,8 @@ export async function resendSettlement(tripId: string): Promise<Result> {
       recipientName: displayName(m),
       tripName: trip.name,
       tripDates,
-      balance: balanceRow?.balance ?? 0,
+      balance: mailBalance?.kitty ?? 0,
+      poolBalance: mailBalance?.pool ?? 0,
       debts: myDebts,
       appUrl,
       skipperName,

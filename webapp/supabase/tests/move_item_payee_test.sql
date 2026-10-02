@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════
--- pgTAP — Migration 0059: move_item_payee (Empfängerwechsel eines Postens)
+-- pgTAP — Migrationen 0059/0060: move_item_payee (Empfängerwechsel eines Postens)
 --
 -- Geprüft:
 --   A. Rechte: nur service_role darf die Funktion ausführen.
@@ -24,7 +24,7 @@
 -- ═══════════════════════════════════════════════════════════════════════
 
 BEGIN;
-SELECT plan(20);
+SELECT plan(23);
 
 -- ── Setup ─────────────────────────────────────────────────────────────
 INSERT INTO persons(id, display_name) VALUES
@@ -52,10 +52,12 @@ INSERT INTO prepayment_item_obligations(item_id, trip_id, person_id, amount) VAL
   ('59590000-0000-4000-8000-0000000000d1', '59590000-0000-4000-8000-0000000000aa', '59590000-0000-4000-8000-000000000002', 100),
   ('59590000-0000-4000-8000-0000000000d1', '59590000-0000-4000-8000-0000000000aa', '59590000-0000-4000-8000-000000000003', 100);
 
--- Anbieter-Zahlung des alten Empfängers (per_person = Soll).
+-- Anbieter-Zahlung (per_person = Soll), geleistet vom NEUEN Empfänger — so
+-- wie nach dem Umhängen von paid_by im Ghost-Merge. 0060 erlaubt den
+-- Wechsel nur, wenn jede Anbieter-Zahlung vom neuen Empfänger stammt.
 INSERT INTO transactions(id, trip_id, type, date, description, amount, paid_by, split_type, item_id) VALUES
   ('59590000-0000-4000-8000-000000000101', '59590000-0000-4000-8000-0000000000aa', 'expense',
-   '2027-03-01', 'Flüge', 300, '59590000-0000-4000-8000-000000000001', 'per_person',
+   '2027-03-01', 'Flüge', 300, '59590000-0000-4000-8000-000000000002', 'per_person',
    '59590000-0000-4000-8000-0000000000d1');
 INSERT INTO transaction_participants(transaction_id, person_id, amount) VALUES
   ('59590000-0000-4000-8000-000000000101', '59590000-0000-4000-8000-000000000001', 100),
@@ -146,15 +148,32 @@ SELECT set_eq(
   $$SELECT person_id, paid_amount FROM before_paid$$,
   'B7: „bezahlt" je Zahler ist unverändert (Altzahlungen zählen weiter)');
 
-SELECT is(
-  (SELECT ROUND(SUM(balance), 2) FROM v_balances WHERE trip_id = '59590000-0000-4000-8000-0000000000aa'),
-  0.00::numeric,
-  'B8: Σ v_balances bleibt 0');
+-- B8: Saldo JE PERSON (Σ = 0 allein wäre trivial, Review H1). Bestätigt
+-- nach dem Wechsel: alt→neu 100 (alte Selbstverrechnung), neu→neu 100;
+-- C hat nur gemeldet (pending) bzw. soft-gelöscht.
+--   alt: +100 gegeben − 100 Anteil                         =    0
+--   neu: +300 gezahlt − 100 Anteil + 100 gegeben − 200 erh. = +100
+--   C  :              − 100 Anteil                         = −100
+SELECT results_eq(
+  $$SELECT person_id, balance FROM v_balances
+     WHERE trip_id = '59590000-0000-4000-8000-0000000000aa' ORDER BY person_id$$,
+  $$VALUES ('59590000-0000-4000-8000-000000000001'::uuid,    0.00::numeric),
+           ('59590000-0000-4000-8000-000000000002'::uuid,  100.00::numeric),
+           ('59590000-0000-4000-8000-000000000003'::uuid, -100.00::numeric)$$,
+  'B8: Saldo je Person nach dem Wechsel — C schuldet genau dem neuen Empfänger');
 
 SELECT is(
   (SELECT paid_by FROM transactions WHERE id = '59590000-0000-4000-8000-000000000101'),
-  '59590000-0000-4000-8000-000000000001'::uuid,
-  'B9: Anbieter-Ausgabe des alten Empfängers bleibt unangetastet');
+  '59590000-0000-4000-8000-000000000002'::uuid,
+  'B9: Anbieter-Ausgabe bleibt unangetastet');
+
+-- B10: C bestätigt nachgezahlt → alle drei bei 0.
+UPDATE transactions SET confirmed_at = now() WHERE id = '59590000-0000-4000-8000-000000000203';
+SELECT is(
+  (SELECT count(*)::int FROM v_balances
+    WHERE trip_id = '59590000-0000-4000-8000-0000000000aa' AND balance <> 0),
+  0,
+  'B10: sobald alle gezahlt haben, ist jede Person bei 0');
 
 -- ── C. Trigger bleiben scharf, Flag leckt nicht ───────────────────────
 SELECT throws_ok(
@@ -193,6 +212,24 @@ SELECT is(
   move_item_payee('59590000-0000-4000-8000-0000000000d2', '59590000-0000-4000-8000-000000000003'),
   0,
   'D4: Posten ohne Gutschriften — Wechsel ohne umzuhängende Zeilen');
+
+-- ── E. 0060: kein Wechsel bei Anbieter-Zahlung eines Anderen ────────────
+INSERT INTO prepayment_items(id, trip_id, label, total_amount, payee_person_id, split_type) VALUES
+  ('59590000-0000-4000-8000-0000000000d3', '59590000-0000-4000-8000-0000000000aa',
+   'Fähre', 60, '59590000-0000-4000-8000-000000000001', 'gleichmaessig');
+INSERT INTO transactions(id, trip_id, type, date, description, amount, paid_by, split_type, item_id) VALUES
+  ('59590000-0000-4000-8000-000000000301', '59590000-0000-4000-8000-0000000000aa', 'expense',
+   '2027-03-05', 'Fähre', 60, '59590000-0000-4000-8000-000000000001', 'per_person',
+   '59590000-0000-4000-8000-0000000000d3');
+SELECT throws_ok(
+  $$SELECT move_item_payee('59590000-0000-4000-8000-0000000000d3', '59590000-0000-4000-8000-000000000002')$$,
+  'P0001', 'prepayment_item_provider_paid_by_other',
+  'E1: Anbieter-Zahlung des alten Empfängers blockt den Wechsel (0060)');
+UPDATE transactions SET deleted_at = now() WHERE id = '59590000-0000-4000-8000-000000000301';
+SELECT is(
+  move_item_payee('59590000-0000-4000-8000-0000000000d3', '59590000-0000-4000-8000-000000000002'),
+  0,
+  'E2: eine soft-gelöschte Anbieter-Zahlung blockt nicht');
 
 SELECT * FROM finish();
 ROLLBACK;
