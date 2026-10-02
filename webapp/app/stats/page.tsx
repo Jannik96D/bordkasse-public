@@ -31,7 +31,7 @@ export default async function GlobalStatsPage() {
     );
   }
 
-  const [stats, admin] = await Promise.all([getGlobalStats(), isAdmin()]);
+  const [data, admin] = await Promise.all([getGlobalStats(), isAdmin()]);
 
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-8">
@@ -40,7 +40,7 @@ export default async function GlobalStatsPage() {
         Alle Törns, in denen du Mitglied warst oder bist.
       </p>
 
-      {stats.tripCount === 0 ? (
+      {data.rows.length === 0 ? (
         <div className="mt-6 rounded-lg border border-rule bg-paper-soft p-8 text-center">
           <BarChart3 className="mx-auto mb-3 h-10 w-10 text-ink-soft" />
           <p className="font-medium">Noch keine Daten</p>
@@ -50,7 +50,7 @@ export default async function GlobalStatsPage() {
           </p>
         </div>
       ) : (
-        <GlobalStatsView stats={stats} admin={admin} />
+        <GlobalStatsView data={data} admin={admin} />
       )}
     </main>
   );

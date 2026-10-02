@@ -6,44 +6,9 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, requireAdminOrTripCreator, requireSkipperOrAdmin, requireTripOwnerOrAdmin, isAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
-import { iconForCategoryName } from "@/lib/categories/icons";
+import { defaultCategoriesFor } from "@/lib/categories/defaults";
 import { displayNameFromEmail } from "@/lib/utils";
 import { isSupportedCurrency } from "@/lib/rates/currencies";
-
-// Reihenfolge bewusst gewählt — siehe `docs/categories.md` bzw. README.
-// Crew-User-Feedback: zuerst die im Alltag häufigen (Lebensmittel, Restaurant),
-// dann Hafen/Aktivitäten/Ausrüstung, dann Verbrauchs- + Verwaltungs-Sachen.
-const DEFAULT_CATEGORY_NAMES_SAILING = [
-  "Lebensmittel",
-  "Restaurant",
-  "Hafen / Liegeplatz",
-  "Aktivitäten",
-  "Ausrüstung",
-  "Sprit",
-  "Yacht",
-  "Versicherung",
-  "Kaution",
-  "Sonstiges",
-] as const;
-
-// „Andere Reise": ohne segel-spezifische Kategorien (Yacht/Sprit/Hafen/
-// Ausrüstung), dafür Unterkunft + Transport. Pro Reise frei editierbar.
-const DEFAULT_CATEGORY_NAMES_OTHER = [
-  "Lebensmittel",
-  "Restaurant",
-  "Unterkunft",
-  "Aktivitäten",
-  "Transport",
-  "Versicherung",
-  "Kaution",
-  "Sonstiges",
-] as const;
-
-function defaultCategoriesFor(tripType: "sailing" | "other") {
-  const names =
-    tripType === "other" ? DEFAULT_CATEGORY_NAMES_OTHER : DEFAULT_CATEGORY_NAMES_SAILING;
-  return names.map((name) => ({ name, icon: iconForCategoryName(name) }));
-}
 
 const TripSchema = z
   .object({

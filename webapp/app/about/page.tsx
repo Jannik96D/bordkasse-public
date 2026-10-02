@@ -292,6 +292,12 @@ const features: Feature[] = [
           Personenbezug. So kannst du auch Jahre später noch nachsehen,
           wie ein vergangener Törn finanziell aussah.
         </p>
+        <p>
+          Mit den Kategorie-Chips wählst du beliebig viele Kategorien aus
+          und siehst Gesamtsumme, Durchschnitt, Anteile und Pro-Person-Werte
+          genau für diese Auswahl. Der Schalter „Alkoholanteil
+          herausrechnen“ zieht den Alkoholanteil ab.
+        </p>
       </>
     ),
     screenshot: "/about/09-statistik.webp",
