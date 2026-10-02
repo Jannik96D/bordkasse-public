@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarDays, ChevronRight, Tag, Users } from "lucide-react";
+import { BarChart3, CalendarDays, ChevronRight, Tag, Users } from "lucide-react";
+import { CategoryFilter } from "@/components/category-filter";
 import { CategoryIcon } from "@/components/category-icon";
 import { SummaryCard } from "@/components/summary-card";
 import { useTripVocab } from "@/components/trip-vocab-provider";
 import { formatDate, formatEuro } from "@/lib/utils";
-import type { StatsSummary } from "@/lib/queries/stats";
+import { applyStatsFilter, listCategories, resolveSelection } from "@/lib/calc/stats-filter";
+import type { TripStatsData } from "@/lib/queries/stats";
 
 /**
  * Klient-seitige Hülle um die Trip-Statistik mit Pill-Toggle „Pro Törn /
@@ -19,16 +21,21 @@ import type { StatsSummary } from "@/lib/queries/stats";
  *   Crewmitglieder. Mengen (Buchungszahl, Tagezahl) bleiben unverändert,
  *   weil sie keine Pro-Kopf-Größen sind.
  *
+ * Darüber filtert eine Mehrfachauswahl von Kategorien (Standard: alle) und
+ * ein Schalter „Alkoholanteil herausrechnen" — Gesamt, Ø je Buchungstag,
+ * Pro Person, Balken und Prozente werden aus genau dieser Auswahl neu
+ * gerechnet (`applyStatsFilter`). Reiner useState, keine Persistenz.
+ *
  * Auf gepurgten Trips ist `memberCount` ggf. 0 — dann ist der Toggle
  * deaktiviert und nur „Pro Törn" sichtbar.
  */
 export function StatsView({
   tripId,
-  stats,
+  data,
   memberCount,
 }: {
   tripId: string;
-  stats: StatsSummary;
+  data: TripStatsData;
   memberCount: number;
 }) {
   const vocab = useTripVocab();
@@ -36,11 +43,25 @@ export function StatsView({
   const [mode, setMode] = useState<"trip" | "person">("trip");
   const divider = mode === "person" ? Math.max(memberCount, 1) : 1;
 
+  const categories = useMemo(() => listCategories(data.rows), [data.rows]);
+  // Ausschlussmenge: neue Kategorien (Realtime-Refresh) sind standardmäßig dabei.
+  const [deselected, setDeselected] = useState<ReadonlySet<string>>(() => new Set());
+  const selected = useMemo(
+    () => resolveSelection(categories.map((c) => c.key), deselected),
+    [categories, deselected],
+  );
+  const [excludeAlcohol, setExcludeAlcohol] = useState(false);
+  const stats = useMemo(
+    () => applyStatsFilter(data.rows, { categories: selected, excludeAlcohol }),
+    [data.rows, selected, excludeAlcohol],
+  );
+  const noSelection = selected.size === 0;
+
   const scale = (n: number) => n / divider;
   const total = scale(stats.total);
-  const avgPerDay = scale(stats.total / Math.max(stats.days, 1));
-  const maxCat = Math.max(...stats.byCategory.map((c) => c.total), 1) / divider;
-  const maxDay = Math.max(...stats.byDay.map((d) => d.total), 1) / divider;
+  const avgPerDay = scale(stats.avgPerDay);
+  const maxCat = stats.maxCat / divider;
+  const maxDay = stats.maxDay / divider;
 
   const perPersonSuffix = mode === "person" ? " / Person" : "";
 
@@ -90,17 +111,59 @@ export function StatsView({
         )}
       </div>
 
+      <CategoryFilter
+        categories={categories}
+        selected={selected}
+        onChange={(next) =>
+          setDeselected(new Set(categories.filter((c) => !next.has(c.key)).map((c) => c.key)))
+        }
+        excludeAlcohol={excludeAlcohol}
+        onExcludeAlcohol={setExcludeAlcohol}
+        alcoholHint={
+          mode === "person"
+            ? "Alkohol zahlen nur die Trinkenden. Pro Person ist deshalb ein Durchschnitt über die ganze Gruppe, nicht der Betrag einer einzelnen Person."
+            : "Zieht den bei der Buchung angegebenen Alkoholanteil vom Betrag ab. Reine Alkohol-Buchungen zählen dann nicht mehr mit."
+        }
+      />
+
+      {/* Ergebnisbereich: Screenreader erfahren von Änderungen durch die Auswahl */}
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {noSelection
+          ? "Keine Kategorie gewählt"
+          : `Gesamt ${formatEuro(total)}${mode === "person" ? " pro Person" : ""}, ${stats.count} Buchungen`}
+      </p>
+      <div>
+      {noSelection ? (
+        <div className="mt-6 rounded-lg border border-rule bg-paper-soft p-8 text-center">
+          <BarChart3 className="mx-auto mb-3 h-10 w-10 text-ink-soft" aria-hidden />
+          <p className="font-medium">Keine Kategorie gewählt</p>
+          <p className="mt-1 text-sm text-ink-soft">
+            Wähle oben mindestens eine Kategorie, um die Auswertung zu sehen.
+          </p>
+        </div>
+      ) : stats.count === 0 ? (
+        <div className="mt-6 rounded-lg border border-rule bg-paper-soft p-8 text-center">
+          <BarChart3 className="mx-auto mb-3 h-10 w-10 text-ink-soft" aria-hidden />
+          <p className="font-medium">Nach Abzug keine Buchungen</p>
+          <p className="mt-1 text-sm text-ink-soft">
+            In der gewählten Auswahl bleibt nach dem Herausrechnen des Alkoholanteils nichts übrig.
+          </p>
+        </div>
+      ) : (
+      <>
       {/* ── Summary-Karten ─────────────────────────────────────────────── */}
       <section className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <SummaryCard
           label={mode === "person" ? "Ø pro Person" : "Gesamt"}
           value={formatEuro(total)}
+          hint="Trinkgeld ist in der Statistik nicht enthalten."
         />
         <SummaryCard label="Buchungen" value={String(stats.count)} />
-        <SummaryCard label="Bisherige Tage" value={String(stats.days)} />
+        <SummaryCard label="Buchungstage" value={String(stats.days)} />
         <SummaryCard
-          label={mode === "person" ? "Ø pro Person pro Tag" : "Ø pro Tag"}
+          label={mode === "person" ? "Ø je Person und Buchungstag" : "Ø je Buchungstag"}
           value={formatEuro(avgPerDay)}
+          hint="Summe geteilt durch die Tage, an denen mindestens eine Buchung der Auswahl liegt — nicht durch alle Tage der Reise."
         />
       </section>
 
@@ -113,23 +176,23 @@ export function StatsView({
         <ul className="space-y-2">
           {stats.byCategory.map((c) => {
             const value = scale(c.total);
-            // Prozent-Anteil bleibt unabhängig vom Modus identisch.
-            const pct = (c.total / stats.total) * 100;
+            // Prozent-Anteil (Basis: gefilterte Summe) ist modusunabhängig.
+            const pct = c.pct;
             const alcoholValue = scale(c.alcohol);
             return (
-              <li key={c.category_id ?? "__none__"}>
+              <li key={c.key}>
                 <Link
-                  href={`/trips/${tripId}/transactions?q=${encodeURIComponent(c.category_name)}`}
+                  href={`/trips/${tripId}/transactions?q=${encodeURIComponent(c.name)}`}
                   className="block rounded-md border border-rule bg-paper p-3 transition-colors hover:border-primary/40 hover:bg-paper-soft"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="flex min-w-0 items-center gap-1.5 truncate font-medium">
                       <CategoryIcon
-                        icon={c.category_icon}
-                        name={c.category_name}
+                        icon={c.icon}
+                        name={c.name}
                         className="h-4 w-4 shrink-0 text-primary"
                       />
-                      <span className="truncate">{c.category_name}</span>
+                      <span className="truncate">{c.name}</span>
                       <ChevronRight className="h-3.5 w-3.5 shrink-0 text-ink-soft" aria-hidden />
                     </span>
                     <span className="shrink-0 font-mono text-sm">
@@ -194,6 +257,9 @@ export function StatsView({
           })}
         </ul>
       </section>
+      </>
+      )}
+      </div>
     </>
   );
 }
