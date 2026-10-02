@@ -101,8 +101,8 @@ CREATE TABLE IF NOT EXISTS prepayment_items (
   -- die Gutschriften zustehen. Personen werden vom Purge-Orphan-Cleanup
   -- (unten abgesichert) und schon HEUTE vom Ghost-Merge
   -- (mergeGhostIntoExistingPerson) hart gelöscht — ist ein Ghost Empfänger,
-  -- scheitert der Merge an RESTRICT; die Übernahme von payee_person_id dort
-  -- kommt mit PR4 (vorher kann die App keine Posten anlegen).
+  -- scheiterte der Merge an RESTRICT; seit PR4a hängt der Merge den
+  -- Empfänger vorher über move_item_payee (Migration 0059) um.
   payee_person_id  UUID NOT NULL REFERENCES persons(id) ON DELETE RESTRICT,
   -- Aufteilungsart für die Soll-Neuberechnung (calculateObligations-Modi
   -- ohne „kojen" — Kojen gibt es nur bei der Yacht). Die tatsächlichen
@@ -356,13 +356,10 @@ CREATE TRIGGER pi_guard_delete
 -- die Regel jetzt verletzen. Deshalb blockt `pi_guard_payee_change` einen
 -- Empfängerwechsel, solange noch eine nicht gelöschte Gutschrift (auch
 -- pending — deren Bestätigung ändert nur confirmed_at und feuert diesen
--- Trigger nicht) am Posten hängt. ⚠️ PR4: Ghost-Merge/replaceMember mit
--- einem Empfänger, der schon Gutschriften hat, brauchen dafür eine eigene
--- SQL-Funktion, die Empfänger und credit_to in EINER Transaktion umhängt
--- und dabei beide Trigger kontrolliert umgeht (z. B. transaktionslokales
--- Flag) — beide sind IMMEDIATE und blocken jeden Einzelschritt, auch in
--- derselben Transaktion. Bewusst nicht hier gebaut,
--- weil das Umhängen fremder Zahlungen eine fachliche Entscheidung ist.
+-- Trigger nicht) am Posten hängt. Kontrollierter Wechsel samt credit_to
+-- seit PR4a über move_item_payee (Migration 0059, transaktionslokales Flag;
+-- Altzahlungen wandern zum neuen Empfänger). replaceMember lehnt einen
+-- Empfänger dagegen ab (Payee-Guard).
 --
 -- `FOR SHARE` auf die Posten-Zeile: ein gleichzeitiger Empfängerwechsel
 -- wartet, bis diese Buchung committet ist, und sieht sie dann in seinem
