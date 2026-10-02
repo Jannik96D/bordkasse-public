@@ -68,6 +68,37 @@ const PG_UNIQUE_VIOLATION = "23505";
 const TRANCHE_AUTHZ_MSG =
   "Nur Skipper, Admin oder die vorstreckende Person dürfen eine Buchung einer Anzahlungstranche zuordnen.";
 
+// Reise-Posten (0058, PR4a): Vorab-Validierungen für die DB-Regeln
+// tx_pool_exclusive / tx_item_credit_direct / tx_item_credit_payee — sonst
+// sähe die Crew nur „Speichern fehlgeschlagen" (generischer DB-Fehler).
+const POOL_EXCLUSIVE_MSG =
+  "Diese Buchung gehört zu einem Posten und kann nicht zusätzlich einer Anzahlungstranche zugeordnet werden.";
+const ITEM_CREDIT_DIRECT_MSG =
+  "Diese Gutschrift gehört zu einem Posten und braucht einen konkreten Empfänger — „An Alle“ ist nicht möglich.";
+const ITEM_CREDIT_PAYEE_MSG =
+  "Diese Gutschrift gehört zu einem Posten und muss an die Person gehen, die den Posten empfängt.";
+const ITEM_EXPENSE_LOCKED_MSG =
+  "Diese Ausgabe ist die Zahlung an den Anbieter eines Postens. Betrag, Zahler und Aufteilung ergeben sich aus dem Posten " +
+  "und lassen sich hier nicht ändern — lösche die Zahlung und erfasse sie im Posten neu. Beschreibung, Kategorie und Datum " +
+  "kannst du ändern.";
+
+/**
+ * Übersetzt die Posten-/Topf-Fehler aus 0058 in verständliche Meldungen
+ * (Gürtel zur Vorab-Validierung: greift bei einem Race zwischen Prüfung und
+ * Update). Alles andere → `fallback`.
+ */
+function poolErrorMessage(error: { message: string } | null, fallback: string): string {
+  const msg = error?.message ?? "";
+  if (msg.includes("tx_pool_exclusive")) return POOL_EXCLUSIVE_MSG;
+  if (msg.includes("tx_item_credit_direct")) return ITEM_CREDIT_DIRECT_MSG;
+  if (msg.includes("prepayment_item_credit_wrong_payee")) return ITEM_CREDIT_PAYEE_MSG;
+  if ((error as { code?: string } | null)?.code === "40P01" || msg.includes("deadlock detected")) {
+    console.error("[bordkasse:db]", msg);
+    return "Gerade wurde gleichzeitig etwas geändert. Bitte erneut versuchen.";
+  }
+  return dbErrorMessage(error, fallback);
+}
+
 /**
  * Validiert, dass der Anteil pro Beteiligter mindestens 1 Cent ergibt.
  * Per-Person ist bereits durch das Zod-Refine abgesichert. Für die anderen
@@ -793,6 +824,80 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     return { status: "error", message: CROSS_TRIP_PERSON_MSG };
   }
 
+  // Bilanz-Diff VOR dem Update (für den Posten-Schutz unten und den
+  // Settlement-Banner am Ende). Reine Umbenennung/Umkategorisierung zählt
+  // nicht.
+  //
+  // `item_id` ist im generischen Edit UNVERÄNDERLICH (PR4a): das Formular
+  // schickt kein item_id, und dieser Pfad liest keins. Eine Posten-Ausgabe
+  // muss `paid_by` = Empfänger und per_person-Anteile = Soll tragen, sonst
+  // geht die Gesamtbilanz nach vollständiger Zahlung nicht auf 0 — das kann
+  // nur recordItemProviderPayment garantieren (lib/actions/prepayment-items.ts).
+  // Zuordnen/Lösen läuft deshalb ausschließlich über die Posten-Actions.
+  const balanceChanged = expenseBalanceChanged(
+    {
+      date: existing.date,
+      paid_by: existing.paid_by,
+      amount: existing.amount,
+      alcohol_amount: existing.alcohol_amount ?? 0,
+      tip_amount: existing.tip_amount ?? 0,
+      tip_distribution: existing.tip_distribution ?? "proportional",
+      split_type: existing.split_type,
+      tranche_id: existing.tranche_id,
+      item_id: existing.item_id ?? null,
+      participants: existingParts ?? [],
+    },
+    {
+      date: txData.date,
+      paid_by: txData.paid_by,
+      amount: txData.amount,
+      alcohol_amount: txData.alcohol_amount,
+      tip_amount: txData.tip_amount,
+      tip_distribution: txData.tip_distribution,
+      split_type: txData.split_type,
+      tranche_id: trancheToSave,
+      item_id: existing.item_id ?? null,
+      // EUR-Anteile (nicht die Fremdbeträge) vergleichen — sonst gälte eine
+      // Fremdwährungs-Buchung immer als „geändert".
+      participants: newExpenseParticipants(txData.split_type, participant_ids, cur.perPerson),
+    },
+  );
+
+  if (existing.item_id) {
+    // tx_pool_exclusive: Posten UND Tranche gleichzeitig verbietet die DB.
+    if (trancheToSave) return { status: "error", message: POOL_EXCLUSIVE_MSG, field: "tranche_id" };
+    // Bilanzrelevante Änderung an einer Anbieter-Zahlung würde die
+    // per_person-Anteile vom Soll lösen. Das Datum ist bei per_person
+    // bilanzneutral (keine datumsabhängige Aufteilung) und bleibt erlaubt.
+    const relevantChange = expenseBalanceChanged(
+      {
+        date: "",
+        paid_by: existing.paid_by,
+        amount: existing.amount,
+        alcohol_amount: existing.alcohol_amount ?? 0,
+        tip_amount: existing.tip_amount ?? 0,
+        tip_distribution: existing.tip_distribution ?? "proportional",
+        split_type: existing.split_type,
+        tranche_id: null,
+        item_id: null,
+        participants: existingParts ?? [],
+      },
+      {
+        date: "",
+        paid_by: txData.paid_by,
+        amount: txData.amount,
+        alcohol_amount: txData.alcohol_amount,
+        tip_amount: txData.tip_amount,
+        tip_distribution: txData.tip_distribution,
+        split_type: txData.split_type,
+        tranche_id: null,
+        item_id: null,
+        participants: newExpenseParticipants(txData.split_type, participant_ids, cur.perPerson),
+      },
+    );
+    if (relevantChange) return { status: "error", message: ITEM_EXPENSE_LOCKED_MSG };
+  }
+
   const { error } = await supabase
     .from("transactions")
     .update({
@@ -814,7 +919,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     })
     .eq("id", transactionId)
     .eq("trip_id", txData.trip_id);
-  if (error) return { status: "error", message: dbErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
+  if (error) return { status: "error", message: poolErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
 
   // Rollback-Helfer (Fund S-4): stellt die Buchungszeile auf ihren Vorzustand
   // zurück. Es gibt über den Service-Role-Client keine echte Transaktion um
@@ -892,36 +997,8 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   });
 
   // Banner nur, wenn sich tatsächlich die Bilanz ändert — reine Umbenennung
-  // oder Umkategorisierung soll keine Update-Mail-Aufforderung auslösen.
-  const balanceChanged = expenseBalanceChanged(
-    {
-      date: existing.date,
-      paid_by: existing.paid_by,
-      amount: existing.amount,
-      alcohol_amount: existing.alcohol_amount ?? 0,
-      tip_amount: existing.tip_amount ?? 0,
-      tip_distribution: existing.tip_distribution ?? "proportional",
-      split_type: existing.split_type,
-      tranche_id: existing.tranche_id,
-      item_id: existing.item_id ?? null,
-      participants: existingParts ?? [],
-    },
-    {
-      date: txData.date,
-      paid_by: txData.paid_by,
-      amount: txData.amount,
-      alcohol_amount: txData.alcohol_amount,
-      tip_amount: txData.tip_amount,
-      tip_distribution: txData.tip_distribution,
-      split_type: txData.split_type,
-      tranche_id: trancheToSave,
-      // item_id wird hier (noch) nicht editiert — PR4 bringt das Posten-Feld.
-      item_id: existing.item_id ?? null,
-      // EUR-Anteile (nicht die Fremdbeträge) vergleichen — sonst gälte eine
-      // Fremdwährungs-Buchung immer als „geändert".
-      participants: newExpenseParticipants(txData.split_type, participant_ids, cur.perPerson),
-    },
-  );
+  // oder Umkategorisierung soll keine Update-Mail-Aufforderung auslösen
+  // (balanceChanged wurde vor dem Update berechnet).
   if (balanceChanged) await markPostSettlementChange(supabase, txData.trip_id);
   revalidatePath(`/trips/${txData.trip_id}/transactions`);
   revalidatePath(`/trips/${txData.trip_id}/balance`);
@@ -1042,6 +1119,28 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     return { status: "error", message: CROSS_TRIP_PERSON_MSG };
   }
 
+  // Posten-Gutschrift (0058, PR4a): `item_id` bleibt im generischen Edit
+  // UNVERÄNDERLICH (nicht aus dem Formular gelesen, siehe updateExpense) —
+  // Betrag/Datum/Von dürfen sich ändern, aber die DB-Regeln des Postens
+  // werden hier vorab geprüft, damit die Crew eine verständliche Meldung
+  // statt eines generischen DB-Fehlers sieht.
+  if (existing.item_id) {
+    if (trancheToSave) return { status: "error", message: POOL_EXCLUSIVE_MSG, field: "tranche_id" };
+    if (parsed.data.credit_to == null) {
+      return { status: "error", message: ITEM_CREDIT_DIRECT_MSG, field: "credit_to" };
+    }
+    const { data: itemRow, error: itemErr } = await supabase
+      .from("prepayment_items")
+      .select("payee_person_id")
+      .eq("id", existing.item_id)
+      .eq("trip_id", parsed.data.trip_id)
+      .maybeSingle();
+    if (itemErr) return { status: "error", message: dbErrorMessage(itemErr, "Posten konnte nicht geladen werden.") };
+    if (itemRow && parsed.data.credit_to !== itemRow.payee_person_id) {
+      return { status: "error", message: ITEM_CREDIT_PAYEE_MSG, field: "credit_to" };
+    }
+  }
+
   const creditCur = resolveCreditCurrency({
     amount: parsed.data.amount,
     original_currency: parsed.data.original_currency,
@@ -1096,7 +1195,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
     })
     .eq("id", transactionId)
     .eq("trip_id", parsed.data.trip_id);
-  if (error) return { status: "error", message: dbErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
+  if (error) return { status: "error", message: poolErrorMessage(error, "Speichern fehlgeschlagen. Bitte erneut versuchen.") };
 
   // Grill-Review-Fund (PR 7, Fund 4): description ausklammern, siehe
   // createCredit oben.
@@ -1249,8 +1348,10 @@ export async function replayPendingTransaction(
       : rawParticipantIds
         ? [rawParticipantIds]
         : [];
-    // KEIN tranche_id im Replay (S-1): eine offline erfasste Ausgabe darf nicht
-    // in den Anzahlungspool geschoben werden — die Auslassung ist hier bewusst.
+    // KEIN tranche_id und KEIN item_id im Replay (S-1, PR4a): eine offline
+    // erfasste Ausgabe darf weder in den Anzahlungspool noch in einen Posten
+    // geschoben werden — die Auslassung ist hier bewusst. Eine Posten-Zahlung
+    // wird online über die Posten-Actions gebucht.
     const parsed = ExpenseSchema.safeParse({
       ...expenseCommonInput((k) => formObject[k], participantIds),
       idempotency_key: formObject.idempotency_key || undefined,
@@ -1354,7 +1455,7 @@ export async function replayPendingTransaction(
   // würde ein vergessenes Empfänger-Feld beim Replay stillschweigend zu einer
   // "An Alle"-Gutschrift (gleiche Regel wie in createCredit/updateCredit).
   const creditTo = creditToRaw === "ALL" ? null : creditToRaw;
-  // KEIN tranche_id im Replay (S-1), wie beim Ausgabe-Zweig.
+  // KEIN tranche_id / item_id im Replay (S-1, PR4a), wie beim Ausgabe-Zweig.
   const parsed = CreditSchema.safeParse({
     ...creditCommonInput((k) => formObject[k], creditTo),
     idempotency_key: formObject.idempotency_key || undefined,

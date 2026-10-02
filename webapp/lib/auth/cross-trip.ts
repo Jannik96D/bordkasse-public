@@ -24,6 +24,33 @@ export async function trancheBelongsToTrip(
 }
 
 /**
+ * Cross-Trip-Schutz für Reise-Posten (Migration 0058): gehört `itemId` zu
+ * diesem Törn? Die DB erzwingt das für Buchungen ohnehin per Composite-FK
+ * (`tx_item_fk`) — der App-Check liefert eine verständliche Meldung statt
+ * eines nackten 23503 und schützt die Posten-Actions, die vor jedem Schreiben
+ * Soll/Empfänger des Postens lesen. FAIL-CLOSED: ein Lesefehler gilt als
+ * „gehört nicht dazu", weil das Ergebnis eine Schreibfreigabe ist.
+ */
+export async function itemBelongsToTrip(
+  supabase: AdminClient,
+  itemId: string | null | undefined,
+  tripId: string,
+): Promise<boolean> {
+  if (!itemId) return true;
+  const { data, error } = await supabase
+    .from("prepayment_items")
+    .select("id")
+    .eq("id", itemId)
+    .eq("trip_id", tripId)
+    .maybeSingle();
+  if (error) {
+    console.error("[bordkasse:db] itemBelongsToTrip:", error.message);
+    return false;
+  }
+  return !!data;
+}
+
+/**
  * Cross-Trip-Schutz für Personen-Referenzen: stellt sicher, dass jede
  * angegebene person_id (paid_by / participant_ids / credit_from / credit_to)
  * wirklich Crew dieses Törns ist. Verhindert, dass über eine untergeschobene
@@ -73,25 +100,43 @@ export async function personHasBookingTrace(
   supabase: AdminClient,
   tripId: string,
   personId: string,
-  opts: { includeCreditFrom?: boolean } = {},
+  opts: { includeCreditFrom?: boolean; excludeItemParticipants?: boolean } = {},
 ): Promise<boolean> {
   const includeCreditFrom = opts.includeCreditFrom ?? true;
   const orParts = [`paid_by.eq.${personId}`, `credit_to.eq.${personId}`];
   if (includeCreditFrom) orParts.push(`credit_from.eq.${personId}`);
 
-  const [txRes, partRes] = await Promise.all([
+  // `excludeItemParticipants`: Anteile an Posten-Anbieterzahlungen (Ausgabe
+  // mit item_id, per_person = Soll) zählen NICHT als Spur. replaceMember
+  // hängt sie zusammen mit dem Posten-Soll auf die neue Person um — sonst
+  // wäre der klassische Wechsel vor Törnbeginn blockiert, sobald die Flüge
+  // bezahlt sind (also fast immer).
+  let partQuery = supabase
+    .from("transaction_participants")
+    .select("transaction_id, transactions!inner(trip_id, deleted_at, item_id)", { count: "exact", head: true })
+    .eq("person_id", personId)
+    .eq("transactions.trip_id", tripId)
+    .is("transactions.deleted_at", null);
+  if (opts.excludeItemParticipants) partQuery = partQuery.is("transactions.item_id", null);
+
+  const [txRes, partRes, payeeRes] = await Promise.all([
     supabase
       .from("transactions")
       .select("*", { count: "exact", head: true })
       .eq("trip_id", tripId)
       .is("deleted_at", null)
       .or(orParts.join(",")),
+    partQuery,
+    // Posten-Empfänger (0058, PR4): auch OHNE jede Buchung ist die Person
+    // Spur — die Crew zahlt ihr Geld an sie (credit_to). Verschwände ihre
+    // Mitgliedschaft, fielen diese Gutschriften aus der mitgliedschafts-
+    // getriebenen v_balances (Σ ≠ 0), und `payee_person_id` (RESTRICT)
+    // zeigte auf eine Nicht-Crew-Person.
     supabase
-      .from("transaction_participants")
-      .select("transaction_id, transactions!inner(trip_id, deleted_at)", { count: "exact", head: true })
-      .eq("person_id", personId)
-      .eq("transactions.trip_id", tripId)
-      .is("transactions.deleted_at", null),
+      .from("prepayment_items")
+      .select("id", { count: "exact", head: true })
+      .eq("trip_id", tripId)
+      .eq("payee_person_id", personId),
   ]);
 
   // FAIL-CLOSED (Grill-Fund P7): ein verschluckter Query-Fehler lieferte
@@ -102,12 +147,12 @@ export async function personHasBookingTrace(
   // bleiben: Σ Bilanz ≠ 0 auf Dauer, `all_debts_settled` nie wahr, der Törn
   // dauerhaft nicht purgebar. Im Zweifel lieber „hat eine Spur" melden und
   // den Wechsel ablehnen.
-  if (txRes.error || partRes.error) {
+  if (txRes.error || partRes.error || payeeRes.error) {
     console.error(
       "[bordkasse:db] personHasBookingTrace:",
-      txRes.error?.message ?? partRes.error?.message,
+      txRes.error?.message ?? partRes.error?.message ?? payeeRes.error?.message,
     );
     return true;
   }
-  return (txRes.count ?? 0) > 0 || (partRes.count ?? 0) > 0;
+  return (txRes.count ?? 0) > 0 || (partRes.count ?? 0) > 0 || (payeeRes.count ?? 0) > 0;
 }

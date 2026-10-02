@@ -29,7 +29,9 @@ export type SettlementMailParams = {
   recipientName: string;
   tripName: string;
   tripDates: string; // formatted "5.4.2026 – 15.4.2026"
-  balance: number;   // Saldo der Person (+ = bekommt, − = zahlt)
+  balance: number;   // Bordkasse-Saldo der Person (+ = bekommt, − = zahlt) — passt zum Zahlungsplan
+  /** Offen aus Anzahlung + weiteren Posten (getrennt, NICHT im Zahlungsplan). */
+  poolBalance?: number;
   debts: DebtItem[];
   appUrl: string;    // Link zur Schuldenseite des Trips (zum direkten Abhaken)
   skipperName: string;
@@ -55,6 +57,16 @@ export function renderSettlementMail(p: SettlementMailParams): { html: string; t
     : isDebtor
       ? `Du zahlst noch ${fmtEuro(Math.abs(p.balance))}.`
       : `Du bist quitt, nichts mehr zu tun.`;
+  const pool = p.poolBalance ?? 0;
+  // Delta-Review 4: vorsichtig formuliert, ohne „du zahlst/bekommst". Der
+  // Anteil stammt aus der Gesamtbilanz (Charter-AUSGABE-Aufteilung bzw.
+  // gebuchte Posten-Anteile), nicht aus dem Matrix-Soll — beide können
+  // abweichen (bekannte Grenze, docs/prepayments.md). Maßgeblich für die
+  // Rückzahlung ist die Anzahlungs-Übersicht in der App.
+  const poolText =
+    Math.abs(pool) > 0.005
+      ? `Laut Bilanz sind bei Anzahlung und weiteren Posten zusätzlich ${pool < 0 ? "−" : "+"}${fmtEuro(Math.abs(pool))} offen. Das ist nicht im Zahlungsplan enthalten; maßgeblich ist die Anzahlungs-Übersicht in der App.`
+      : "";
   const introText = p.isUpdate
     ? `${p.skipperName} hat Buchungen für unseren ${vocab.trip} aktualisiert, die Bilanz hat sich seit der letzten Mail geändert.`
     : `${p.skipperName} hat die ${vocab.kitty} für unseren ${vocab.trip} final abgerechnet.`;
@@ -112,7 +124,10 @@ export function renderSettlementMail(p: SettlementMailParams): { html: string; t
                 </p>
                 <p style="margin:0;font-size:16px;line-height:1.5;color:${balanceColor};font-weight:600;">
                   ${escapeHtml(balanceText)}
-                </p>
+                </p>${poolText ? `
+                <p style="margin:8px 0 0 0;font-size:14px;line-height:1.5;color:#587EA8;">
+                  ${escapeHtml(poolText)}
+                </p>` : ""}
               </td>
             </tr>
 ${changeSummaryBlock}${debtsBlock}
@@ -134,7 +149,7 @@ ${p.tripName} · ${p.tripDates}
 Hi ${p.recipientName},
 
 ${introText}
-${p.isUpdate && p.changeSummary ? `Was hat sich geändert: ${p.changeSummary}\n` : ""}${balanceText}
+${p.isUpdate && p.changeSummary ? `Was hat sich geändert: ${p.changeSummary}\n` : ""}${balanceText}${poolText ? `\n${poolText}` : ""}
 ${
   p.debts.length === 0
     ? ""

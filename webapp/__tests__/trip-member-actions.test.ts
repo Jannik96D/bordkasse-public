@@ -276,6 +276,7 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       b.select = self;
       b.eq = self;
       b.neq = self;
+      b.is = self;
       b.ilike = self;
       b.update = self;
       b.upsert = self;
@@ -401,6 +402,9 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       { table: "trip_members", response: { data: null } },
       // 7. mergeGhostIntoExistingPerson-eigener Pre-Check: Ghost NICHT Crew eines anderen Törns.
       { table: "trip_members", response: { count: 0 } },
+      // 7b. PR4a: Ghost als Posten-Empfänger + Posten-Soll des Ghosts (beide leer).
+      { table: "prepayment_items", response: { data: [] } },
+      { table: "prepayment_item_obligations", response: { data: [] } },
       // 8. transactions.update (paid_by) — vier Aufrufe im Merge-Helper
       { table: "transactions", response: { error: null } },
       { table: "transactions", response: { error: null } },
@@ -458,6 +462,9 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       { table: "trip_members", response: { count: 0 } },
       { table: "trip_members", response: { data: null } },
       { table: "trip_members", response: { count: 0 } },
+      // 7b. PR4a: Ghost als Posten-Empfänger + Posten-Soll des Ghosts (beide leer).
+      { table: "prepayment_items", response: { data: [] } },
+      { table: "prepayment_item_obligations", response: { data: [] } },
       // transactions.update(paid_by) — erfolgreich
       { table: "transactions", response: { error: null } },
       // transactions.update(credit_from) — schlägt fehl

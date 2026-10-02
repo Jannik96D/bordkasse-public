@@ -8,7 +8,8 @@ import { requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
 import { resolveOrigin } from "@/lib/auth/origin";
-import { displayNameFromEmail } from "@/lib/utils";
+import { daysBetween, displayNameFromEmail } from "@/lib/utils";
+import { calculateItemObligations } from "@/lib/calc/prepayment-item-shares";
 import { personHasBookingTrace } from "@/lib/auth/cross-trip";
 import { assertTripNotArchived } from "@/lib/auth/trip-state";
 
@@ -236,6 +237,60 @@ export async function removeMember(
   // stehen (Σ balance ≠ 0), ohne jede Fehlermeldung — analog zum Blocker in
   // delete_my_account() (Migration 0021), der genau das schon verhindert.
   const personId = memberRow.person_id;
+
+  // PR4a (Reise-Posten, 0058): Empfänger und offenes Posten-Soll.
+  //   • Empfänger → blocken (die Empfänger-Rolle zählt zusätzlich in
+  //     personHasBookingTrace als Spur): die Crew zahlt ihr Geld an diese
+  //     Person (credit_to); ohne Mitgliedschaft fielen diese Gutschriften aus
+  //     v_balances (Σ ≠ 0).
+  //   • Offenes Soll (Entscheidung M3, PR4a-Review): ein stilles Löschen
+  //     ließe Σ Soll < Posten-Summe zurück. Ist der Posten gleichmäßig/
+  //     zeitanteilig verteilt, gibt es noch keine Anbieter-Zahlung und hat
+  //     diese Person für den Posten noch nichts gezahlt/gemeldet, verteilt
+  //     removeMember das Soll auf die verbleibende Crew neu (Σ = Summe
+  //     exakt). Sonst wird geblockt — ein Neuspeichern des Postens verteilt
+  //     seit M2 NICHT mehr automatisch neu, der Hinweis nennt deshalb den
+  //     konkreten Weg.
+  // Alles hier ist nur Lesen/Planen; geschrieben wird erst unten nach allen
+  // Prüfungen. Fail-closed bei Lesefehlern.
+  type ItemRedistribution = {
+    itemId: string;
+    rows: { person_id: string; amount: number }[];
+    oldRows: { person_id: string; amount: number }[];
+  };
+  const itemRedistributions: ItemRedistribution[] = [];
+  {
+    const [payeeRes, itemOblRes] = await Promise.all([
+      supabase
+        .from("prepayment_items")
+        .select("id", { count: "exact", head: true })
+        .eq("trip_id", tripId)
+        .eq("payee_person_id", personId),
+      supabase
+        .from("prepayment_item_obligations")
+        .select("item_id, amount")
+        .eq("trip_id", tripId)
+        .eq("person_id", personId),
+    ]);
+    if (payeeRes.error || itemOblRes.error) {
+      console.error("[bordkasse:db] removeMember item check:", payeeRes.error?.message ?? itemOblRes.error?.message);
+      return { ok: false, message: "Posten konnten nicht geprüft werden. Bitte erneut versuchen." };
+    }
+    if ((payeeRes.count ?? 0) > 0) {
+      return {
+        ok: false,
+        message:
+          "Diese Person empfängt die Zahlungen für einen Posten (z. B. An-/Abreise). Bitte zuerst im Posten eine andere Person als Empfänger eintragen.",
+      };
+    }
+    const openItemIds = (itemOblRes.data ?? []).filter((o) => Number(o.amount) > 0).map((o) => o.item_id as string);
+    if (openItemIds.length > 0) {
+      const plan = await planItemRedistribution(supabase, tripId, personId, openItemIds);
+      if (!plan.ok) return { ok: false, message: plan.message };
+      itemRedistributions.push(...plan.redistributions);
+    }
+  }
+
   // Geteilter Helfer mit replaceMember (lib/actions/prepayments.ts, PR 4) —
   // lib/auth/cross-trip.ts:personHasBookingTrace, DRY statt zweier
   // driftender Kopien.
@@ -277,7 +332,103 @@ export async function removeMember(
     };
   }
 
-  await supabase.from("trip_members").delete().eq("id", memberId).eq("trip_id", tripId);
+  // PR4a (M3, Delta-Review 1/5): Posten-Soll neu verteilen. Pro Posten ERST
+  // die neuen Beträge der Rest-Crew per Upsert schreiben, DANN nur die Zeile
+  // der entfernten Person löschen — so gibt es nie einen Augenblick mit 0
+  // Sollzeilen. Jeder Fehler (auch die Nachkontrolle und das Entfernen der
+  // Mitgliedschaft) schreibt die alten Zeilen zurück.
+  const redistributed: ItemRedistribution[] = [];
+  const restoreRedistributions = async (): Promise<boolean> => {
+    let ok = true;
+    for (const r of redistributed) {
+      const { error } = await supabase.from("prepayment_item_obligations").upsert(
+        r.oldRows.map((row) => ({ item_id: r.itemId, trip_id: tripId, person_id: row.person_id, amount: row.amount })),
+        { onConflict: "item_id,person_id" },
+      );
+      if (error) {
+        ok = false;
+        console.error("[bordkasse:db] removeMember restore:", error.message);
+      }
+    }
+    return ok;
+  };
+  const failRestoring = async (message: string): Promise<{ ok: false; message: string }> => {
+    const restored = await restoreRedistributions();
+    return {
+      ok: false,
+      message: restored ? message : `${message} Achtung: das Zurücksetzen ist ebenfalls fehlgeschlagen — bitte den Posten prüfen.`,
+    };
+  };
+  for (const r of itemRedistributions) {
+    const { error: upErr } = await supabase.from("prepayment_item_obligations").upsert(
+      r.rows.map((row) => ({ item_id: r.itemId, trip_id: tripId, person_id: row.person_id, amount: row.amount })),
+      { onConflict: "item_id,person_id" },
+    );
+    redistributed.push(r);
+    if (upErr) {
+      console.error("[bordkasse:db] removeMember item redistribution/upsert:", upErr.message);
+      return failRestoring("Posten-Soll konnte nicht neu verteilt werden. Bitte erneut versuchen.");
+    }
+    const { error: delErr } = await supabase
+      .from("prepayment_item_obligations")
+      .delete()
+      .eq("trip_id", tripId)
+      .eq("item_id", r.itemId)
+      .eq("person_id", personId);
+    if (delErr) {
+      console.error("[bordkasse:db] removeMember item redistribution/delete:", delErr.message);
+      return failRestoring("Posten-Soll konnte nicht neu verteilt werden. Bitte erneut versuchen.");
+    }
+  }
+  if (redistributed.length > 0) {
+    // Nachkontrolle (wie saveItem): ist inzwischen eine Anbieter-Zahlung
+    // gebucht worden, wurde sie nach dem ALTEN Soll verteilt → zurückrollen.
+    const { count, error } = await supabase
+      .from("transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("trip_id", tripId)
+      .eq("type", "expense")
+      .in("item_id", redistributed.map((r) => r.itemId))
+      .is("deleted_at", null);
+    if (error) return failRestoring("Posten konnten nicht geprüft werden. Bitte erneut versuchen.");
+    if ((count ?? 0) > 0) {
+      return failRestoring(
+        "Während des Entfernens wurde eine Zahlung an den Anbieter gebucht. Bitte Seite neu laden und erneut versuchen.",
+      );
+    }
+  }
+  {
+    // Übrige (0-€-)Sollzeilen der Person — fail-loud (Review P3), sonst
+    // bliebe ein Soll für eine Person ohne Mitgliedschaft.
+    const { error } = await supabase
+      .from("prepayment_item_obligations")
+      .delete()
+      .eq("trip_id", tripId)
+      .eq("person_id", personId);
+    if (error) {
+      console.error("[bordkasse:db] removeMember item obligations cleanup:", error.message);
+      return failRestoring("Posten-Soll konnte nicht aufgeräumt werden. Bitte erneut versuchen.");
+    }
+  }
+
+  {
+    const { error: memberDelErr } = await supabase.from("trip_members").delete().eq("id", memberId).eq("trip_id", tripId);
+    if (memberDelErr) {
+      console.error("[bordkasse:db] removeMember trip_members delete:", memberDelErr.message);
+      return failRestoring("Crewmitglied konnte nicht entfernt werden. Bitte erneut versuchen.");
+    }
+  }
+  if (redistributed.length > 0) {
+    await logAudit(supabase, {
+      table_name: "prepayment_item_obligations",
+      operation: "UPDATE",
+      record_id: memberId,
+      trip_id: tripId,
+      actor_person_id: auth.personId,
+      payload: { kind: "item-soll-redistributed", item_ids: redistributed.map((r) => r.itemId) },
+    });
+  }
+
 
   // Kein offenes Soll (0 oder keine Zeile) → die Obligation-Zeile selbst
   // (falls vorhanden, mit total_amount = 0) kann gefahrlos mitgelöscht
@@ -304,6 +455,8 @@ export async function removeMember(
   });
   revalidatePath(`/trips/${tripId}/settings`);
   revalidatePath(`/trips/${tripId}`);
+  revalidatePath(`/trips/${tripId}/prepayments`);
+  revalidatePath(`/trips/${tripId}/balance`);
   return { ok: true };
 }
 
@@ -684,6 +837,63 @@ async function mergeGhostIntoExistingPerson(
     };
   }
 
+  // Pre-Check (PR4a, Reise-Posten 0058): ist der Ghost Empfänger eines
+  // Postens? Dann muss der Empfänger mitwandern — sonst scheiterte das finale
+  // persons-DELETE an `payee_person_id ON DELETE RESTRICT`, und ein
+  // credit_to-Update der Posten-Gutschriften bräche am Trigger
+  // tx_item_credit_payee ab. Der Wechsel läuft atomar über move_item_payee
+  // (Migration 0059, Schritt 4b). Hier nur LESEN — Lesefehler brechen ab,
+  // BEVOR irgendetwas geschrieben wurde.
+  // Global (ohne trip_id-Filter, Review P3): ist der Ghost Empfänger eines
+  // Postens in einem ANDEREN Törn, würde das finale persons-DELETE an
+  // RESTRICT scheitern — erst nach allen Writes. Deshalb vorab blocken.
+  const { data: ghostPayeeAll, error: ghostPayeeErr } = await supabase
+    .from("prepayment_items")
+    .select("id, trip_id")
+    .eq("payee_person_id", ghostId);
+  if (ghostPayeeErr) {
+    console.error("[bordkasse:db] mergeGhostIntoExistingPerson payee check:", ghostPayeeErr.message);
+    return { ok: false, message: "Posten konnten nicht geprüft werden. Bitte erneut versuchen." };
+  }
+  if ((ghostPayeeAll ?? []).some((it) => it.trip_id !== tripId)) {
+    return {
+      ok: false,
+      message:
+        "Diese Person empfängt Zahlungen für einen Posten in einem anderen Törn. Eine automatische Verschmelzung ist " +
+        "deshalb gesperrt — bitte einen Admin einbeziehen.",
+    };
+  }
+  const ghostPayeeItems = ghostPayeeAll ?? [];
+  // Probe (Review P1): move_item_payee als No-op (gleicher Empfänger → 0)
+  // VOR jedem Schreibschritt aufrufen. Beweist, dass die Funktion mit der
+  // 3-Argument-Signatur aus 0060 existiert und im PostgREST-Schemacache ist
+  // (ohne 0060 findet PostgREST die Signatur mit `p_move_credits` nicht).
+  // Sie beweist NICHT, dass der spätere echte Wechsel gelingt (z. B. kann
+  // dort noch eine fremde Anbieter-Zahlung blocken).
+  // Sonst schlüge Schritt 4b erst NACH dem Umhängen der Mitgliedschaft fehl
+  // — Gutschriften an einen Ghost ohne Mitgliedschaft.
+  for (const it of ghostPayeeItems) {
+    const { error } = await supabase.rpc("move_item_payee", { p_item_id: it.id, p_new_payee: ghostId, p_move_credits: true });
+    if (error) {
+      console.error("[bordkasse:db] mergeGhostIntoExistingPerson move_item_payee probe:", error.message);
+      return {
+        ok: false,
+        message: "Die Verschmelzung ist gerade nicht möglich (Datenbank-Funktion fehlt). Bitte einen Admin kontaktieren.",
+      };
+    }
+  }
+  // Posten-Soll des Ghosts (person_id → persons ON DELETE CASCADE): würde
+  // beim finalen persons-DELETE sonst STILL verschwinden.
+  const { data: ghostItemObl, error: ghostItemOblErr } = await supabase
+    .from("prepayment_item_obligations")
+    .select("item_id, amount")
+    .eq("trip_id", tripId)
+    .eq("person_id", ghostId);
+  if (ghostItemOblErr) {
+    console.error("[bordkasse:db] mergeGhostIntoExistingPerson item obligations:", ghostItemOblErr.message);
+    return { ok: false, message: "Posten-Soll konnte nicht geprüft werden. Bitte erneut versuchen." };
+  }
+
   // Generischer Fehler-Text für alle Zwischenschritte unten — Fund 3
   // (Sanierungsplan PR 9a): jeder Schritt verwarf bisher den Rückgabewert,
   // ein Fehler mittendrin blieb unbemerkt und die Funktion log am Ende
@@ -713,7 +923,15 @@ async function mergeGhostIntoExistingPerson(
     if (error) return mergeStepFailed("transactions.credit_from", error.message);
   }
   {
-    const { error } = await supabase.from("transactions").update({ credit_to: realId }).eq("credit_to", ghostId);
+    // PR4a: Posten-Gutschriften (item_id) NICHT hier — ihr credit_to muss dem
+    // Posten-Empfänger entsprechen (Trigger tx_item_credit_payee), solange der
+    // noch der Ghost ist, würde das Update abgewiesen. move_item_payee hängt
+    // sie in Schritt 4b zusammen mit dem Empfänger um.
+    const { error } = await supabase
+      .from("transactions")
+      .update({ credit_to: realId })
+      .eq("credit_to", ghostId)
+      .is("item_id", null);
     if (error) return mergeStepFailed("transactions.credit_to", error.message);
   }
   {
@@ -796,6 +1014,44 @@ async function mergeGhostIntoExistingPerson(
     if (error) return mergeStepFailed("prepayment_obligations.delete_ghost", error.message);
   }
 
+  // 3b. Posten-Soll (PR4a): PK (item_id, person_id). Hat real für einen
+  //     Posten schon ein Soll (nur nach einem früheren Crewwechsel denkbar,
+  //     Self-Klausel aus 0058), werden die Beträge addiert — wie bei den
+  //     per_person-Anteilen in Schritt 2 (sonst wäre Σ Soll < Posten-Summe).
+  for (const o of ghostItemObl ?? []) {
+    const { data: realItemObl, error: realItemOblErr } = await supabase
+      .from("prepayment_item_obligations")
+      .select("amount")
+      .eq("item_id", o.item_id)
+      .eq("person_id", realId)
+      .maybeSingle();
+    if (realItemOblErr) return mergeStepFailed("prepayment_item_obligations.select_real", realItemOblErr.message);
+    if (realItemObl) {
+      const { error } = await supabase
+        .from("prepayment_item_obligations")
+        .update({ amount: Number(realItemObl.amount) + Number(o.amount) })
+        .eq("item_id", o.item_id)
+        .eq("trip_id", tripId)
+        .eq("person_id", realId);
+      if (error) return mergeStepFailed("prepayment_item_obligations.merge_amount", error.message);
+      const { error: delErr } = await supabase
+        .from("prepayment_item_obligations")
+        .delete()
+        .eq("item_id", o.item_id)
+        .eq("trip_id", tripId)
+        .eq("person_id", ghostId);
+      if (delErr) return mergeStepFailed("prepayment_item_obligations.delete_ghost", delErr.message);
+    } else {
+      const { error } = await supabase
+        .from("prepayment_item_obligations")
+        .update({ person_id: realId })
+        .eq("item_id", o.item_id)
+        .eq("trip_id", tripId)
+        .eq("person_id", ghostId);
+      if (error) return mergeStepFailed("prepayment_item_obligations.reassign", error.message);
+    }
+  }
+
   // 4. trip_members: Ghost-Eintrag auf real umhängen. Der Pre-Check oben
   //    hat sichergestellt, dass real noch nicht Mitglied dieses Trips ist —
   //    UNIQUE (trip_id, person_id) ist daher safe.
@@ -806,6 +1062,21 @@ async function mergeGhostIntoExistingPerson(
       .eq("trip_id", tripId)
       .eq("person_id", ghostId);
     if (error) return mergeStepFailed("trip_members.reassign", error.message);
+  }
+
+  // 4b. Posten-Empfänger (PR4a) — atomar über move_item_payee (Migration
+  //     0059: Posten + credit_to der Posten-Gutschriften in einer
+  //     Transaktion). Bewusst UNMITTELBAR nach dem Umhängen der Mitgliedschaft
+  //     (Grill-Fund P2-4): vorher liefe ein späterer Fehlschlag darauf hinaus,
+  //     dass die Gutschriften an eine Person gehen, die (noch) nicht Crew ist
+  //     und deshalb aus der mitgliedschaftsgetriebenen v_balances fällt. In
+  //     dieser Reihenfolge ist bis zu Schritt 4 alles konsistent beim Ghost,
+  //     danach beim echten Konto. Muss vor dem persons-DELETE laufen
+  //     (payee_person_id ON DELETE RESTRICT).
+  for (const it of ghostPayeeItems) {
+    // Gleiche Person → die Posten-Gutschriften wandern mit (p_move_credits).
+    const { error } = await supabase.rpc("move_item_payee", { p_item_id: it.id, p_new_payee: realId, p_move_credits: true });
+    if (error) return mergeStepFailed("prepayment_items.payee_person_id", error.message);
   }
 
   // 5. Trip-Skipper-FK darf nicht auf den Ghost zeigen (RESTRICT beim Delete)
@@ -885,3 +1156,113 @@ async function mergeGhostIntoExistingPerson(
   return { ok: true };
 }
 
+
+/**
+ * Plant für removeMember die Neuverteilung des Posten-Solls einer Person auf
+ * die verbleibende Crew (Entscheidung M3). Rein lesend. Blockt mit einer
+ * konkreten Meldung, wenn eine automatische Neuverteilung nicht sicher ist.
+ */
+async function planItemRedistribution(
+  supabase: ReturnType<typeof createAdminClient>,
+  tripId: string,
+  personId: string,
+  itemIds: string[],
+): Promise<
+  | {
+      ok: true;
+      redistributions: {
+        itemId: string;
+        rows: { person_id: string; amount: number }[];
+        oldRows: { person_id: string; amount: number }[];
+      }[];
+    }
+  | { ok: false; message: string }
+> {
+  const fail = (err: { message: string }) => {
+    console.error("[bordkasse:db] planItemRedistribution:", err.message);
+    return { ok: false as const, message: "Posten konnten nicht geprüft werden. Bitte erneut versuchen." };
+  };
+  const [itemsRes, txRes, tripRes, membersRes, oblRes] = await Promise.all([
+    supabase.from("prepayment_items").select("id, label, total_amount, split_type").eq("trip_id", tripId).in("id", itemIds),
+    supabase
+      .from("transactions")
+      .select("item_id, type, credit_from")
+      .eq("trip_id", tripId)
+      .in("item_id", itemIds)
+      .is("deleted_at", null),
+    supabase.from("trips").select("start_date, end_date").eq("id", tripId).maybeSingle(),
+    supabase.from("trip_members").select("person_id, on_board_from, on_board_to").eq("trip_id", tripId),
+    supabase.from("prepayment_item_obligations").select("item_id, person_id, amount").eq("trip_id", tripId).in("item_id", itemIds),
+  ]);
+  if (oblRes.error) return fail(oblRes.error);
+  if (itemsRes.error) return fail(itemsRes.error);
+  if (txRes.error) return fail(txRes.error);
+  if (tripRes.error || !tripRes.data) return fail(tripRes.error ?? { message: "trip missing" });
+  if (membersRes.error) return fail(membersRes.error);
+  const trip = tripRes.data;
+  const windowBy = new Map((membersRes.data ?? []).map((m) => [m.person_id as string, m]));
+
+  const redistributions: {
+    itemId: string;
+    rows: { person_id: string; amount: number }[];
+    oldRows: { person_id: string; amount: number }[];
+  }[] = [];
+  for (const item of itemsRes.data ?? []) {
+    const txs = (txRes.data ?? []).filter((t) => t.item_id === item.id);
+    if (txs.some((t) => t.type === "expense")) {
+      return {
+        ok: false,
+        message:
+          `Diese Person hat ein offenes Soll beim Posten „${item.label}“, für den schon an den Anbieter gezahlt wurde. ` +
+          "Das Soll lässt sich nicht automatisch neu verteilen — bitte zuerst die Anbieter-Zahlung löschen oder das Soll im Posten anpassen.",
+      };
+    }
+    if (txs.some((t) => t.type === "credit" && t.credit_from === personId)) {
+      return {
+        ok: false,
+        message:
+          `Diese Person hat für den Posten „${item.label}“ schon gezahlt oder eine Zahlung gemeldet. ` +
+          "Bitte zuerst die Zahlung löschen bzw. die Meldung ablehnen, bevor du sie entfernst.",
+      };
+    }
+    if (item.split_type !== "gleichmaessig" && item.split_type !== "zeitanteilig") {
+      return {
+        ok: false,
+        message:
+          `Diese Person hat noch ein Soll beim Posten „${item.label}“ (Einzelbeträge). ` +
+          "Bitte zuerst im Posten ihren Betrag auf andere verteilen, bevor du sie entfernst.",
+      };
+    }
+    // Delta-Review 2: NUR auf Personen verteilen, die für DIESEN Posten schon
+    // eine Sollzeile haben — nicht auf die ganze aktuelle Crew (ein
+    // Nachrücker, der selbst anreist, bekäme sonst fremde Flüge).
+    const oldRows = (oblRes.data ?? [])
+      .filter((o) => o.item_id === item.id)
+      .map((o) => ({ person_id: o.person_id as string, amount: Number(o.amount) }));
+    const base = oldRows.filter((o) => o.person_id !== personId);
+    if (base.length === 0) {
+      return {
+        ok: false,
+        message: `Beim Posten „${item.label}“ hat sonst niemand ein Soll. Bitte zuerst den Posten anpassen oder löschen.`,
+      };
+    }
+    const calc = calculateItemObligations(
+      item.split_type,
+      Number(item.total_amount),
+      base.map((o) => {
+        const w = windowBy.get(o.person_id);
+        return {
+          personId: o.person_id,
+          days: daysBetween(w?.on_board_from ?? trip.start_date, w?.on_board_to ?? trip.end_date),
+        };
+      }),
+    );
+    if (!calc.ok) return { ok: false, message: calc.message };
+    redistributions.push({
+      itemId: item.id as string,
+      rows: calc.shares.map((sh) => ({ person_id: sh.personId, amount: sh.amount })),
+      oldRows,
+    });
+  }
+  return { ok: true, redistributions };
+}

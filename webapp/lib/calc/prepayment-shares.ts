@@ -108,8 +108,11 @@ function round2(n: number): number {
  * gerundeten) Anteile EXAKT `total` ergibt (Hamilton / Largest-Remainder).
  * In Cent gerechnet: erst abrunden, dann die übrigen Cents an die größten
  * Nachkomma-Reste vergeben. Verhindert die Cent-Drift der Pro-Position-Rundung.
+ *
+ * Exportiert für die Reise-Posten (lib/calc/prepayment-item-shares.ts), die
+ * dieselbe Cent-Garantie brauchen.
  */
-function allocateByWeights(total: number, weights: number[]): number[] {
+export function allocateByWeights(total: number, weights: number[]): number[] {
   const n = weights.length;
   if (n === 0) return [];
   const totalCents = Math.round(total * 100);

@@ -4,6 +4,7 @@ import { InfoTooltip } from "@/components/info-tooltip";
 import { getBalances, getBordkasseOnlyBalances } from "@/lib/queries/balances";
 import { getTrip } from "@/lib/queries/trips";
 import { getPlan, getPrepaymentPoolBalances, getCharterPaidTotal } from "@/lib/queries/prepayments";
+import { getItems, getItemPotBalances, type PrepaymentItemView } from "@/lib/queries/prepayment-items";
 import { formatEuro, todayIso } from "@/lib/utils";
 import { tripVocab, type TripType } from "@/lib/trip-vocab";
 import type { PrepaymentPoolBalance } from "@/lib/queries/prepayments";
@@ -15,13 +16,15 @@ export default async function BalancePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [rows, bordkasseRows, plan, poolBalances, trip, charterPaid] = await Promise.all([
+  const [rows, bordkasseRows, plan, poolBalances, trip, charterPaid, items, itemPot] = await Promise.all([
     getBalances(id),
     getBordkasseOnlyBalances(id),
     getPlan(id),
     getPrepaymentPoolBalances(id),
     getTrip(id),
     getCharterPaidTotal(id),
+    getItems(id),
+    getItemPotBalances(id),
   ]);
 
   const tripType: TripType = trip?.trip_type === "other" ? "other" : "sailing";
@@ -39,10 +42,12 @@ export default async function BalancePage({
     );
   }
 
-  // Bordkasse-Tabelle nutzt v_balances_bordkasse_only wenn ein Plan existiert
-  // (sonst v_balances), damit Anzahlungsbuchungen die Bordkasse-Bilanz nicht
-  // verfälschen.
-  const tableRows: BalanceRow[] = plan ? bordkasseRows.map((b) => ({
+  // Bordkasse-Tabelle nutzt v_balances_bordkasse_only, sobald es einen
+  // Sondertopf gibt — Anzahlungsplan ODER Reise-Posten (0058, PR4a) —, sonst
+  // v_balances. Sonst stünden die Flug-Zahlungen eines Törns ohne
+  // Charterplan als offene Bordkasse-Salden da.
+  const hasItems = items.length > 0;
+  const tableRows: BalanceRow[] = plan || hasItems ? bordkasseRows.map((b) => ({
     ...b,
     display_name: rows.find((r) => r.person_id === b.person_id)?.display_name ?? "—",
   })) : rows;
@@ -82,7 +87,26 @@ export default async function BalancePage({
         />
       )}
 
-      <BordkasseTable rows={tableRows} sum={sum} hasPlan={hasPlan} tripType={tripType} />
+      <BordkasseTable rows={tableRows} sum={sum} hasPlan={hasPlan || hasItems} tripType={tripType} />
+
+      {/* Reise-Posten (PR4a): bewusst minimal — das eigentliche Layout
+          (Drei-Topf-Erklärung, Status je Person) kommt mit PR4b. */}
+      {hasItems && (
+        <ItemsSummary
+          tripId={id}
+          items={items}
+          // M1 (PR4a-Review): je Person Posten-Saldo + Gesamtsaldo sichtbar —
+          // die Bordkasse-Tabelle oben zeigt Posten bewusst nicht mehr. Der
+          // Posten-Saldo kommt aus den Buchungen (getItemPotBalances), nicht
+          // aus dem Matrix-Soll, damit Σ = 0 und Gesamt = Summe der Töpfe.
+          people={rows.map((r) => ({
+            person_id: r.person_id,
+            name: r.display_name,
+            itemBalance: itemPot.get(r.person_id) ?? 0,
+            total: r.balance,
+          }))}
+        />
+      )}
 
       {tripStarted && hasPlan && (
         <PrepaymentsSummary
@@ -225,6 +249,56 @@ function PrepaymentsSummary({
         </div>
       )}
       </details>
+    </section>
+  );
+}
+
+/** Kurzübersicht der Reise-Posten: Crew-Beiträge und Anbieter-Zahlung je Posten. */
+function ItemsSummary({
+  tripId,
+  items,
+  people,
+}: {
+  tripId: string;
+  items: PrepaymentItemView[];
+  people: { person_id: string; name: string; itemBalance: number; total: number }[];
+}) {
+  return (
+    <section className="mb-4 rounded-lg border border-rule bg-paper p-4" aria-labelledby="items-summary-heading">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <h2 id="items-summary-heading" className="text-sm font-semibold text-primary">Weitere Posten</h2>
+        <Link className="text-xs text-primary hover:underline" href={`/trips/${tripId}/prepayments`}>
+          Details →
+        </Link>
+      </div>
+      <ul className="divide-y divide-rule text-sm">
+        {items.map((it) => (
+          <li key={it.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+            <span className="font-medium">{it.label}</span>
+            <span className="inline-flex items-center gap-2 text-xs text-ink-soft">
+              <StatusBadge status={it.complete ? "paid" : it.paidTotal > 0.005 ? "partial" : "open"} />
+              <span className="tabular-nums">
+                Crew {formatEuro(Math.min(it.paidTotal, it.sollTotal))} / {formatEuro(it.sollTotal)} · Anbieter{" "}
+                {formatEuro(it.providerPaid)} / {formatEuro(it.total_amount)}
+              </span>
+              <span className="sr-only">{it.complete ? "abgeschlossen" : "noch offen"}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {/* Minimal (Layout kommt mit PR4b): je Person Posten-Saldo und Gesamt. */}
+      <ul className="mt-3 divide-y divide-rule border-t border-rule text-xs text-ink-soft">
+        {people.map((p) => (
+          <li key={p.person_id} className="flex justify-between gap-2 py-1">
+            <span>{p.name}</span>
+            <span className="tabular-nums">
+              Posten {p.itemBalance > 0.005 ? "+" : p.itemBalance < -0.005 ? "−" : ""}
+              {formatEuro(Math.abs(p.itemBalance))} · Gesamt {p.total > 0.005 ? "+" : p.total < -0.005 ? "−" : ""}
+              {formatEuro(Math.abs(p.total))}
+            </span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

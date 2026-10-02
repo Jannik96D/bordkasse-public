@@ -18,6 +18,7 @@ vi.mock("@/lib/auth/get-current-person", () => ({ getCurrentPerson: vi.fn() }));
 vi.mock("@/lib/email/send", () => ({ sendMails: vi.fn() }));
 vi.mock("@/lib/queries/balances", () => ({
   getBalances: vi.fn().mockResolvedValue([]),
+  getBordkasseOnlyBalances: vi.fn().mockResolvedValue([]),
   getSimplifiedDebts: vi.fn().mockResolvedValue([]),
 }));
 vi.mock("@/lib/notify/web-push", () => ({ sendPushToPersons: vi.fn().mockResolvedValue(undefined) }));

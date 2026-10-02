@@ -462,10 +462,10 @@ Service-Role-Client eine fremde Ghost-Person überschreiben (`display_name` +
 
 ## Weitere Posten (An-/Abreise) — Datenmodell (Migration 0058)
 
-> Stand: nur die Datenbank-Grundlage (PR3 / B-a). Actions, Wizard-Schritt,
-> Matrix-Sektion und das Posten-Feld im Buchungsformular folgen in PR4 (B-b).
-> Bis dahin kann die App keine Posten anlegen — alle neuen Filter sind für
-> Bestandstörns wirkungslos.
+> Stand: Datenbank (PR3, Migration 0058) + Server-Logik (PR4a, Migration
+> 0059, siehe „Posten-Actions" unten). Wizard-Schritt, Matrix-Sektion und
+> Posten-Feld im Buchungsformular folgen in PR4b — bis dahin gibt es keine
+> UI, die die Actions aufruft.
 
 Neben der Charter-Anzahlung kann ein Törn beliebig viele **Posten** haben
 (typisch Flug/Bahn für die An- und Abreise). Ein Posten ist ein **dritter
@@ -594,15 +594,12 @@ Bordkasse-Buchungen, also jetzt zusätzlich `item_id IS NULL`. `updateCredit`
 setzt die Bestätigung einer posten-getaggten Gutschrift bei materieller
 Änderung zurück (wie bei Tranchen).
 
-**Bewusst offen für PR4:** Bilanz-Seite (`plan || items`, eigener
-Posten-Block), `replaceMember`/`removeMember`/Ghost-Merge mit Posten-Soll und
-`payee_person_id` (der Ghost-Merge löscht Personen schon heute hart — mit
-RESTRICT scheitert er, sobald ein Ghost Empfänger ist), Pending-Pre-Check mit
-`item_id`, Posten-Feld im Buchungsformular (inkl. Exklusivität zur Tranche,
-sonst 23514 `tx_pool_exclusive`), Outbox-Replay ohne `item_id`,
-Abrechnungsmail (Saldo aus `v_balances` enthält offene Posten,
-Schulden nur Bordkasse — wie heute schon bei Tranchen), Self-Klausel für
-`prepayment_items` (Ex-Crew sieht ihr Posten-Soll, aber nicht den Posten).
+**Erledigt in PR4a** (siehe nächster Abschnitt): Bilanz-Seite, Crewwechsel/
+Entfernen/Ghost-Merge, Pending-Pre-Check, Edit-Validierung, Outbox-Replay,
+Entscheidung zur Abrechnungsmail. **Weiter offen (PR4b):** UI (Wizard,
+Matrix, Formularfeld, Crew-Self-View), nachträgliches Zuordnen einer
+bestehenden Buchung zu einem Posten, Self-Klausel für `prepayment_items`
+(Ex-Crew sieht ihr Posten-Soll, aber nicht den Posten), Mails/Push.
 
 **Deploy-Reihenfolge:** Migration 0058 auf Produktion einspielen, BEVOR der
 PR auf `main` gemergt wird (Coolify deployt beim Merge sofort) — der
@@ -631,6 +628,229 @@ erscheinen wieder offen, und `all_debts_settled` (Purge-Gate) kann in beide
 Richtungen kippen. Bei abgerechneten Törns die Crew informieren bzw. die
 Zeile vorher bewusst bestätigen oder soft-löschen. Leeres Ergebnis = keine
 Auswirkung.
+
+## Weitere Posten — Server-Logik (PR4a, Migration 0059)
+
+**Actions** in `webapp/lib/actions/prepayment-items.ts` (alle `(_prev,
+formData) → ItemActionState` = `{status:"ok", itemId?, duplicate?} |
+{status:"error", message, field?}`, mit `revalidatePath`, UI-fertig):
+
+| Action | Wer | Was |
+|---|---|---|
+| `saveItem` (JSON in `payload`) | Skipper/Admin | Posten anlegen/ändern, Soll neu verteilen (Delete+Insert wie `savePrepaymentPlan`) |
+| `deleteItem` | Skipper/Admin | löschen; blockt bei bestätigten Zahlungen und offenen Selbstmeldungen |
+| `recordItemPayment` | Empfänger/Skipper/Admin | Crew → Empfänger, Gutschrift mit `item_id`, sofort bestätigt |
+| `submitItemSelfPayment` | Crew (`requireMember`) | „Ich habe gezahlt" → pending (`confirmed_at NULL`) |
+| `confirmItemSelfPayment` / `rejectItemSelfPayment` | Empfänger/Skipper/Admin | bestätigen bzw. Soft-Delete |
+| `recordItemProviderPayment` | Empfänger/Skipper/Admin | Empfänger → Anbieter, Ausgabe mit `item_id`, `per_person` = Soll |
+
+**Regeln:**
+
+- **Rolle** `requireSkipperAdminOrItemPayee(itemId)` (`lib/auth/authz.ts`):
+  Empfänger des Postens (solange er noch Crew ist), Skipper/Co-Skipper oder
+  Admin — bewusst NICHT der Vorstrecker der Charteranzahlung. Liefert
+  `tripId` des Postens; jede Action vergleicht ihn mit dem `trip_id` des
+  Formulars (IDOR). Dazu `itemBelongsToTrip` (`lib/auth/cross-trip.ts`,
+  fail-closed), `personsBelongToTrip`, `.eq("trip_id")` auf jedem Write,
+  `assertTripNotArchived`.
+- **Empfänger und Zahler kommen nie aus dem Formular:** `credit_to` und
+  `paid_by` = `payee_person_id` des Postens, `credit_from` der Selbstmeldung =
+  eingeloggte Person.
+- **Soll** (`lib/calc/prepayment-item-shares.ts:calculateItemObligations`):
+  gleichmäßig/zeitanteilig per Largest-Remainder über `calculateObligations`
+  (Σ = Summe auf den Cent), individuell = Einzelbeträge, deren Summe der
+  Posten-Summe **exakt** entsprechen muss (kein zweiter Topf für eine
+  Differenz; bewusst keine automatische Ableitung, Lehre aus 0056).
+- **Anbieter-Zahlung als `per_person` = Soll** (Review-Fund Bilanz): equal/
+  time_proportional verteilten über ALLE `trip_members` — ein Mitglied ohne
+  Posten-Soll zahlte dann fremde Flüge mit. Mit `per_person` ist die
+  Gesamtbilanz jeder Person 0, sobald alle ihr Soll gezahlt haben.
+  Teilzahlungen werden **kumulativ** verteilt (`allocateItemProviderShares`),
+  damit die Rundungs-Cents nicht jedes Mal bei derselben Person landen;
+  Σ Anbieter-Zahlungen ≤ Posten-Summe (ein Rest hätte keine Gegenseite).
+- **Soll gesperrt nach Anbieter-Zahlung:** sobald eine Anbieter-Zahlung
+  existiert, blockt `saveItem` jede Änderung von Betrag, Aufteilung oder
+  Einzelbeträgen (und den Empfängerwechsel); Bezeichnung/Kategorie/Fälligkeit
+  bleiben änderbar, und das gespeicherte Soll wird dabei NICHT aus der
+  inzwischen evtl. geänderten Crew neu berechnet (Grill-Fund: sonst sperrte
+  schon ein neues Crewmitglied jede Umbenennung). Ausweg: Anbieter-Zahlung
+  löschen, Posten ändern, neu erfassen. (Gewählt statt „nachziehen", weil
+  Nachziehen fremde Buchungen in mehreren Schreibschritten ohne echte
+  Transaktion umschriebe.)
+- **Nachkontrollen gegen parallele Requests** (keine Transaktion über den
+  Service-Role-Client): `recordItemProviderPayment` prüft nach dem Schreiben
+  erneut Σ Anbieter-Zahlungen ≤ Summe und ob sich das Soll inzwischen
+  geändert hat — sonst Rollback dieser Zahlung; `saveItem` rollt zurück, wenn
+  während des Neuverteilens eine Anbieter-Zahlung entstand. Scheitert ein
+  Rollback selbst, sagt die Meldung das.
+- **Kein `:overflow`** bei `recordItemPayment`: ein Posten hat keine zweite
+  Tranche; eine Überzahlung bleibt im Topf („überzahlt"), der einzige Insert
+  ist über `idempotency_key` dedupliziert.
+- **Idempotenz:** alle Inserts tragen optional `idempotency_key` (UNIQUE aus
+  0005) → Retry liefert `{status:"ok", duplicate:true}`. `saveItem` nimmt
+  eine client-generierte `id`, weist aber jede ID ab, die einem Posten eines
+  anderen Törns gehört (Klasse Fund F1).
+- **Teilfehler:** `saveItem` rollt Posten/Soll kompensierend zurück (auch wenn
+  der Empfängerwechsel als letzter Schritt scheitert),
+  `recordItemProviderPayment` löscht die Ausgabe, wenn die Anteile nicht
+  geschrieben werden konnten (Muster `createExpense`).
+- **Audit ohne Klartext:** keine Bezeichnung, keine Notiz, nur IDs/Beträge.
+- **Kein Mail/Push** (Templates sind tranchenspezifisch, Erinnerungen sind ein
+  Folgeschritt).
+- `removeMember`, `replaceMember` (Payee-Guard nur klassisch), Abrechnungsmail
+  und Empfängerwechsel: siehe „Entscheidungen aus dem Review" unten.
+
+**Empfängerwechsel — `move_item_payee` (Migration 0059):** hängt
+`payee_person_id` UND die `credit_to` der Posten-Gutschriften in EINER
+Transaktion um. Fachliche Entscheidung: **Altzahlungen wandern zum neuen
+Empfänger** (wer gezahlt hat, bleibt „bezahlt"; die beiden Empfänger
+gleichen das eingesammelte Geld untereinander aus). Technisch: erst der
+Posten (der Trigger `pi_guard_payee_change` akzeptiert dafür ein
+transaktionslokales Flag `bordkasse.item_payee_move` = genau diese Posten-ID),
+danach die Gutschriften — die passen dann zum neuen Empfänger, der Trigger
+`tx_item_credit_payee` muss gar nicht umgangen werden. Verworfen:
+`session_replication_role` (schaltet alle Trigger + FKs ab), `DISABLE
+TRIGGER` (Owner-Recht, Tabellen-Lock). `SECURITY INVOKER`, EXECUTE nur für
+`service_role`, `search_path` gepinnt; prüft am Ende die Invariante selbst.
+Genutzt von `saveItem` (nur ohne Zahlungen, siehe H1 unten) und vom
+Ghost-Merge.
+pgTAP: `supabase/tests/move_item_payee_test.sql`.
+
+**Crew:**
+
+- `replaceMember` lehnt in beiden Modi den **Empfänger** eines Postens ab
+  (wie den Vorstrecker). **Modus 1** („hat abgesagt", A verschwindet):
+  Posten-Soll, Anteile an Anbieter-Zahlungen und Posten-Gutschriften wandern
+  auf B (wie beim Charter-Soll: B übernimmt den Platz und hat A privat
+  ausbezahlt) — als letzte Schreibschritte NACH dem finalen
+  Buchungsspur-Check, damit ein Abbruch den Posten-Topf nicht halb bei A,
+  halb bei B zurücklässt. Eine offene Posten-Selbstmeldung blockt; hat die per
+  E-Mail gefundene Person schon ein Posten-Soll in diesem Törn, wird vorab
+  abgelehnt. Anteile an Anbieter-Zahlungen zählen dort nicht als
+  Buchungsspur (`personHasBookingTrace(…, { excludeItemParticipants: true })`),
+  sonst wäre jede Absage nach dem Flugkauf blockiert. **Modus 2** („ist
+  abgereist am …", A bleibt Crew): am Posten ändert sich NICHTS — anders als
+  ein Charterplatz ist ein Ticket persönlich, A ist damit angereist; B reist
+  mit eigenem Ticket an (eigenes Soll bzw. eigener Posten). ⚠️ Abweichung vom
+  ursprünglichen Plan („überträgt in Modus 1+2"), Ergebnis des Grill-Reviews.
+- `removeMember` blockt bei Empfänger-Rolle und offenem Posten-Soll; eine
+  0-€-Sollzeile wird mit entfernt. `personHasBookingTrace` zählt die
+  Empfänger-Rolle generell als Spur.
+- Ghost-Merge: prüft „Ghost ist Empfänger" und liest sein Posten-Soll VOR
+  jedem Schreibschritt (Lesefehler → Abbruch ohne Write). Das generische
+  `credit_to`-Umhängen lässt Posten-Gutschriften aus (sonst Trigger); der
+  Empfängerwechsel (`move_item_payee`, inkl. dieser Gutschriften) läuft
+  unmittelbar NACH dem Umhängen der Mitgliedschaft — so ist bei einem Abbruch
+  vorher alles beim Ghost, danach beim echten Konto konsistent, und nie
+  gehen Gutschriften an eine Person ohne Mitgliedschaft. Das Posten-Soll wird
+  übernommen (sonst verschwände es per CASCADE).
+
+**Buchungs-Edit (`updateExpense`/`updateCredit`):** `item_id` ist dort
+**unveränderlich** — weder gelesen noch geschrieben. Begründung: eine
+Posten-Ausgabe muss `paid_by` = Empfänger und `per_person` = Soll tragen,
+eine Posten-Gutschrift `credit_to` = Empfänger; das garantieren nur die
+Posten-Actions. Vorab-Validierung mit klaren Meldungen statt DB-Fehler:
+Tranche + Posten (`tx_pool_exclusive`), „An Alle" (`tx_item_credit_direct`),
+falscher Empfänger (`tx_item_credit_payee`); bei einer Anbieter-Zahlung sind
+nur Beschreibung/Kategorie/Datum änderbar. Der Outbox-Replay übernimmt
+bewusst kein `item_id` (wie `tranche_id`, S-1).
+
+**Bilanz/Abrechnung:** die Bilanz-Seite nutzt `v_balances_bordkasse_only`,
+sobald es einen Plan ODER Posten gibt, und zeigt einen minimalen
+Posten-Block (`getItems` in `lib/queries/prepayment-items.ts`, fail-loud).
+Die Abrechnungsmail zeigt seit der zweiten Review-Runde den Bordkasse-Saldo
+und Anzahlung/Posten getrennt (M1, unten).
+
+**Entscheidungen aus dem Review zu PR 271 (zweite Runde):**
+
+- **H1 — Empfängerwechsel nur ohne Zahlungen:** `saveItem` verweigert den
+  Wechsel, sobald lebende Posten-Gutschriften existieren (bestätigt ODER
+  offen, inkl. Selbstverrechnung des Empfängers) oder eine Anbieter-Zahlung
+  gebucht ist. Ausweg: Zahlungen löschen bzw. Meldungen ablehnen. Damit
+  entsteht nie eine verdeckte Schuld zwischen altem und neuem Empfänger. Die
+  einzige Stelle, an der Gutschriften per `move_item_payee` mitwandern, ist
+  der Ghost-Merge (gleiche Person). Migration **0060** lässt `move_item_payee`
+  zusätzlich scheitern (`prepayment_item_provider_paid_by_other`), wenn eine
+  lebende Anbieter-Zahlung existiert, die nicht der neue Empfänger geleistet
+  hat (schließt das Race; der Ghost-Merge hängt `paid_by` vorher um).
+- **H2 —** der Payee-Guard in `replaceMember` gilt nur im klassischen Pfad;
+  in Variante b bleibt A Crew UND Empfänger.
+- **M1 — Abrechnungsmail:** Saldo = Bordkasse-Saldo
+  (`v_balances_bordkasse_only`, passt zum Zahlungsplan), offene Beträge aus
+  Anzahlung und Posten stehen getrennt darunter
+  (`lib/calc/settlement-balances.ts`). Ohne Plan/Posten ist der getrennte
+  Anteil 0. Die Bilanz-Seite zeigt im Posten-Block je Person Posten-Saldo und
+  Gesamtsaldo (Layout folgt in PR4b).
+- **M2 — Soll nur bei Bedarf neu verteilen:** `saveItem` verteilt nur neu bei
+  neuem Posten, geändertem Betrag, geänderter Aufteilung, geänderten
+  Einzelbeträgen oder mit `redistribute: true`. Umbenennen/Kategorie/
+  Fälligkeit lassen das Soll unangetastet — auch ohne Anbieter-Zahlung.
+- **M3 — removeMember:** offenes Soll bei gleichmäßig/zeitanteilig ohne
+  Anbieter-Zahlung und ohne Zahlung/Meldung der Person wird auf die
+  verbleibende Crew neu verteilt (Σ = Summe exakt); sonst wird mit konkretem
+  Hinweis geblockt (Anbieter-Zahlung, eigene Zahlung, Einzelbeträge).
+  Aufräumen der Sollzeilen ist fail-loud und läuft vor dem Entfernen der
+  Mitgliedschaft.
+- **M4 — Über-/Unterzahlung:** Zellstatus `open`/`pending`/`underpaid`/
+  `paid`/`overpaid`; `getItems` liefert `overpaidTotal`/`underpaidTotal`.
+  „Abgeschlossen" heißt jetzt: jede Zelle exakt gedeckt (auch keine
+  Überzahlung) UND Anbieter exakt bezahlt.
+- **Niedrig:** `idempotency_key` ist bei allen Posten-Zahlungen Pflicht;
+  `replaceMember` setzt die Posten-Zeilen auf A zurück, wenn ein späterer
+  Schritt (inkl. Entfernen von A) scheitert; der Ghost-Merge ruft
+  `move_item_payee` vor jedem Schreibschritt als No-op-Probe auf (fehlt die
+  Funktion, bricht er ab, bevor etwas geschrieben ist) und blockt einen
+  Ghost, der in einem ANDEREN Törn Empfänger ist; Deadlocks (40P01) melden
+  „bitte erneut versuchen"; Bestätigen/Ablehnen und die Posten-Rolle
+  antworten Fremden einheitlich „nicht gefunden oder keine Berechtigung"
+  (kein Existenz-Leck).
+
+**Delta-Review (letzte Runde):**
+
+- `removeMember` verteilt neu, indem es ERST die neuen Beträge der Rest-Crew
+  per Upsert schreibt und DANN nur die Zeile der entfernten Person löscht —
+  nie ein Posten ohne Sollzeilen. Verteilt wird nur auf Personen, die für
+  diesen Posten schon eine Sollzeile haben (zeitanteilig mit deren Tagen);
+  ein Nachrücker ohne Soll bekommt keins. Danach Nachkontrolle auf eine
+  inzwischen gebuchte Anbieter-Zahlung; jeder Fehler (auch beim Entfernen
+  der Mitgliedschaft) schreibt die alten Beträge zurück. Audit-Eintrag ohne
+  Klartext.
+- `isItemComplete`: ein Posten ohne Sollzeilen ist NICHT abgeschlossen.
+- Bilanz-Seite: der Posten-Saldo je Person kommt aus den Buchungen
+  (`getItemPotBalances`: Anbieter-Zahlungen − eigene Anteile + gegebene −
+  erhaltene bestätigte Posten-Gutschriften), Σ = 0.
+- `getBalances`/`getBordkasseOnlyBalances` werfen bei einem Lesefehler statt
+  `[]`; `announceSettlement`/`resendSettlement` brechen ab, wenn die Bilanz
+  nicht geladen werden kann oder trotz Crew leer ist — keine
+  „Du bist quitt"-Mail an alle.
+- `move_item_payee` hat in 0060 den Parameter `p_move_credits` (Default
+  FALSE): ohne ihn scheitert der Wechsel an lebenden Posten-Gutschriften
+  (gleiche Regel wie H1, jetzt race-frei in SQL); nur der Ghost-Merge ruft
+  mit TRUE. Die No-op-Probe des Ghost-Merge beweist damit die Signatur aus
+  0060 — aber nicht, dass der spätere echte Wechsel gelingt.
+
+**Bekannte Grenzen:**
+
+- **Pool-Anteil in der Abrechnungsmail:** der getrennt ausgewiesene Betrag
+  „laut Bilanz" ist Gesamtbilanz − Bordkasse. Beim Charter-Pool stammt er aus
+  der Aufteilung der Charter-AUSGABE (equal/time_proportional über die ganze
+  Crew), nicht aus dem Matrix-Soll; beide können abweichen. Die Mail
+  formuliert deshalb ohne „du zahlst/bekommst" und verweist auf die
+  Anzahlungs-Übersicht.
+- **replaceMember (L3):** scheitert das Entfernen von A und zusätzlich das
+  Zurücksetzen der Posten-Zeilen, bleibt ein gemischter Zustand (Teile bei
+  A, Teile bei B); die Meldung sagt das ausdrücklich.
+- **UI:** ein „überzahlt"-Badge je Person (Daten: `status = "overpaid"`,
+  `overpaidTotal`) folgt mit PR4b.
+
+**Bekannte Grenze (L2):** zwei gleichzeitig gebuchte Teil-Anbieterzahlungen
+können je nach Reihenfolge um Rundungs-Cents von der kumulativen Verteilung
+abweichen; ihre jeweilige Summe stimmt, und zusammen überschreiten sie den
+Deckel nicht (Nachkontrolle). Ein echter Lock bräuchte eine SQL-Funktion für
+die Anbieter-Zahlung — bewusst nicht gebaut.
+
+**Deploy-Reihenfolge:** 0058 ist vorhanden → **0059 und 0060** VOR dem
+App-Merge auf Produktion einspielen, danach `NOTIFY pgrst, 'reload schema';`.
 
 ## Mail-Templates + WhatsApp-Texte
 
