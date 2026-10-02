@@ -8,7 +8,7 @@ import { CategoryIcon } from "@/components/category-icon";
 import { SummaryCard } from "@/components/summary-card";
 import { useTripVocab } from "@/components/trip-vocab-provider";
 import { formatDate, formatEuro } from "@/lib/utils";
-import { applyStatsFilter, listCategories } from "@/lib/calc/stats-filter";
+import { applyStatsFilter, listCategories, resolveSelection } from "@/lib/calc/stats-filter";
 import type { TripStatsData } from "@/lib/queries/stats";
 
 /**
@@ -44,8 +44,11 @@ export function StatsView({
   const divider = mode === "person" ? Math.max(memberCount, 1) : 1;
 
   const categories = useMemo(() => listCategories(data.rows), [data.rows]);
-  const [selected, setSelected] = useState<ReadonlySet<string>>(
-    () => new Set(categories.map((c) => c.key)),
+  // Ausschlussmenge: neue Kategorien (Realtime-Refresh) sind standardmäßig dabei.
+  const [deselected, setDeselected] = useState<ReadonlySet<string>>(() => new Set());
+  const selected = useMemo(
+    () => resolveSelection(categories.map((c) => c.key), deselected),
+    [categories, deselected],
   );
   const [excludeAlcohol, setExcludeAlcohol] = useState(false);
   const stats = useMemo(
@@ -111,7 +114,9 @@ export function StatsView({
       <CategoryFilter
         categories={categories}
         selected={selected}
-        onChange={setSelected}
+        onChange={(next) =>
+          setDeselected(new Set(categories.filter((c) => !next.has(c.key)).map((c) => c.key)))
+        }
         excludeAlcohol={excludeAlcohol}
         onExcludeAlcohol={setExcludeAlcohol}
         alcoholHint={
@@ -122,13 +127,26 @@ export function StatsView({
       />
 
       {/* Ergebnisbereich: Screenreader erfahren von Änderungen durch die Auswahl */}
-      <div aria-live="polite" aria-atomic="false">
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {noSelection
+          ? "Keine Kategorie gewählt"
+          : `Gesamt ${formatEuro(total)}${mode === "person" ? " pro Person" : ""}, ${stats.count} Buchungen`}
+      </p>
+      <div>
       {noSelection ? (
         <div className="mt-6 rounded-lg border border-rule bg-paper-soft p-8 text-center">
           <BarChart3 className="mx-auto mb-3 h-10 w-10 text-ink-soft" aria-hidden />
           <p className="font-medium">Keine Kategorie gewählt</p>
           <p className="mt-1 text-sm text-ink-soft">
             Wähle oben mindestens eine Kategorie, um die Auswertung zu sehen.
+          </p>
+        </div>
+      ) : stats.count === 0 ? (
+        <div className="mt-6 rounded-lg border border-rule bg-paper-soft p-8 text-center">
+          <BarChart3 className="mx-auto mb-3 h-10 w-10 text-ink-soft" aria-hidden />
+          <p className="font-medium">Nach Abzug keine Buchungen</p>
+          <p className="mt-1 text-sm text-ink-soft">
+            In der gewählten Auswahl bleibt nach dem Herausrechnen des Alkoholanteils nichts übrig.
           </p>
         </div>
       ) : (

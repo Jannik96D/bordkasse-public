@@ -64,7 +64,6 @@ async function getLiveRows(supabase: SupabaseLike, tripId: string): Promise<Stat
       .order("id", { ascending: true })
       .range(from, to) as unknown as PromiseLike<{ data: TxRow[] | null; error: unknown }>,
   );
-  if (!data) return [];
 
   const map = new Map<string, StatsRow>();
   for (const r of data) {
@@ -111,7 +110,6 @@ async function getPurgedRows(supabase: SupabaseLike, tripId: string): Promise<St
       .order("category_name", { ascending: true })
       .range(from, to) as unknown as PromiseLike<{ data: P[] | null; error: unknown }>,
   );
-  if (!data) return [];
 
   const map = new Map<string, StatsRow>();
   for (const r of data) {

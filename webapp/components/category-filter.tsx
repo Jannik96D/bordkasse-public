@@ -33,8 +33,10 @@ export function CategoryFilter({
     else next.add(key);
     onChange(next);
   };
-  const allOn = selected.size === categories.length;
-  const noneOn = selected.size === 0;
+  // Nur existierende Kategorien zählen (selected kann veraltete Schlüssel tragen).
+  const selectedCount = categories.filter((c) => selected.has(c.key)).length;
+  const allOn = categories.every((c) => selected.has(c.key));
+  const noneOn = selectedCount === 0;
   const linkBtn =
     "min-h-touch rounded-md px-2 text-xs font-medium text-primary underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-40 disabled:no-underline";
 
@@ -48,6 +50,7 @@ export function CategoryFilter({
           <button
             type="button"
             className={linkBtn}
+            aria-label="Alle Kategorien auswählen"
             disabled={allOn}
             onClick={() => onChange(new Set(categories.map((c) => c.key)))}
           >
@@ -56,6 +59,7 @@ export function CategoryFilter({
           <button
             type="button"
             className={linkBtn}
+            aria-label="Keine Kategorie auswählen"
             disabled={noneOn}
             onClick={() => onChange(new Set())}
           >
@@ -117,7 +121,7 @@ export function CategoryFilter({
       </div>
 
       <p className="mt-2 text-xs text-ink-soft">
-        Auswahl: {selected.size} von {categories.length} Kategorien
+        Auswahl: {selectedCount} von {categories.length} {categories.length === 1 ? "Kategorie" : "Kategorien"}
         {excludeAlcohol ? " · ohne Alkoholanteil" : ""}
       </p>
     </section>

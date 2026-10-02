@@ -117,7 +117,7 @@ export async function getGlobalStats(): Promise<GlobalStatsData> {
         .order("id", { ascending: true })
         .range(from, to) as unknown as PromiseLike<{ data: LiveTxRow[] | null; error: unknown }>,
     );
-    for (const r of live ?? []) {
+    for (const r of live) {
       const amount = Number(r.amount);
       const alcohol = Number(r.alcohol_amount ?? 0);
       const cat = first(r.category);
@@ -141,7 +141,7 @@ export async function getGlobalStats(): Promise<GlobalStatsData> {
         .order("category_name", { ascending: true })
         .range(from, to) as unknown as PromiseLike<{ data: PurgedRow[] | null; error: unknown }>,
     );
-    for (const r of purged ?? []) {
+    for (const r of purged) {
       const name = r.category_name?.trim() || NONE_NAME;
       const d = dayOf(r.trip_id, r.date, categoryKey(name), name, null);
       d.total += Number(r.total_amount);

@@ -91,6 +91,18 @@ export function effectiveRow(
   return { total: rest, alcohol: 0, count };
 }
 
+/**
+ * Leitet die gewählte Menge aus der Ausschlussmenge ab. Der Zustand der UI
+ * hält nur die ABGEWÄHLTEN Schlüssel: kommt per Realtime-Refresh eine neue
+ * Kategorie hinzu, ist sie automatisch dabei (statt still ausgefiltert).
+ */
+export function resolveSelection(
+  categoryKeys: readonly string[],
+  deselected: ReadonlySet<string>,
+): Set<string> {
+  return new Set(categoryKeys.filter((k) => !deselected.has(k)));
+}
+
 /** Alle Kategorien der Zeilen (für die Chips), nach Summe absteigend. */
 export function listCategories(
   rows: readonly StatsRow[],
@@ -198,6 +210,12 @@ export function applyGlobalFilter(
   { categories, excludeAlcohol }: StatsOptions,
 ): GlobalResult {
   const meta = new Map(trips.map((t) => [t.trip_id, t]));
+  // Standardansicht (alles gewählt, Alkohol drin) verhält sich exakt wie vor
+  // dem Filter: die Törn-Anzahl je Jahr zählt alle sichtbaren Törns, auch
+  // solche ohne Ausgaben. Erst bei aktivem Filter zählen nur Törns mit
+  // verbleibenden Buchungen.
+  const isDefault =
+    !excludeAlcohol && rows.every((r) => categories.has(r.key));
   let total = 0;
   let count = 0;
   const catMap = new Map<string, Omit<CategoryResult, "pct">>();
@@ -244,6 +262,14 @@ export function applyGlobalFilter(
   }
 
   for (const [year, set] of yearTrips) yearMap.get(year)!.tripCount = set.size;
+  if (isDefault) {
+    const perYear = new Map<string, number>();
+    for (const t of trips) {
+      const y = t.start_date.slice(0, 4);
+      perYear.set(y, (perYear.get(y) ?? 0) + 1);
+    }
+    for (const [year, y] of yearMap) y.tripCount = perYear.get(year) ?? y.tripCount;
+  }
 
   const byCategory: CategoryResult[] = Array.from(catMap.values())
     .map((c) => ({ ...c, pct: total > 0 ? (c.total / total) * 100 : 0 }))

@@ -4,6 +4,7 @@ import {
   applyStatsFilter,
   categoryKey,
   listCategories,
+  resolveSelection,
   NONE_KEY,
   type GlobalRow,
   type StatsRow,
@@ -171,5 +172,37 @@ describe("applyGlobalFilter", () => {
     const r = applyGlobalFilter(grows, trips, { categories: new Set(["food", "port"]), excludeAlcohol: false });
     expect(r.tripCount).toBe(2);
     expect(r.byCategory.reduce((s, c) => s + c.pct, 0)).toBeCloseTo(100);
+  });
+});
+
+describe("resolveSelection", () => {
+  it("neue Kategorien sind standardmäßig dabei, abgewählte bleiben draußen", () => {
+    const deselected = new Set(["port"]);
+    expect([...resolveSelection(["food", "port"], deselected)]).toEqual(["food"]);
+    // Props ändern sich (Realtime-Refresh): neue Kategorie "fuel" erscheint
+    expect([...resolveSelection(["food", "port", "fuel"], deselected)]).toEqual(["food", "fuel"]);
+  });
+  it("veraltete abgewählte Schlüssel stören nicht", () => {
+    expect([...resolveSelection(["food"], new Set(["gone"]))]).toEqual(["food"]);
+  });
+});
+
+describe("applyGlobalFilter Standardansicht", () => {
+  const trips = [
+    { trip_id: "a", name: "A", start_date: "2025-05-01", end_date: "2025-05-08", purged: false },
+    { trip_id: "e", name: "Leer", start_date: "2025-08-01", end_date: "2025-08-08", purged: false },
+  ];
+  const grows: GlobalRow[] = [
+    { trip_id: "a", year: "2025", key: "food", name: "food", icon: null, total: 10, alcohol: 0, count: 1 },
+  ];
+  it("Default: Törn ohne Ausgaben zählt in der Jahres-Törnzahl weiter mit (wie vor dem Filter)", () => {
+    const r = applyGlobalFilter(grows, trips, { categories: new Set(["food"]), excludeAlcohol: false });
+    expect(r.byYear[0].tripCount).toBe(2);
+    expect(r.tripCount).toBe(1);
+    expect(r.avgPerTrip).toBe(10);
+  });
+  it("aktiver Filter: nur Törns mit verbleibenden Buchungen", () => {
+    const r = applyGlobalFilter(grows, trips, { categories: new Set(["food"]), excludeAlcohol: true });
+    expect(r.byYear[0].tripCount).toBe(1);
   });
 });
