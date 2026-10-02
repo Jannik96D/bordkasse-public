@@ -9,6 +9,9 @@
 --      einmal, der zweite Versuch 0 Zeilen (Grundlage für „genau einmal").
 --   3. Ein eingeloggtes Crewmitglied kann die Flags nicht setzen/zurück-
 --      setzen (sonst ließe sich der Einmal-Versand erneut auslösen).
+--   3b. Backfill aus 0062: Plan MIT Tranche wird markiert, Plan OHNE
+--      Tranche bleibt NULL (das Statement ist 1:1 aus der Migration kopiert —
+--      bei einer Änderung dort hier nachziehen).
 --   4. Purge eines abgerechneten Törns läuft mit gesetzten Flags durch und
 --      räumt Plan + Posten weiterhin ab (keine neue Abhängigkeit).
 --
@@ -16,7 +19,7 @@
 -- ═══════════════════════════════════════════════════════════════════════
 
 BEGIN;
-SELECT plan(14);
+SELECT plan(17);
 
 -- ── 1. Spalten ────────────────────────────────────────────────────────
 SELECT has_column('public', 'prepayment_plan', 'crew_notified_at', 'prepayment_plan.crew_notified_at existiert');
@@ -66,9 +69,15 @@ SELECT set_config('request.jwt.claims',
 -- Je nach GRANT-Stand: Fehler 42501 oder 0 betroffene Zeilen (RLS ohne
 -- Write-Policy, 0050). Beides heißt „nicht geschrieben" — geprüft wird
 -- unten das Ergebnis als Superuser.
+-- Zwei getrennte Blöcke: wirft das erste UPDATE, liefe ein zweites im selben
+-- Block nie (Review-Fund) und der Posten-Check wäre wertlos.
 DO $$
 BEGIN
   UPDATE prepayment_plan SET crew_notified_at = NULL WHERE trip_id = '62620000-0000-4000-8000-0000000000aa';
+EXCEPTION WHEN insufficient_privilege THEN NULL;
+END $$;
+DO $$
+BEGIN
   UPDATE prepayment_items SET crew_last_notified_at = now() WHERE id = '62620000-0000-4000-8000-0000000000d1';
 EXCEPTION WHEN insufficient_privilege THEN NULL;
 END $$;
@@ -79,6 +88,32 @@ SELECT isnt(
 SELECT is(
   (SELECT crew_last_notified_at FROM prepayment_items WHERE id = '62620000-0000-4000-8000-0000000000d1'),
   NULL, 'Crewmitglied kann den Posten-Zeitstempel nicht setzen');
+
+-- ── 3b. Backfill ──────────────────────────────────────────────────────
+INSERT INTO trips(id, name, start_date, end_date, skipper_id) VALUES
+  ('62620000-0000-4000-8000-0000000000b1', 'pgTAP Backfill mit', '2099-01-01', '2099-01-05', '62620000-0000-4000-8000-000000000001'),
+  ('62620000-0000-4000-8000-0000000000b2', 'pgTAP Backfill ohne', '2099-01-01', '2099-01-05', '62620000-0000-4000-8000-000000000001');
+INSERT INTO prepayment_plan(trip_id, split_method, total_amount) VALUES
+  ('62620000-0000-4000-8000-0000000000b1', 'gleichmaessig', 100),
+  ('62620000-0000-4000-8000-0000000000b2', 'gleichmaessig', 100);
+INSERT INTO prepayment_tranches(trip_id, due_date, label, percent)
+  VALUES ('62620000-0000-4000-8000-0000000000b1', '2098-12-01', 'Endzahlung', 100);
+SELECT is(
+  (SELECT count(*) FROM prepayment_plan
+    WHERE trip_id IN ('62620000-0000-4000-8000-0000000000b1', '62620000-0000-4000-8000-0000000000b2')
+      AND crew_notified_at IS NULL),
+  2::bigint, 'Backfill-Fixtures starten uninformiert');
+-- 1:1 aus 0062:
+UPDATE prepayment_plan p
+   SET crew_notified_at = now()
+ WHERE p.crew_notified_at IS NULL
+   AND EXISTS (SELECT 1 FROM prepayment_tranches t WHERE t.trip_id = p.trip_id);
+SELECT isnt(
+  (SELECT crew_notified_at FROM prepayment_plan WHERE trip_id = '62620000-0000-4000-8000-0000000000b1'),
+  NULL, 'Backfill markiert einen Plan MIT Tranchen als informiert');
+SELECT is(
+  (SELECT crew_notified_at FROM prepayment_plan WHERE trip_id = '62620000-0000-4000-8000-0000000000b2'),
+  NULL, 'Backfill lässt einen Plan OHNE Tranchen uninformiert (erste Mail kommt noch)');
 
 -- ── 4. Purge ──────────────────────────────────────────────────────────
 UPDATE prepayment_items SET crew_last_notified_at = now() WHERE id = '62620000-0000-4000-8000-0000000000d1';

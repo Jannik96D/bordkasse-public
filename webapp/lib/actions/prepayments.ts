@@ -358,10 +358,14 @@ export async function saveTranches(
   // Löschen einer Tranche setzt zugehörige transactions.tranche_id auf NULL
   // (via ON DELETE SET NULL aus 0023). Die Buchungen wandern dann in den
   // Bordkasse-Pool.
-  const { data: existing } = await supabase
+  const { data: existing, error: existingErr } = await supabase
     .from("prepayment_tranches")
     .select("id")
     .eq("trip_id", trip_id);
+  // Fail-loud (Review-Fund): ein Lesefehler ließe existingIds leer — dann
+  // würden alle Tranchen doppelt eingefügt und der Request hielte sich
+  // fälschlich für die Ersteinrichtung (Plan-angelegt-Mail).
+  if (existingErr) return { status: "error", message: dbErr(existingErr, "Tranchen konnten nicht geladen werden.") };
   const existingIds = new Set((existing ?? []).map((t) => t.id as string));
   const incomingIds = new Set(tranches.filter((t) => t.id).map((t) => t.id as string));
   const toDelete = [...existingIds].filter((id) => !incomingIds.has(id));

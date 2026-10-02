@@ -11,11 +11,21 @@
  *   {{amount}}          offener Betrag in €
  *   {{due_date}}        Fälligkeitsdatum, deutsch formatiert
  *   {{wero_link_or_id}} Wero-Request-Link oder Wero-ID, je nachdem was gesetzt
+ *
+ * Wero-Regel (Entscheidung Nutzer, PR6): ohne Wero-ID/-Link (leer oder nur
+ * Leerzeichen) erwähnt der Text Wero nicht — eine Zeile, die nur aus
+ * „Wero: {{wero_link_or_id}}" besteht (Default-Vorlage oder unverändert
+ * übernommen), entfällt komplett; anderswo in einer eigenen Vorlage wird der
+ * Platzhalter leer ersetzt.
  */
 
 import type { TripVocab } from "@/lib/trip-vocab";
 import { formatAmount } from "@/lib/utils";
 import { formatDeDate } from "@/lib/prepayments/dates";
+import { normalizeWeroId } from "@/lib/prepayments/notify";
+
+/** Zeile „Wero: {{wero_link_or_id}}" (beliebige Einrückung/Abstände). */
+const WERO_LINE = /^[ \t]*Wero:[ \t]*\{\{wero_link_or_id\}\}[ \t]*(?:\r?\n|$)/gm;
 
 export const DEFAULT_WHATSAPP_TEMPLATE = `Hi {{name}}, kurze Erinnerung an die {{tranche_label}}
 für unseren Törn {{trip_name}}:
@@ -58,15 +68,16 @@ export interface WhatsAppRenderInput {
 
 export function renderWhatsAppText(input: WhatsAppRenderInput): string {
   const tmpl = input.template?.trim() || DEFAULT_WHATSAPP_TEMPLATE;
-  const wero = input.weroLink || input.weroId || "—";
+  const wero = normalizeWeroId(input.weroLink) ?? normalizeWeroId(input.weroId);
   const amount = formatAmount(input.amount);
-  return tmpl
+  const base = wero ? tmpl : tmpl.replace(WERO_LINE, "");
+  return base
     .replaceAll("{{name}}", input.name)
     .replaceAll("{{tranche_label}}", input.trancheLabel)
     .replaceAll("{{trip_name}}", input.tripName)
     .replaceAll("{{amount}}", amount)
     .replaceAll("{{due_date}}", formatDeDate(input.dueDate))
-    .replaceAll("{{wero_link_or_id}}", wero);
+    .replaceAll("{{wero_link_or_id}}", wero ?? "");
 }
 
 /** Sammelnachricht: ein Block pro Person mit offenem Saldo. */

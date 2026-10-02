@@ -138,6 +138,8 @@ export interface ItemAnnounceCrewParams {
   amount: number;
   /** Bereits BESTÄTIGT gezahlt (Update-Mail: nicht erneut zur Zahlung auffordern). */
   paid?: number;
+  /** Gemeldet, aber noch nicht bestätigt (Selbstmeldung) — ebenfalls keine Aufforderung. */
+  pending?: number;
   /** Formatierte Crewfrist (toCrewDueDate inkl. Puffer/Clamp) oder null = „Frist folgt". */
   crewDue: string | null;
   weroId: string | null;
@@ -145,13 +147,17 @@ export interface ItemAnnounceCrewParams {
 }
 
 const PAID_DONE = "Dein Anteil ist bereits vollständig bezahlt — es ist nichts mehr zu tun.";
+const pendingDone = (payee: string) =>
+  `Deine Zahlung ist gemeldet und wartet auf die Bestätigung durch ${payee} — von dir ist nichts mehr zu tun.`;
 
 export function renderItemAnnounceCrewMail(p: ItemAnnounceCrewParams): { html: string; text: string; subject: string } {
   const vocab = tripVocab(p.tripType);
   const title = itemMailTitle(p.item);
   const paid = Math.max(0, p.paid ?? 0);
-  const open = Math.max(0, round2(p.amount - paid));
+  const pending = Math.max(0, p.pending ?? 0);
+  const open = Math.max(0, round2(p.amount - paid - pending));
   const settled = open <= 0.005;
+  const doneText = pending > 0.005 ? pendingDone(p.payeeName) : PAID_DONE;
   const subject = p.isUpdate
     ? `Posten geändert: ${p.item.label} – ${p.tripName}`
     : `Neuer Posten: ${p.item.label} – ${p.tripName}`;
@@ -163,20 +169,27 @@ export function renderItemAnnounceCrewMail(p: ItemAnnounceCrewParams): { html: s
     ? `der Posten ${title} für ${tripPhrase(p.tripType)} ${p.tripName} hat sich geändert. Hier der aktuelle Stand für dich.`
     : `für ${tripPhrase(p.tripType)} ${p.tripName} gibt es einen neuen Posten: ${title}. ${p.payeeName} zahlt vorab an den Anbieter und bekommt dafür deinen Anteil.`;
   const dueHtml = settled
-    ? escapeHtml(PAID_DONE)
+    ? escapeHtml(doneText)
     : p.crewDue
       ? `bitte zahlen bis <strong>${escapeHtml(p.crewDue)}</strong>`
       : escapeHtml(NO_DUE_TEXT);
-  const dueText = settled ? PAID_DONE : p.crewDue ? `Bitte zahlen bis: ${p.crewDue}` : NO_DUE_TEXT;
+  const dueText = settled ? doneText : p.crewDue ? `Bitte zahlen bis: ${p.crewDue}` : NO_DUE_TEXT;
   const purpose = `${p.item.label} ${p.tripName}`;
   // Zahlungsaufforderung nur, wenn noch etwas offen ist (Grill-Fund P2-1).
   const pay = settled ? { html: "", text: "" } : paymentBlock({ payeeName: p.payeeName, weroId: p.weroId, purpose });
   const paidHtml =
-    paid > 0.005
-      ? `Bereits bezahlt: ${fmtEuro(paid)}<br/>
+    paid > 0.005 || pending > 0.005
+      ? `${paid > 0.005 ? `Bereits bezahlt: ${fmtEuro(paid)}<br/>` : ""}${
+          pending > 0.005 ? `Gemeldet, wartet auf Bestätigung: ${fmtEuro(pending)}<br/>` : ""
+        }
                       Noch offen: <strong>${fmtEuro(open)}</strong><br/>`
       : "";
-  const paidText = paid > 0.005 ? `\n  Bereits bezahlt: ${fmtEuro(paid)}\n  Noch offen:  ${fmtEuro(open)}` : "";
+  const paidText =
+    paid > 0.005 || pending > 0.005
+      ? `${paid > 0.005 ? `\n  Bereits bezahlt: ${fmtEuro(paid)}` : ""}${
+          pending > 0.005 ? `\n  Gemeldet, wartet auf Bestätigung: ${fmtEuro(pending)}` : ""
+        }\n  Noch offen:  ${fmtEuro(open)}`
+      : "";
   const hint = `Schon gezahlt? Dann tippe in der App beim Posten auf „Ich habe gezahlt“, damit ${p.payeeName} die Zahlung bestätigen kann.`;
 
   const body = `${headerBlock(headline, p.recipientName, lead)}
@@ -296,8 +309,10 @@ ${FOOTER}`;
 export interface PlanCrewTranche {
   label: string;
   amount: number;
-  /** Bereits BESTÄTIGT gezahlt für diese Rate. */
+  /** Bereits BESTÄTIGT gezahlt für diese Rate (vom Aufrufer per allocateCoverage verteilt). */
   paid?: number;
+  /** Gemeldet, wartet auf Bestätigung (ebenfalls per allocateCoverage verteilt). */
+  pending?: number;
   /** Formatierte Crewfrist (3 Tage vor der Charterfrist, mit Clamp). */
   crewDue: string;
 }
@@ -318,11 +333,14 @@ export function renderPlanAnnounceCrewMail(p: PlanAnnounceCrewParams): { html: s
   const vocab = tripVocab(p.tripType);
   const rows = p.tranches.map((t) => {
     const paid = Math.max(0, t.paid ?? 0);
-    return { ...t, paid, open: Math.max(0, round2(t.amount - paid)) };
+    const pending = Math.max(0, t.pending ?? 0);
+    return { ...t, paid, pending, open: Math.max(0, round2(t.amount - paid - pending)) };
   });
   const totalOpen = round2(rows.reduce((s, t) => s + t.open, 0));
-  const totalPaid = round2(rows.reduce((s, t) => s + t.paid, 0));
+  const totalCovered = round2(rows.reduce((s, t) => s + t.paid + t.pending, 0));
+  const totalPending = round2(rows.reduce((s, t) => s + t.pending, 0));
   const settled = totalOpen <= 0.005;
+  const doneText = totalPending > 0.005 ? pendingDone(p.advancerName) : PAID_DONE;
   const subject = p.isUpdate
     ? `${vocab.prepayment}: Plan geändert – ${p.tripName}`
     : `${vocab.prepayment}: dein Anteil für ${p.tripName}`;
@@ -333,8 +351,16 @@ export function renderPlanAnnounceCrewMail(p: PlanAnnounceCrewParams): { html: s
   const leadText = p.isUpdate
     ? `der Anzahlungsplan für ${tripPhrase(p.tripType)} ${p.tripName} hat sich geändert. Hier deine aktuellen Raten.`
     : `für ${tripPhrase(p.tripType)} ${p.tripName} streckt ${p.advancerName} die ${vocab.prepayment} vor. Hier dein Anteil und wann du welche Rate zahlst.`;
-  const status = (t: (typeof rows)[number]) =>
-    t.paid <= 0.005 ? "" : t.open <= 0.005 ? " (bezahlt)" : ` (bezahlt ${fmtEuro(t.paid)}, offen ${fmtEuro(t.open)})`;
+  const status = (t: (typeof rows)[number]) => {
+    if (t.paid <= 0.005 && t.pending <= 0.005) return "";
+    if (t.open <= 0.005) return t.pending > 0.005 ? " (gemeldet, wartet auf Bestätigung)" : " (bezahlt)";
+    const parts = [
+      t.paid > 0.005 ? `bezahlt ${fmtEuro(t.paid)}` : "",
+      t.pending > 0.005 ? `gemeldet ${fmtEuro(t.pending)}` : "",
+      `offen ${fmtEuro(t.open)}`,
+    ].filter(Boolean);
+    return ` (${parts.join(", ")})`;
+  };
   const rowsHtml = rows
     .map(
       (t) => `
@@ -350,11 +376,11 @@ export function renderPlanAnnounceCrewMail(p: PlanAnnounceCrewParams): { html: s
     ? { html: "", text: "" }
     : paymentBlock({ payeeName: p.advancerName, weroId: p.weroId, purpose: `Anzahlung ${p.tripName}` });
   const summaryHtml = settled
-    ? `<p style="margin:8px 0 0 0;font-size:13px;color:#1E8449;">${escapeHtml(PAID_DONE)}</p>`
-    : totalPaid > 0.005
+    ? `<p style="margin:8px 0 0 0;font-size:13px;color:#1E8449;">${escapeHtml(doneText)}</p>`
+    : totalCovered > 0.005
       ? `<p style="margin:8px 0 0 0;font-size:13px;color:#1A2533;">Noch offen: <strong>${fmtEuro(totalOpen)}</strong></p>`
       : "";
-  const summaryText = settled ? `\n${PAID_DONE}` : totalPaid > 0.005 ? `\nNoch offen: ${fmtEuro(totalOpen)}` : "";
+  const summaryText = settled ? `\n${doneText}` : totalCovered > 0.005 ? `\nNoch offen: ${fmtEuro(totalOpen)}` : "";
   const hint = `Schon gezahlt? Dann tippe in der App bei der Rate auf „Ich habe gezahlt“, damit ${p.advancerName} die Zahlung bestätigen kann.`;
 
   const body = `${headerBlock(headline, p.recipientName, lead)}

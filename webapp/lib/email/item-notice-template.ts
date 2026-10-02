@@ -36,6 +36,11 @@ export interface ItemPendingParams {
   date: string;
   note?: string | null;
   appUrl: string;
+  /**
+   * Gesetzt, wenn die Mail stellvertretend an Skipper/Co-Skipper geht, weil
+   * der Empfänger (Name hier) keine E-Mail-Adresse hinterlegt hat.
+   */
+  onBehalfOfName?: string;
 }
 
 export function renderItemPendingMail(p: ItemPendingParams): { html: string; text: string; subject: string } {
@@ -64,7 +69,7 @@ export function renderItemPendingMail(p: ItemPendingParams): { html: string; tex
                 </p>
                 <p style="margin:0;font-size:15px;line-height:1.55;color:#1A2533;">
                   <strong>${escapeHtml(p.reporterName)}</strong> meldet, den Anteil am Posten
-                  <strong>${escapeHtml(title)}</strong> an dich gezahlt zu haben:
+                  <strong>${escapeHtml(title)}</strong> an ${p.onBehalfOfName ? `<strong>${escapeHtml(p.onBehalfOfName)}</strong>` : "dich"} gezahlt zu haben:
                 </p>
               </td>
             </tr>
@@ -85,7 +90,9 @@ export function renderItemPendingMail(p: ItemPendingParams): { html: string; tex
 ${noteBlock}
 ${renderActionButton(p.appUrl, `In der ${vocab.kitty} bestätigen`)}
 ${renderHintBlock(
-  "Du bekommst diese Mail, weil das Geld für diesen Posten an dich geht. Bestätige die Zahlung in der App, sobald sie bei dir angekommen ist — vorher zählt sie nicht.",
+  p.onBehalfOfName
+    ? `Du bekommst diese Mail stellvertretend, weil ${p.onBehalfOfName} keine E-Mail-Adresse hinterlegt hat. Bitte kläre mit ${p.onBehalfOfName}, ob das Geld angekommen ist, und bestätige oder lehne die Meldung in der App ab — vorher zählt sie nicht.`
+    : "Du bekommst diese Mail, weil das Geld für diesen Posten an dich geht. Bestätige die Zahlung in der App, sobald sie bei dir angekommen ist — vorher zählt sie nicht.",
 )}`;
 
   const html = renderMailShell({
@@ -100,13 +107,13 @@ ${p.tripName}
 
 Hi ${p.recipientName},
 
-${p.reporterName} meldet, den Anteil am Posten ${title} an dich gezahlt zu haben:
+${p.reporterName} meldet, den Anteil am Posten ${title} an ${p.onBehalfOfName ?? "dich"} gezahlt zu haben:
 
   Posten:     ${title}
   Gezahlt am: ${p.date}
   Betrag:     ${fmtEuro(p.amount)}
 ${p.note ? `  Notiz:      ${p.note}\n` : ""}
-Bitte in der App bestätigen oder ablehnen: ${p.appUrl}
+${p.onBehalfOfName ? `Du bekommst diese Mail stellvertretend, weil ${p.onBehalfOfName} keine E-Mail-Adresse hinterlegt hat.\n` : ""}Bitte in der App bestätigen oder ablehnen: ${p.appUrl}
 
 ${FOOTER}`;
 

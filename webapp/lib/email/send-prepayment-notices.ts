@@ -38,7 +38,8 @@ import {
   crewDueLabel,
   itemNoticeRecipients,
   normalizeWeroId,
-  trancheShare,
+  trancheShares,
+  allocateCoverage,
   weroIdForItem,
   type ItemNoticeKind,
 } from "@/lib/prepayments/notify";
@@ -223,37 +224,54 @@ export async function sendItemPendingNotice(
     if (item.payeeId === args.actorId) return { ...EMPTY };
     const people = await loadPeople(supabase, [item.payeeId, args.actorId], [item.payeeId]);
     if (!people.ok) return loadError("Personen", people.message);
-    const reporterName = people.name.get(args.actorId) ?? "Ein Crewmitglied";
-    const mail = renderItemPendingMail({
-      recipientName: people.name.get(item.payeeId) ?? tripVocab(trip.tripType).member,
-      reporterName,
-      tripName: trip.name,
-      tripType: trip.tripType,
-      item: { label: item.label, categoryName: item.categoryName },
+    const vocab = tripVocab(trip.tripType);
+    const reporterName = people.name.get(args.actorId) ?? vocab.member;
+    const payeeName = people.name.get(item.payeeId) ?? vocab.member;
+    const pendingMail = (recipientName: string, onBehalfOfName?: string) =>
+      renderItemPendingMail({
+        recipientName,
+        reporterName,
+        tripName: trip.name,
+        tripType: trip.tripType,
+        item: { label: item.label, categoryName: item.categoryName },
+        amount: args.amount,
+        date: formatDeDate(args.date),
+        note: args.note || null,
+        appUrl: prepaymentsUrl(args.tripId),
+        onBehalfOfName,
+      });
+    const push = itemPaymentPendingPush({
+      payerName: reporterName,
+      itemLabel: item.label,
       amount: args.amount,
-      date: formatDeDate(args.date),
-      note: args.note || null,
-      appUrl: prepaymentsUrl(args.tripId),
+      tripId: args.tripId,
+      itemId: item.id,
+      payerPersonId: args.actorId,
     });
-    return deliver(
-      supabase,
-      people.email,
-      [
-        {
-          personId: item.payeeId,
-          mail,
-          push: itemPaymentPendingPush({
-            payerName: reporterName,
-            itemLabel: item.label,
-            amount: args.amount,
-            tripId: args.tripId,
-            itemId: item.id,
-            payerPersonId: args.actorId,
-          }),
-        },
-      ],
-      "item-pending",
-    );
+    const out: Outgoing[] = [{ personId: item.payeeId, mail: pendingMail(payeeName), push }];
+
+    // Fallback (Review-Fund): hat der Empfänger keine E-Mail-Adresse (Ghost-
+    // Crew), erführe niemand von der Meldung — dann gehen Skipper/Co-Skipper
+    // (ohne Aktor und Empfänger) stellvertretend in Kenntnis; sie dürfen die
+    // Meldung bestätigen (requireSkipperAdminOrItemPayee).
+    if (!people.email.has(item.payeeId)) {
+      const coRes = await supabase.from("trip_members").select("person_id").eq("trip_id", args.tripId).eq("is_skipper", true);
+      if (coRes.error) console.error(LOG, "Skipper (Fallback):", coRes.error.message);
+      const skipperIds = [...new Set([trip.skipperId, ...((coRes.data ?? []).map((r) => r.person_id as string))])].filter(
+        (id): id is string => !!id && id !== args.actorId && id !== item.payeeId,
+      );
+      if (skipperIds.length > 0) {
+        const sk = await loadPeople(supabase, skipperIds, skipperIds);
+        if (sk.ok) {
+          for (const id of skipperIds) {
+            const email = sk.email.get(id);
+            if (email) people.email.set(id, email);
+            out.push({ personId: id, mail: pendingMail(sk.name.get(id) ?? vocab.skipper, payeeName), push });
+          }
+        } else console.error(LOG, "Skipper (Fallback):", sk.message);
+      }
+    }
+    return deliver(supabase, people.email, out, "item-pending");
   } catch (err) {
     console.error(LOG, "item-pending:", err instanceof Error ? err.message : String(err));
     return { ...EMPTY, error: "Benachrichtigung fehlgeschlagen." };
@@ -325,7 +343,7 @@ export async function sendItemAnnouncement(
     if (!loaded.ok) return loadError("Posten", loaded.message);
     const { trip, item } = loaded.ctx;
 
-    const [oblRes, planRes, paidRes] = await Promise.all([
+    const [oblRes, planRes, paidRes, pendRes] = await Promise.all([
       supabase
         .from("prepayment_item_obligations")
         .select("person_id, amount")
@@ -339,13 +357,25 @@ export async function sendItemAnnouncement(
         .select("person_id, paid_amount")
         .eq("trip_id", args.tripId)
         .eq("item_id", item.id),
+      // Offene Selbstmeldungen: „gemeldet, wartet auf Bestätigung" statt
+      // erneuter Zahlungsaufforderung (Review-Fund).
+      supabase
+        .from("v_prepayment_item_pending")
+        .select("person_id, amount")
+        .eq("trip_id", args.tripId)
+        .eq("item_id", item.id),
     ]);
     if (oblRes.error) return loadError("Sollbeträge", oblRes.error.message);
     // Fail-closed: ohne bekannte Zahlungen lieber keine Mail als eine
     // Zahlungsaufforderung an jemanden, der schon gezahlt hat.
     if (paidRes.error) return loadError("Zahlungen", paidRes.error.message);
+    if (pendRes.error) return loadError("Selbstmeldungen", pendRes.error.message);
     const paidBy = new Map<string, number>();
     for (const r of paidRes.data ?? []) paidBy.set(r.person_id as string, Number(r.paid_amount));
+    const pendingBy = new Map<string, number>();
+    for (const r of pendRes.data ?? []) {
+      pendingBy.set(r.person_id as string, (pendingBy.get(r.person_id as string) ?? 0) + Number(r.amount));
+    }
     // Ohne lesbaren Plan einfach keine Wero-ID (Wero ist optional).
     if (planRes.error) console.error(LOG, "Plan (Wero):", planRes.error.message);
     const soll = (oblRes.data ?? []).map((o) => ({ personId: o.person_id as string, amount: Number(o.amount) }));
@@ -375,13 +405,15 @@ export async function sendItemAnnouncement(
       personId: c.personId,
       mail: renderItemAnnounceCrewMail({
         isUpdate: args.isUpdate,
-        recipientName: people.name.get(c.personId) ?? "",
+        recipientName: people.name.get(c.personId) ?? tripVocab(trip.tripType).member,
         payeeName,
         tripName: trip.name,
         tripType: trip.tripType,
         item: itemInfo,
-        amount: c.amount,
-        paid: paidBy.get(c.personId) ?? 0,
+        ...(() => {
+          const [cov] = allocateCoverage([c.amount], paidBy.get(c.personId) ?? 0, pendingBy.get(c.personId) ?? 0);
+          return { amount: c.amount, paid: cov.paid, pending: cov.pending };
+        })(),
         crewDue,
         weroId,
         appUrl,
@@ -399,7 +431,7 @@ export async function sendItemAnnouncement(
       const own = soll.find((s) => s.personId === payeeId)?.amount ?? 0;
       const rows = soll
         .filter((s) => s.personId !== payeeId && s.amount > 0.005)
-        .map((s) => ({ name: people.name.get(s.personId) ?? "", amount: round2(s.amount) }))
+        .map((s) => ({ name: people.name.get(s.personId) ?? tripVocab(trip.tripType).member, amount: round2(s.amount) }))
         .sort((a, b) => a.name.localeCompare(b.name, "de"));
       out.push({
         personId: payeeId,
@@ -524,16 +556,24 @@ export async function sendPlanAnnouncement(
         .order("due_date"),
       supabase.from("prepayment_obligations").select("person_id, total_amount").eq("trip_id", args.tripId),
     ]);
-    const paidRes = await supabase
-      .from("v_prepayment_payments")
-      .select("tranche_id, person_id, paid_amount")
-      .eq("trip_id", args.tripId);
+    // Bestätigte Zahlungen + offene Selbstmeldungen je Person (fail-closed).
+    const [paidRes, pendRes] = await Promise.all([
+      supabase.from("v_prepayment_payments").select("tranche_id, person_id, paid_amount").eq("trip_id", args.tripId),
+      supabase.from("v_prepayment_pending").select("tranche_id, person_id, amount").eq("trip_id", args.tripId),
+    ]);
     if (paidRes.error) return loadError("Zahlungen", paidRes.error.message);
-    const paidKey = (personId: string, trancheId: string) => `${personId}|${trancheId}`;
-    const paidBy = new Map<string, number>();
-    for (const r of paidRes.data ?? []) {
-      if (r.tranche_id) paidBy.set(paidKey(r.person_id as string, r.tranche_id as string), Number(r.paid_amount));
-    }
+    if (pendRes.error) return loadError("Selbstmeldungen", pendRes.error.message);
+    const planTrancheIds = new Set((trRes.data ?? []).map((t) => t.id as string));
+    const sumBy = (rows: { tranche_id: unknown; person_id: unknown }[], val: (r: Record<string, unknown>) => number) => {
+      const m = new Map<string, number>();
+      for (const r of rows as Record<string, unknown>[]) {
+        if (!r.tranche_id || !planTrancheIds.has(r.tranche_id as string)) continue;
+        m.set(r.person_id as string, (m.get(r.person_id as string) ?? 0) + val(r));
+      }
+      return m;
+    };
+    const paidBy = sumBy(paidRes.data ?? [], (r) => Number(r.paid_amount));
+    const pendingBy = sumBy(pendRes.data ?? [], (r) => Number(r.amount));
     if (!trip.ok) return loadError("Törn", trip.message);
     if (planRes.error) return loadError("Anzahlungsplan", planRes.error.message);
     if (!planRes.data) return { ...EMPTY, error: "Kein Anzahlungsplan vorhanden." };
@@ -563,22 +603,29 @@ export async function sendPlanAnnouncement(
     const weroId = normalizeWeroId(planRes.data.wero_id as string | null);
     const appUrl = prepaymentsUrl(args.tripId);
     const crewDue = (due: string) => crewDueLabel(due, args.todayIso) ?? formatDeDate(due);
+    // Zahlungen/Meldungen nach Fälligkeit auf die Raten verteilen (Über-
+    // zahlung einer Rate deckt die nächste), Ausgabe in Anzeige-Reihenfolge.
+    const dueOrder = tranches.map((t, i) => ({ t, i })).sort((a, b) => a.t.due.localeCompare(b.t.due) || a.i - b.i);
+    const crewRates = (personId: string, total: number) => {
+      const shares = trancheShares(total, tranches.map((t) => t.percent));
+      const cov = allocateCoverage(dueOrder.map((d) => shares[d.i]), paidBy.get(personId) ?? 0, pendingBy.get(personId) ?? 0);
+      const byIndex = new Map(dueOrder.map((d, k) => [d.i, cov[k]]));
+      return tranches.map((t, i) => {
+        const c = byIndex.get(i)!;
+        return { label: t.label, amount: shares[i], paid: c.paid, pending: c.pending, crewDue: crewDue(t.due) };
+      });
+    };
 
     const out: Outgoing[] = crew.map((c) => ({
       personId: c.personId,
       mail: renderPlanAnnounceCrewMail({
         isUpdate: args.isUpdate,
-        recipientName: people.name.get(c.personId) ?? "",
+        recipientName: people.name.get(c.personId) ?? tripVocab(trip.tripType).member,
         advancerName,
         tripName: trip.name,
         tripType: trip.tripType,
         total: c.amount,
-        tranches: tranches.map((t) => ({
-          label: t.label,
-          amount: trancheShare(c.amount, t.percent),
-          paid: paidBy.get(paidKey(c.personId, t.id)) ?? 0,
-          crewDue: crewDue(t.due),
-        })),
+        tranches: crewRates(c.personId, c.amount),
         weroId,
         appUrl,
       }),
@@ -589,7 +636,7 @@ export async function sendPlanAnnouncement(
       const crewSoll = soll.filter((s) => s.personId !== payeeId).reduce((s, o) => s + o.amount, 0);
       const rows = soll
         .filter((s) => s.personId !== payeeId && s.amount > 0.005)
-        .map((s) => ({ name: people.name.get(s.personId) ?? "", amount: round2(s.amount) }))
+        .map((s) => ({ name: people.name.get(s.personId) ?? tripVocab(trip.tripType).member, amount: round2(s.amount) }))
         .sort((a, b) => a.name.localeCompare(b.name, "de"));
       out.push({
         personId: payeeId,
@@ -599,12 +646,17 @@ export async function sendPlanAnnouncement(
           tripName: trip.name,
           tripType: trip.tripType,
           providerTotal,
-          tranches: tranches.map((t) => ({
-            label: t.label,
-            charterDue: formatDeDate(t.due),
-            toProvider: trancheShare(providerTotal, t.percent),
-            fromCrew: trancheShare(crewSoll, t.percent),
-          })),
+          tranches: (() => {
+            const pct = tranches.map((t) => t.percent);
+            const toProvider = trancheShares(providerTotal, pct);
+            const fromCrew = trancheShares(crewSoll, pct);
+            return tranches.map((t, i) => ({
+              label: t.label,
+              charterDue: formatDeDate(t.due),
+              toProvider: toProvider[i],
+              fromCrew: fromCrew[i],
+            }));
+          })(),
           rows,
           ownAmount: round2(soll.find((s) => s.personId === payeeId)?.amount ?? 0),
           appUrl,

@@ -13,6 +13,7 @@
 
 import { toCrewDueDate, formatDeDate } from "@/lib/prepayments/dates";
 import { round2 } from "@/lib/utils";
+import { allocateByWeights } from "@/lib/calc/prepayment-shares";
 
 export interface SollEntry {
   personId: string;
@@ -109,9 +110,49 @@ export function crewDueLabel(dueDate: string | null | undefined, todayIso?: stri
   return formatDeDate(todayIso ? toCrewDueDate(dueDate, todayIso) : toCrewDueDate(dueDate));
 }
 
-/** Anteil einer Person an einer Tranche (wie Matrix/Erinnerung: Soll × % / 100). */
-export function trancheShare(totalSoll: number, percent: number): number {
-  return round2((totalSoll * percent) / 100);
+/**
+ * Raten einer Person für die Mails (Review-Fund Cent-Drift): Largest-Remainder
+ * über die Tranchen-Prozente, damit Σ Raten EXAKT dem Gesamtanteil entspricht
+ * (100,01 € auf 50/50 → 50,01 + 50,00 statt 2 × 50,01). Bewusst nur für die
+ * neuen Mails: Matrix, Crew-Self-View und Erinnerungsmail rechnen weiter
+ * pro Rate `round2(Soll × % / 100)` — eine zentrale Umstellung änderte dort
+ * angezeigte Sollbeträge und Statusgrenzen (offen/bezahlt) bestehender Törns.
+ */
+export function trancheShares(totalSoll: number, percents: number[]): number[] {
+  return allocateByWeights(totalSoll, percents);
+}
+
+export interface Coverage {
+  amount: number;
+  /** Davon bestätigt bezahlt. */
+  paid: number;
+  /** Davon gemeldet, wartet auf Bestätigung. */
+  pending: number;
+  /** Noch offen (≥ 0). */
+  open: number;
+}
+
+/**
+ * Verteilt bestätigte Zahlungen und offene Selbstmeldungen einer Person auf
+ * ihre Raten — in der übergebenen Reihenfolge (Aufrufer sortiert nach
+ * Fälligkeit). Erst die bestätigten, danach die gemeldeten Beträge, jeweils
+ * „früheste Rate zuerst". Damit wird eine Überzahlung einer Rate gegen die
+ * anderen verrechnet (Review-Fund: Rate 2 überzahlt, Rate 1 unterzahlt, Σ
+ * gedeckt → nichts offen), und das Gesamt-Offen wird nie negativ. Überschuss
+ * über alle Raten hinaus verfällt rechnerisch (er wird nicht als „offen"
+ * und nicht als negative Forderung gezeigt). In Cent gerechnet.
+ */
+export function allocateCoverage(amounts: number[], paidTotal: number, pendingTotal: number): Coverage[] {
+  let paidLeft = Math.max(0, Math.round(paidTotal * 100));
+  let pendingLeft = Math.max(0, Math.round(pendingTotal * 100));
+  return amounts.map((a) => {
+    const cents = Math.max(0, Math.round(a * 100));
+    const p = Math.min(cents, paidLeft);
+    paidLeft -= p;
+    const q = Math.min(cents - p, pendingLeft);
+    pendingLeft -= q;
+    return { amount: cents / 100, paid: p / 100, pending: q / 100, open: (cents - p - q) / 100 };
+  });
 }
 
 /**

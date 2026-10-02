@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, UserPlus } from "lucide-react";
 import { savePrepaymentPlan, saveTranches } from "@/lib/actions/prepayments";
@@ -167,7 +167,13 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
     });
   }
 
+  // Doppelklick-Sperre (Review-Fund): `pending` aus useTransition wirkt erst
+  // nach dem nächsten Render — ein zweiter Klick davor schickte saveTranches
+  // doppelt ab. Die Ref sperrt synchron, bis der Request zurück ist.
+  const finishingRef = useRef(false);
+
   function saveTranchesAndFinish() {
+    if (finishingRef.current) return;
     setError(null);
     if (!percentValid) {
       setError(`Summe aller Tranchenprozente muss 100 % ergeben (aktuell: ${percentSum.toFixed(1)} %).`);
@@ -187,13 +193,21 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
     };
     const fd = new FormData();
     fd.set("payload", JSON.stringify(payload));
+    finishingRef.current = true;
     startTransition(async () => {
-      const res = await saveTranches({ status: "idle" }, fd);
-      if (res.status === "error") {
-        setError(res.message);
-      } else {
-        router.push(`/trips/${tripId}/prepayments`);
-        router.refresh();
+      try {
+        const res = await saveTranches({ status: "idle" }, fd);
+        if (res.status === "error") {
+          setError(res.message);
+          finishingRef.current = false;
+        } else {
+          // Bleibt gesperrt: die Seite wechselt gleich.
+          router.push(`/trips/${tripId}/prepayments`);
+          router.refresh();
+        }
+      } catch {
+        setError("Verbindung unterbrochen. Bitte erneut versuchen.");
+        finishingRef.current = false;
       }
     });
   }

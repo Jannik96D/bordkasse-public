@@ -36,9 +36,11 @@ import {
   itemNoticeRecipients,
   normalizeWeroId,
   notifyResultMessage,
-  trancheShare,
+  trancheShares,
+  allocateCoverage,
   weroIdForItem,
 } from "@/lib/prepayments/notify";
+import { renderWhatsAppText, DEFAULT_WHATSAPP_TEMPLATE } from "@/lib/prepayments/whatsapp";
 import {
   renderItemAnnounceCrewMail,
   renderItemAnnouncePayeeMail,
@@ -259,8 +261,45 @@ describe("crewDueLabel — 3 Tage Puffer, Clamp, ohne Fälligkeit", () => {
   it("ohne Fälligkeit → null", () => {
     expect(crewDueLabel(null, "2027-01-01")).toBeNull();
   });
-  it("trancheShare = Soll × % / 100 (gerundet)", () => {
-    expect(trancheShare(333.33, 30)).toBe(100);
+  it("trancheShares: Σ Raten = Gesamtanteil (kein Cent-Drift)", () => {
+    expect(trancheShares(100.01, [50, 50])).toEqual([50.01, 50]);
+    const r = trancheShares(333.33, [30, 30, 40]);
+    expect(Math.round(r.reduce((a, b) => a + b, 0) * 100)).toBe(33333);
+  });
+});
+
+describe("allocateCoverage — Überzahlung verrechnen, nie negativ", () => {
+  it("Rate 2 überzahlt (60 von 50), Rate 1 unterzahlt (40) → Σ 100 gedeckt, nichts offen", () => {
+    const cov = allocateCoverage([50, 50], 100, 0);
+    expect(cov.map((c) => c.open)).toEqual([0, 0]);
+  });
+  it("bezahlte zuerst, dann gemeldete, früheste Rate zuerst", () => {
+    expect(allocateCoverage([50, 50], 30, 40)).toEqual([
+      { amount: 50, paid: 30, pending: 20, open: 0 },
+      { amount: 50, paid: 0, pending: 20, open: 30 },
+    ]);
+  });
+  it("Überschuss über alle Raten → offen 0, nicht negativ", () => {
+    expect(allocateCoverage([50], 80, 10)).toEqual([{ amount: 50, paid: 50, pending: 0, open: 0 }]);
+  });
+});
+
+describe("WhatsApp-Text — Wero-Regel", () => {
+  const base = { name: "Anna", trancheLabel: "Endzahlung", tripName: "Ostsee", amount: 100, dueDate: "2027-04-10" };
+  it("mit Wero-ID → Zeile mit ID", () => {
+    expect(renderWhatsAppText({ ...base, weroId: "W-1" })).toMatch(/Wero:\s+W-1/);
+  });
+  it("ohne / Whitespace → keine Wero-Zeile im Default", () => {
+    for (const weroId of [null, "", "   "]) {
+      const t = renderWhatsAppText({ ...base, weroId, weroLink: "  " });
+      expect(t.toLowerCase()).not.toContain("wero");
+      expect(t).toContain("Verwendungszweck: Anzahlung Ostsee Endzahlung");
+    }
+    expect(DEFAULT_WHATSAPP_TEMPLATE).toContain("Wero:");
+  });
+  it("eigene Vorlage: Platzhalter mitten im Satz wird leer ersetzt", () => {
+    const t = renderWhatsAppText({ ...base, template: "Zahl an {{wero_link_or_id}} bitte, {{name}}", weroId: " " });
+    expect(t).toBe("Zahl an  bitte, Anna");
   });
 });
 
@@ -503,6 +542,24 @@ describe("Posten-Zahlungen — Benachrichtigungen", () => {
     expect(pushedTo()).toEqual([SKIPPER]);
   });
 
+  it("Empfänger ohne E-Mail (Ghost) → Skipper wird stellvertretend informiert", async () => {
+    const t = tables({ trip_members: [] });
+    t.prepayment_items[0].payee_person_id = BEN;
+    t.trip_members = [SKIPPER, ANNA, BEN, CLARA].map((p) => ({
+      trip_id: TRIP, person_id: p, on_board_from: null, on_board_to: null, is_skipper: p === SKIPPER,
+    }));
+    t.persons_private = t.persons_private.filter((r) => r.person_id !== BEN);
+    setup(t);
+    mockedPerson.mockResolvedValue({ id: ANNA, display_name: "Anna" } as never);
+    const res = await submitItemSelfPayment({ status: "idle" }, fd({
+      trip_id: TRIP, item_id: ITEM, amount: "100", date: "2027-02-01", idempotency_key: KEY1,
+    }));
+    expect(res.status).toBe("ok");
+    expect(mailedTo()).toEqual([EMAIL[SKIPPER]]);
+    expect(mails()[0].text).toContain("an Ben gezahlt");
+    expect(mails()[0].text).toContain("stellvertretend");
+  });
+
   it("Selbstmeldung durch den Empfänger selbst → keine Mail", async () => {
     setup(tables());
     mockedMember.mockResolvedValue({ ok: true, personId: SKIPPER });
@@ -700,6 +757,15 @@ describe("saveTranches — „Anzahlungsplan angelegt“ genau einmal", () => {
     expect(fake.rows("prepayment_plan")[0].crew_notified_at).toBeFalsy();
   });
 
+  it("Lesefehler der bestehenden Tranchen → Abbruch, nichts geschrieben, keine Mail", async () => {
+    setup(planTables());
+    fake.failOn({ table: "prepayment_tranches", action: "select", nth: 1 });
+    const res = await saveTranches({ status: "idle" }, payloadFd(tranchePayload));
+    expect(res.status).toBe("error");
+    expect(fake.rows("prepayment_tranches")).toHaveLength(0);
+    expect(mockedSendMails).not.toHaveBeenCalled();
+  });
+
   it("Mailversand wirft → saveTranches trotzdem ok", async () => {
     setup(planTables());
     mockedSendMails.mockRejectedValue(new Error("SMTP down"));
@@ -789,6 +855,81 @@ describe("Knopf „Crew informieren“", () => {
     expect(ben.text).toContain("1. Anzahlung bis 7.1.2027: 200,00 € (bezahlt)");
     expect(ben.text).toContain("Noch offen: 300,00 €");
     expect(ben.text).toContain("W-1");
+  });
+
+  it("Posten-Update: offene Selbstmeldung → „wartet auf Bestätigung“ statt Aufforderung", async () => {
+    setup(tables({
+      prepayment_plan: [{ trip_id: TRIP, advancer_person_id: SKIPPER, wero_id: "WERO-9", total_amount: 100 }],
+      v_prepayment_item_pending: [{ trip_id: TRIP, item_id: ITEM, person_id: ANNA, amount: 100 }],
+    }));
+    await notifyItemCrew(TRIP, ITEM);
+    const anna = mails().find((m) => m.to === EMAIL[ANNA])!;
+    expect(anna.text).toContain("wartet auf die Bestätigung durch Jannik");
+    expect(anna.text).not.toContain("Bitte zahlen bis");
+    expect(anna.text.toLowerCase()).not.toContain("wero");
+  });
+
+  it("Selbstmeldungen nicht lesbar → fail-closed, keine Update-Mail", async () => {
+    setup(tables());
+    fake.failOn({ table: "v_prepayment_item_pending", action: "select" });
+    expect((await notifyItemCrew(TRIP, ITEM)).status).toBe("error");
+    expect(mockedSendMails).not.toHaveBeenCalled();
+  });
+
+  it("Plan-Update: Überzahlung einer Rate deckt die andere, Selbstmeldung zählt als gemeldet", async () => {
+    setup(planTables({
+      prepayment_plan: [{ trip_id: TRIP, advancer_person_id: null, wero_id: "W-1", total_amount: 1000, crew_notified_at: "2026-01-01T00:00:00Z" }],
+      prepayment_obligations: [
+        { trip_id: TRIP, person_id: SKIPPER, total_amount: 0 },
+        { trip_id: TRIP, person_id: ANNA, total_amount: 100 },
+        { trip_id: TRIP, person_id: BEN, total_amount: 100 },
+      ],
+      prepayment_tranches: [
+        { id: T1, trip_id: TRIP, label: "1. Anzahlung", due_date: "2027-01-10", percent: 50, sort_order: 0 },
+        { id: T2, trip_id: TRIP, label: "Endzahlung", due_date: "2027-04-10", percent: 50, sort_order: 1 },
+      ],
+      v_prepayment_payments: [
+        { trip_id: TRIP, tranche_id: T2, person_id: ANNA, paid_amount: 60 },
+        { trip_id: TRIP, tranche_id: T1, person_id: ANNA, paid_amount: 40 },
+      ],
+      v_prepayment_pending: [{ trip_id: TRIP, tranche_id: T1, person_id: BEN, amount: 100 }],
+    }));
+    await notifyPlanCrew(TRIP);
+    const anna = mails().find((m) => m.to === EMAIL[ANNA])!;
+    expect(anna.text).toContain("bereits vollständig bezahlt");
+    expect(anna.text.toLowerCase()).not.toContain("wero");
+    const ben = mails().find((m) => m.to === EMAIL[BEN])!;
+    expect(ben.text).toContain("wartet auf die Bestätigung");
+    expect(ben.text.toLowerCase()).not.toContain("wero");
+  });
+
+  it("Plan: Zahlungen nicht lesbar → fail-closed", async () => {
+    setup(planTables({ prepayment_tranches: [{ id: T1, trip_id: TRIP, label: "Endzahlung", due_date: "2027-04-10", percent: 100, sort_order: 0 }] }));
+    fake.failOn({ table: "v_prepayment_payments", action: "select" });
+    expect((await notifyPlanCrew(TRIP)).status).toBe("error");
+    expect(mockedSendMails).not.toHaveBeenCalled();
+  });
+
+  it("Plan: Selbstmeldungen nicht lesbar → fail-closed", async () => {
+    setup(planTables({ prepayment_tranches: [{ id: T1, trip_id: TRIP, label: "Endzahlung", due_date: "2027-04-10", percent: 100, sort_order: 0 }] }));
+    fake.failOn({ table: "v_prepayment_pending", action: "select" });
+    expect((await notifyPlanCrew(TRIP)).status).toBe("error");
+    expect(mockedSendMails).not.toHaveBeenCalled();
+  });
+
+  it("Plan-Mail: Raten summieren exakt auf den Anteil (kein Cent-Drift)", async () => {
+    setup(planTables({
+      prepayment_plan: [{ trip_id: TRIP, advancer_person_id: null, wero_id: "", total_amount: 1000, crew_notified_at: "2026-01-01T00:00:00Z" }],
+      prepayment_obligations: [{ trip_id: TRIP, person_id: ANNA, total_amount: 100.01 }],
+      prepayment_tranches: [
+        { id: T1, trip_id: TRIP, label: "1. Anzahlung", due_date: "2027-01-10", percent: 50, sort_order: 0 },
+        { id: T2, trip_id: TRIP, label: "Endzahlung", due_date: "2027-04-10", percent: 50, sort_order: 1 },
+      ],
+    }));
+    await notifyPlanCrew(TRIP);
+    const anna = mails().find((m) => m.to === EMAIL[ANNA])!;
+    expect(anna.text).toContain("1. Anzahlung bis 7.1.2027: 50,01 €");
+    expect(anna.text).toContain("Endzahlung bis 7.4.2027: 50,00 €");
   });
 
   it("Zahlungen nicht lesbar → fail-closed, keine Update-Mail", async () => {
