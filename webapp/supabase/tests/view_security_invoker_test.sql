@@ -16,7 +16,7 @@
 -- ═══════════════════════════════════════════════════════════════════════
 
 BEGIN;
-SELECT plan(14);
+SELECT plan(18);   -- 14 + 4 für die Posten-Views aus 0058
 
 -- ── 1. security_invoker auf allen 6 Views gesetzt ─────────────────────
 SELECT ok(
@@ -51,6 +51,18 @@ SELECT ok(NOT has_table_privilege('anon', 'v_prepayment_pending', 'SELECT'),
   'anon: kein SELECT auf v_prepayment_pending');
 SELECT ok(NOT has_table_privilege('anon', 'v_trip_members_with_days', 'SELECT'),
   'anon: kein SELECT auf v_trip_members_with_days');
+
+-- ── 2b. Posten-Views aus 0058: dieselben beiden Garantien ─────────────
+SELECT ok(
+  (SELECT reloptions FROM pg_class WHERE relname = 'v_prepayment_item_payments') @> ARRAY['security_invoker=on'],
+  'v_prepayment_item_payments: security_invoker=on');
+SELECT ok(
+  (SELECT reloptions FROM pg_class WHERE relname = 'v_prepayment_item_pending') @> ARRAY['security_invoker=on'],
+  'v_prepayment_item_pending: security_invoker=on');
+SELECT ok(NOT has_table_privilege('anon', 'v_prepayment_item_payments', 'SELECT'),
+  'anon: kein SELECT auf v_prepayment_item_payments');
+SELECT ok(NOT has_table_privilege('anon', 'v_prepayment_item_pending', 'SELECT'),
+  'anon: kein SELECT auf v_prepayment_item_pending');
 
 -- ── 3. Funktional: RLS filtert für nicht-Mitglieder ───────────────────
 -- Setup als Definer-Rolle (BYPASSRLS): 2-Personen-Törn, 100 € gleichmäßig.

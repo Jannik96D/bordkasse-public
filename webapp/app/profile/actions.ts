@@ -73,7 +73,7 @@ export async function exportMyData(): Promise<ExportResult> {
   const me = person.id;
 
   try {
-    const [profile, priv, memberships, participations, obligations, paid, creditFrom, creditTo] =
+    const [profile, priv, memberships, participations, obligations, itemObligations, paid, creditFrom, creditTo] =
       await Promise.all([
         supabase.from("persons").select("id, display_name, is_alcoholic, created_at").eq("id", me).maybeSingle(),
         supabase.from("persons_private").select("last_name, email").eq("person_id", me).maybeSingle(),
@@ -83,9 +83,14 @@ export async function exportMyData(): Promise<ExportResult> {
           .eq("person_id", me),
         supabase.from("transaction_participants").select("transaction_id, amount").eq("person_id", me),
         supabase.from("prepayment_obligations").select("trip_id, total_amount").eq("person_id", me),
-        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id").eq("paid_by", me).is("deleted_at", null),
-        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id").eq("credit_from", me).is("deleted_at", null),
-        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id").eq("credit_to", me).is("deleted_at", null),
+        // Reise-Posten (0058): Soll je Posten, samt Bezeichnung + Fälligkeit.
+        supabase
+          .from("prepayment_item_obligations")
+          .select("trip_id, item_id, amount, prepayment_items(label, total_amount, due_date)")
+          .eq("person_id", me),
+        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id, item_id").eq("paid_by", me).is("deleted_at", null),
+        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id, item_id").eq("credit_from", me).is("deleted_at", null),
+        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id, item_id").eq("credit_to", me).is("deleted_at", null),
       ]);
 
     const data = {
@@ -99,6 +104,7 @@ export async function exportMyData(): Promise<ExportResult> {
       gutschriften_an_mich: creditTo.data ?? [],
       einzelanteile: participations.data ?? [],
       anzahlungs_soll: obligations.data ?? [],
+      posten_soll: itemObligations.data ?? [],
     };
 
     return {

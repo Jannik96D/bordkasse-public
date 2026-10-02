@@ -28,7 +28,7 @@
 -- ═══════════════════════════════════════════════════════════════════════
 
 BEGIN;
-SELECT plan(7);   -- 1 Definer-Vorcheck + 4 Lese-Checks + 2 Write-Lockdown-Checks
+SELECT plan(15);  -- 7 (Charter-Soll) + 8 (Posten-Soll aus 0058, gleiche Regeln)
 
 -- persons.auth_user_id trägt einen echten FK auf auth.users(id); von allen
 -- Spalten dort ist nur `id` NOT NULL (gleiches Muster wie
@@ -131,6 +131,67 @@ SELECT throws_ok(
   $$DELETE FROM prepayment_obligations
     WHERE trip_id = '57570000-0000-4000-8000-0000000000aa'$$,
   '42501', NULL, 'Crewmitglied darf Soll-Beträge NICHT löschen');
+RESET ROLE;
+
+-- ═══ 0058: Reise-Posten — dieselben Regeln für prepayment_items und
+-- prepayment_item_obligations (Transparenz für die Crew, Self-Klausel für
+-- Ex-Crew, Fremde sehen nichts, Schreiben nur Service-Role). ═══════════
+INSERT INTO prepayment_items(id, trip_id, label, total_amount, payee_person_id, split_type) VALUES
+  ('57570000-0000-4000-8000-0000000000d1', '57570000-0000-4000-8000-0000000000aa',
+   'Flüge', 450, '57570000-0000-4000-8000-000000000003', 'individuell');
+
+INSERT INTO prepayment_item_obligations(item_id, trip_id, person_id, amount) VALUES
+  ('57570000-0000-4000-8000-0000000000d1', '57570000-0000-4000-8000-0000000000aa', '57570000-0000-4000-8000-000000000001', 150),
+  ('57570000-0000-4000-8000-0000000000d1', '57570000-0000-4000-8000-0000000000aa', '57570000-0000-4000-8000-000000000002', 150),
+  ('57570000-0000-4000-8000-0000000000d1', '57570000-0000-4000-8000-0000000000aa', '57570000-0000-4000-8000-000000000003', 100),
+  ('57570000-0000-4000-8000-0000000000d1', '57570000-0000-4000-8000-0000000000aa', '57570000-0000-4000-8000-000000000005', 50);
+
+SELECT is(
+  (SELECT count(*) FROM prepayment_item_obligations
+   WHERE trip_id = '57570000-0000-4000-8000-0000000000aa'),
+  4::bigint, 'Posten: Definer-Rolle sieht alle 4 Posten-Soll-Zeilen');
+
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims',
+  json_build_object('sub', '57570000-0000-4000-8000-0000000000f2')::text, TRUE);
+SELECT is(
+  (SELECT count(*) FROM prepayment_item_obligations
+   WHERE trip_id = '57570000-0000-4000-8000-0000000000aa'),
+  4::bigint, 'Posten: normales Crewmitglied sieht alle Posten-Soll-Zeilen');
+SELECT is(
+  (SELECT count(*) FROM prepayment_items
+   WHERE trip_id = '57570000-0000-4000-8000-0000000000aa'),
+  1::bigint, 'Posten: normales Crewmitglied sieht den Posten');
+SELECT throws_ok(
+  $$UPDATE prepayment_item_obligations SET amount = 1
+    WHERE trip_id = '57570000-0000-4000-8000-0000000000aa'$$,
+  '42501', NULL, 'Posten: Crewmitglied darf Posten-Soll NICHT ändern');
+SELECT throws_ok(
+  $$DELETE FROM prepayment_items
+    WHERE trip_id = '57570000-0000-4000-8000-0000000000aa'$$,
+  '42501', NULL, 'Posten: Crewmitglied darf Posten NICHT löschen');
+RESET ROLE;
+
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims',
+  json_build_object('sub', '57570000-0000-4000-8000-0000000000f4')::text, TRUE);
+SELECT is(
+  (SELECT count(*) FROM prepayment_item_obligations
+   WHERE trip_id = '57570000-0000-4000-8000-0000000000aa'),
+  0::bigint, 'Posten: eingeloggter Fremder sieht 0 Posten-Soll-Zeilen');
+SELECT is(
+  (SELECT count(*) FROM prepayment_items
+   WHERE trip_id = '57570000-0000-4000-8000-0000000000aa'),
+  0::bigint, 'Posten: eingeloggter Fremder sieht 0 Posten');
+RESET ROLE;
+
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims',
+  json_build_object('sub', '57570000-0000-4000-8000-0000000000f5')::text, TRUE);
+SELECT is(
+  (SELECT count(*) FROM prepayment_item_obligations
+   WHERE trip_id = '57570000-0000-4000-8000-0000000000aa'),
+  1::bigint, 'Posten: Person ohne trip_members-Zeile sieht ihr eigenes Posten-Soll');
 RESET ROLE;
 
 SELECT * FROM finish();

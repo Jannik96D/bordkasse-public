@@ -87,7 +87,7 @@ export async function getTripProgressSignals(
   };
 }
 
-/** Aktive Bordkasse-Ausgaben (ohne Anzahlungspool). */
+/** Aktive Bordkasse-Ausgaben (ohne Anzahlungspool und ohne Reise-Posten). */
 async function countBordkasseExpenses(
   supabase: Client,
   tripId: string,
@@ -98,6 +98,7 @@ async function countBordkasseExpenses(
     .eq("trip_id", tripId)
     .eq("type", "expense")
     .is("tranche_id", null)
+    .is("item_id", null)
     .is("deleted_at", null);
   return count ?? 0;
 }

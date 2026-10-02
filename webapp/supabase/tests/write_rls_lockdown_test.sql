@@ -40,7 +40,7 @@
 -- ═══════════════════════════════════════════════════════════════════════
 
 BEGIN;
-SELECT plan(14);
+SELECT plan(16);   -- 14 + 2 Posten-Checks (0058)
 
 -- ── Setup: Skipper P1 + normales Mitglied P2, beide mit Login, ein Törn
 -- mit einer Ausgabe, damit es etwas zu manipulieren/lesen gibt. ──────────
@@ -146,6 +146,22 @@ SELECT throws_ok(
             'Anzahlung', 50)$$,
   '42501', NULL,
   'Skipper kann keine Anzahlungs-Tranche mehr per direktem INSERT anlegen');
+
+-- 9b. Reise-Posten (0058): neue Tabellen bekommen dieselbe Sperre — der
+-- Fund 44 („neue Tabelle ohne Policy ist sofort beschreibbar") darf sich
+-- nicht wiederholen. Skipper als stärkste Nicht-Service-Rolle.
+SELECT throws_ok(
+  $$INSERT INTO prepayment_items(trip_id, label, total_amount, payee_person_id, split_type)
+    VALUES ('47470000-0000-4000-8000-0000000000aa', 'Flüge', 300,
+            '47470000-0000-4000-8000-000000000001', 'gleichmaessig')$$,
+  '42501', NULL,
+  'Skipper kann keinen Reise-Posten per direktem INSERT anlegen');
+
+SELECT throws_ok(
+  $$UPDATE transactions SET item_id = NULL
+     WHERE id = '47470000-0000-4000-8000-0000000000e1'$$,
+  '42501', NULL,
+  'Skipper kann die Posten-Zuordnung einer Buchung nicht per direktem UPDATE ändern');
 
 RESET ROLE;
 

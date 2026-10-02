@@ -23,8 +23,12 @@ import { readClient } from "@/lib/supabase/read-client";
  *     `equal` einen VOLLEN Anteil an jeder Ausgabe NACH ihrer Abreise mit.
  *
  * `on_board`, `individual` und `per_person` sind sauber und werden nicht
- * gezählt. Das Crewwechsel-Formular zeigt die Zahl als Warnung; der Skipper
- * kann die Buchungen vorher auf „An Bord" umstellen. Bewusst keine
+ * gezählt. Anzahlungs- und Posten-Buchungen (`tranche_id`/`item_id`) zählen
+ * nicht mit: das ist kein Bordkasse-Geld, und ihr Soll wird beim Crewwechsel
+ * explizit übertragen (Posten: PR4).
+ *
+ * Das Crewwechsel-Formular zeigt die Zahl als Warnung; der Skipper kann
+ * die Buchungen vorher auf „An Bord" umstellen. Bewusst keine
  * automatische Umschreibung — das wäre eine irreversible Änderung an
  * fremden Buchungen.
  *
@@ -46,6 +50,7 @@ export async function countPresenceBlindBookings(tripId: string): Promise<number
       .eq("type", "expense")
       .in("split_type", ["equal", "time_proportional"])
       .is("tranche_id", null)
+      .is("item_id", null)
       .is("deleted_at", null),
     supabase
       .from("transactions")
@@ -54,6 +59,7 @@ export async function countPresenceBlindBookings(tripId: string): Promise<number
       .eq("type", "credit")
       .eq("credit_to_all", true)
       .is("tranche_id", null)
+      .is("item_id", null)
       .is("deleted_at", null),
   ]);
   // Fehler bewusst als 0 behandeln: die Warnung ist ein Hinweis, kein Guard —

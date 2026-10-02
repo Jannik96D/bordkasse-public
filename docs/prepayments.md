@@ -460,6 +460,101 @@ Service-Role-Client eine fremde Ghost-Person überschreiben (`display_name` +
 
 **Edge Case Crew-Wechsel zwischen Tranchen:** A hat Tranche 1 voll bezahlt, ist vor Tranche 2 abgesprungen. B übernimmt → bekommt Tranche-1-Status „bezahlt" geerbt, Tranche-2-Soll auf B.
 
+## Weitere Posten (An-/Abreise) — Datenmodell (Migration 0058)
+
+> Stand: nur die Datenbank-Grundlage (PR3 / B-a). Actions, Wizard-Schritt,
+> Matrix-Sektion und das Posten-Feld im Buchungsformular folgen in PR4 (B-b).
+> Bis dahin kann die App keine Posten anlegen — alle neuen Filter sind für
+> Bestandstörns wirkungslos.
+
+Neben der Charter-Anzahlung kann ein Törn beliebig viele **Posten** haben
+(typisch Flug/Bahn für die An- und Abreise). Ein Posten ist ein **dritter
+Topf** neben Bordkasse und Charter-Pool und funktioniert mechanisch wie die
+Charter:
+
+| Rolle | Buchung | Wirkung |
+|---|---|---|
+| Empfänger (`payee_person_id`) zahlt den Anbieter | Ausgabe mit `item_id`, verteilt gemäß Soll | Empfänger wird Gläubiger in Höhe der Crew-Anteile |
+| Crew zahlt dem Empfänger ihren Anteil | Gutschrift mit `item_id` (Selbstmeldung → Bestätigung, `confirmed_at`) | gleicht das aus |
+| Eigener Anteil des Empfängers | Selbst-Verrechnung `credit_from = credit_to` mit `item_id` | bilanzneutral |
+
+Ohne die Anbieter-Ausgabe wäre die Gesamtbilanz schief (die Crew stünde als
+Gläubiger da). Mit ihr gilt Σ `v_balances` = 0, und sobald alle gezahlt haben,
+ist der Posten-Topf je Person 0 (Gesamtbilanz = Bordkasse-Bilanz) — pgTAP
+`prepayment_items_test.sql`.
+
+**Tabellen:**
+
+- `prepayment_items` — `id`, `trip_id` (CASCADE), `category_id` (nullable,
+  Composite-FK `(category_id, trip_id)` → nur Kategorien desselben Törns,
+  beim Löschen der Kategorie `SET NULL (category_id)`), `label`,
+  `total_amount > 0`, `due_date` (optional), `payee_person_id` (NOT NULL,
+  `ON DELETE RESTRICT`), `split_type` (`gleichmaessig` / `zeitanteilig` /
+  `individuell` — Kojen gibt es nur bei der Yacht), `sort_order`.
+- `prepayment_item_obligations` — PK `(item_id, person_id)`, `trip_id`
+  (Composite-FK `(item_id, trip_id)` → Soll kann nie auf einen Posten eines
+  fremden Törns zeigen), `amount ≥ 0`.
+- `transactions.item_id` — Composite-FK `(item_id, trip_id)` →
+  `prepayment_items(id, trip_id)`, `ON DELETE SET NULL (item_id)`. Anders als
+  bei `tranche_id` braucht es deshalb keinen App-Check „gehört der Posten zu
+  diesem Törn" für die DB-Integrität (die Rollenprüfung bleibt App-Sache).
+
+**Regeln auf DB-Ebene:**
+
+- `tx_pool_exclusive`: `tranche_id IS NULL OR item_id IS NULL` — eine Buchung
+  gehört höchstens einem Sondertopf.
+- `tx_credit_self` erlaubt A→A zusätzlich bei `item_id IS NOT NULL`
+  (Selbstverrechnung) und bei `deleted_at IS NOT NULL` (soft-gelöschte Zeilen
+  wirken nirgends; sonst wäre ein Posten — oder eine Tranche — mit einer
+  soft-gelöschten Selbstverrechnung wegen des FK-`SET NULL` nie löschbar).
+  Eine Bordkasse-A→A-Gutschrift bleibt verboten, auch das Zurückholen einer
+  soft-gelöschten.
+- **Lösch-Schutz** (Trigger `pi_guard_delete`): ein Posten mit bestätigten
+  Zahlungen (Gutschrift ODER Anbieter-Ausgabe) wirft
+  `prepayment_item_has_payments`, mit offener Selbstmeldung
+  `prepayment_item_has_pending` (SQLSTATE `P0001`, die Message ist der
+  stabile Schlüssel für die App). Sonst kippten die Zeilen per `SET NULL` still
+  in die Bordkasse. Soft-gelöschte Zeilen werden entkoppelt. Das Löschen des
+  ganzen Törns (CASCADE) und der Purge sind ausgenommen.
+- **Sichtbarkeit**: beide Tabellen sind für alle Mitglieder lesbar
+  (Transparenz wie Migration 0057), das Posten-Soll zusätzlich für die Person
+  selbst nach einem Crew-Wechsel. Schreiben nur über den Service-Role-Client.
+
+**Views:**
+
+- `v_balances_bordkasse_only` filtert zusätzlich `item_id IS NULL` →
+  `simplify_debts` / `all_debts_settled` (Schulden-Tab, Purge-Gate) bleiben
+  Bordkasse-only, ohne eigene Änderung. `v_balances` bleibt die Gesamtbilanz.
+- `v_prepayment_item_payments` (bestätigte Crew-Gutschriften je Posten und
+  Person) und `v_prepayment_item_pending` (offene Selbstmeldungen) — analog
+  `v_prepayment_payments` / `v_prepayment_pending`, `security_invoker`, kein
+  `anon`-Zugriff.
+
+**DSGVO:** `purge_trip_data` nullt im anonymisierenden UPDATE zusätzlich
+`item_id` (VOR dem Löschen, Lehre aus 0048) und löscht dann Posten-Soll und
+Posten; der Orphan-Cleanup lässt Personen stehen, die in einem anderen Törn
+noch Posten-Empfänger sind oder dort ein Posten-Soll haben.
+`admin_delete_person_data` (und der Altpfad `delete_my_account`) löschen das
+Posten-Soll der Person; der Posten selbst bleibt mit der anonymisierten
+Person als Empfänger stehen (wie `advancer_person_id`). Der Datenexport
+(`exportMyData`) enthält `posten_soll` und `item_id` an jeder Buchung.
+
+**Topf-Ausschluss im App-Code (schon in PR3):** Fortschritts-Checkliste
+(`countBordkasseExpenses`), Crewwechsel-Warnung (`countPresenceBlindBookings`)
+und die „Törn läuft schon"-Prüfung in `replaceMember` zählen nur
+Bordkasse-Buchungen, also jetzt zusätzlich `item_id IS NULL`. `updateCredit`
+setzt die Bestätigung einer posten-getaggten Gutschrift bei materieller
+Änderung zurück (wie bei Tranchen).
+
+**Bewusst offen für PR4:** Bilanz-Seite (`plan || items`, eigener
+Posten-Block), `replaceMember`/`removeMember`/Ghost-Merge mit Posten-Soll und
+`payee_person_id`, Pending-Pre-Check mit `item_id`, Posten-Feld im
+Buchungsformular (inkl. Exklusivität zur Tranche), Outbox-Replay ohne
+`item_id`.
+
+**Deploy-Reihenfolge:** erst Migration 0058 auf Produktion, dann der
+App-Deploy — der App-Code filtert bereits auf die neue Spalte.
+
 ## Mail-Templates + WhatsApp-Texte
 
 WhatsApp-Versand läuft immer manuell. Mail-Versand läuft entweder manuell (🔔-Button) oder automatisch via Cron (siehe „Implementierte Erweiterungen" → Auto-Reminder).
