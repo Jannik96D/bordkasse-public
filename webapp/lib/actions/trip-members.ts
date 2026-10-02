@@ -429,6 +429,28 @@ export async function removeMember(
     });
   }
 
+  // Posten-Erinnerungen (PR5, Migration 0061), best effort:
+  //   • umverteilte Posten → Log zurücksetzen (die Rest-Crew schuldet jetzt
+  //     MEHR; wer schon erinnert wurde oder bezahlt hatte, ist wieder offen),
+  //   • Zeilen der entfernten Person löschen (tote Dedup-Zeilen würden eine
+  //     fällige Erinnerung unterdrücken, falls sie später wieder beitritt).
+  if (redistributed.length > 0) {
+    const { error } = await supabase
+      .from("prepayment_item_reminder_log")
+      .delete()
+      .eq("trip_id", tripId)
+      .in("item_id", redistributed.map((r) => r.itemId));
+    if (error) console.error("[bordkasse:db] removeMember item reminder_log reset:", error.message);
+  }
+  {
+    const { error } = await supabase
+      .from("prepayment_item_reminder_log")
+      .delete()
+      .eq("trip_id", tripId)
+      .eq("person_id", personId);
+    if (error) console.error("[bordkasse:db] removeMember item reminder_log cleanup:", error.message);
+  }
+
 
   // Kein offenes Soll (0 oder keine Zeile) → die Obligation-Zeile selbst
   // (falls vorhanden, mit total_amount = 0) kann gefahrlos mitgelöscht

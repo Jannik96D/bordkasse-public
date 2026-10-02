@@ -5,6 +5,7 @@ import { sendPrepaymentReminderMail } from "@/lib/email/send-prepayment-reminder
 import { CREW_DUE_DAYS_BEFORE_CHARTER, addDays } from "@/lib/prepayments/dates";
 import { sendPushToPersons } from "@/lib/notify/web-push";
 import { prepaymentReminderPush, charterReminderPush } from "@/lib/notify/payloads";
+import { runItemReminders, safeMailErrorMessage, type ItemReminderRunResult } from "@/lib/prepayments/item-reminder-cron";
 
 /**
  * Täglicher Cron — verschickt Anzahlungs-Erinnerungen 3 Tage vor der
@@ -31,6 +32,12 @@ import { prepaymentReminderPush, charterReminderPush } from "@/lib/notify/payloa
  * gewertet — die Person hat ihren Teil getan und wartet auf den
  * Vorstrecker. Sonst würde der Cron sie weiter mahnen, obwohl sie in
  * der App ⏳ pending steht.
+ *
+ * Reise-Posten (PR5, Migration 0061): derselbe Lauf verschickt zusätzlich
+ * `item_crew_3d` / `item_payee_3d` (lib/prepayments/item-reminder-cron.ts).
+ * Der Posten-Teil ist fail-soft, läuft NACH dem Tranchen-Teil (auch wenn
+ * dieser scheitert) und hat ein eigenes Zeitbudget; die Top-Level-Zähler (`processed`/`sent`/`skipped`/`failed`) sind
+ * die Summe beider Teile, `tranches` und `items` schlüsseln sie auf.
  *
  * Sicherheit: Bearer-Token-Check via CRON_SECRET (siehe purge-Cron).
  */
@@ -63,6 +70,35 @@ export async function GET(request: NextRequest) {
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
 
+  // Tranchen ZUERST (Review P2: der Posten-Teil hat ein eigenes Zeitbudget,
+  // darf die Charter-Erinnerungen aber nie verdrängen). Ein Fehler hier
+  // verhindert den Posten-Teil nicht.
+  let trancheResult: PartResult | { error: string };
+  try {
+    trancheResult = await runTrancheReminders(supabase, todayIso);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[bordkasse:cron] tranche part failed:", message);
+    trancheResult = { error: message };
+  }
+
+  // Posten danach: wirft nie, ein Fehler dort (z. B. Tabelle aus 0061 fehlt)
+  // zählt als `failed`; eigenes Zeitbudget (ITEM_TIME_BUDGET_MS).
+  const items = await runItemReminders(supabase, todayIso);
+
+  if ("error" in trancheResult) {
+    return NextResponse.json(
+      { ok: false, error: trancheResult.error, items: summarize(items), ranAt: new Date().toISOString() },
+      { status: 500 },
+    );
+  }
+  return NextResponse.json(combine(trancheResult, items));
+}
+
+type SupabaseAdmin = ReturnType<typeof createAdminClient>;
+
+/** Tranchen-Teil (Bestand, unverändert bis auf die Rückgabe statt Response). */
+async function runTrancheReminders(supabase: SupabaseAdmin, todayIso: string): Promise<PartResult | { error: string }> {
   // Fenster: jede Tranche, deren Charterfrist in [heute, heute + max] liegt.
   // Innerhalb des Fensters entscheiden wir pro Tranche, ob crew_3d (≥ 6 Tage
   // vorher) und/oder advancer_3d (≥ 3 Tage vorher) angesagt sind. Vergangene
@@ -76,17 +112,10 @@ export async function GET(request: NextRequest) {
     .lte("due_date", windowEnd);
   if (trancheErr) {
     console.error("[bordkasse:cron] tranche query failed:", trancheErr.message);
-    return NextResponse.json({ ok: false, error: trancheErr.message }, { status: 500 });
+    return { error: trancheErr.message };
   }
   if (!tranches || tranches.length === 0) {
-    return NextResponse.json({
-      ok: true,
-      processed: 0,
-      sent: 0,
-      skipped: 0,
-      failed: 0,
-      ranAt: new Date().toISOString(),
-    });
+    return { processed: 0, sent: 0, skipped: 0, failed: 0, errors: [] };
   }
 
   const tripIds = Array.from(new Set(tranches.map((t) => t.trip_id)));
@@ -281,7 +310,8 @@ export async function GET(request: NextRequest) {
         if (result.reason === "send_failed") {
           failed++;
           console.error("[bordkasse:cron] mail send failed:", { job, message: result.message });
-          errors.push({ job, message: result.message, kind: "failed" });
+          // Kein SMTP-Rohtext ins JSON (nennt oft die Adresse, Review P4).
+          errors.push({ job, message: safeMailErrorMessage({}), kind: "failed" });
         } else {
           skipped++;
           errors.push({ job, message: result.message, kind: "skipped" });
@@ -329,20 +359,37 @@ export async function GET(request: NextRequest) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[bordkasse:cron] job failed:", { job, msg });
-      errors.push({ job, message: msg, kind: "failed" });
+      errors.push({ job, message: "Unerwarteter Fehler beim Versand", kind: "failed" });
       failed++;
     }
   }
 
-  return NextResponse.json({
-    ok: true,
+  return {
     processed: jobs.length,
     sent,
     skipped,
     failed,
     errors: errors.map((e) => ({ type: e.job.type, message: e.message, kind: e.kind })),
+  };
+}
+
+type PartResult = ItemReminderRunResult;
+
+const summarize = (r: PartResult) => ({ processed: r.processed, sent: r.sent, skipped: r.skipped, failed: r.failed });
+
+/** Antwort-JSON: Summen über Tranchen + Posten, plus Aufschlüsselung. */
+function combine(tranches: PartResult, items: PartResult) {
+  return {
+    ok: true,
+    processed: tranches.processed + items.processed,
+    sent: tranches.sent + items.sent,
+    skipped: tranches.skipped + items.skipped,
+    failed: tranches.failed + items.failed,
+    tranches: summarize(tranches),
+    items: summarize(items),
+    errors: [...tranches.errors, ...items.errors],
     ranAt: new Date().toISOString(),
-  });
+  };
 }
 
 /**

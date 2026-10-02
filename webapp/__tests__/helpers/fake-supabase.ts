@@ -2,7 +2,7 @@
  * In-Memory-Fake für den Supabase-Query-Builder (nur Tests).
  *
  * Anders als die positionellen Skript-Mocks älterer Tests FILTERT dieser Fake
- * wirklich (`eq`/`neq`/`is`/`not … is null`/`in`/`gt`/`gte`/`or` mit
+ * wirklich (`eq`/`neq`/`is`/`not … is null`/`in`/`gt`/`gte`/`lte`/`or` mit
  * `col.eq.val`), persistiert Inserts/Updates/Deletes und kennt die beiden
  * DB-Garantien, auf die sich die Posten-Actions verlassen:
  *   • UNIQUE (trip_id, idempotency_key) auf `transactions` → 23505
@@ -122,6 +122,7 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
     b.neq = (col: string, val: unknown) => add(`${col}!=${String(val)}`, (r) => resolveCol(r, col) !== val);
     b.gt = (col: string, val: number) => add(`${col}>${val}`, (r) => Number(resolveCol(r, col)) > val);
     b.gte = (col: string, val: unknown) => add(`${col}>=${String(val)}`, (r) => String(resolveCol(r, col)) >= String(val));
+    b.lte = (col: string, val: unknown) => add(`${col}<=${String(val)}`, (r) => String(resolveCol(r, col)) <= String(val));
     b.is = (col: string, val: unknown) =>
       add(`${col} is ${String(val)}`, (r) => {
         const v = resolveCol(r, col);

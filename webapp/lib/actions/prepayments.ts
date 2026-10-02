@@ -1517,6 +1517,15 @@ export async function replaceMember(
         .in("tranche_id", ids);
       if (logErr) console.error("[bordkasse:db] reminder_log cleanup:", logErr.message);
     }
+
+    // Dasselbe für die Posten-Erinnerungen (PR5, Migration 0061). Best effort
+    // — auch wenn die Tabelle noch fehlt, darf der Wechsel nicht scheitern.
+    const { error: itemLogErr } = await supabase
+      .from("prepayment_item_reminder_log")
+      .delete()
+      .eq("trip_id", trip_id)
+      .eq("person_id", old_person_id);
+    if (itemLogErr) console.error("[bordkasse:db] item reminder_log cleanup:", itemLogErr.message);
   }
 
   await logAudit(supabase, {

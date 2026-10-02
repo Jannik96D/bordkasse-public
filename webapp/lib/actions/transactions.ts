@@ -1252,7 +1252,7 @@ export async function deleteTransaction(
 
   const { data: existing } = await supabase
     .from("transactions")
-    .select("category_id, trip_id, created_by, type")
+    .select("category_id, trip_id, created_by, type, item_id, credit_from")
     .eq("id", transactionId)
     .maybeSingle();
   // IDOR-Schutz: requireMember(tripId) prüft nur die Mitgliedschaft im
@@ -1296,6 +1296,19 @@ export async function deleteTransaction(
     trip_id: tripId,
     actor_person_id: auth.personId,
   });
+  // Posten-Gutschrift gelöscht (PR5, Review): der Anteil der Person ist
+  // wieder offen → ihren item_crew_3d-Dedup-Eintrag für diesen Posten räumen,
+  // damit der Cron sie im Fenster erneut erinnert. Best effort.
+  if (existing.type === "credit" && existing.item_id && existing.credit_from) {
+    const { error: logErr } = await supabase
+      .from("prepayment_item_reminder_log")
+      .delete()
+      .eq("trip_id", tripId)
+      .eq("item_id", existing.item_id)
+      .eq("person_id", existing.credit_from)
+      .eq("reminder_type", "item_crew_3d");
+    if (logErr) console.error("[bordkasse:db] item reminder_log cleanup:", logErr.message);
+  }
   await markPostSettlementChange(supabase, tripId);
   revalidatePath(`/trips/${tripId}/transactions`);
   revalidatePath(`/trips/${tripId}/balance`);

@@ -73,6 +73,13 @@ function makeSupabaseMock(opts: { logInsertError?: { code: string; message: stri
               }),
             }),
           };
+        // Posten-Teil (PR5): keine Posten → leerer Lauf, Zähler unverändert.
+        case "prepayment_items":
+          return {
+            select: () => ({
+              not: () => ({ gte: () => ({ lte: () => Promise.resolve({ data: [], error: null }) }) }),
+            }),
+          };
         case "prepayment_reminder_log":
           return {
             select: () => ({ in: () => Promise.resolve({ data: [] }) }),
@@ -129,6 +136,8 @@ describe("GET /api/cron/prepayment-reminders — failed getrennt von skipped zä
     expect(json.failed).toBe(1);
     expect(json.skipped).toBe(0);
     expect(json.sent).toBe(0);
+    // Review P4: kein SMTP-Rohtext im JSON (kann die Adresse enthalten).
+    expect(JSON.stringify(json)).not.toContain("SMTP timeout");
   });
 
   it("zählt eine nicht-zutreffende Person (z.B. keine E-Mail hinterlegt) als `skipped`, nicht als `failed`", async () => {

@@ -24,7 +24,19 @@
 
 import nodemailer from "nodemailer";
 
-export type SendResult = { ok: true; id: string } | { ok: false; error: string };
+export type SendResult =
+  | { ok: true; id: string }
+  | {
+      ok: false;
+      error: string;
+      /** nodemailer-Fehlercode (z. B. "ETIMEDOUT", "EAUTH") — ohne Adressen, für Cron-JSON. */
+      code?: string;
+      /** SMTP-Antwortcode (z. B. 550), falls vorhanden. */
+      responseCode?: number;
+    };
+
+/** Optionale Timeouts NUR für den jeweiligen Aufruf (andere Mails unberührt). */
+export type SendOptions = { connectionTimeoutMs?: number; socketTimeoutMs?: number; greetingTimeoutMs?: number };
 export type MailMessage = { to: string; subject: string; html: string; text?: string; replyTo?: string };
 
 const FROM_DEFAULT = process.env.MAIL_FROM ?? "Bordkasse <bordkasse@example.com>";
@@ -45,20 +57,30 @@ function smtpConfig(): { host: string; port: number; secure: boolean; auth: { us
 function toSendResult(err: unknown): SendResult {
   console.error("[bordkasse:mail]", err);
   const message = err instanceof Error ? err.message : "unbekannter Fehler";
-  return { ok: false, error: `Mail-Versand fehlgeschlagen: ${message}` };
+  const e = (err ?? {}) as { code?: unknown; responseCode?: unknown };
+  return {
+    ok: false,
+    error: `Mail-Versand fehlgeschlagen: ${message}`,
+    ...(typeof e.code === "string" ? { code: e.code } : {}),
+    ...(typeof e.responseCode === "number" ? { responseCode: e.responseCode } : {}),
+  };
 }
 
-export async function sendMail({
-  to,
-  subject,
-  html,
-  text,
-  replyTo,
-}: MailMessage): Promise<SendResult> {
+export async function sendMail(
+  { to, subject, html, text, replyTo }: MailMessage,
+  opts: SendOptions = {},
+): Promise<SendResult> {
   const cfg = smtpConfig();
   if (!cfg) return { ok: false, error: NOT_CONFIGURED };
 
-  const transporter = nodemailer.createTransport(cfg);
+  // Timeouts nur, wenn der Aufrufer sie setzt — sonst nodemailer-Defaults
+  // (unverändertes Verhalten für alle bestehenden Mails).
+  const transporter = nodemailer.createTransport({
+    ...cfg,
+    ...(opts.connectionTimeoutMs !== undefined ? { connectionTimeout: opts.connectionTimeoutMs } : {}),
+    ...(opts.greetingTimeoutMs !== undefined ? { greetingTimeout: opts.greetingTimeoutMs } : {}),
+    ...(opts.socketTimeoutMs !== undefined ? { socketTimeout: opts.socketTimeoutMs } : {}),
+  });
   try {
     const info = await transporter.sendMail({ from: FROM_DEFAULT, to, subject, html, text, replyTo });
     return { ok: true, id: info.messageId };

@@ -794,6 +794,33 @@ describe("deleteTransaction — Gutschriften nur Skipper/Admin, OHNE Ersteller-A
     const res = await deleteTransaction("aaaaaaaa-0000-4000-8000-000000000019", TRIP_ID);
     expect(res.ok).toBe(true);
   });
+
+  it("PR5: gelöschte Posten-Gutschrift räumt den item_crew_3d-Log der Person für DIESEN Posten", async () => {
+    const { createFakeSupabase } = await import("./helpers/fake-supabase");
+    const TX = "aaaaaaaa-0000-4000-8000-00000000001a";
+    const ITEM = "aaaaaaaa-0000-4000-8000-0000000000d1";
+    const OTHER_ITEM = "aaaaaaaa-0000-4000-8000-0000000000d2";
+    const PAYER = "aaaaaaaa-0000-4000-8000-00000000001b";
+    const fake = createFakeSupabase({
+      transactions: [
+        { id: TX, trip_id: TRIP_ID, type: "credit", item_id: ITEM, credit_from: PAYER, credit_to: CREDIT_CREATOR, category_id: null, created_by: CREDIT_CREATOR, deleted_at: null },
+      ],
+      prepayment_item_reminder_log: [
+        { trip_id: TRIP_ID, item_id: ITEM, person_id: PAYER, reminder_type: "item_crew_3d" },
+        { trip_id: TRIP_ID, item_id: ITEM, person_id: CREDIT_CREATOR, reminder_type: "item_payee_3d" },
+        { trip_id: TRIP_ID, item_id: OTHER_ITEM, person_id: PAYER, reminder_type: "item_crew_3d" },
+      ],
+      audit_log: [],
+    });
+    fake.onRpc("mark_post_settlement_change", () => ({ data: null }));
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: true, personId: CREDIT_CREATOR });
+    mockedAdminClient.mockReturnValue(fake.client as never);
+
+    const res = await deleteTransaction(TX, TRIP_ID);
+    expect(res.ok).toBe(true);
+    const left = fake.rows("prepayment_item_reminder_log").map((r) => `${r.item_id}:${r.person_id}:${r.reminder_type}`).sort();
+    expect(left).toEqual([`${ITEM}:${CREDIT_CREATOR}:item_payee_3d`, `${OTHER_ITEM}:${PAYER}:item_crew_3d`].sort());
+  });
 });
 
 describe("canEditTransaction — Ersteller-Recht erlischt bei Trip-Austritt (Fund 12)", () => {

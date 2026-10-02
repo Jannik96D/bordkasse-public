@@ -12,8 +12,10 @@
  * Die Rolle wird serverseitig in jeder Action erneut geprüft; die Sicht hier
  * blendet nur aus, was ohnehin abgelehnt würde.
  *
- * Keine automatischen Erinnerungen (Mails/Cron sind ein Folgeschritt) — der
- * Hinweis steht sichtbar in der Sektion.
+ * Automatische Erinnerungen (PR5): der tägliche Anzahlungs-Cron erinnert die
+ * Crew ab 6 Tagen vor der Fälligkeit beim Anbieter (= 3 Tage vor der
+ * Crewfrist) und den Empfänger ab 3 Tagen davor — der Hinweis steht sichtbar
+ * in der Sektion. Posten ohne Fälligkeit bekommen keine Erinnerung.
  */
 
 import { useState, useTransition } from "react";
@@ -24,7 +26,7 @@ import { useConfirm } from "@/components/confirm-dialog";
 import { useToast } from "@/components/toast-provider";
 import { useTripVocab } from "@/components/trip-vocab-provider";
 import { formatEuro } from "@/lib/utils";
-import { formatDeDate } from "@/lib/prepayments/dates";
+import { formatDeDate, toCrewDueDate } from "@/lib/prepayments/dates";
 import {
   ITEM_OVERALL_LABEL,
   ITEM_STATUS_META,
@@ -127,7 +129,11 @@ export function ItemsSection({
       {(canManageItems || visible.some((it) => it.payee_person_id === viewerId)) && (
         <p className="mt-2 flex items-start gap-2 rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-          <span>Für Posten gibt es keine automatischen Erinnerungen. Wer noch nicht gezahlt hat, wird nicht per Mail angeschrieben.</span>
+          <span>
+            Automatische Erinnerungen: Wer noch nicht gezahlt hat, bekommt 6 Tage vor der Fälligkeit beim Anbieter eine
+            Mail (die {vocab.crew} soll 3 Tage vor dieser Fälligkeit zahlen). Der Empfänger bekommt 3 Tage vorher eine
+            Übersicht, solange der Anbieter noch nicht voll bezahlt ist. Posten ohne Fälligkeit werden nicht erinnert.
+          </span>
         </p>
       )}
       {readOnly && (
@@ -638,6 +644,10 @@ function ItemSelfCard({
   if (!mine) return null;
   const open = Math.max(0, mine.soll - mine.paid);
   const canReport = !readOnly && open > 0.005 && mine.pending <= 0.005;
+  // Frist + Erinnerungshinweis nur, solange wirklich etwas offen ist (nicht
+  // bezahlt, nicht gemeldet, nicht archiviert) — sonst „wandert" die
+  // geclampte Crewfrist täglich mit, obwohl nichts mehr zu tun ist.
+  const showDue = canReport && !!item.due_date;
 
   return (
     <article aria-labelledby={`item-${item.id}-h`} className="rounded-lg border border-rule bg-paper p-4">
@@ -650,7 +660,7 @@ function ItemSelfCard({
       </div>
       <p className="mt-1 text-xs text-ink-soft">
         Zahlung an <strong className="text-ink">{payeeName}</strong>
-        {item.due_date && <> · Fälligkeit beim Anbieter {formatDeDate(item.due_date)}</>}
+        {showDue && <> · bitte zahlen bis {formatDeDate(toCrewDueDate(item.due_date!))}</>}
       </p>
       <dl className="mt-3 grid grid-cols-3 gap-2 rounded-md bg-paper-soft p-3 text-sm">
         <div><dt className="text-xs text-ink-soft">Dein Soll</dt><dd className="font-medium tabular-nums">{formatEuro(mine.soll)}</dd></div>
@@ -679,7 +689,13 @@ function ItemSelfCard({
           </button>
         </div>
       )}
-      <p className="mt-3 text-xs text-ink-soft">Für Posten gibt es keine automatischen Erinnerungen.</p>
+      {canReport && (
+        <p className="mt-3 text-xs text-ink-soft">
+          {item.due_date
+            ? "Ist dein Anteil 3 Tage vor dieser Frist noch offen, bekommst du eine Erinnerung per Mail."
+            : "Für diesen Posten ist keine Fälligkeit hinterlegt, daher gibt es keine automatische Erinnerung."}
+        </p>
+      )}
     </article>
   );
 }

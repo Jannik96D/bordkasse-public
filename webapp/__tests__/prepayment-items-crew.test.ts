@@ -194,6 +194,41 @@ describe("removeMember mit Posten", () => {
     expect(obl.map((o) => o.amount).sort()).toEqual([150, 150]);
   });
 
+  it("PR5: Umverteilung setzt den Erinnerungs-Log des Postens zurück und löscht die Zeilen von A", async () => {
+    const { removeMember } = await import("@/lib/actions/trip-members");
+    const OTHER_ITEM = "bbbbbbbb-0000-4000-8000-0000000000d2";
+    const t = tables();
+    t.transactions = [];
+    t.transaction_participants = [];
+    t.prepayment_item_reminder_log = [
+      { trip_id: TRIP, item_id: ITEM, person_id: PAYEE, reminder_type: "item_payee_3d" },
+      { trip_id: TRIP, item_id: ITEM, person_id: SKIPPER, reminder_type: "item_crew_3d" },
+      // Posten ohne Umverteilung: nur die Zeile von A geht, die anderen bleiben.
+      { trip_id: TRIP, item_id: OTHER_ITEM, person_id: A, reminder_type: "item_crew_3d" },
+      { trip_id: TRIP, item_id: OTHER_ITEM, person_id: SKIPPER, reminder_type: "item_crew_3d" },
+      // Fremder Törn bleibt.
+      { trip_id: OTHER_TRIP, item_id: "x", person_id: A, reminder_type: "item_crew_3d" },
+    ];
+    setupFake(t);
+    const res = await removeMember(A_MEMBER_ROW, TRIP);
+    expect(res.ok).toBe(true);
+    const left = fake.rows("prepayment_item_reminder_log").map((r) => `${r.trip_id === TRIP ? "T" : "O"}:${r.item_id}:${r.person_id}`).sort();
+    expect(left).toEqual([`O:x:${A}`, `T:${OTHER_ITEM}:${SKIPPER}`].sort());
+  });
+
+  it("PR5: scheitert das Log-Aufräumen, wird trotzdem entfernt", async () => {
+    const { removeMember } = await import("@/lib/actions/trip-members");
+    const t = tables();
+    t.transactions = [];
+    t.transaction_participants = [];
+    setupFake(t);
+    fake.failOn({ table: "prepayment_item_reminder_log", action: "delete", error: { code: "42P01", message: "missing" } });
+    fake.failOn({ table: "prepayment_item_reminder_log", action: "delete", nth: 2, error: { code: "42P01", message: "missing" } });
+    const res = await removeMember(A_MEMBER_ROW, TRIP);
+    expect(res.ok).toBe(true);
+    expect(fake.rows("trip_members").some((m) => m.person_id === A)).toBe(false);
+  });
+
   it("Delta 2: ein Nachrücker ohne Soll für den Posten bekommt bei der Neuverteilung keins", async () => {
     const { removeMember } = await import("@/lib/actions/trip-members");
     const t = tables();

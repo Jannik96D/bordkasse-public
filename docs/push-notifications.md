@@ -24,6 +24,8 @@
 | Schuld abgehakt (`toggleDebtSettled`) | ✅ | nur Gegenpartei | Observer (Skipper/Vorstrecker) = **Mail-only** |
 | Anzahlungs-Reminder `crew_3d` (Cron) | ✅ | offene Crew | teilt `prepayment_reminder_log` mit der Mail |
 | Charter-Reminder `advancer_3d` (Cron) | ✅ | Vorstrecker | |
+| Posten-Erinnerung `item_crew_3d` (Cron) | ✅ | offene Crew eines Postens | teilt `prepayment_item_reminder_log` mit der Mail, Tag `item-<item>` |
+| Posten-Übersicht `item_payee_3d` (Cron) | ✅ | Empfänger des Postens | Tag `item-payee-<item>` |
 | Selbstmeldung „ich habe gezahlt" | ✅ | Vorstrecker | actionable |
 | Zahlung bestätigt / abgelehnt / erfasst | ✅ | betroffene Crewperson | Actor ausgenommen |
 | Notice an Observer (Dritt-Aktion) | ❌ | — | Mail-only |
