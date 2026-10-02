@@ -25,7 +25,7 @@
 -- ═══════════════════════════════════════════════════════════════════════
 
 BEGIN;
-SELECT plan(30);
+SELECT plan(32);
 
 -- ── Setup ─────────────────────────────────────────────────────────────
 INSERT INTO persons(id, display_name) VALUES
@@ -101,6 +101,13 @@ SELECT throws_ok(
     VALUES ('58580000-0000-4000-8000-0000000000aa', 'credit', '2027-05-02', 10,
             '58580000-0000-4000-8000-000000000002', '58580000-0000-4000-8000-000000000002')$$,
   '23514', NULL, 'A6: Bordkasse-Selbstgutschrift A→A bleibt verboten (Lockerung nur für Töpfe)');
+
+SELECT throws_ok(
+  $$INSERT INTO transactions(trip_id, type, date, amount, credit_from, credit_to, credit_to_all, item_id)
+    VALUES ('58580000-0000-4000-8000-0000000000aa', 'credit', '2027-03-02', 10,
+            '58580000-0000-4000-8000-000000000002', NULL, TRUE,
+            '58580000-0000-4000-8000-0000000000d1')$$,
+  '23514', NULL, 'A6b: Posten-Gutschrift „An Alle" wird abgewiesen (tx_item_credit_direct)');
 
 -- Selbstverrechnung des Vorstreckers auf den Posten (sein eigener Anteil).
 SELECT lives_ok(
@@ -178,6 +185,19 @@ SELECT is(
 SELECT is(
   (SELECT SUM(balance) FROM v_balances_bordkasse_only WHERE trip_id = '58580000-0000-4000-8000-0000000000aa'),
   0::numeric, 'B6: Σ v_balances_bordkasse_only = 0');
+
+-- Gürtel: eine unbestätigte Gutschrift OHNE Topf (entsteht, wenn
+-- saveTranches eine Tranche mit offener Selbstmeldung löscht und der FK
+-- tranche_id nullt) zählt auch in der Bordkasse-Bilanz nicht.
+INSERT INTO transactions(id, trip_id, type, date, amount, credit_from, credit_to, confirmed_at) VALUES
+  ('58580000-0000-4000-8000-000000000106', '58580000-0000-4000-8000-0000000000aa',
+   'credit', '2027-05-03', 25,
+   '58580000-0000-4000-8000-000000000003', '58580000-0000-4000-8000-000000000002', NULL);
+SELECT is(
+  (SELECT balance FROM v_balances_bordkasse_only WHERE trip_id = '58580000-0000-4000-8000-0000000000aa'
+     AND person_id = '58580000-0000-4000-8000-000000000003'),
+  -20::numeric, 'B6b: unbestätigte Gutschrift ohne Topf zählt nicht in v_balances_bordkasse_only');
+DELETE FROM transactions WHERE id = '58580000-0000-4000-8000-000000000106';
 
 SELECT is(
   (SELECT count(*)::int || '/' || SUM(amount)::text
@@ -297,6 +317,18 @@ SELECT is(
 
 -- Der ganze Törn bleibt löschbar (deleteTrip → CASCADE), auch mit Posten,
 -- bestätigten Zahlungen und einer Selbstverrechnung.
+--
+-- Die CASCADE-Trigger auf trips feuern nach Triggername, also nach OID. Auf
+-- einer frischen DB kommt transactions (alt) vor prepayment_items (neu) —
+-- dann sind die Buchungen schon weg, wenn der Lösch-Schutz feuert, und der
+-- „Törn ist weg"-Zweig im Trigger bliebe ungetestet (Grill-Fund,
+-- mutationsgeprüft). Nach Dump/Restore kann die Reihenfolge kippen. Deshalb
+-- hier den transactions→trips-FK neu anlegen: er bekommt die jüngste OID
+-- und feuert ZULETZT — der Trigger sieht dann noch alle Buchungen.
+ALTER TABLE transactions DROP CONSTRAINT transactions_trip_id_fkey;
+ALTER TABLE transactions ADD CONSTRAINT transactions_trip_id_fkey
+  FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE;
+
 SELECT lives_ok(
   $$DELETE FROM trips WHERE id = '58580000-0000-4000-8000-0000000000aa'$$,
   'C9: Törn mit Posten + Zahlungen + Selbstverrechnung ist per CASCADE löschbar');

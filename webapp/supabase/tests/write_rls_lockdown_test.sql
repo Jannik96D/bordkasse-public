@@ -158,10 +158,11 @@ SELECT throws_ok(
   'Skipper kann keinen Reise-Posten per direktem INSERT anlegen');
 
 SELECT throws_ok(
-  $$UPDATE transactions SET item_id = NULL
-     WHERE id = '47470000-0000-4000-8000-0000000000e1'$$,
+  $$INSERT INTO prepayment_item_obligations(item_id, trip_id, person_id, amount)
+    VALUES (gen_random_uuid(), '47470000-0000-4000-8000-0000000000aa',
+            '47470000-0000-4000-8000-000000000002', 10)$$,
   '42501', NULL,
-  'Skipper kann die Posten-Zuordnung einer Buchung nicht per direktem UPDATE ändern');
+  'Skipper kann kein Posten-Soll per direktem INSERT anlegen');
 
 RESET ROLE;
 

@@ -515,7 +515,10 @@ ist der Posten-Topf je Person 0 (Gesamtbilanz = Bordkasse-Bilanz) — pgTAP
   `prepayment_item_has_pending` (SQLSTATE `P0001`, die Message ist der
   stabile Schlüssel für die App). Sonst kippten die Zeilen per `SET NULL` still
   in die Bordkasse. Soft-gelöschte Zeilen werden entkoppelt. Das Löschen des
-  ganzen Törns (CASCADE) und der Purge sind ausgenommen.
+  ganzen Törns (CASCADE) ist ausgenommen; der Purge läuft durch den Trigger,
+  entkoppelt aber vorher selbst (`item_id = NULL`).
+- `tx_item_credit_direct`: eine Posten-Gutschrift braucht einen konkreten
+  Empfänger — „An Alle" mit `item_id` wird abgewiesen.
 - **Sichtbarkeit**: beide Tabellen sind für alle Mitglieder lesbar
   (Transparenz wie Migration 0057), das Posten-Soll zusätzlich für die Person
   selbst nach einem Crew-Wechsel. Schreiben nur über den Service-Role-Client.
@@ -525,6 +528,12 @@ ist der Posten-Topf je Person 0 (Gesamtbilanz = Bordkasse-Bilanz) — pgTAP
 - `v_balances_bordkasse_only` filtert zusätzlich `item_id IS NULL` →
   `simplify_debts` / `all_debts_settled` (Schulden-Tab, Purge-Gate) bleiben
   Bordkasse-only, ohne eigene Änderung. `v_balances` bleibt die Gesamtbilanz.
+  Außerdem zählen unbestätigte Gutschriften dort jetzt nicht mehr (wie in
+  `v_balances` seit 0043) — Gürtel gegen eine bestehende Lücke: löscht
+  `saveTranches` eine Tranche mit offener Selbstmeldung, nullt der FK die
+  `tranche_id`, und die Meldung zählte bisher als echte Bordkasse-Gutschrift.
+  `saveTranches` selbst blockt weiterhin nur bestätigte Zahlungen (offen,
+  eigener Fix).
 - `v_prepayment_item_payments` (bestätigte Crew-Gutschriften je Posten und
   Person) und `v_prepayment_item_pending` (offene Selbstmeldungen) — analog
   `v_prepayment_payments` / `v_prepayment_pending`, `security_invoker`, kein
@@ -548,12 +557,21 @@ setzt die Bestätigung einer posten-getaggten Gutschrift bei materieller
 
 **Bewusst offen für PR4:** Bilanz-Seite (`plan || items`, eigener
 Posten-Block), `replaceMember`/`removeMember`/Ghost-Merge mit Posten-Soll und
-`payee_person_id`, Pending-Pre-Check mit `item_id`, Posten-Feld im
-Buchungsformular (inkl. Exklusivität zur Tranche), Outbox-Replay ohne
-`item_id`.
+`payee_person_id` (der Ghost-Merge löscht Personen schon heute hart — mit
+RESTRICT scheitert er, sobald ein Ghost Empfänger ist), Pending-Pre-Check mit
+`item_id`, Posten-Feld im Buchungsformular (inkl. Exklusivität zur Tranche,
+sonst 23514 `tx_pool_exclusive`), Outbox-Replay ohne `item_id`,
+`admin_delete_person_data` für einen Posten-Empfänger in einem laufenden Törn
+blocken, Abrechnungsmail (Saldo aus `v_balances` enthält offene Posten,
+Schulden nur Bordkasse — wie heute schon bei Tranchen), Self-Klausel für
+`prepayment_items` (Ex-Crew sieht ihr Posten-Soll, aber nicht den Posten).
 
-**Deploy-Reihenfolge:** erst Migration 0058 auf Produktion, dann der
-App-Deploy — der App-Code filtert bereits auf die neue Spalte.
+**Deploy-Reihenfolge:** Migration 0058 auf Produktion einspielen, BEVOR der
+PR auf `main` gemergt wird (Coolify deployt beim Merge sofort) — der
+App-Code filtert bereits auf die neue Spalte. Ohne Spalte zählen
+Checkliste und Crewwechsel-Warnung still 0, `replaceMember` blockt, und der
+Datenexport bricht mit Fehlermeldung ab (statt still ohne Buchungen zu
+exportieren).
 
 ## Mail-Templates + WhatsApp-Texte
 

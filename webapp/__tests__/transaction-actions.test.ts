@@ -448,7 +448,14 @@ describe("updateCredit — Skipper/Admin-only, kein Ersteller-Recht (Fund 3)", (
     const make = (table: string) => {
       const b: Record<string, unknown> = {};
       const self = () => b;
-      b.select = self;
+      // Nur die tatsächlich selektierten Spalten zurückgeben — sonst bliebe
+      // ein Test grün, obwohl `.select(...)` eine benötigte Spalte (z. B.
+      // item_id) gar nicht lädt (Grill-Fund).
+      let selectedCols: string[] | null = null;
+      b.select = (cols?: string) => {
+        if (typeof cols === "string") selectedCols = cols.split(",").map((c) => c.trim());
+        return b;
+      };
       b.eq = self;
       b.in = self;
       b.insert = () => Promise.resolve({ error: null }); // logAudit
@@ -457,7 +464,13 @@ describe("updateCredit — Skipper/Admin-only, kein Ersteller-Recht (Fund 3)", (
         return b;
       };
       b.maybeSingle = () => {
-        if (table === "transactions") return Promise.resolve({ data: existing });
+        if (table === "transactions") {
+          if (!existing || !selectedCols) return Promise.resolve({ data: existing });
+          const cols = selectedCols;
+          return Promise.resolve({
+            data: Object.fromEntries(Object.entries(existing).filter(([k]) => cols.includes(k))),
+          });
+        }
         if (table === "prepayment_tranches") {
           return Promise.resolve({ data: trancheBelongs ? { id: OTHER_TRANCHE_ID } : null });
         }

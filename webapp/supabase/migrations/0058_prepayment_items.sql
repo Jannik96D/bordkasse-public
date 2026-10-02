@@ -75,8 +75,11 @@ CREATE TABLE IF NOT EXISTS prepayment_items (
   due_date         DATE NULL,
   -- Wer die Zahlung an den Anbieter leistet und das Geld der Crew empfängt.
   -- RESTRICT statt SET NULL: ein Posten ohne Empfänger hätte niemanden, dem
-  -- die Gutschriften zustehen. Personen werden nur vom Purge-Orphan-Cleanup
-  -- (unten abgesichert) und vom Ghost-Merge (PR4) hart gelöscht.
+  -- die Gutschriften zustehen. Personen werden vom Purge-Orphan-Cleanup
+  -- (unten abgesichert) und schon HEUTE vom Ghost-Merge
+  -- (mergeGhostIntoExistingPerson) hart gelöscht — ist ein Ghost Empfänger,
+  -- scheitert der Merge an RESTRICT; die Übernahme von payee_person_id dort
+  -- kommt mit PR4 (vorher kann die App keine Posten anlegen).
   payee_person_id  UUID NOT NULL REFERENCES persons(id) ON DELETE RESTRICT,
   -- Aufteilungsart für die Soll-Neuberechnung (calculateObligations-Modi
   -- ohne „kojen" — Kojen gibt es nur bei der Yacht). Die tatsächlichen
@@ -194,6 +197,21 @@ BEGIN
   END IF;
 END $$;
 
+-- Eine Posten-Gutschrift hat immer einen konkreten Empfänger (den
+-- Posten-Empfänger bzw. bei der Selbstverrechnung ihn selbst). „An Alle"
+-- (credit_to NULL) würde v_balances auf die ganze Crew verteilen — für
+-- einen Posten sinnlos. Der Purge nullt credit_to und item_id im SELBEN
+-- UPDATE, der Check bleibt dort erfüllt.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tx_item_credit_direct') THEN
+    ALTER TABLE transactions
+      ADD CONSTRAINT tx_item_credit_direct CHECK (
+        item_id IS NULL OR type <> 'credit' OR credit_to IS NOT NULL
+      );
+  END IF;
+END $$;
+
 -- tx_credit_self (zuletzt 0024) erweitern:
 --   • item_id IS NOT NULL — Selbst-Verrechnung des Posten-Empfängers, exakt
 --     analog zur Tranchen-Ausnahme.
@@ -233,8 +251,11 @@ ALTER TABLE transactions
 --
 -- Ausnahme: wird der ganze TÖRN gelöscht (CASCADE aus trips, deleteTrip),
 -- ist die trips-Zeile beim Feuern bereits weg — dann gehen die Buchungen
--- per CASCADE ohnehin mit, es gibt nichts zu schützen. Der Purge entkoppelt
--- vor dem Löschen selbst (`item_id = NULL` im anonymisierenden UPDATE).
+-- per CASCADE ohnehin mit, es gibt nichts zu schützen. Die Reihenfolge der
+-- CASCADE-Trigger auf trips hängt an OIDs (sortiert nach Triggername) und
+-- kann nach Dump/Restore kippen; der Test erzwingt deshalb die ungünstige
+-- Reihenfolge. Der Purge läuft NICHT an diesem Trigger vorbei, er
+-- entkoppelt vorher selbst (`item_id = NULL` im anonymisierenden UPDATE).
 --
 -- SECURITY DEFINER, damit die Prüfung unabhängig von der RLS des Aufrufers
 -- ALLE Buchungen sieht (sonst könnte ein RLS-beschränkter Aufrufer den
@@ -276,6 +297,8 @@ BEGIN
 END;
 $$;
 
+-- Reine Hygiene: eine Trigger-Funktion ist nicht direkt aufrufbar, und
+-- EXECUTE wird beim Feuern nicht geprüft.
 REVOKE ALL ON FUNCTION prepayment_item_guard_delete() FROM PUBLIC, anon, authenticated;
 
 DROP TRIGGER IF EXISTS pi_guard_delete ON prepayment_items;
@@ -285,10 +308,18 @@ CREATE TRIGGER pi_guard_delete
 
 
 -- ── 6. v_balances_bordkasse_only ohne Posten-Buchungen ───────────────────
--- 1:1 aus 0042, einzige Änderung: `AND item_id IS NULL` in bordkasse_tx.
--- simplify_debts (0027/0055) liest diese View → Posten erzeugen keine
--- Überweisungen im Schulden-Tab (wie die Charter). v_balances bleibt die
--- Gesamtbilanz über alle drei Töpfe.
+-- 1:1 aus 0042, zwei Änderungen in bordkasse_tx:
+--   • `AND item_id IS NULL` — simplify_debts (0027/0055) liest diese View →
+--     Posten erzeugen keine Überweisungen im Schulden-Tab (wie die Charter).
+--     v_balances bleibt die Gesamtbilanz über alle drei Töpfe.
+--   • unbestätigte Gutschriften zählen nicht (Gürtel, Grill-Fund) — exakt
+--     wie in v_balances seit 0043. 0042 verließ sich darauf, dass es Pending
+--     nur mit tranche_id gibt; löscht saveTranches aber eine Tranche mit
+--     offener Selbstmeldung, nullt der FK die tranche_id und die Meldung
+--     wurde hier zur echten Bordkasse-Gutschrift (Phantom-Überweisung,
+--     all_debts_settled blockiert den Purge). Ausgaben sind immer bestätigt
+--     (confirmed_at DEFAULT now(), Bestand in 0025 backgefüllt) und bleiben
+--     ungefiltert, wie in v_balances.
 CREATE OR REPLACE VIEW v_balances_bordkasse_only AS
 WITH bordkasse_tx AS (
   SELECT *
@@ -296,6 +327,7 @@ WITH bordkasse_tx AS (
   WHERE tranche_id IS NULL
     AND item_id IS NULL
     AND deleted_at IS NULL
+    AND (type <> 'credit' OR confirmed_at IS NOT NULL)
 ),
 shares AS (
   SELECT s.*

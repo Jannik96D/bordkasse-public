@@ -93,6 +93,14 @@ export async function exportMyData(): Promise<ExportResult> {
         supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id, item_id").eq("credit_to", me).is("deleted_at", null),
       ]);
 
+    // Ein unvollständiger DSGVO-Export ist schlimmer als gar keiner: ohne
+    // diese Prüfung lieferte z. B. eine fehlende Spalte (Versionsversatz
+    // App ↔ DB, siehe Deploy-Reihenfolge Migration 0058) still einen Export
+    // ganz ohne Buchungen.
+    const failed = [profile, priv, memberships, participations, obligations, itemObligations, paid, creditFrom, creditTo]
+      .find((r) => r.error);
+    if (failed?.error) throw new Error(failed.error.message);
+
     const data = {
       exportiert_am: new Date().toISOString(),
       hinweis:
