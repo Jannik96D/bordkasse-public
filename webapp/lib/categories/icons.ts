@@ -22,6 +22,7 @@ import {
   Package,
   Banknote,
   Tag,
+  Plane,
   type LucideIcon,
 } from "lucide-react";
 
@@ -54,6 +55,7 @@ export const CATEGORY_ICON_NAMES = [
   "Package",
   "Banknote",
   "Tag",
+  "Plane",
 ] as const;
 
 export type CategoryIconName = (typeof CATEGORY_ICON_NAMES)[number];
@@ -82,6 +84,7 @@ const ICON_MAP: Record<CategoryIconName, LucideIcon> = {
   Package,
   Banknote,
   Tag,
+  Plane,
 };
 
 const ICON_LABELS: Record<CategoryIconName, string> = {
@@ -108,6 +111,7 @@ const ICON_LABELS: Record<CategoryIconName, string> = {
   Package: "Sonstiges",
   Banknote: "Geld / Kaution",
   Tag: "Sonstiges",
+  Plane: "An-/Abreise (Flug)",
 };
 
 /**
@@ -137,6 +141,7 @@ export const CATEGORY_ICONS: ReadonlyArray<{
   "ShieldCheck",
   "Ticket",
   "Bus",
+  "Plane",
   "SquareParking",
   "Pill",
   "SprayCan",
@@ -190,6 +195,7 @@ const DEFAULT_NAME_ICON: Record<string, CategoryIconName> = {
   Yacht: "Sailboat",
   Versicherung: "ShieldCheck",
   Kaution: "Banknote",
+  "An-/Abreise": "Plane",
   Sonstiges: "Package",
 };
 
@@ -218,6 +224,7 @@ export function iconForCategoryName(name: string): CategoryIconName {
     [/^versicherung$/i, "ShieldCheck"],
     [/^(ticket|tickets|eintritt|aktivit[äa]ten?)$/i, "Ticket"],
     [/^(kaution|kautionsschaden)$/i, "Banknote"],
+    [/^(an\s?-?\s?\/?\s?abreise|anreise|abreise|flug|fl[üu]ge)$/i, "Plane"],
     [/^(transport|bus|taxi)$/i, "Bus"],
     [/^(parken|parkplatz)$/i, "SquareParking"],
     [/^(apotheke|medikament)$/i, "Pill"],
