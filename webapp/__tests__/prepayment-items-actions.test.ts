@@ -361,6 +361,20 @@ describe("saveItem — ändern", () => {
     expect(fake.rows("prepayment_item_obligations").find((o) => o.person_id === ANNA)!.amount).toBe(100);
   });
 
+  it("Race: hat die parallele Anbieter-Zahlung schon nach dem NEUEN Soll verteilt, bleibt das neue Soll", async () => {
+    useFake(withItem());
+    fake.onFrom("transactions", 2, () => {
+      fake.rows("transactions").push({ ...providerTx });
+      fake.rows("transaction_participants").push(
+        { transaction_id: "tx-prov", person_id: ANNA, amount: 150 },
+        { transaction_id: "tx-prov", person_id: BEN, amount: 150 },
+      );
+    });
+    const res = await saveItem({ status: "idle" }, payloadFd(indiv([[ANNA, "150"], [BEN, "150"]])));
+    expect(res.status).toBe("ok");
+    expect(fake.rows("prepayment_item_obligations").find((o) => o.person_id === ANNA)!.amount).toBe(150);
+  });
+
   it("scheitert auch das Zurücksetzen, sagt die Meldung das", async () => {
     useFake(withItem());
     fake.failOn({ table: "prepayment_item_obligations", action: "insert" });

@@ -218,6 +218,35 @@ async function loadProviderPayments(
   return { ok: true, rows: (data ?? []).map((r) => ({ id: r.id as string, amount: Number(r.amount) })) };
 }
 
+/**
+ * Passen die per_person-Anteile der Anbieter-Zahlungen zu `soll`? Erwartet
+ * wird die kumulative Verteilung von Σ Zahlungen nach Soll (genau das, was
+ * allocateItemProviderShares erzeugt). Grill-Fund (Delta): hat eine parallele
+ * Anbieter-Zahlung schon nach dem NEUEN Soll verteilt, darf saveItem nicht
+ * blind auf das alte Soll zurückrollen — sonst passten die Anteile danach
+ * nicht mehr. Lesefehler → false (dann rollt saveItem zurück, fail-safe).
+ */
+async function providerSharesMatchSoll(
+  supabase: AdminClient,
+  payments: { id: string; amount: number }[],
+  soll: ItemShare[],
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("transaction_participants")
+    .select("person_id, amount")
+    .in("transaction_id", payments.map((p) => p.id));
+  if (error) return false;
+  const total = payments.reduce((s, p) => s + p.amount, 0);
+  const expected = allocateItemProviderShares(total, soll);
+  const actual = new Map<string, number>();
+  for (const r of data ?? []) {
+    actual.set(r.person_id as string, (actual.get(r.person_id as string) ?? 0) + Math.round(Number(r.amount ?? 0) * 100));
+  }
+  const exp = new Map(expected.map((e) => [e.personId, Math.round(e.amount * 100)]));
+  const ids = new Set([...actual.keys(), ...exp.keys()]);
+  return [...ids].every((id) => (actual.get(id) ?? 0) === (exp.get(id) ?? 0));
+}
+
 /** Σ Soll je Person mit Betrag > 0 als vergleichbare Signatur. */
 function sollSignature(rows: ItemShare[]): string {
   return rows
@@ -489,7 +518,7 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
       // ihren per_person-Anteilen. Dann lieber zurückrollen.
       const recheck = await loadProviderPayments(supabase, tripId, existing.id);
       if (!recheck.ok) return rollbackAll(recheck.message);
-      if (recheck.rows.length > 0) {
+      if (recheck.rows.length > 0 && !(await providerSharesMatchSoll(supabase, recheck.rows, shares))) {
         return rollbackAll(
           "Während des Speicherns wurde eine Zahlung an den Anbieter gebucht. Bitte Seite neu laden und erneut versuchen.",
         );
