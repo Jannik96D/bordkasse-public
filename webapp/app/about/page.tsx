@@ -423,6 +423,16 @@ const features: Feature[] = [
           per Mail; 3 Tage vor der Crewfrist gehen automatisch
           Erinnerungen an alle Crewmitglieder mit offenem Betrag.
         </p>
+        <p className="mt-2">
+          Unter der Matrix gibt es „Weitere Posten“: Zahlungen neben der
+          Yachtanzahlung, zum Beispiel Flüge oder Bahn für die
+          An-/Abreise. Der Skipper legt einen Posten mit Kategorie, Betrag,
+          Empfänger und Aufteilung an; die Crew meldet ihren Anteil wie bei
+          der Anzahlung selbst. Pro Posten sieht man, wie viel die Crew
+          schon eingezahlt hat und wie viel noch an Airline oder Bahn zu
+          überweisen ist. Für Posten verschickt die App keine automatischen
+          Erinnerungen.
+        </p>
       </>
     ),
     screenshot: "/about/16-anzahlung-matrix.webp",

@@ -93,6 +93,15 @@ export function PrepaymentPlanSection({
             </button>
           )}
         </div>
+        <p className="mt-4 border-t border-rule pt-3 text-sm text-ink-soft">
+          Zahlungen neben dem Plan, z. B. Flüge oder Bahn für die An-/Abreise?{" "}
+          <Link
+            href={`/trips/${tripId}/prepayments`}
+            className="inline-flex min-h-[44px] items-center font-medium text-primary underline hover:no-underline"
+          >
+            Weitere Posten verwalten
+          </Link>
+        </p>
       </div>
     </section>
   );

@@ -463,9 +463,9 @@ Service-Role-Client eine fremde Ghost-Person überschreiben (`display_name` +
 ## Weitere Posten (An-/Abreise) — Datenmodell (Migration 0058)
 
 > Stand: Datenbank (PR3, Migration 0058) + Server-Logik (PR4a, Migration
-> 0059, siehe „Posten-Actions" unten). Wizard-Schritt, Matrix-Sektion und
-> Posten-Feld im Buchungsformular folgen in PR4b — bis dahin gibt es keine
-> UI, die die Actions aufruft.
+> 0059, siehe „Posten-Actions" unten) + Oberfläche (PR4b, siehe „Weitere
+> Posten — Oberfläche" unten). Ein Posten-Feld im Buchungsformular gibt es
+> bewusst (noch) nicht.
 
 Neben der Charter-Anzahlung kann ein Törn beliebig viele **Posten** haben
 (typisch Flug/Bahn für die An- und Abreise). Ein Posten ist ein **dritter
@@ -596,9 +596,8 @@ setzt die Bestätigung einer posten-getaggten Gutschrift bei materieller
 
 **Erledigt in PR4a** (siehe nächster Abschnitt): Bilanz-Seite, Crewwechsel/
 Entfernen/Ghost-Merge, Pending-Pre-Check, Edit-Validierung, Outbox-Replay,
-Entscheidung zur Abrechnungsmail. **Weiter offen (PR4b):** UI (Wizard,
-Matrix, Formularfeld, Crew-Self-View), nachträgliches Zuordnen einer
-bestehenden Buchung zu einem Posten, Self-Klausel für `prepayment_items`
+Entscheidung zur Abrechnungsmail. **Weiter offen:** Formularfeld „Posten" (UI erledigt in PR4b),
+nachträgliches Zuordnen einer bestehenden Buchung zu einem Posten, Self-Klausel für `prepayment_items`
 (Ex-Crew sieht ihr Posten-Soll, aber nicht den Posten), Mails/Push.
 
 **Deploy-Reihenfolge:** Migration 0058 auf Produktion einspielen, BEVOR der
@@ -780,7 +779,7 @@ und Anzahlung/Posten getrennt (M1, unten).
   Anzahlung und Posten stehen getrennt darunter
   (`lib/calc/settlement-balances.ts`). Ohne Plan/Posten ist der getrennte
   Anteil 0. Die Bilanz-Seite zeigt im Posten-Block je Person Posten-Saldo und
-  Gesamtsaldo (Layout folgt in PR4b).
+  Gesamtsaldo (Layout seit PR4b).
 - **M2 — Soll nur bei Bedarf neu verteilen:** `saveItem` verteilt nur neu bei
   neuem Posten, geändertem Betrag, geänderter Aufteilung, geänderten
   Einzelbeträgen oder mit `redistribute: true`. Umbenennen/Kategorie/
@@ -840,8 +839,7 @@ und Anzahlung/Posten getrennt (M1, unten).
 - **replaceMember (L3):** scheitert das Entfernen von A und zusätzlich das
   Zurücksetzen der Posten-Zeilen, bleibt ein gemischter Zustand (Teile bei
   A, Teile bei B); die Meldung sagt das ausdrücklich.
-- **UI:** ein „überzahlt"-Badge je Person (Daten: `status = "overpaid"`,
-  `overpaidTotal`) folgt mit PR4b.
+- **UI:** das „überzahlt"-Badge je Person ist seit PR4b umgesetzt.
 
 **Bekannte Grenze (L2):** zwei gleichzeitig gebuchte Teil-Anbieterzahlungen
 können je nach Reihenfolge um Rundungs-Cents von der kumulativen Verteilung
@@ -851,6 +849,77 @@ die Anbieter-Zahlung — bewusst nicht gebaut.
 
 **Deploy-Reihenfolge:** 0058 ist vorhanden → **0059 und 0060** VOR dem
 App-Merge auf Produktion einspielen, danach `NOTIFY pgrst, 'reload schema';`.
+
+## Weitere Posten — Oberfläche (PR4b)
+
+**Wo:** Sektion „Weitere Posten" unter der Matrix auf `/trips/[id]/prepayments`
+(`items-section.tsx`). Sie funktioniert auch **ohne Anzahlungsplan** (eigener
+Posten-Törn ohne Charter); die Seite zeigt dann die Karte „Noch kein
+Anzahlungsplan" plus die Posten. Einstieg: Anzahlungen-Tab (erscheint über
+`getPrepaymentNavState` jetzt auch wegen Posten, Regel `itemsNavRelevant`:
+Skipper/Admin = irgendein Posten nicht abgeschlossen, Empfänger = eigener
+Posten nicht abgeschlossen, Crew = eigener Anteil offen/gemeldet) und Settings
+→ „Anzahlungsplan" → „Weitere Posten verwalten".
+
+**Rollensicht:**
+
+| Wer | Sicht | Darf |
+|---|---|---|
+| Skipper/Co-Skipper/Admin | Vollkarte aller Posten | anlegen, bearbeiten, löschen, Zahlungen erfassen, Meldungen bestätigen/ablehnen, Anbieter-Zahlung erfassen |
+| Empfänger des Postens | Vollkarte dieses Postens | Zahlungen erfassen, Meldungen bestätigen/ablehnen, Anbieter-Zahlung erfassen (kein Bearbeiten/Löschen) |
+| übrige Crew | nur die eigene Zeile („Dein Soll / Bezahlt / Offen") | „Ich habe gezahlt" melden |
+
+Der **Vorstrecker der Charteranzahlung** hat am Posten KEINE Rechte (nur wenn
+er zugleich Empfänger/Skipper ist) — so verlangen es die Actions. Die Sicht
+blendet nur aus, was der Server ohnehin ablehnt. Archivierte Törns: alle
+Schreibknöpfe weg, Hinweis „schreibgeschützt".
+
+**Karte:** Kategorie-Icon + Bezeichnung + Betrag, Kategorie-Name, Fälligkeit,
+Badge „Empfängt: X", Gesamtstatus (Symbol + Text: Abgeschlossen / Zahlungen
+offen / Anbieter noch nicht bezahlt / Überzahlt — Rückzahlung klären), zwei
+Fortschrittsbalken (`role="progressbar"`: „Von der Gruppe an X bezahlt" und
+„An den Anbieter bezahlt"), Hinweis bei Überzahlung (`overpaidTotal`) bzw.
+Rest bei der Gruppe (`underpaidTotal`), Block „Noch an Anbieter zu überweisen"
+(Pendant `CharterReminderBanner`: Betrag + `providerDueInfo` = überfällig seit
+N Tagen / in N Tagen fällig / fällig am …) mit Button „Zahlung an Anbieter
+erfassen", Pending-Banner mit ✓/✗, je Person eine Zeile. Der Posten ist
+„Abgeschlossen", wenn `getItems().complete` (jede Zelle exakt gedeckt UND
+Anbieter exakt bezahlt).
+
+**Statussymbole** (`ITEM_STATUS_META`, immer Symbol UND Text, Symbol
+`aria-hidden`): ○ offen · ⏳ gemeldet, wartet auf Bestätigung · ◐ teilweise
+bezahlt · ✓ bezahlt · + überzahlt. Die Zeilen sind 44-px-Buttons (nur bei
+Soll > 0 und Schreibrecht) mit vollem Kontext-`aria-label` („Ben, Flüge:
+teilweise bezahlt, 40,00 € von 100,00 € bezahlt, 60,00 € offen. Zahlung
+erfassen").
+
+**Formular** (`item-form-modal.tsx` → `saveItem`, JSON im Feld `payload`):
+Kategorie (`CategorySelect`; Vorbelegung „An-/Abreise" falls vorhanden, bei
+Bestandstörns leer), Bezeichnung, Betrag (Rechenfeld: `evalItemAmount` =
+`parseAmountDe` für „3.700,00" dann `safeMathEval` für „1200 - 150,50"),
+Fälligkeit (optional), Empfänger (Default Trip-Skipper), Aufteilung
+Gleichmäßig / Zeitanteilig / Individuell (**kein „An Bord"** — Posten haben kein
+Buchungsdatum; steht als Hinweis im Formular). Individuell: Betrag je Person mit
+Live-Differenz (`role="status"`), die Summe muss exakt aufgehen. „Soll neu
+verteilen" (`redistribute`) nur beim Bearbeiten und nicht bei „individuell",
+mit Erklärung (sinnvoll nach Crewwechsel). **Gesperrte Änderungen** werden als
+Hinweis mit disabled Feldern gezeigt (`itemLocks`, spiegelt die Server-Regeln):
+Betrag/Aufteilung nach Anbieter-Zahlung, Empfängerwechsel nach Anbieter-Zahlung
+oder lebenden Posten-Gutschriften, Löschen bei bestätigten Zahlungen oder
+offener Selbstmeldung. Server-Fehler erscheinen als `role="alert"`, Erfolg als
+Toast. Jedes Zahlungs-Modal erzeugt seinen `idempotency_key` einmal pro Mount;
+ein Retry meldet „Schon erfasst".
+
+**Bilanz-Seite:** Posten-Block mit Status je Posten (Badge „überzahlt" geht vor
+„teilweise"), Zeile „Crew X von Y · Anbieter X von Y", Saldo-Tabelle je Person
+(Posten-Saldo aus `getItemPotBalances`, Gesamtsaldo; Vorzeichen + Screenreader-
+Text) und Erklärung der Töpfe im Tooltip (nur die vorhandenen).
+
+**Bewusst nicht enthalten:** keine automatischen Erinnerungen/Mails/Push
+(sichtbarer Hinweis in der Sektion); kein Posten-Feld im Buchungsformular und
+kein nachträgliches Zuordnen einer bestehenden Buchung (kein Server-Support,
+`item_id` ist im Edit unveränderlich); kein eigener Wizard-Schritt — Posten
+werden direkt auf der Anzahlungs-Seite gepflegt.
 
 ## Mail-Templates + WhatsApp-Texte
 
