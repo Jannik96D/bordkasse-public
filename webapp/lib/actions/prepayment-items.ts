@@ -61,6 +61,30 @@ export type ItemActionState =
 
 const PG_UNIQUE_VIOLATION = "23505";
 const ITEM_FOREIGN_MSG = "Dieser Posten gehört nicht zu diesem Törn. Bitte Seite neu laden.";
+const ROLLBACK_FAILED_SUFFIX =
+  "Achtung: das Zurücksetzen ist ebenfalls fehlgeschlagen — bitte den Posten prüfen oder einen Admin fragen.";
+
+/**
+ * Retry-Erkennung über `idempotency_key` (UNIQUE trip_id+key, 0005): nur als
+ * Duplikat werten, wenn die bestehende Zeile wirklich DIESELBE Art Buchung
+ * für DIESEN Posten ist (Grill-Fund P3-14 — der Key ist client-kontrolliert).
+ * Sonst ehrlicher Fehler statt eines vorgetäuschten Erfolgs.
+ */
+async function isSameItemBooking(
+  supabase: AdminClient,
+  tripId: string,
+  key: string,
+  expect: { itemId: string; type: "credit" | "expense" },
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("transactions")
+    .select("item_id, type")
+    .eq("trip_id", tripId)
+    .eq("idempotency_key", key)
+    .maybeSingle();
+  if (error || !data) return false;
+  return data.item_id === expect.itemId && data.type === expect.type;
+}
 
 function dbErr(err: DbError, fallback: string): string {
   if (err?.message) console.error("[bordkasse:db]", err.message);
@@ -214,8 +238,8 @@ function sollSignature(rows: ItemShare[]): string {
  *
  * Sperren, sobald eine Anbieter-Zahlung gebucht ist (PR4-Checkliste
  * „beim Speichern des Solls nachziehen oder sperren" → sperren):
- *   • eine Änderung der Soll-Verteilung (Betrag, Aufteilung, Einzelbeträge,
- *     Crew-Änderung bei gleichmäßig/zeitanteilig) — die Anteile der
+ *   • eine Änderung der Soll-Verteilung (Betrag, Aufteilung, Einzelbeträge)
+ *     — die Anteile der
  *     Anbieter-Ausgabe (per_person) wurden aus dem alten Soll berechnet;
  *     ein stilles Nachziehen müsste fremde Buchungen in mehreren
  *     Schreibschritten ohne echte Transaktion umschreiben. Ausweg: Anbieter-
@@ -224,7 +248,9 @@ function sollSignature(rows: ItemShare[]): string {
  *     Empfänger wirklich geleistet; die Crew-Gutschriften gingen dann an
  *     jemand anderen, und zwischen den beiden entstünde eine Schuld, die kein
  *     Schulden-Tab zeigt (Posten sind dort bewusst ausgeschlossen).
- * Bezeichnung, Kategorie, Fälligkeit und Reihenfolge bleiben immer änderbar.
+ * Bezeichnung, Kategorie, Fälligkeit und Reihenfolge bleiben immer änderbar;
+ * dabei bleibt das gespeicherte Soll unangetastet (es wird NICHT aus der
+ * inzwischen evtl. geänderten Crew neu berechnet).
  *
  * Empfängerwechsel OHNE Anbieter-Zahlung läuft über `move_item_payee`
  * (Migration 0059): bisherige Crew-Gutschriften wandern zum neuen Empfänger.
@@ -323,6 +349,13 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
 
   let oldObligations: ItemShare[] = [];
   const payeeChanged = !!existing && existing.payee_person_id !== payeeId;
+  // Nur Metadaten speichern (Soll unangetastet lassen)? Gilt, sobald eine
+  // Anbieter-Zahlung existiert und Betrag + Aufteilung (+ bei individuell die
+  // Einzelbeträge) unverändert sind. Grill-Fund P1-2: bei gleichmäßig/
+  // zeitanteilig würde ein Neuberechnen aus der AKTUELLEN Crew sonst nach
+  // jeder Crew-/Datumsänderung ein „anderes" Soll ergeben — und damit selbst
+  // eine reine Umbenennung sperren.
+  let keepObligations = false;
   if (existing) {
     const obl = await loadObligations(supabase, tripId, existing.id);
     if (!obl.ok) return { status: "error", message: obl.message };
@@ -331,7 +364,12 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
     const provider = await loadProviderPayments(supabase, tripId, existing.id);
     if (!provider.ok) return { status: "error", message: provider.message };
     if (provider.rows.length > 0) {
-      if (sollSignature(oldObligations) !== sollSignature(shares)) {
+      const distributionChanged =
+        Math.round(existing.total_amount * 100) !== Math.round(input.total_amount * 100) ||
+        existing.split_type !== input.split_type ||
+        (input.split_type === "individuell" && sollSignature(oldObligations) !== sollSignature(shares));
+      keepObligations = true;
+      if (distributionChanged) {
         return {
           status: "error",
           message:
@@ -380,10 +418,13 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
       // Rollback: ein Posten ohne Soll wäre in der Matrix ein „alles bezahlt".
       const { error: rbErr } = await supabase.from("prepayment_items").delete().eq("id", itemId).eq("trip_id", tripId);
       if (rbErr) console.error("[bordkasse:db] saveItem rollback:", rbErr.message);
-      return { status: "error", message: dbErr(oblErr, "Sollbeträge konnten nicht gespeichert werden.") };
+      const msg = dbErr(oblErr, "Sollbeträge konnten nicht gespeichert werden.");
+      return { status: "error", message: rbErr ? `${msg} ${ROLLBACK_FAILED_SUFFIX}` : msg };
     }
   } else {
-    const restoreItem = async () => {
+    // Kompensierende Rücksetzer — liefern `false`, wenn das Zurücksetzen
+    // selbst scheitert (Grill-Fund P3-13: das darf nicht nur im Log stehen).
+    const restoreItem = async (): Promise<boolean> => {
       const { error } = await supabase
         .from("prepayment_items")
         .update({
@@ -397,15 +438,28 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
         .eq("id", existing.id)
         .eq("trip_id", tripId);
       if (error) console.error("[bordkasse:db] saveItem restoreItem:", error.message);
+      return !error;
     };
-    const restoreObligations = async () => {
+    const restoreObligations = async (): Promise<boolean> => {
       const del = await supabase.from("prepayment_item_obligations").delete().eq("item_id", existing.id).eq("trip_id", tripId);
-      if (del.error) console.error("[bordkasse:db] saveItem restoreObligations/delete:", del.error.message);
-      if (oldObligations.length === 0) return;
+      if (del.error) {
+        console.error("[bordkasse:db] saveItem restoreObligations/delete:", del.error.message);
+        return false;
+      }
+      if (oldObligations.length === 0) return true;
       const ins = await supabase.from("prepayment_item_obligations").insert(
         oldObligations.map((o) => ({ item_id: existing.id, trip_id: tripId, person_id: o.personId, amount: o.amount })),
       );
       if (ins.error) console.error("[bordkasse:db] saveItem restoreObligations/insert:", ins.error.message);
+      return !ins.error;
+    };
+    const rollbackAll = async (message: string): Promise<ItemActionState> => {
+      const okObl = keepObligations ? true : await restoreObligations();
+      const okItem = await restoreItem();
+      return {
+        status: "error",
+        message: okObl && okItem ? message : `${message} ${ROLLBACK_FAILED_SUFFIX}`,
+      };
     };
 
     const { error: updErr } = await supabase
@@ -415,20 +469,31 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
       .eq("trip_id", tripId);
     if (updErr) return { status: "error", message: itemDbErrorMessage(updErr, "Posten konnte nicht gespeichert werden.") };
 
-    const { error: delErr } = await supabase
-      .from("prepayment_item_obligations")
-      .delete()
-      .eq("item_id", existing.id)
-      .eq("trip_id", tripId);
-    if (delErr) {
-      await restoreItem();
-      return { status: "error", message: dbErr(delErr, "Sollbeträge konnten nicht gespeichert werden.") };
-    }
-    const { error: insErr } = await supabase.from("prepayment_item_obligations").insert(obligationRows);
-    if (insErr) {
-      await restoreObligations();
-      await restoreItem();
-      return { status: "error", message: dbErr(insErr, "Sollbeträge konnten nicht gespeichert werden.") };
+    if (!keepObligations) {
+      const { error: delErr } = await supabase
+        .from("prepayment_item_obligations")
+        .delete()
+        .eq("item_id", existing.id)
+        .eq("trip_id", tripId);
+      if (delErr) {
+        const okItem = await restoreItem();
+        const msg = dbErr(delErr, "Sollbeträge konnten nicht gespeichert werden.");
+        return { status: "error", message: okItem ? msg : `${msg} ${ROLLBACK_FAILED_SUFFIX}` };
+      }
+      const { error: insErr } = await supabase.from("prepayment_item_obligations").insert(obligationRows);
+      if (insErr) return rollbackAll(dbErr(insErr, "Sollbeträge konnten nicht gespeichert werden."));
+
+      // Race-Schutz (Grill-Fund P2-6): ist WÄHREND des Neuverteilens eine
+      // Anbieter-Zahlung gebucht worden, wurde sie nach dem alten (oder
+      // gerade gelöschten) Soll verteilt — das neue Soll passte nicht mehr zu
+      // ihren per_person-Anteilen. Dann lieber zurückrollen.
+      const recheck = await loadProviderPayments(supabase, tripId, existing.id);
+      if (!recheck.ok) return rollbackAll(recheck.message);
+      if (recheck.rows.length > 0) {
+        return rollbackAll(
+          "Während des Speicherns wurde eine Zahlung an den Anbieter gebucht. Bitte Seite neu laden und erneut versuchen.",
+        );
+      }
     }
 
     // Empfängerwechsel zuletzt: atomar in SQL (Posten + credit_to in einer
@@ -440,11 +505,7 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
         p_item_id: existing.id,
         p_new_payee: payeeId,
       });
-      if (moveErr) {
-        await restoreObligations();
-        await restoreItem();
-        return { status: "error", message: itemDbErrorMessage(moveErr, "Empfänger konnte nicht gewechselt werden.") };
-      }
+      if (moveErr) return rollbackAll(itemDbErrorMessage(moveErr, "Empfänger konnte nicht gewechselt werden."));
     }
   }
 
@@ -606,7 +667,7 @@ export async function recordItemPayment(_prev: ItemActionState, formData: FormDa
   const loaded = await loadItem(supabase, tripId, itemId);
   if (!loaded.ok) return { status: "error", message: loaded.message };
 
-  const { error } = await supabase.from("transactions").insert({
+  const { data: tx, error } = await supabase.from("transactions").insert({
     trip_id: tripId,
     type: "credit",
     date,
@@ -619,18 +680,21 @@ export async function recordItemPayment(_prev: ItemActionState, formData: FormDa
     created_by: person.id,
     confirmed_at: new Date().toISOString(),
     idempotency_key,
-  });
+  }).select("id").single();
   if (error?.code === PG_UNIQUE_VIOLATION && idempotency_key) {
     // Retry desselben Submits — die Zahlung ist schon gebucht.
+    if (!(await isSameItemBooking(supabase, tripId, idempotency_key, { itemId, type: "credit" }))) {
+      return { status: "error", message: "Diese Zahlung wurde schon unter einer anderen Buchung gespeichert. Bitte Seite neu laden." };
+    }
     revalidateItemPaths(tripId, { balance: true });
     return { status: "ok", itemId, duplicate: true };
   }
-  if (error) return { status: "error", message: itemDbErrorMessage(error, "Zahlung konnte nicht erfasst werden.") };
+  if (error || !tx) return { status: "error", message: itemDbErrorMessage(error, "Zahlung konnte nicht erfasst werden.") };
 
   await logAudit(supabase, {
     table_name: "transactions",
     operation: "INSERT",
-    record_id: itemId,
+    record_id: tx.id,
     trip_id: tripId,
     actor_person_id: person.id,
     // Keine Notiz (Freitext) im Audit-Log.
@@ -698,6 +762,9 @@ export async function submitItemSelfPayment(_prev: ItemActionState, formData: Fo
     .select("id")
     .single();
   if (error?.code === PG_UNIQUE_VIOLATION && idempotency_key) {
+    if (!(await isSameItemBooking(supabase, tripId, idempotency_key, { itemId, type: "credit" }))) {
+      return { status: "error", message: "Diese Meldung wurde schon unter einer anderen Buchung gespeichert. Bitte Seite neu laden." };
+    }
     revalidateItemPaths(tripId);
     return { status: "ok", itemId, duplicate: true };
   }
@@ -952,21 +1019,51 @@ export async function recordItemProviderPayment(
     .select("id")
     .single();
   if (error?.code === PG_UNIQUE_VIOLATION && idempotency_key) {
+    if (!(await isSameItemBooking(supabase, tripId, idempotency_key, { itemId, type: "expense" }))) {
+      return { status: "error", message: "Diese Zahlung wurde schon unter einer anderen Buchung gespeichert. Bitte Seite neu laden." };
+    }
     revalidateItemPaths(tripId, { balance: true });
     return { status: "ok", itemId, duplicate: true };
   }
   if (error || !tx) return { status: "error", message: itemDbErrorMessage(error, "Zahlung konnte nicht gebucht werden.") };
 
+  // Rollback (Muster createExpense): löscht die Ausgabe wieder (die Anteile
+  // per CASCADE) und gibt damit den idempotency_key für einen sauberen Retry
+  // frei.
+  const rollback = async (message: string): Promise<ItemActionState> => {
+    const { error: rbErr } = await supabase.from("transactions").delete().eq("id", tx.id).eq("trip_id", tripId);
+    if (rbErr) console.error("[bordkasse:db] recordItemProviderPayment rollback:", rbErr.message);
+    return { status: "error", message: rbErr ? `${message} ${ROLLBACK_FAILED_SUFFIX}` : message };
+  };
+
   const { error: partErr } = await supabase
     .from("transaction_participants")
     .insert(shares.map((s) => ({ transaction_id: tx.id, person_id: s.personId, amount: s.amount })));
   if (partErr) {
-    // Rollback (Muster createExpense): ohne Anteile wäre die Ausgabe eine
-    // per_person-Buchung ohne Verteilung → Σ v_balances ≠ 0. Löschen gibt
-    // zugleich den idempotency_key für einen sauberen Retry frei.
-    const { error: rbErr } = await supabase.from("transactions").delete().eq("id", tx.id).eq("trip_id", tripId);
-    if (rbErr) console.error("[bordkasse:db] recordItemProviderPayment rollback:", rbErr.message);
-    return { status: "error", message: dbErr(partErr, "Zahlung konnte nicht vollständig gespeichert werden. Bitte erneut versuchen.") };
+    // Ohne Anteile wäre die Ausgabe eine per_person-Buchung ohne
+    // Verteilung → Σ v_balances ≠ 0.
+    return rollback(dbErr(partErr, "Zahlung konnte nicht vollständig gespeichert werden. Bitte erneut versuchen."));
+  }
+
+  // Nachkontrolle gegen parallele Schreibzugriffe (Grill-Fund P2-6/P2-7) —
+  // es gibt keine Transaktion über die Service-Role-Requests:
+  //   • zwei gleichzeitige Anbieter-Zahlungen könnten zusammen die Posten-
+  //     Summe übersteigen (jede hat den Deckel einzeln bestanden);
+  //   • ein gleichzeitiges saveItem könnte das Soll inzwischen neu verteilt
+  //     haben — dann passten diese Anteile nicht mehr zum Soll.
+  // In beiden Fällen wird DIESE Zahlung zurückgerollt (im Zweifel beide —
+  // fail-safe, ein erneuter Versuch klappt dann).
+  const [afterProvider, afterObl] = await Promise.all([
+    loadProviderPayments(supabase, tripId, itemId),
+    loadObligations(supabase, tripId, itemId),
+  ]);
+  if (!afterProvider.ok) return rollback(afterProvider.message);
+  if (!afterObl.ok) return rollback(afterObl.message);
+  if (afterProvider.rows.reduce((s, r) => s + r.amount, 0) > item.total_amount + 0.005) {
+    return rollback("Gleichzeitig wurde eine weitere Zahlung an den Anbieter gebucht; zusammen übersteigen sie den Posten. Bitte Seite neu laden.");
+  }
+  if (sollSignature(afterObl.rows) !== sollSignature(obl.rows)) {
+    return rollback("Der Posten wurde gerade geändert. Bitte Seite neu laden und die Zahlung erneut erfassen.");
   }
 
   await logAudit(supabase, {

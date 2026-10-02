@@ -276,6 +276,7 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       b.select = self;
       b.eq = self;
       b.neq = self;
+      b.is = self;
       b.ilike = self;
       b.update = self;
       b.upsert = self;

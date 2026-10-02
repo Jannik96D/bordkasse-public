@@ -740,14 +740,12 @@ async function mergeGhostIntoExistingPerson(
   }
 
   // Pre-Check (PR4a, Reise-Posten 0058): ist der Ghost Empfänger eines
-  // Postens? Dann MUSS der Empfänger vor jedem anderen Schreibschritt
-  // gewechselt werden — sonst bricht schon Schritt 1 (credit_to → real) am
-  // Trigger tx_item_credit_payee ab (Empfänger wäre noch der Ghost) und der
-  // Merge hinterließe einen Teilzustand; spätestens das finale
-  // persons-DELETE scheiterte an `payee_person_id ON DELETE RESTRICT`.
-  // Der Wechsel läuft atomar über move_item_payee (Migration 0059) und hängt
-  // die Posten-Gutschriften (credit_to) gleich mit um. Hier nur LESEN —
-  // Lesefehler brechen ab, BEVOR irgendetwas geschrieben wurde.
+  // Postens? Dann muss der Empfänger mitwandern — sonst scheiterte das finale
+  // persons-DELETE an `payee_person_id ON DELETE RESTRICT`, und ein
+  // credit_to-Update der Posten-Gutschriften bräche am Trigger
+  // tx_item_credit_payee ab. Der Wechsel läuft atomar über move_item_payee
+  // (Migration 0059, Schritt 4b). Hier nur LESEN — Lesefehler brechen ab,
+  // BEVOR irgendetwas geschrieben wurde.
   const { data: ghostPayeeItems, error: ghostPayeeErr } = await supabase
     .from("prepayment_items")
     .select("id")
@@ -785,12 +783,6 @@ async function mergeGhostIntoExistingPerson(
     };
   };
 
-  // 0. Posten-Empfänger (PR4a) — als ERSTER Schreibschritt, siehe Pre-Check.
-  for (const it of ghostPayeeItems ?? []) {
-    const { error } = await supabase.rpc("move_item_payee", { p_item_id: it.id, p_new_payee: realId });
-    if (error) return mergeStepFailed("prepayment_items.payee_person_id", error.message);
-  }
-
   // 1. transactions: paid_by / credit_from / credit_to umhängen — keine
   //    Constraints betroffen, einfache UPDATEs. Durch den Pre-Check oben
   //    ist der Ghost NUR in diesem Törn Crew, ein globales UPDATE ist damit
@@ -804,7 +796,15 @@ async function mergeGhostIntoExistingPerson(
     if (error) return mergeStepFailed("transactions.credit_from", error.message);
   }
   {
-    const { error } = await supabase.from("transactions").update({ credit_to: realId }).eq("credit_to", ghostId);
+    // PR4a: Posten-Gutschriften (item_id) NICHT hier — ihr credit_to muss dem
+    // Posten-Empfänger entsprechen (Trigger tx_item_credit_payee), solange der
+    // noch der Ghost ist, würde das Update abgewiesen. move_item_payee hängt
+    // sie in Schritt 4b zusammen mit dem Empfänger um.
+    const { error } = await supabase
+      .from("transactions")
+      .update({ credit_to: realId })
+      .eq("credit_to", ghostId)
+      .is("item_id", null);
     if (error) return mergeStepFailed("transactions.credit_to", error.message);
   }
   {
@@ -935,6 +935,20 @@ async function mergeGhostIntoExistingPerson(
       .eq("trip_id", tripId)
       .eq("person_id", ghostId);
     if (error) return mergeStepFailed("trip_members.reassign", error.message);
+  }
+
+  // 4b. Posten-Empfänger (PR4a) — atomar über move_item_payee (Migration
+  //     0059: Posten + credit_to der Posten-Gutschriften in einer
+  //     Transaktion). Bewusst UNMITTELBAR nach dem Umhängen der Mitgliedschaft
+  //     (Grill-Fund P2-4): vorher liefe ein späterer Fehlschlag darauf hinaus,
+  //     dass die Gutschriften an eine Person gehen, die (noch) nicht Crew ist
+  //     und deshalb aus der mitgliedschaftsgetriebenen v_balances fällt. In
+  //     dieser Reihenfolge ist bis zu Schritt 4 alles konsistent beim Ghost,
+  //     danach beim echten Konto. Muss vor dem persons-DELETE laufen
+  //     (payee_person_id ON DELETE RESTRICT).
+  for (const it of ghostPayeeItems ?? []) {
+    const { error } = await supabase.rpc("move_item_payee", { p_item_id: it.id, p_new_payee: realId });
+    if (error) return mergeStepFailed("prepayment_items.payee_person_id", error.message);
   }
 
   // 5. Trip-Skipper-FK darf nicht auf den Ghost zeigen (RESTRICT beim Delete)

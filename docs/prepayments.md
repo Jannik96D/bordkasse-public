@@ -669,11 +669,20 @@ formData) → ItemActionState` = `{status:"ok", itemId?, duplicate?} |
   damit die Rundungs-Cents nicht jedes Mal bei derselben Person landen;
   Σ Anbieter-Zahlungen ≤ Posten-Summe (ein Rest hätte keine Gegenseite).
 - **Soll gesperrt nach Anbieter-Zahlung:** sobald eine Anbieter-Zahlung
-  existiert, blockt `saveItem` jede Änderung der Soll-Verteilung (und den
-  Empfängerwechsel); Bezeichnung/Kategorie/Fälligkeit bleiben änderbar.
-  Ausweg: Anbieter-Zahlung löschen, Posten ändern, neu erfassen. (Gewählt
-  statt „nachziehen", weil Nachziehen fremde Buchungen in mehreren
-  Schreibschritten ohne echte Transaktion umschriebe.)
+  existiert, blockt `saveItem` jede Änderung von Betrag, Aufteilung oder
+  Einzelbeträgen (und den Empfängerwechsel); Bezeichnung/Kategorie/Fälligkeit
+  bleiben änderbar, und das gespeicherte Soll wird dabei NICHT aus der
+  inzwischen evtl. geänderten Crew neu berechnet (Grill-Fund: sonst sperrte
+  schon ein neues Crewmitglied jede Umbenennung). Ausweg: Anbieter-Zahlung
+  löschen, Posten ändern, neu erfassen. (Gewählt statt „nachziehen", weil
+  Nachziehen fremde Buchungen in mehreren Schreibschritten ohne echte
+  Transaktion umschriebe.)
+- **Nachkontrollen gegen parallele Requests** (keine Transaktion über den
+  Service-Role-Client): `recordItemProviderPayment` prüft nach dem Schreiben
+  erneut Σ Anbieter-Zahlungen ≤ Summe und ob sich das Soll inzwischen
+  geändert hat — sonst Rollback dieser Zahlung; `saveItem` rollt zurück, wenn
+  während des Neuverteilens eine Anbieter-Zahlung entstand. Scheitert ein
+  Rollback selbst, sagt die Meldung das.
 - **Kein `:overflow`** bei `recordItemPayment`: ein Posten hat keine zweite
   Tranche; eine Überzahlung bleibt im Topf („überzahlt"), der einzige Insert
   ist über `idempotency_key` dedupliziert.
@@ -706,20 +715,32 @@ pgTAP: `supabase/tests/move_item_payee_test.sql`.
 
 **Crew:**
 
-- `replaceMember` (beide Modi) lehnt den **Empfänger** eines Postens ab
-  (wie den Vorstrecker); eine offene **Posten-Selbstmeldung** blockt wie eine
-  Tranchen-Selbstmeldung. Posten-Soll, Anteile an Anbieter-Zahlungen und
-  Posten-Gutschriften wandern auf B (Annahme wie beim Charter-Soll: B hat A
-  privat ausbezahlt). Im klassischen Pfad zählen Anteile an
-  Anbieter-Zahlungen nicht als Buchungsspur (`personHasBookingTrace(…,
-  { excludeItemParticipants: true })`), sonst wäre jede Absage nach dem
-  Flugkauf blockiert.
+- `replaceMember` lehnt in beiden Modi den **Empfänger** eines Postens ab
+  (wie den Vorstrecker). **Modus 1** („hat abgesagt", A verschwindet):
+  Posten-Soll, Anteile an Anbieter-Zahlungen und Posten-Gutschriften wandern
+  auf B (wie beim Charter-Soll: B übernimmt den Platz und hat A privat
+  ausbezahlt) — als letzte Schreibschritte NACH dem finalen
+  Buchungsspur-Check, damit ein Abbruch den Posten-Topf nicht halb bei A,
+  halb bei B zurücklässt. Eine offene Posten-Selbstmeldung blockt; hat die per
+  E-Mail gefundene Person schon ein Posten-Soll in diesem Törn, wird vorab
+  abgelehnt. Anteile an Anbieter-Zahlungen zählen dort nicht als
+  Buchungsspur (`personHasBookingTrace(…, { excludeItemParticipants: true })`),
+  sonst wäre jede Absage nach dem Flugkauf blockiert. **Modus 2** („ist
+  abgereist am …", A bleibt Crew): am Posten ändert sich NICHTS — anders als
+  ein Charterplatz ist ein Ticket persönlich, A ist damit angereist; B reist
+  mit eigenem Ticket an (eigenes Soll bzw. eigener Posten). ⚠️ Abweichung vom
+  ursprünglichen Plan („überträgt in Modus 1+2"), Ergebnis des Grill-Reviews.
 - `removeMember` blockt bei Empfänger-Rolle und offenem Posten-Soll; eine
   0-€-Sollzeile wird mit entfernt. `personHasBookingTrace` zählt die
   Empfänger-Rolle generell als Spur.
 - Ghost-Merge: prüft „Ghost ist Empfänger" und liest sein Posten-Soll VOR
-  jedem Schreibschritt; der Empfängerwechsel (`move_item_payee`) ist der
-  erste Write, das Soll wird übernommen (sonst verschwände es per CASCADE).
+  jedem Schreibschritt (Lesefehler → Abbruch ohne Write). Das generische
+  `credit_to`-Umhängen lässt Posten-Gutschriften aus (sonst Trigger); der
+  Empfängerwechsel (`move_item_payee`, inkl. dieser Gutschriften) läuft
+  unmittelbar NACH dem Umhängen der Mitgliedschaft — so ist bei einem Abbruch
+  vorher alles beim Ghost, danach beim echten Konto konsistent, und nie
+  gehen Gutschriften an eine Person ohne Mitgliedschaft. Das Posten-Soll wird
+  übernommen (sonst verschwände es per CASCADE).
 
 **Buchungs-Edit (`updateExpense`/`updateCredit`):** `item_id` ist dort
 **unveränderlich** — weder gelesen noch geschrieben. Begründung: eine

@@ -165,7 +165,13 @@ const OptionalDate = z
 
 export const ItemObligationInput = z.object({
   person_id: Uuid,
-  amount: Amount,
+  amount: z.preprocess(
+    decimalString,
+    z.coerce
+      .number()
+      .nonnegative("Betrag darf nicht negativ sein.")
+      .max(1_000_000, "Betrag ist unrealistisch hoch."),
+  ),
 });
 
 export const SaveItemSchema = z.object({
@@ -185,8 +191,8 @@ export const SaveItemSchema = z.object({
   payee_person_id: Uuid.optional().nullable(),
   split_type: ItemSplitTypeSchema,
   /** Nur für „individuell": Betrag pro Person. */
-  obligations: z.array(ItemObligationInput).default([]),
-  sort_order: z.coerce.number().int().nonnegative().default(0),
+  obligations: z.array(ItemObligationInput).max(200).default([]),
+  sort_order: z.coerce.number().int().nonnegative().max(10_000).default(0),
 });
 
 export const DeleteItemSchema = z.object({

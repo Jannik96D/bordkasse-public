@@ -841,10 +841,11 @@ export async function replaceMember(
         "Anzahlungs-Matrix bestätigen oder ablehnen, bevor du sie ersetzt.",
     };
   }
-  // PR4a: dieselbe Regel für Posten-Selbstmeldungen (item_id). Eigene Query
-  // statt `.or()` über beide Töpfe — das hält beide Zweige getrennt lesbar
-  // und fail-closed.
-  {
+  // PR4a: dieselbe Regel für Posten-Selbstmeldungen (item_id) — nur im
+  // klassischen Pfad, denn nur dort wandern A's Posten-Zahlungen auf B
+  // (Schritt 8a); in Variante b bleibt die Meldung einfach bei A. Eigene
+  // Query statt `.or()` über beide Töpfe — getrennt lesbar und fail-closed.
+  if (!handoverMode) {
     const { count: itemPendingCount, error: itemPendingErr } = await supabase
       .from("transactions")
       .select("id", { count: "exact", head: true })
@@ -1057,6 +1058,27 @@ export async function replaceMember(
             "Wähle eine andere E-Mail-Adresse oder lege die neue Person ohne E-Mail als Ghost an.",
         };
       }
+      // PR4a (Grill-Fund P2-9): hat die per E-Mail gefundene Person in DIESEM
+      // Törn noch ein Posten-Soll (nur nach einem früheren Crewwechsel
+      // denkbar, Self-Klausel 0058), kollidierte der Übertrag in Schritt 8a
+      // mit dem Primärschlüssel — erst NACH den ersten Schreibschritten.
+      // Deshalb vorab und fail-closed ablehnen.
+      if (!handoverMode) {
+        const { count: bItemCount, error: bItemErr } = await supabase
+          .from("prepayment_item_obligations")
+          .select("item_id", { count: "exact", head: true })
+          .eq("trip_id", trip_id)
+          .eq("person_id", existingPriv.person_id);
+        if (bItemErr) return { status: "error", message: dbErr(bItemErr, "Posten konnten nicht geprüft werden.") };
+        if ((bItemCount ?? 0) > 0) {
+          return {
+            status: "error",
+            message:
+              "Diese Person hat in diesem Törn schon ein Soll bei einem Posten. Bitte zuerst den Posten anpassen " +
+              "oder die neue Person ohne E-Mail als Ghost anlegen.",
+          };
+        }
+      }
       newPersonId = existingPriv.person_id;
     } else {
       // insert-by-id statt upsert (Fund F1): die ID ist client-kontrolliert
@@ -1160,57 +1182,6 @@ export async function replaceMember(
     if (oblUpsertErr) return { status: "error", message: dbErr(oblUpsertErr, "Anzahlungssoll konnte nicht übertragen werden.") };
   }
 
-  // 5b. PR4a (Reise-Posten): Posten-Soll von A auf B — in BEIDEN Modi, mit
-  //     derselben Annahme wie beim Charter-Soll („B hat A privat
-  //     ausbezahlt"). Dazu passend wandern A's Anteile an bereits gebuchten
-  //     Anbieter-Zahlungen (Ausgabe mit item_id, per_person = Soll) auf B,
-  //     und unten in Schritt 6 A's Posten-Gutschriften. Ohne die Anteile
-  //     bliebe A Schuldner der Flüge, während B die Gutschriften trägt.
-  //     B ist neu → keine PK-Kollision (item_id, person_id).
-  {
-    const { data: oldItemObl, error: itemOblErr } = await supabase
-      .from("prepayment_item_obligations")
-      .select("item_id, amount")
-      .eq("trip_id", trip_id)
-      .eq("person_id", old_person_id);
-    if (itemOblErr) {
-      return { status: "error", message: dbErr(itemOblErr, "Posten-Soll konnte nicht übertragen werden.") };
-    }
-    if ((oldItemObl ?? []).length > 0) {
-      const { error: insErr } = await supabase.from("prepayment_item_obligations").insert(
-        (oldItemObl ?? []).map((o) => ({ item_id: o.item_id, trip_id, person_id: newPersonId, amount: o.amount })),
-      );
-      if (insErr) return { status: "error", message: dbErr(insErr, "Posten-Soll konnte nicht übertragen werden.") };
-      const { error: delErr } = await supabase
-        .from("prepayment_item_obligations")
-        .delete()
-        .eq("trip_id", trip_id)
-        .eq("person_id", old_person_id);
-      if (delErr) return { status: "error", message: dbErr(delErr, "Posten-Soll konnte nicht übertragen werden.") };
-    }
-
-    const { data: itemExpenses, error: itemExpErr } = await supabase
-      .from("transactions")
-      .select("id")
-      .eq("trip_id", trip_id)
-      .eq("type", "expense")
-      .not("item_id", "is", null);
-    if (itemExpErr) {
-      return { status: "error", message: dbErr(itemExpErr, "Posten-Zahlungen konnten nicht geladen werden.") };
-    }
-    const itemExpenseIds = (itemExpenses ?? []).map((t) => t.id as string);
-    if (itemExpenseIds.length > 0) {
-      const { error: partErr } = await supabase
-        .from("transaction_participants")
-        .update({ person_id: newPersonId })
-        .eq("person_id", old_person_id)
-        .in("transaction_id", itemExpenseIds);
-      if (partErr) {
-        return { status: "error", message: dbErr(partErr, "Anteile an Posten-Zahlungen konnten nicht übertragen werden.") };
-      }
-    }
-  }
-
   // 6. PR 4 / Fix 1: ALLE Gutschriften, die A gegeben hat (credit_from =
   //    old_person_id — Pool- UND Bordkasse-Gutschriften, nicht nur
   //    Tranchen), werden direkt auf B umgehängt (UPDATE, keine neue Zeile).
@@ -1254,32 +1225,16 @@ export async function replaceMember(
     .eq("type", "credit")
     .is("deleted_at", null);
   if (handoverMode) creditQuery.not("tranche_id", "is", null);
+  // PR4a: Posten-Gutschriften NICHT hier — sie wandern (nur im klassischen
+  // Pfad) zusammen mit Posten-Soll und Anbieter-Anteilen in Schritt 8a, NACH
+  // dem letzten Buchungsspur-Check. So bleibt bei einem Abbruch dazwischen der
+  // ganze Posten-Topf konsistent bei A, statt halb bei A und halb bei B.
+  creditQuery.is("item_id", null);
   const { data: creditsToReassign, error: creditsSelectErr } = await creditQuery;
   if (creditsSelectErr) {
     return { status: "error", message: dbErr(creditsSelectErr, "Gutschriften konnten nicht geladen werden.") };
   }
-  // PR4a: in Variante b wandern zusätzlich die Posten-Gutschriften von A
-  // (wie das Posten-Soll, Schritt 5b). Im klassischen Pfad sind sie in der
-  // Abfrage oben ohnehin enthalten (alle Gutschriften von A). Eigene Query
-  // statt `.or()`, damit die Tranchen-Bedingung oben unverändert bleibt.
-  let itemCredits: typeof creditsToReassign = [];
-  if (handoverMode) {
-    const { data, error: itemCreditsErr } = await supabase
-      .from("transactions")
-      .select("id, amount, credit_to")
-      .eq("trip_id", trip_id)
-      .eq("credit_from", old_person_id)
-      .eq("type", "credit")
-      .not("item_id", "is", null)
-      .is("deleted_at", null);
-    if (itemCreditsErr) {
-      return { status: "error", message: dbErr(itemCreditsErr, "Gutschriften konnten nicht geladen werden.") };
-    }
-    itemCredits = data ?? [];
-  }
-  const reassignable = [...(creditsToReassign ?? []), ...(itemCredits ?? [])].filter(
-    (c) => c.credit_to !== old_person_id,
-  );
+  const reassignable = (creditsToReassign ?? []).filter((c) => c.credit_to !== old_person_id);
   const transferredSum = reassignable.reduce((sum, c) => sum + Number(c.amount), 0);
   if (reassignable.length > 0) {
     const { error: reassignErr } = await supabase
@@ -1341,6 +1296,92 @@ export async function replaceMember(
         "Diese Person hat inzwischen eine neue Buchung in diesem Törn bekommen. " +
         "Bitte Seite neu laden und erneut versuchen.",
     };
+  }
+
+  // 8a. PR4a (Reise-Posten), NUR im klassischen Pfad (A verschwindet aus der
+  //     Crew): Posten-Soll, A's Anteile an gebuchten Anbieter-Zahlungen
+  //     (Ausgabe mit item_id, per_person = Soll) und A's Posten-Gutschriften
+  //     wandern auf B — sonst hinge ein Soll an einer Person ohne
+  //     Mitgliedschaft, und ihre Anteile/Zahlungen fielen aus der
+  //     mitgliedschaftsgetriebenen v_balances (Σ ≠ 0). Annahme wie beim
+  //     Charter-Soll: B übernimmt A's Platz und hat A privat ausbezahlt.
+  //
+  //     In Variante b (Wechsel mitten im Törn) bleibt dagegen ALLES bei A
+  //     (Grill-Fund PR4a, P1): anders als ein Charterplatz ist ein Flug- oder
+  //     Bahnticket persönlich — A ist damit angereist, B reist mit einem
+  //     eigenen Ticket an (eigener Posten bzw. Soll). Ein Umhängen würde B
+  //     A's Flüge zahlen lassen. A bleibt Crew, Σ v_balances bleibt 0.
+  //
+  //     Bewusst NACH dem Re-Check 7b: scheitert der, ist am Posten noch
+  //     nichts verändert. B ist neu bzw. per Pre-Check ohne Posten-Spur
+  //     (Schritt 3) → keine PK-Kollision auf (item_id, person_id) bzw.
+  //     (transaction_id, person_id).
+  if (!handoverMode) {
+    const { data: oldItemObl, error: itemOblErr } = await supabase
+      .from("prepayment_item_obligations")
+      .select("item_id, amount")
+      .eq("trip_id", trip_id)
+      .eq("person_id", old_person_id);
+    if (itemOblErr) {
+      return { status: "error", message: dbErr(itemOblErr, "Posten-Soll konnte nicht übertragen werden.") };
+    }
+    if ((oldItemObl ?? []).length > 0) {
+      const { error: insErr } = await supabase.from("prepayment_item_obligations").insert(
+        (oldItemObl ?? []).map((o) => ({ item_id: o.item_id, trip_id, person_id: newPersonId, amount: o.amount })),
+      );
+      if (insErr) return { status: "error", message: dbErr(insErr, "Posten-Soll konnte nicht übertragen werden.") };
+      const { error: delErr } = await supabase
+        .from("prepayment_item_obligations")
+        .delete()
+        .eq("trip_id", trip_id)
+        .eq("person_id", old_person_id);
+      if (delErr) return { status: "error", message: dbErr(delErr, "Posten-Soll konnte nicht übertragen werden.") };
+    }
+
+    const { data: itemExpenses, error: itemExpErr } = await supabase
+      .from("transactions")
+      .select("id")
+      .eq("trip_id", trip_id)
+      .eq("type", "expense")
+      .not("item_id", "is", null);
+    if (itemExpErr) {
+      return { status: "error", message: dbErr(itemExpErr, "Posten-Zahlungen konnten nicht geladen werden.") };
+    }
+    const itemExpenseIds = (itemExpenses ?? []).map((t) => t.id as string);
+    if (itemExpenseIds.length > 0) {
+      const { error: partErr } = await supabase
+        .from("transaction_participants")
+        .update({ person_id: newPersonId })
+        .eq("person_id", old_person_id)
+        .in("transaction_id", itemExpenseIds);
+      if (partErr) {
+        return { status: "error", message: dbErr(partErr, "Anteile an Posten-Zahlungen konnten nicht übertragen werden.") };
+      }
+    }
+
+    // A ist per Payee-Guard (1c) nie Empfänger → keine Selbstverrechnung
+    // A→A; der Filter ist trotzdem defensiv wie in Schritt 6.
+    const { data: itemCredits, error: itemCreditSelErr } = await supabase
+      .from("transactions")
+      .select("id, credit_to")
+      .eq("trip_id", trip_id)
+      .eq("credit_from", old_person_id)
+      .eq("type", "credit")
+      .not("item_id", "is", null);
+    if (itemCreditSelErr) {
+      return { status: "error", message: dbErr(itemCreditSelErr, "Posten-Gutschriften konnten nicht geladen werden.") };
+    }
+    const itemCreditIds = (itemCredits ?? []).filter((c) => c.credit_to !== old_person_id).map((c) => c.id as string);
+    if (itemCreditIds.length > 0) {
+      const { error: itemCreditErr } = await supabase
+        .from("transactions")
+        .update({ credit_from: newPersonId })
+        .eq("trip_id", trip_id)
+        .in("id", itemCreditIds);
+      if (itemCreditErr) {
+        return { status: "error", message: dbErr(itemCreditErr, "Posten-Gutschriften konnten nicht übertragen werden.") };
+      }
+    }
   }
 
   // 8. A aus der Crew nehmen — auf zwei Arten, je nach Modus.

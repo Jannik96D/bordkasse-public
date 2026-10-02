@@ -55,13 +55,16 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
   const t = (name: string) => (tables[name] ??= []);
 
   const shouldFail = (table: string, action: Action) => {
+    // Alle passenden Regeln zählen mit (sonst verschluckte die erste Regel die
+    // Zählung der zweiten), danach entscheidet die erste, die dran ist.
+    let hit: { code?: string; message: string } | null = null;
     for (const r of failRules) {
       if (r.table === table && r.action === action) {
         r.seen += 1;
-        if (r.seen === (r.nth ?? 1)) return r.error ?? { message: `injected failure ${table}.${action}` };
+        if (!hit && r.seen === (r.nth ?? 1)) hit = r.error ?? { message: `injected failure ${table}.${action}` };
       }
     }
-    return null;
+    return hit;
   };
 
   const resolveCol = (row: Row, col: string): unknown => {
@@ -198,7 +201,11 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
         writes.push({ table, action, payload, filters: filterDesc });
         return { data: wantsRows ? hit.map((r) => ({ ...r })) : null, error: null };
       }
-      // delete
+      // delete (mit CASCADE transactions → transaction_participants wie in der DB)
+      if (table === "transactions") {
+        const gone = new Set(t(table).filter(matches).map((r) => r.id));
+        tables.transaction_participants = t("transaction_participants").filter((p) => !gone.has(p.transaction_id));
+      }
       const keep = t(table).filter((r) => !matches(r));
       const removed = t(table).length - keep.length;
       tables[table] = keep;
@@ -224,8 +231,17 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
     return b;
   }
 
+  const fromHooks: Array<{ table: string; nth: number; seen: number; fn: () => void }> = [];
   const client = {
-    from: (table: string) => builder(table),
+    from: (table: string) => {
+      for (const h of fromHooks) {
+        if (h.table === table) {
+          h.seen += 1;
+          if (h.seen === h.nth) h.fn();
+        }
+      }
+      return builder(table);
+    },
     rpc: (name: string, args: Record<string, unknown>) => {
       rpcCalls.push({ name, args });
       const h = rpcHandlers[name];
@@ -241,6 +257,11 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
     rpcCalls,
     failOn(rule: FailRule) {
       failRules.push({ ...rule, seen: 0 });
+    },
+    /** Führt `fn` aus, wenn `from(table)` zum `nth`-ten Mal aufgerufen wird
+     *  (simuliert einen parallelen Schreibzugriff zwischen zwei Requests). */
+    onFrom(table: string, nth: number, fn: () => void) {
+      fromHooks.push({ table, nth, seen: 0, fn });
     },
     onRpc(name: string, handler: (args: Record<string, unknown>) => { data?: unknown; error?: { message: string } | null }) {
       rpcHandlers[name] = handler;

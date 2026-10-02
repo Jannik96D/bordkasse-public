@@ -330,6 +330,46 @@ describe("saveItem — ändern", () => {
     expect(fake.rpcCalls.some((c) => c.name === "move_item_payee")).toBe(false);
   });
 
+  it("nach einer Anbieter-Zahlung: Umbenennen klappt auch nach einer Crew-Änderung, das Soll bleibt unangetastet", async () => {
+    // gleichmäßiger Posten, gespeichertes Soll 100/100/100; danach kommt Clara
+    // dazu — ein Neuberechnen ergäbe 75/75/75/75 und sperrte sonst jede Änderung.
+    const t = withItem({ transactions: [providerTx] });
+    t.prepayment_items = t.prepayment_items.map((i) => (i.id === ITEM ? { ...i, split_type: "gleichmaessig" } : i));
+    t.prepayment_item_obligations = [
+      { item_id: ITEM, trip_id: TRIP, person_id: SKIPPER, amount: 100 },
+      { item_id: ITEM, trip_id: TRIP, person_id: ANNA, amount: 100 },
+      { item_id: ITEM, trip_id: TRIP, person_id: BEN, amount: 100 },
+    ];
+    useFake(t);
+    const res = await saveItem({ status: "idle" }, payloadFd({
+      trip_id: TRIP, id: ITEM, category_id: CAT, label: "Flüge (gebucht)", total_amount: "300", split_type: "gleichmaessig",
+    }));
+    expect(res.status).toBe("ok");
+    expect(fake.rows("prepayment_items").find((r) => r.id === ITEM)!.label).toBe("Flüge (gebucht)");
+    const obl = fake.rows("prepayment_item_obligations").filter((r) => r.item_id === ITEM);
+    expect(obl.map((o) => o.amount)).toEqual([100, 100, 100]);
+    expect(fake.writes.some((w) => w.table === "prepayment_item_obligations")).toBe(false);
+  });
+
+  it("Race: wird WÄHREND des Neuverteilens eine Anbieter-Zahlung gebucht, wird zurückgerollt", async () => {
+    useFake(withItem());
+    // 3. from("transactions") = Nachkontrolle nach dem Soll-Insert.
+    fake.onFrom("transactions", 2, () => fake.rows("transactions").push({ ...providerTx }));
+    const res = await saveItem({ status: "idle" }, payloadFd(indiv([[ANNA, "150"], [BEN, "150"]])));
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).toContain("Während des Speicherns");
+    expect(fake.rows("prepayment_item_obligations").find((o) => o.person_id === ANNA)!.amount).toBe(100);
+  });
+
+  it("scheitert auch das Zurücksetzen, sagt die Meldung das", async () => {
+    useFake(withItem());
+    fake.failOn({ table: "prepayment_item_obligations", action: "insert" });
+    fake.failOn({ table: "prepayment_item_obligations", action: "insert", nth: 2 });
+    const res = await saveItem({ status: "idle" }, payloadFd({ ...indiv([[ANNA, "150"], [BEN, "150"]]), label: "Neu" }));
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).toContain("Zurücksetzen");
+  });
+
   it("Rollback: scheitert das neue Soll, kommt das alte zurück", async () => {
     useFake(withItem());
     fake.failOn({ table: "prepayment_item_obligations", action: "insert" });
@@ -416,6 +456,21 @@ describe("recordItemPayment — Crew → Empfänger", () => {
     const res = await rec({ item_id: FOREIGN_ITEM });
     expect(res.status).toBe("error");
     expect(fake.rows("transactions")).toHaveLength(0);
+  });
+
+  it("ein idempotency_key, der zu einer ANDEREN Buchung gehört, ist kein „Duplikat“", async () => {
+    useFake(withItem({ transactions: [{ id: "other", trip_id: TRIP, type: "expense", item_id: null, idempotency_key: KEY1, amount: 5, deleted_at: null }] }));
+    const res = await rec();
+    expect(res.status).toBe("error");
+    expect(fake.rows("transactions")).toHaveLength(1);
+  });
+
+  it("Audit-Log zeigt auf die neue Buchung, nicht auf den Posten", async () => {
+    useFake(withItem());
+    await rec();
+    const txId = fake.rows("transactions")[0].id;
+    const audit = fake.rows("audit_log").find((a) => (a.payload as Row)?.kind === "item-payment")!;
+    expect(audit.record_id).toBe(txId);
   });
 
   it("Zahler aus einem fremden Törn → kein Insert", async () => {
@@ -614,6 +669,29 @@ describe("recordItemProviderPayment — Empfänger → Anbieter", () => {
     const res = await pay("60", KEY2);
     expect(res.status).toBe("error");
     expect(fake.rows("transactions")).toHaveLength(1);
+  });
+
+  it("Race: zwei parallele Anbieter-Zahlungen übersteigen zusammen den Posten → diese wird zurückgerollt", async () => {
+    useFake(withItem());
+    // Nach dem Anteils-Insert (Nachkontrolle) taucht eine parallele Zahlung auf.
+    fake.onFrom("transaction_participants", 1, () =>
+      fake.rows("transactions").push({ id: "parallel", trip_id: TRIP, type: "expense", item_id: ITEM, amount: 200, deleted_at: null }),
+    );
+    const res = await pay("200");
+    expect(res.status).toBe("error");
+    expect(fake.rows("transactions").map((t) => t.id)).toEqual(["parallel"]);
+    expect(fake.rows("transaction_participants")).toHaveLength(0);
+  });
+
+  it("Race: ändert sich das Soll gleichzeitig, wird die Zahlung zurückgerollt", async () => {
+    useFake(withItem());
+    fake.onFrom("transaction_participants", 1, () => {
+      const anna = fake.rows("prepayment_item_obligations").find((o) => o.person_id === ANNA)!;
+      anna.amount = 120;
+    });
+    const res = await pay("300");
+    expect(res.status).toBe("error");
+    expect(fake.rows("transactions")).toHaveLength(0);
   });
 
   it("Rollback: scheitern die Anteile, verschwindet die Ausgabe wieder", async () => {
