@@ -330,7 +330,9 @@ async function itemsNavShow(tripId: string, viewer: NavViewer): Promise<boolean>
       personId: viewer.personId,
       isManager: viewer.isAdmin || viewer.isTripSkipper,
     });
-  } catch {
+  } catch (e) {
+    // Tab bleibt aus (statt alle Törn-Tabs zu crashen) — aber nicht stumm.
+    console.error("[bordkasse:nav] Posten für den Anzahlungen-Tab nicht ladbar:", tripId, e instanceof Error ? e.message : e);
     return false;
   }
 }

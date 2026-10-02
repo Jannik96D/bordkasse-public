@@ -18,7 +18,7 @@ import { RefreshCw } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { useToast } from "@/components/toast-provider";
 import { formatEuro, formatAmount, todayIso } from "@/lib/utils";
-import { evalItemAmount } from "@/lib/prepayments/item-ui";
+import { evalItemAmount, NETWORK_ERROR_MESSAGE } from "@/lib/prepayments/item-ui";
 import {
   recordItemPayment,
   submitItemSelfPayment,
@@ -45,7 +45,15 @@ function useItemAction(onClose: () => void, successMessage: string) {
   function run(action: (prev: ItemActionState, fd: FormData) => Promise<ItemActionState>, fd: FormData) {
     setError(null);
     startTransition(async () => {
-      const res = await action({ status: "idle" }, fd);
+      let res: ItemActionState;
+      try {
+        res = await action({ status: "idle" }, fd);
+      } catch {
+        // Netz weg: Modal und Eingaben bleiben, der idempotency_key auch —
+        // ein Retry wird serverseitig als Duplikat erkannt, nicht doppelt gebucht.
+        setError(NETWORK_ERROR_MESSAGE);
+        return;
+      }
       if (res.status === "error") {
         setError(res.message);
         return;
@@ -118,14 +126,12 @@ function AmountDateFields({
 
 function Footer({
   onClose,
-  submit,
   pending,
   disabled,
   label,
   error,
 }: {
   onClose: () => void;
-  submit: () => void;
   pending: boolean;
   disabled: boolean;
   label: string;
@@ -147,8 +153,7 @@ function Footer({
           Abbrechen
         </button>
         <button
-          type="button"
-          onClick={submit}
+          type="submit"
           disabled={pending || disabled}
           className="inline-flex min-h-[44px] items-center gap-1 rounded-md bg-primary px-4 py-2 text-sm font-medium text-paper hover:bg-navy-dark focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
         >
@@ -214,6 +219,7 @@ export function ItemPaymentModal({
 
   return (
     <Modal onClose={onClose} labelledBy={titleId}>
+      <form onSubmit={(e) => { e.preventDefault(); submit(); }}>
       <h2 id={titleId} className="text-base font-semibold text-primary">
         {mode === "self" ? "Zahlung melden" : `Zahlung von ${personName} erfassen`}
       </h2>
@@ -245,12 +251,12 @@ export function ItemPaymentModal({
       )}
       <Footer
         onClose={onClose}
-        submit={submit}
         pending={pending}
         disabled={parsed === null || parsed <= 0}
         label={mode === "self" ? "Melden" : "Speichern"}
         error={error}
       />
+      </form>
     </Modal>
   );
 }
@@ -293,6 +299,7 @@ export function ItemProviderPaymentModal({
 
   return (
     <Modal onClose={onClose} labelledBy={titleId}>
+      <form onSubmit={(e) => { e.preventDefault(); submit(); }}>
       <h2 id={titleId} className="text-base font-semibold text-primary">Zahlung an den Anbieter erfassen</h2>
       <p className="mt-1 text-sm text-ink-soft">
         {itemLabel} · hier trägst du ein, was du selbst an Airline, Bahn o. Ä. überwiesen hast. Teilzahlungen sind
@@ -322,12 +329,12 @@ export function ItemProviderPaymentModal({
       )}
       <Footer
         onClose={onClose}
-        submit={submit}
         pending={pending}
         disabled={parsed === null || parsed <= 0}
         label="Speichern"
         error={error}
       />
+      </form>
     </Modal>
   );
 }

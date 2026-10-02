@@ -109,6 +109,28 @@ export const ITEM_OVERALL_LABEL: Record<ItemOverall, string> = {
   empty: "Ohne Sollbeträge",
 };
 
+/**
+ * Von der Gruppe bezahlt, gedeckelt PRO PERSON: Σ min(paid, soll). Eine
+ * Überzahlung von A darf die offene Schuld von B nicht ausgleichen — mit
+ * min(Σpaid, Σsoll) zeigte der Balken dann fälschlich 100 %.
+ */
+export function groupPaidCapped(cells: { soll: number; paid: number }[]): number {
+  return cells.reduce((sum, c) => sum + Math.min(c.paid, c.soll), 0);
+}
+
+/** Posten, an denen die Person beteiligt ist (Empfänger, Soll, Zahlung, Meldung). */
+export function itemsVisibleTo<T extends ItemLike>(items: T[], personId: string | null): T[] {
+  if (!personId) return [];
+  return items.filter(
+    (it) =>
+      it.payee_person_id === personId ||
+      it.cells.some((c) => c.person_id === personId && (c.soll > 0.005 || c.paid > 0.005 || c.pending > 0.005)),
+  );
+}
+
+/** Meldung bei Netzwerkfehler einer Server-Action (Eingaben bleiben, Retry ist idempotent). */
+export const NETWORK_ERROR_MESSAGE = "Keine Verbindung — bitte erneut versuchen.";
+
 /** Fortschritt 0–100 (für Balken) — geklemmt, nie NaN. */
 export function progressPercent(done: number, total: number): number {
   if (!(total > 0)) return 0;
@@ -203,10 +225,24 @@ export function itemLocks(item: ItemLike): ItemLocks {
 // ────────────────────────────────────────────────────────────────────────
 
 /**
+ * Zahlen in einem Rechenausdruck deutsch lesen, bevor `safeMathEval`
+ * (kennt nur den Punkt als Dezimaltrenner) ihn sieht. Sonst würde
+ * „3.700 - 3" als 3,7 − 3 = 0,7 ausgewertet. Regel wie `parseAmountDe`:
+ * Mit Komma sind Punkte Tausendertrenner; ohne Komma nur beim Muster
+ * `1.234(.567)*` — „3.7" bleibt 3,7.
+ */
+function normalizeNumbersDe(expr: string): string {
+  return expr.replace(/\d[\d.,]*/g, (tok) => {
+    const n = parseAmountDe(tok);
+    return n === null ? tok : String(n);
+  });
+}
+
+/**
  * Betragsfeld auswerten: reine Zahl (deutsches Komma, Tausenderpunkt) ODER
- * Rechenausdruck („1200 - 150,50", „480 / 4"). `null` = nicht auswertbar.
- * Erst `parseAmountDe` (versteht „3.700,00"), dann `safeMathEval` — letzterer
- * würde „3.700,00" als zwei Dezimalpunkte ablehnen.
+ * Rechenausdruck („1200 - 150,50", „3.700 - 100", „480 / 4"). `null` = nicht
+ * auswertbar. Ein Punkt mit genau drei Ziffern danach gilt immer als
+ * Tausendertrenner („3.700" = 3700), sonst als Dezimalpunkt („3.7" = 3,7).
  */
 export function evalItemAmount(raw: string): number | null {
   const s = (raw ?? "").trim();
@@ -215,7 +251,7 @@ export function evalItemAmount(raw: string): number | null {
     const n = parseAmountDe(s.replace(/\s/g, ""));
     if (n !== null) return Math.round(n * 100) / 100;
   }
-  return safeMathEval(s);
+  return safeMathEval(normalizeNumbersDe(s));
 }
 
 /** Σ Einzelbeträge (Texte) in Cent; nicht auswertbare/leere Felder zählen 0. */

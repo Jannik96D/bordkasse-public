@@ -6,7 +6,7 @@ import { getTrip } from "@/lib/queries/trips";
 import { getPlan, getPrepaymentPoolBalances, getCharterPaidTotal } from "@/lib/queries/prepayments";
 import { getItems, getItemPotBalances, type PrepaymentItemView } from "@/lib/queries/prepayment-items";
 import { CategoryIcon } from "@/components/category-icon";
-import { itemOverallStatus, ITEM_OVERALL_LABEL } from "@/lib/prepayments/item-ui";
+import { groupPaidCapped, itemOverallStatus, ITEM_OVERALL_LABEL } from "@/lib/prepayments/item-ui";
 import { formatEuro, todayIso } from "@/lib/utils";
 import { tripVocab, type TripType } from "@/lib/trip-vocab";
 import type { PrepaymentPoolBalance } from "@/lib/queries/prepayments";
@@ -333,7 +333,7 @@ function ItemsSummary({
                 </span>
               </div>
               <p className="mt-1 pl-6 text-xs tabular-nums text-ink-soft">
-                {vocab.crew}: {formatEuro(Math.min(it.paidTotal, it.sollTotal))} von {formatEuro(it.sollTotal)} · Anbieter:{" "}
+                {vocab.crew}: {formatEuro(groupPaidCapped(it.cells))} von {formatEuro(it.sollTotal)} · Anbieter:{" "}
                 {formatEuro(it.providerPaid)} von {formatEuro(it.total_amount)}
                 {it.overpaidTotal > 0.005 && <> · <strong className="text-danger">{formatEuro(it.overpaidTotal)} zu viel bezahlt</strong></>}
               </p>

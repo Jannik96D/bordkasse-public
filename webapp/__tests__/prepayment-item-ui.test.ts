@@ -4,6 +4,8 @@ import {
   buildSaveItemPayload,
   defaultItemCategoryId,
   evalItemAmount,
+  groupPaidCapped,
+  itemsVisibleTo,
   individuellDiffCents,
   itemCellAriaLabel,
   itemLocks,
@@ -249,5 +251,66 @@ describe("itemsNavRelevant", () => {
   it("Crew: eigener bezahlter Anteil blendet den Tab nicht ein", () => {
     const notMine = { ...open, payee_person_id: "p" };
     expect(itemsNavRelevant([notMine], { personId: "a", isManager: false })).toBe(false);
+  });
+});
+
+describe("groupPaidCapped", () => {
+  it("deckelt pro Person: Überzahlung von A gleicht B nicht aus", () => {
+    // A zahlt 150 bei Soll 100, B zahlt 0 bei Soll 100 → Gruppe hat 100 von 200, nicht 200 von 200.
+    expect(groupPaidCapped([cell("a", 100, 150), cell("b", 100, 0)])).toBe(100);
+  });
+  it("normale Fälle und Soll 0", () => {
+    expect(groupPaidCapped([cell("a", 100, 100), cell("b", 100, 40)])).toBe(140);
+    expect(groupPaidCapped([cell("a", 0, 30)])).toBe(0);
+    expect(groupPaidCapped([])).toBe(0);
+  });
+  it("Balken nicht 100 %, wenn B offen ist (A +50 zu viel, B 50 offen)", () => {
+    const cells = [cell("a", 100, 150), cell("b", 100, 50)];
+    expect(progressPercent(groupPaidCapped(cells), 200)).toBe(75);
+  });
+});
+
+describe("itemsVisibleTo", () => {
+  const it1 = item({ complete: false, payee_person_id: "p", cells: [cell("a", 100, 0), cell("z", 0, 0)] });
+  it("Empfänger und Beteiligte sehen den Posten, Unbeteiligte nicht", () => {
+    expect(itemsVisibleTo([it1], "p")).toHaveLength(1);
+    expect(itemsVisibleTo([it1], "a")).toHaveLength(1);
+    expect(itemsVisibleTo([it1], "z")).toHaveLength(0);
+    expect(itemsVisibleTo([it1], "unbekannt")).toHaveLength(0);
+    expect(itemsVisibleTo([it1], null)).toHaveLength(0);
+  });
+});
+
+describe("evalItemAmount gemischt (Tausenderpunkt im Ausdruck)", () => {
+  it("liest „3.700“ im Ausdruck als 3700, nicht als 3,7", () => {
+    expect(evalItemAmount("3.700 - 100")).toBe(3600);
+    expect(evalItemAmount("3.700 - 3")).toBe(3697);
+    expect(evalItemAmount("1.200,50 - 0,50")).toBe(1200);
+    expect(evalItemAmount("3.700,00 / 4")).toBe(925);
+  });
+  it("Dezimalpunkt bleibt Dezimalpunkt, wenn keine drei Ziffern folgen", () => {
+    expect(evalItemAmount("3.7 + 1")).toBe(4.7);
+    expect(evalItemAmount("12.5")).toBe(12.5);
+  });
+});
+
+describe("itemOverallStatus Randfälle", () => {
+  it("Anbieter überzahlt UND Crew offen → overpaid (Geld muss zurück geht vor)", () => {
+    const it = item({
+      complete: false,
+      total_amount: 200,
+      providerPaid: 260,
+      cells: [cell("a", 100, 100), cell("b", 100, 0)],
+    });
+    expect(itemOverallStatus(it)).toBe("overpaid");
+  });
+});
+
+describe("itemsNavRelevant Rollen", () => {
+  const open = item({ complete: false, payee_person_id: "p", cells: [cell("a", 100, 0)] });
+  it("Admin ohne Person und Co-Skipper sehen den Tab bei offenem Posten, nicht bei fertigem", () => {
+    expect(itemsNavRelevant([open], { personId: null, isManager: true })).toBe(true);
+    expect(itemsNavRelevant([open], { personId: "co", isManager: true })).toBe(true);
+    expect(itemsNavRelevant([item()], { personId: "co", isManager: true })).toBe(false);
   });
 });

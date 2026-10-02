@@ -23,14 +23,17 @@ import { CategoryIcon } from "@/components/category-icon";
 import { useConfirm } from "@/components/confirm-dialog";
 import { useToast } from "@/components/toast-provider";
 import { useTripVocab } from "@/components/trip-vocab-provider";
-import { formatEuro, todayIso } from "@/lib/utils";
+import { formatEuro } from "@/lib/utils";
 import { formatDeDate } from "@/lib/prepayments/dates";
 import {
   ITEM_OVERALL_LABEL,
   ITEM_STATUS_META,
   itemCellAriaLabel,
   itemLocks,
+  groupPaidCapped,
   itemOverallStatus,
+  itemsVisibleTo,
+  NETWORK_ERROR_MESSAGE,
   progressPercent,
   providerDueInfo,
 } from "@/lib/prepayments/item-ui";
@@ -66,16 +69,12 @@ export interface ItemsSectionProps {
   readOnly: boolean;
   /** Vorbelegung des Empfängers beim Anlegen (Trip-Skipper). */
   defaultPayeeId: string | null;
+  /** Heutiges Datum (ISO), vom Server — Server und Client rechnen damit identisch (kein Hydration-Mismatch). */
+  today: string;
 }
 
-type PaymentTarget = {
-  item: PrepaymentItemView;
-  mode: "record" | "self";
-  personId: string;
-  personName: string;
-  soll: number;
-  paid: number;
-};
+/** Nur IDs merken: die Modale lesen Soll/Bezahlt/Locks nach jedem router.refresh frisch aus `items`. */
+type PaymentTarget = { itemId: string; mode: "record" | "self"; personId: string };
 
 export function ItemsSection({
   tripId,
@@ -86,21 +85,23 @@ export function ItemsSection({
   canManageItems,
   readOnly,
   defaultPayeeId,
+  today,
 }: ItemsSectionProps) {
   const vocab = useTripVocab();
-  const [form, setForm] = useState<{ item: PrepaymentItemView | null } | null>(null);
+  const [form, setForm] = useState<{ itemId: string | null } | null>(null);
   const [payment, setPayment] = useState<PaymentTarget | null>(null);
-  const [provider, setProvider] = useState<PrepaymentItemView | null>(null);
+  const [providerId, setProviderId] = useState<string | null>(null);
+  const itemById = new Map(items.map((i) => [i.id, i]));
+  // Aktueller Stand der offenen Modale; verschwindet der Posten (anderswo gelöscht), schließt das Modal.
+  const formItem = form?.itemId ? itemById.get(form.itemId) ?? null : null;
+  const paymentItem = payment ? itemById.get(payment.itemId) ?? null : null;
+  const paymentCell = payment && paymentItem ? paymentItem.cells.find((c) => c.person_id === payment.personId) : undefined;
+  const provider = providerId ? itemById.get(providerId) ?? null : null;
   const nameById = new Map(members.map((m) => [m.id, m.display_name]));
   const nameOf = (id: string) => nameById.get(id) ?? vocab.member;
 
   // Crew sieht nur Posten, an denen sie beteiligt ist (Soll/Zahlung/Empfänger).
-  const visible = items.filter(
-    (it) =>
-      canManageItems ||
-      it.payee_person_id === viewerId ||
-      it.cells.some((c) => c.person_id === viewerId && (c.soll > 0.005 || c.paid > 0.005 || c.pending > 0.005)),
-  );
+  const visible = canManageItems ? items : itemsVisibleTo(items, viewerId);
 
   if (visible.length === 0 && !canManageItems) return null;
 
@@ -111,7 +112,7 @@ export function ItemsSection({
         {canManageItems && !readOnly && (
           <button
             type="button"
-            onClick={() => setForm({ item: null })}
+            onClick={() => setForm({ itemId: null })}
             className="inline-flex min-h-[44px] items-center gap-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-paper hover:bg-navy-dark focus:outline-none focus:ring-2 focus:ring-primary/40"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
@@ -154,18 +155,10 @@ export function ItemsSection({
                     nameOf={nameOf}
                     canEdit={canManageItems && !readOnly}
                     canRecord={!readOnly}
-                    onEdit={() => setForm({ item: it })}
-                    onRecord={(c) =>
-                      setPayment({
-                        item: it,
-                        mode: "record",
-                        personId: c.person_id,
-                        personName: nameOf(c.person_id),
-                        soll: c.soll,
-                        paid: c.paid,
-                      })
-                    }
-                    onProvider={() => setProvider(it)}
+                    today={today}
+                    onEdit={() => setForm({ itemId: it.id })}
+                    onRecord={(c) => setPayment({ itemId: it.id, mode: "record", personId: c.person_id })}
+                    onProvider={() => setProviderId(it.id)}
                   />
                 ) : (
                   <ItemSelfCard
@@ -173,16 +166,7 @@ export function ItemsSection({
                     viewerId={viewerId}
                     payeeName={nameOf(it.payee_person_id)}
                     readOnly={readOnly}
-                    onReport={(c) =>
-                      setPayment({
-                        item: it,
-                        mode: "self",
-                        personId: c.person_id,
-                        personName: nameOf(c.person_id),
-                        soll: c.soll,
-                        paid: c.paid,
-                      })
-                    }
+                    onReport={(c) => setPayment({ itemId: it.id, mode: "self", personId: c.person_id })}
                   />
                 )}
               </li>
@@ -191,10 +175,10 @@ export function ItemsSection({
         </ul>
       )}
 
-      {form && (
+      {form && (form.itemId === null || formItem) && (
         <ItemFormModal
           tripId={tripId}
-          item={form.item}
+          item={formItem}
           members={members}
           categories={categories}
           defaultPayeeId={defaultPayeeId}
@@ -202,17 +186,17 @@ export function ItemsSection({
           onClose={() => setForm(null)}
         />
       )}
-      {payment && (
+      {payment && paymentItem && paymentCell && (
         <ItemPaymentModal
           tripId={tripId}
-          itemId={payment.item.id}
-          itemLabel={payment.item.label}
+          itemId={paymentItem.id}
+          itemLabel={paymentItem.label}
           mode={payment.mode}
           personId={payment.personId}
-          personName={payment.personName}
-          payeeName={nameOf(payment.item.payee_person_id)}
-          soll={payment.soll}
-          paid={payment.paid}
+          personName={nameOf(payment.personId)}
+          payeeName={nameOf(paymentItem.payee_person_id)}
+          soll={paymentCell.soll}
+          paid={paymentCell.paid}
           onClose={() => setPayment(null)}
         />
       )}
@@ -223,7 +207,7 @@ export function ItemsSection({
           itemLabel={provider.label}
           total={provider.total_amount}
           providerPaid={provider.providerPaid}
-          onClose={() => setProvider(null)}
+          onClose={() => setProviderId(null)}
         />
       )}
     </section>
@@ -322,6 +306,7 @@ function ItemCard({
   nameOf,
   canEdit,
   canRecord,
+  today,
   onEdit,
   onRecord,
   onProvider,
@@ -332,13 +317,14 @@ function ItemCard({
   nameOf: (id: string) => string;
   canEdit: boolean;
   canRecord: boolean;
+  today: string;
   onEdit: () => void;
   onRecord: (cell: PrepaymentItemView["cells"][number]) => void;
   onProvider: () => void;
 }) {
   const overall = itemOverallStatus(item);
   const locks = itemLocks(item);
-  const due = providerDueInfo(item, todayIso(), formatDeDate);
+  const due = providerDueInfo(item, today, formatDeDate);
   const rows = item.cells
     .filter((c) => c.soll > 0.005 || c.paid > 0.005 || c.pending > 0.005)
     .map((c) => ({ ...c, name: nameOf(c.person_id) }))
@@ -351,7 +337,7 @@ function ItemCard({
       <CardHeader item={item} payeeName={payeeName} overall={overall} />
 
       <div className="mt-3 space-y-3">
-        <Progress label={`Von der Gruppe an ${payeeName} bezahlt`} done={Math.min(item.paidTotal, item.sollTotal)} total={item.sollTotal} />
+        <Progress label={`Von der Gruppe an ${payeeName} bezahlt`} done={groupPaidCapped(item.cells)} total={item.sollTotal} />
         <Progress label="An den Anbieter bezahlt" done={Math.min(item.providerPaid, item.total_amount)} total={item.total_amount} tone={item.providerPaid > item.total_amount + 0.005 ? "warn" : undefined} />
       </div>
 
@@ -417,7 +403,7 @@ function ItemCard({
                   <strong>{nameOf(p.person_id)}</strong> hat <strong className="text-primary">{formatEuro(p.amount)}</strong> gemeldet
                   <span className="block text-xs text-ink-soft">{formatDeDate(p.date)}</span>
                 </div>
-                {canRecord && <PendingActions transactionId={p.transaction_id} />}
+                {canRecord && <PendingActions transactionId={p.transaction_id} who={nameOf(p.person_id)} amount={formatEuro(p.amount)} />}
               </li>
             ))}
           </ul>
@@ -521,7 +507,13 @@ function ItemAdminActions({
     fd.set("trip_id", tripId);
     fd.set("item_id", item.id);
     startTransition(async () => {
-      const res: ItemActionState = await deleteItem({ status: "idle" }, fd);
+      let res: ItemActionState;
+      try {
+        res = await deleteItem({ status: "idle" }, fd);
+      } catch {
+        setError(NETWORK_ERROR_MESSAGE);
+        return;
+      }
       if (res.status === "error") {
         setError(res.message);
         return;
@@ -544,10 +536,15 @@ function ItemAdminActions({
         </button>
         <button
           type="button"
-          onClick={remove}
-          disabled={pending || deleteReason !== null}
+          onClick={() => {
+            if (!pending && deleteReason === null) void remove();
+          }}
+          // aria-disabled statt disabled: bleibt fokussierbar, die Begründung wird vorgelesen.
+          aria-disabled={pending || deleteReason !== null}
           aria-describedby={deleteReason ? `item-${item.id}-del` : undefined}
-          className="inline-flex min-h-[44px] items-center gap-1 rounded-md border border-rule px-3 py-2 text-sm text-danger hover:border-danger/40 focus:outline-none focus:ring-2 focus:ring-danger/30 disabled:opacity-50"
+          className={`inline-flex min-h-[44px] items-center gap-1 rounded-md border border-rule px-3 py-2 text-sm text-danger hover:border-danger/40 focus:outline-none focus:ring-2 focus:ring-danger/30 ${
+            pending || deleteReason !== null ? "cursor-not-allowed opacity-50" : ""
+          }`}
         >
           {pending ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
           Löschen
@@ -564,7 +561,7 @@ function ItemAdminActions({
   );
 }
 
-function PendingActions({ transactionId }: { transactionId: string }) {
+function PendingActions({ transactionId, who, amount }: { transactionId: string; who: string; amount: string }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
@@ -575,7 +572,13 @@ function PendingActions({ transactionId }: { transactionId: string }) {
     const fd = new FormData();
     fd.set("transaction_id", transactionId);
     startTransition(async () => {
-      const res = await action({ status: "idle" }, fd);
+      let res: ItemActionState;
+      try {
+        res = await action({ status: "idle" }, fd);
+      } catch {
+        setError(NETWORK_ERROR_MESSAGE);
+        return;
+      }
       if (res.status === "error") {
         setError(res.message);
         return;
@@ -592,7 +595,7 @@ function PendingActions({ transactionId }: { transactionId: string }) {
           type="button"
           onClick={() => run(confirmItemSelfPayment, "Zahlung bestätigt.")}
           disabled={pending}
-          aria-label="Selbstmeldung bestätigen"
+          aria-label={`Meldung von ${who} über ${amount} bestätigen`}
           title="Bestätigen"
           className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md bg-success px-3 py-1.5 text-paper hover:bg-success/90 focus:outline-none focus:ring-2 focus:ring-success/40 disabled:opacity-50"
         >
@@ -602,7 +605,7 @@ function PendingActions({ transactionId }: { transactionId: string }) {
           type="button"
           onClick={() => run(rejectItemSelfPayment, "Meldung abgelehnt.")}
           disabled={pending}
-          aria-label="Selbstmeldung ablehnen"
+          aria-label={`Meldung von ${who} über ${amount} ablehnen`}
           title="Ablehnen"
           className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-rule bg-paper px-3 py-1.5 text-danger hover:border-danger/40 focus:outline-none focus:ring-2 focus:ring-danger/40 disabled:opacity-50"
         >

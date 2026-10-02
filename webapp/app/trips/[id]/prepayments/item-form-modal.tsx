@@ -21,6 +21,7 @@ import {
   evalItemAmount,
   individuellDiffCents,
   itemLocks,
+  NETWORK_ERROR_MESSAGE,
   type ItemFormState,
 } from "@/lib/prepayments/item-ui";
 import type { ItemSplitType } from "@/lib/calc/prepayment-item-shares";
@@ -81,7 +82,11 @@ export function ItemFormModal({
     label: item?.label ?? "",
     amountText: item ? formatAmount(item.total_amount) : "",
     dueDate: item?.due_date ?? "",
-    payeeId: item?.payee_person_id ?? defaultPayeeId ?? members[0]?.id ?? "",
+    // Nur ein gültiger Wert: ein Default außerhalb der Gruppe ließe das <select>
+    // optisch auf der ersten Option stehen, im State aber etwas anderes halten.
+    payeeId:
+      item?.payee_person_id ??
+      (defaultPayeeId && members.some((m) => m.id === defaultPayeeId) ? defaultPayeeId : members[0]?.id ?? ""),
     splitType: item?.split_type ?? "gleichmaessig",
     // Bei Bearbeitung mit dem gespeicherten Soll vorbelegen — auch beim Wechsel
     // von gleichmäßig → individuell ein sinnvoller Ausgangspunkt.
@@ -110,7 +115,14 @@ export function ItemFormModal({
     const fd = new FormData();
     fd.set("payload", JSON.stringify(built.payload));
     startTransition(async () => {
-      const res = await saveItem({ status: "idle" }, fd);
+      let res: Awaited<ReturnType<typeof saveItem>>;
+      try {
+        res = await saveItem({ status: "idle" }, fd);
+      } catch {
+        // Modal und Eingaben bleiben; die Posten-ID ist stabil → Retry legt nichts doppelt an.
+        setError({ message: NETWORK_ERROR_MESSAGE });
+        return;
+      }
       if (res.status === "error") {
         setError({ message: res.message, field: res.field });
         return;
@@ -134,10 +146,16 @@ export function ItemFormModal({
         ihr den Anteil.
       </p>
 
-      <div className="mt-4 space-y-4">
+      <form
+        className="mt-4 space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
         <div className="text-sm">
           <span id="item-cat-label" className="text-ink-soft">Kategorie</span>
-          <div className="mt-1" aria-labelledby="item-cat-label">
+          <div className="mt-1" role="group" aria-labelledby="item-cat-label">
             <CategorySelect
               name="category_id"
               categories={categories}
@@ -202,6 +220,9 @@ export function ItemFormModal({
             aria-describedby={[payeeLocked ? "item-lock-payee" : "", invalid("payee_person_id") ? errId : ""].filter(Boolean).join(" ") || undefined}
             className={inputCls}
           >
+            {!members.some((m) => m.id === state.payeeId) && state.payeeId && (
+              <option value={state.payeeId}>Bisheriger Empfänger (nicht mehr in der {vocab.crew})</option>
+            )}
             {members.map((m) => (
               <option key={m.id} value={m.id}>{m.display_name}</option>
             ))}
@@ -254,6 +275,8 @@ export function ItemFormModal({
                     inputMode="text"
                     value={state.amounts[m.id] ?? ""}
                     placeholder="0,00"
+                    aria-invalid={invalid("obligations")}
+                    aria-describedby={invalid("obligations") ? errId : undefined}
                     onChange={(e) => set("amounts", { ...state.amounts, [m.id]: e.target.value })}
                     onBlur={() => {
                       const raw = state.amounts[m.id] ?? "";
@@ -325,8 +348,7 @@ export function ItemFormModal({
             Abbrechen
           </button>
           <button
-            type="button"
-            onClick={submit}
+            type="submit"
             disabled={pending}
             className="inline-flex min-h-[44px] items-center gap-1 rounded-md bg-primary px-4 py-2 text-sm font-medium text-paper hover:bg-navy-dark focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
           >
@@ -334,7 +356,7 @@ export function ItemFormModal({
             Speichern
           </button>
         </div>
-      </div>
+      </form>
     </Modal>
   );
 }

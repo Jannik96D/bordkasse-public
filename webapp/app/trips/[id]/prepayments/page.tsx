@@ -11,6 +11,7 @@ import {
   getCharterPaymentsPerTranche,
 } from "@/lib/queries/prepayments";
 import { getItems } from "@/lib/queries/prepayment-items";
+import { itemsVisibleTo } from "@/lib/prepayments/item-ui";
 import { getCategories } from "@/lib/queries/trips";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { isAdmin } from "@/lib/auth/authz";
@@ -70,6 +71,7 @@ export default async function PrepaymentsPage({
       canManageItems={canManageItems}
       readOnly={!!trip.archived}
       defaultPayeeId={trip.skipper_id}
+      today={new Date().toISOString().slice(0, 10)}
     />
   );
 
@@ -81,8 +83,7 @@ export default async function PrepaymentsPage({
     return (
       <main className="mx-auto max-w-2xl px-4 py-6">
         <h1 className="mb-4 text-lg font-bold text-primary">Meine Anzahlungen</h1>
-        {/* Ohne Plan, aber mit eigenen Posten: keine „Noch kein Anzahlungsplan"-Karte. */}
-        {(plan || items.length === 0) && (
+        {plan ? (
           <CrewSelfView
             tripId={id}
             plan={plan}
@@ -91,7 +92,11 @@ export default async function PrepaymentsPage({
             payments={payments.filter(mine)}
             pendingByTranche={myPendingByTranche}
           />
-        )}
+        ) : itemsVisibleTo(items, person?.id ?? null).length === 0 ? (
+          <p className="rounded-lg border border-rule bg-paper p-5 text-center text-sm text-ink-soft">
+            Für dich gibt es hier nichts zu tun.
+          </p>
+        ) : null}
         {itemsSection}
       </main>
     );
