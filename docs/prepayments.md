@@ -598,7 +598,8 @@ setzt die Bestätigung einer posten-getaggten Gutschrift bei materieller
 Entfernen/Ghost-Merge, Pending-Pre-Check, Edit-Validierung, Outbox-Replay,
 Entscheidung zur Abrechnungsmail. **Weiter offen:** Formularfeld „Posten" (UI erledigt in PR4b),
 nachträgliches Zuordnen einer bestehenden Buchung zu einem Posten, Self-Klausel für `prepayment_items`
-(Ex-Crew sieht ihr Posten-Soll, aber nicht den Posten), Mails/Push.
+(Ex-Crew sieht ihr Posten-Soll, aber nicht den Posten). Automatische
+Erinnerungen: erledigt in PR5 (Abschnitt „Weitere Posten — Erinnerungen").
 
 **Deploy-Reihenfolge:** Migration 0058 auf Produktion einspielen, BEVOR der
 PR auf `main` gemergt wird (Coolify deployt beim Merge sofort) — der
@@ -694,8 +695,9 @@ formData) → ItemActionState` = `{status:"ok", itemId?, duplicate?} |
   `recordItemProviderPayment` löscht die Ausgabe, wenn die Anteile nicht
   geschrieben werden konnten (Muster `createExpense`).
 - **Audit ohne Klartext:** keine Bezeichnung, keine Notiz, nur IDs/Beträge.
-- **Kein Mail/Push** (Templates sind tranchenspezifisch, Erinnerungen sind ein
-  Folgeschritt).
+- **Kein Mail/Push aus den Actions** — die automatischen Erinnerungen kommen
+  seit PR5 aus dem Cron (Abschnitt „Weitere Posten — Erinnerungen");
+  `rejectItemSelfPayment` räumt dafür den Dedup-Eintrag der Person.
 - `removeMember`, `replaceMember` (Payee-Guard nur klassisch), Abrechnungsmail
   und Empfängerwechsel: siehe „Entscheidungen aus dem Review" unten.
 
@@ -915,11 +917,89 @@ ein Retry meldet „Schon erfasst".
 (Posten-Saldo aus `getItemPotBalances`, Gesamtsaldo; Vorzeichen + Screenreader-
 Text) und Erklärung der Töpfe im Tooltip (nur die vorhandenen).
 
-**Bewusst nicht enthalten:** keine automatischen Erinnerungen/Mails/Push
-(sichtbarer Hinweis in der Sektion); kein Posten-Feld im Buchungsformular und
+**Bewusst nicht enthalten:** keine manuelle 🔔-Erinnerung für Posten (die
+automatischen Erinnerungen kommen seit PR5 aus dem Cron, der Hinweis in der
+Sektion nennt die Zeitpunkte); kein Posten-Feld im Buchungsformular und
 kein nachträgliches Zuordnen einer bestehenden Buchung (kein Server-Support,
 `item_id` ist im Edit unveränderlich); kein eigener Wizard-Schritt — Posten
 werden direkt auf der Anzahlungs-Seite gepflegt.
+
+## Weitere Posten — Erinnerungen (PR5, Migration 0061)
+
+Derselbe tägliche Cron wie die Tranchen (`/api/cron/prepayment-reminders`,
+Coolify-Task `prepayment-reminders-node`, kein neuer Task) verschickt auch
+Erinnerungen für Posten. `prepayment_items.due_date` ist die Frist gegenüber
+dem **Anbieter** (Fluggesellschaft/Bahn); die Crew soll — Entscheidung des
+Nutzers, exakt wie bei der Charteranzahlung — **3 Tage vorher** gezahlt
+haben (`toCrewDueDate` inkl. Clamp). Die Crew-Karte zeigt deshalb „bitte
+zahlen bis {Crewfrist}".
+
+| Typ | Ab wann | An wen | Wann NICHT |
+|---|---|---|---|
+| `item_crew_3d` | 6 Tage vor `due_date` (= 3 Tage vor Crewfrist) | jede Person mit Posten-Soll > 0 und Status offen/teilweise | bezahlt, überzahlt, offene Selbstmeldung (Pending-Awareness), der Empfänger selbst |
+| `item_payee_3d` | 3 Tage vor `due_date` | Empfänger des Postens | Σ Anbieter-Zahlungen ≥ Posten-Summe (Pendant Advancer-Skip) |
+
+Für beide gilt: Fenster mit inklusiven Grenzen bis einschließlich zum
+Fälligkeitstag (ein ausgefallener Cron-Tag verliert nichts), eine
+verstrichene Frist wird nicht mehr beworben; nichts bei Posten ohne
+`due_date`, ohne Soll, und in Törns, die vorbei, archiviert oder gepurged
+sind.
+
+**Inhalt.** Crew-Mail: Posten (Kategorie: Bezeichnung), offener Betrag (von
+Soll), Crewfrist, an wen zahlen, Hinweis „Ich habe gezahlt". Empfänger-Mail:
+Soll Anbieter, Crew-Eingänge (nur bestätigte, OHNE die eigene
+Selbstverrechnung) von Σ Crew-Soll, bereits an den Anbieter überwiesen, noch
+offen — plus Hinweis, falls der eigene Anteil noch nicht als
+Selbstverrechnung erfasst ist (der Empfänger bekommt keine Crew-Mail an sich
+selbst). Alle frei editierbaren Texte (Bezeichnung, Kategorie, Törnname,
+Namen) sind im HTML escaped. Push zusätzlich, additiv nach der Mail
+(`itemReminderPush` / `itemPayeeReminderPush`, wirft nie).
+
+**Dedup + Fehler.** `prepayment_item_reminder_log` (UNIQUE `(item_id,
+person_id, reminder_type)`, Composite-FK `(item_id, trip_id)` auf den Posten
+mit CASCADE, RLS ohne Policy + REVOKE für `anon`/`authenticated`). Send-first
+wie bei den Tranchen: Mail, dann Log-Eintrag; 23505 (paralleler Lauf) ist
+harmlos, jeder andere Log-Fehler zählt als `failed`. Keine E-Mail hinterlegt
+→ `skipped`; Zustellungs- oder Lesefehler → `failed`. Die Cron-Antwort
+schlüsselt `tranches` und `items` auf, die Top-Level-Zähler sind die Summe.
+
+**Fail-soft.** Läuft die App vor der Migration (Tabelle fehlt) oder
+scheitert eine Lese-Query des Posten-Teils, zählt das als ein `failed`,
+und es geht **keine** Posten-Mail raus (ohne Dedup würde sonst täglich
+gemahnt, ohne Zahlungsdaten falsch). Der Tranchen-Teil läuft davon
+unberührt; der Posten-Teil läuft zuerst und wirft nie.
+
+**Ablehnen.** `rejectItemSelfPayment` löscht den `item_crew_3d`-Eintrag der
+Person für diesen Posten (best effort), damit sie im Fenster erneut erinnert
+wird (Pendant `rejectSelfPayment`).
+
+**DSGVO.** `purge_trip_data` (Log des Törns, vor dem Posten-Delete),
+`admin_delete_person_data` und `delete_my_account` (Log der Person) — in 0061
+per `CREATE OR REPLACE` aus 0058 erweitert, Rechte unverändert.
+
+**Zurücksetzen.** `saveItem` löscht den Log des Postens, wenn sich die
+Fälligkeit, das Soll (Neuverteilung) oder der Empfänger ändert — sonst
+bliebe es beim Eintrag aus dem alten Fenster. `replaceMember` (klassischer
+Pfad) räumt den Log von A wie den der Tranchen (Pendant F7).
+
+**Bekannte Grenzen.** Löscht der Skipper eine bereits bestätigte
+Posten-Gutschrift über die Buchungsliste, ist die Person wieder offen, ihr
+Log-Eintrag bleibt aber — sie wird für diesen Posten nicht erneut erinnert
+(gleiches Verhalten wie bei den Tranchen). Ein Ghost-Merge löscht den Ghost
+samt Log (CASCADE); die zusammengeführte Person kann im selben Fenster eine
+zweite Erinnerung bekommen. Wer nur einen Teil seines Anteils gemeldet hat,
+wird nicht erinnert (Pending-Awareness gilt ab der ersten offenen
+Selbstmeldung, wie bei den Tranchen). Keine manuelle 🔔-Erinnerung
+für Posten.
+
+⚠️ **Deploy:** 0061 vor dem App-Merge auf Produktion einspielen, danach ggf.
+`NOTIFY pgrst, 'reload schema';`.
+
+Code: `lib/prepayments/item-reminders.ts` (reine Planung),
+`lib/prepayments/item-reminder-cron.ts` (Lauf), `lib/email/send-item-reminder.ts`
++ `item-reminder-template.ts`. Tests: `__tests__/item-reminders.test.ts`,
+`__tests__/item-reminder-cron.test.ts`, `prepayment-items-actions.test.ts`
+(Reject), pgTAP `prepayment_item_reminder_log_test.sql`.
 
 ## Mail-Templates + WhatsApp-Texte
 

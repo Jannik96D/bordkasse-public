@@ -299,6 +299,38 @@ describe("saveItem — ändern", () => {
     expect(fake.rows("prepayment_items").find((r) => r.id === ITEM)!.label).toBe("Flüge Hin+Rück");
   });
 
+  describe("Erinnerungs-Log (PR5) bei Änderungen", () => {
+    const log = [
+      { trip_id: TRIP, item_id: ITEM, person_id: ANNA, reminder_type: "item_crew_3d" },
+      { trip_id: TRIP, item_id: ITEM, person_id: SKIPPER, reminder_type: "item_payee_3d" },
+      { trip_id: TRIP, item_id: FOREIGN_ITEM, person_id: STRANGER, reminder_type: "item_crew_3d" },
+    ];
+    const same = () => indiv([[SKIPPER, "50"], [ANNA, "100"], [BEN, "150"], [CLARA, "0"]]);
+    const itemLog = () => fake.rows("prepayment_item_reminder_log").filter((r) => r.item_id === ITEM);
+
+    it("reine Umbenennung lässt die Erinnerungen stehen", async () => {
+      setupFake(withItem({ prepayment_item_reminder_log: log }));
+      const res = await saveItem({ status: "idle" }, payloadFd({ ...same(), label: "Flüge neu", due_date: "2027-03-01" }));
+      expect(res.status).toBe("ok");
+      expect(itemLog()).toHaveLength(2);
+    });
+
+    it("verschobene Fälligkeit setzt die Erinnerungen dieses Postens zurück (fremde bleiben)", async () => {
+      setupFake(withItem({ prepayment_item_reminder_log: log }));
+      const res = await saveItem({ status: "idle" }, payloadFd({ ...same(), due_date: "2027-04-01" }));
+      expect(res.status).toBe("ok");
+      expect(itemLog()).toHaveLength(0);
+      expect(fake.rows("prepayment_item_reminder_log")).toHaveLength(1);
+    });
+
+    it("neu verteiltes Soll setzt die Erinnerungen zurück", async () => {
+      setupFake(withItem({ prepayment_item_reminder_log: log }));
+      const res = await saveItem({ status: "idle" }, payloadFd({ ...indiv([[ANNA, "150"], [BEN, "150"]]), due_date: "2027-03-01" }));
+      expect(res.status).toBe("ok");
+      expect(itemLog()).toHaveLength(0);
+    });
+  });
+
   it("Empfängerwechsel läuft über move_item_payee (atomar in SQL)", async () => {
     setupFake(withItem());
     const res = await saveItem({ status: "idle" }, payloadFd({
@@ -674,6 +706,47 @@ describe("Selbstmeldung → Bestätigung / Ablehnung", () => {
     expect(res.status).toBe("ok");
     expect(fake.rows("transactions")[0].deleted_at).toBeTruthy();
     expect(fake.rpcCalls.some((c) => c.name === "mark_post_settlement_change")).toBe(false);
+  });
+
+  it("reject räumt den item_crew_3d-Log-Eintrag DIESER Person an DIESEM Posten (PR5) — sonst keine neue Erinnerung", async () => {
+    const id = "aaaaaaaa-0000-4000-8000-0000000000f1";
+    const OTHER_ITEM = "aaaaaaaa-0000-4000-8000-0000000000d2";
+    setupFake(withItem({
+      transactions: [{ ...pending, id }],
+      prepayment_item_reminder_log: [
+        { trip_id: TRIP, item_id: ITEM, person_id: ANNA, reminder_type: "item_crew_3d" },
+        { trip_id: TRIP, item_id: ITEM, person_id: BEN, reminder_type: "item_crew_3d" },
+        { trip_id: TRIP, item_id: ITEM, person_id: SKIPPER, reminder_type: "item_payee_3d" },
+        { trip_id: TRIP, item_id: OTHER_ITEM, person_id: ANNA, reminder_type: "item_crew_3d" },
+      ],
+    }));
+    const res = await rejectItemSelfPayment({ status: "idle" }, fd({ transaction_id: id }));
+    expect(res.status).toBe("ok");
+    const left = fake.rows("prepayment_item_reminder_log").map((r) => `${r.item_id}:${r.person_id}:${r.reminder_type}`).sort();
+    expect(left).toEqual([
+      `${ITEM}:${BEN}:item_crew_3d`,
+      `${ITEM}:${SKIPPER}:item_payee_3d`,
+      `${OTHER_ITEM}:${ANNA}:item_crew_3d`,
+    ].sort());
+  });
+
+  it("reject: scheitert das Log-Aufräumen (Tabelle fehlt), wird trotzdem abgelehnt", async () => {
+    const id = "aaaaaaaa-0000-4000-8000-0000000000f1";
+    setupFake(withItem({ transactions: [{ ...pending, id }] }));
+    fake.failOn({ table: "prepayment_item_reminder_log", action: "delete", error: { code: "42P01", message: "missing" } });
+    const res = await rejectItemSelfPayment({ status: "idle" }, fd({ transaction_id: id }));
+    expect(res.status).toBe("ok");
+    expect(fake.rows("transactions")[0].deleted_at).toBeTruthy();
+  });
+
+  it("confirm räumt den Log NICHT (Person hat gezahlt, keine neue Erinnerung nötig)", async () => {
+    const id = "aaaaaaaa-0000-4000-8000-0000000000f1";
+    setupFake(withItem({
+      transactions: [{ ...pending, id }],
+      prepayment_item_reminder_log: [{ trip_id: TRIP, item_id: ITEM, person_id: ANNA, reminder_type: "item_crew_3d" }],
+    }));
+    await confirmItemSelfPayment({ status: "idle" }, fd({ transaction_id: id }));
+    expect(fake.rows("prepayment_item_reminder_log")).toHaveLength(1);
   });
 
   it("reject: eine bereits bestätigte Zahlung kann nicht abgelehnt werden", async () => {

@@ -73,6 +73,13 @@ function makeSupabaseMock(opts: { logInsertError?: { code: string; message: stri
               }),
             }),
           };
+        // Posten-Teil (PR5): keine Posten → leerer Lauf, Zähler unverändert.
+        case "prepayment_items":
+          return {
+            select: () => ({
+              not: () => ({ gte: () => ({ lte: () => Promise.resolve({ data: [], error: null }) }) }),
+            }),
+          };
         case "prepayment_reminder_log":
           return {
             select: () => ({ in: () => Promise.resolve({ data: [] }) }),

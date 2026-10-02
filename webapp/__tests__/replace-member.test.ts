@@ -709,6 +709,8 @@ describe("replaceMember — F2/F3/F5/F7: Aufräumen im klassischen Pfad", () => 
     expect(calls.some((c) => c.table === "rpc:mark_post_settlement_change")).toBe(true);
     // F3 — Häkchen einer Person, die es im Törn nicht mehr gibt.
     expect(calls.some((c) => c.table === "settled_debts" && c.op === "delete")).toBe(true);
+    // PR5: auch die Posten-Erinnerungen von A werden geräumt (Pendant F7).
+    expect(calls.some((c) => c.table === "prepayment_item_reminder_log" && c.op === "delete")).toBe(true);
     // F5 — Co-Skipper-Rechte müssen mitwandern, sonst steht die Crew ohne
     // handlungsfähigen Ansprechpartner da.
     const tmUpsert = calls.find((c) => c.table === "trip_members" && c.op === "upsert");
@@ -905,6 +907,7 @@ describe("replaceMember — Variante b: Wechsel mitten im Törn", () => {
     expect(res).toEqual({ status: "ok" });
     expect(calls.some((c) => c.table === "settled_debts")).toBe(false);
     expect(calls.some((c) => c.table === "prepayment_reminder_log")).toBe(false);
+    expect(calls.some((c) => c.table === "prepayment_item_reminder_log")).toBe(false);
     expect(calls.some((c) => c.table === "trip_statistics_audience")).toBe(false);
     // A behält ihre Co-Skipper-Rolle (sie ist ja noch an Bord), B erbt sie nicht.
     const tmUpsert = calls.find((c) => c.table === "trip_members" && c.op === "upsert");

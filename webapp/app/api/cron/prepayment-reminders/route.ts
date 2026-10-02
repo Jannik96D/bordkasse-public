@@ -5,6 +5,7 @@ import { sendPrepaymentReminderMail } from "@/lib/email/send-prepayment-reminder
 import { CREW_DUE_DAYS_BEFORE_CHARTER, addDays } from "@/lib/prepayments/dates";
 import { sendPushToPersons } from "@/lib/notify/web-push";
 import { prepaymentReminderPush, charterReminderPush } from "@/lib/notify/payloads";
+import { runItemReminders, type ItemReminderRunResult } from "@/lib/prepayments/item-reminder-cron";
 
 /**
  * Täglicher Cron — verschickt Anzahlungs-Erinnerungen 3 Tage vor der
@@ -31,6 +32,12 @@ import { prepaymentReminderPush, charterReminderPush } from "@/lib/notify/payloa
  * gewertet — die Person hat ihren Teil getan und wartet auf den
  * Vorstrecker. Sonst würde der Cron sie weiter mahnen, obwohl sie in
  * der App ⏳ pending steht.
+ *
+ * Reise-Posten (PR5, Migration 0061): derselbe Lauf verschickt zusätzlich
+ * `item_crew_3d` / `item_payee_3d` (lib/prepayments/item-reminder-cron.ts).
+ * Der Posten-Teil ist fail-soft und läuft ZUERST, unabhängig vom Tranchen-
+ * Teil; die Top-Level-Zähler (`processed`/`sent`/`skipped`/`failed`) sind
+ * die Summe beider Teile, `tranches` und `items` schlüsseln sie auf.
  *
  * Sicherheit: Bearer-Token-Check via CRON_SECRET (siehe purge-Cron).
  */
@@ -63,6 +70,10 @@ export async function GET(request: NextRequest) {
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
 
+  // Posten zuerst: wirft nie, ein Fehler dort (z. B. Tabelle aus 0061 fehlt)
+  // zählt als `failed` und beeinflusst den Tranchen-Teil nicht.
+  const items = await runItemReminders(supabase, todayIso);
+
   // Fenster: jede Tranche, deren Charterfrist in [heute, heute + max] liegt.
   // Innerhalb des Fensters entscheiden wir pro Tranche, ob crew_3d (≥ 6 Tage
   // vorher) und/oder advancer_3d (≥ 3 Tage vorher) angesagt sind. Vergangene
@@ -76,17 +87,13 @@ export async function GET(request: NextRequest) {
     .lte("due_date", windowEnd);
   if (trancheErr) {
     console.error("[bordkasse:cron] tranche query failed:", trancheErr.message);
-    return NextResponse.json({ ok: false, error: trancheErr.message }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: trancheErr.message, items: summarize(items) },
+      { status: 500 },
+    );
   }
   if (!tranches || tranches.length === 0) {
-    return NextResponse.json({
-      ok: true,
-      processed: 0,
-      sent: 0,
-      skipped: 0,
-      failed: 0,
-      ranAt: new Date().toISOString(),
-    });
+    return NextResponse.json(combine({ processed: 0, sent: 0, skipped: 0, failed: 0, errors: [] }, items));
   }
 
   const tripIds = Array.from(new Set(tranches.map((t) => t.trip_id)));
@@ -334,15 +341,37 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({
+  return NextResponse.json(
+    combine(
+      {
+        processed: jobs.length,
+        sent,
+        skipped,
+        failed,
+        errors: errors.map((e) => ({ type: e.job.type, message: e.message, kind: e.kind })),
+      },
+      items,
+    ),
+  );
+}
+
+type PartResult = ItemReminderRunResult;
+
+const summarize = (r: PartResult) => ({ processed: r.processed, sent: r.sent, skipped: r.skipped, failed: r.failed });
+
+/** Antwort-JSON: Summen über Tranchen + Posten, plus Aufschlüsselung. */
+function combine(tranches: PartResult, items: PartResult) {
+  return {
     ok: true,
-    processed: jobs.length,
-    sent,
-    skipped,
-    failed,
-    errors: errors.map((e) => ({ type: e.job.type, message: e.message, kind: e.kind })),
+    processed: tranches.processed + items.processed,
+    sent: tranches.sent + items.sent,
+    skipped: tranches.skipped + items.skipped,
+    failed: tranches.failed + items.failed,
+    tranches: summarize(tranches),
+    items: summarize(items),
+    errors: [...tranches.errors, ...items.errors],
     ranAt: new Date().toISOString(),
-  });
+  };
 }
 
 /**

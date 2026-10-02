@@ -109,6 +109,38 @@ export function charterReminderPush(args: {
   };
 }
 
+/** Posten-Erinnerung an die Crew (item_crew_3d, PR5). */
+export function itemReminderPush(args: {
+  itemLabel: string;
+  amount: number;
+  tripName: string;
+  tripId: string;
+  itemId: string;
+}): PushPayload {
+  return {
+    title: "Zahlung fällig",
+    body: `${args.itemLabel}: ${fmtEuro(args.amount)} für „${args.tripName}".`,
+    url: tripUrl(args.tripId, "/prepayments"),
+    tag: `item-${args.itemId}`,
+  };
+}
+
+/** Posten-Übersicht an den Empfänger (item_payee_3d, PR5). */
+export function itemPayeeReminderPush(args: {
+  itemLabel: string;
+  amount: number;
+  tripName: string;
+  tripId: string;
+  itemId: string;
+}): PushPayload {
+  return {
+    title: "Zahlung an den Anbieter fällig",
+    body: `${args.itemLabel}: noch ${fmtEuro(args.amount)} an den Anbieter für „${args.tripName}".`,
+    url: tripUrl(args.tripId, "/prepayments"),
+    tag: `item-payee-${args.itemId}`,
+  };
+}
+
 export function paymentPendingPush(args: {
   payerName: string;
   amount: number;

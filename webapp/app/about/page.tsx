@@ -430,8 +430,9 @@ const features: Feature[] = [
           Empfänger und Aufteilung an; die Crew meldet ihren Anteil wie bei
           der Anzahlung selbst. Pro Posten sieht man, wie viel die Crew
           schon eingezahlt hat und wie viel noch an Airline oder Bahn zu
-          überweisen ist. Für Posten verschickt die App keine automatischen
-          Erinnerungen.
+          überweisen ist. Hat ein Posten eine Fälligkeit, erinnert die App
+          wie bei der Anzahlung automatisch: die Crew 6 Tage vorher, den
+          Empfänger 3 Tage vorher.
         </p>
       </>
     ),

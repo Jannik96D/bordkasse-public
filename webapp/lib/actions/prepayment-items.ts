@@ -24,8 +24,10 @@
  *   • Audit-Log ohne Klartext-PII (keine Namen, keine Freitexte),
  *   • markPostSettlementChange, sobald sich v_balances ändert.
  *
- * Bewusst (noch) ohne Mails/Push: die vorhandenen Templates sind
- * tranchenspezifisch, Posten-Erinnerungen sind laut Plan ein Folgeschritt.
+ * Ohne eigene Mails/Push: die automatischen Posten-Erinnerungen verschickt
+ * der tägliche Anzahlungs-Cron (PR5, lib/prepayments/item-reminder-cron.ts).
+ * Einzige Berührung hier: rejectItemSelfPayment räumt den Dedup-Log-Eintrag
+ * der Person, damit sie nach der Ablehnung erneut erinnert werden kann.
  */
 
 import { revalidatePath } from "next/cache";
@@ -590,6 +592,21 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
     }
   }
 
+  // Erinnerungen zurücksetzen (PR5, Grill-Fund): verschobene Fälligkeit, neu
+  // verteiltes Soll oder ein neuer Empfänger machen die bisherigen
+  // Erinnerungen gegenstandslos — ohne Reset bliebe es beim Dedup-Eintrag
+  // aus dem alten Fenster, und im neuen käme keine Mail mehr. Best effort:
+  // ein Fehler (z. B. Tabelle aus 0061 fehlt) bricht das Speichern nicht ab.
+  const dueChanged = !!existing && (existing.due_date ?? null) !== (input.due_date || null);
+  if (existing && (dueChanged || !keepObligations || payeeChanged)) {
+    const { error: logErr } = await supabase
+      .from("prepayment_item_reminder_log")
+      .delete()
+      .eq("trip_id", tripId)
+      .eq("item_id", existing.id);
+    if (logErr) console.error("[bordkasse:db] item reminder_log reset:", logErr.message);
+  }
+
   await logAudit(supabase, {
     table_name: "prepayment_items",
     operation: existing ? "UPDATE" : "INSERT",
@@ -875,7 +892,7 @@ async function loadPendingItemCredit(
       ok: true;
       supabase: AdminClient;
       actorId: string;
-      tx: { id: string; trip_id: string; item_id: string; amount: number };
+      tx: { id: string; trip_id: string; item_id: string; amount: number; credit_from: string | null };
     }
   | { ok: false; message: string }
 > {
@@ -890,7 +907,7 @@ async function loadPendingItemCredit(
   const supabase = createAdminClient();
   const { data: tx, error } = await supabase
     .from("transactions")
-    .select("id, trip_id, item_id, type, amount, confirmed_at, deleted_at")
+    .select("id, trip_id, item_id, type, amount, credit_from, confirmed_at, deleted_at")
     .eq("id", parsed.data.transaction_id)
     .maybeSingle();
   if (error) return { ok: false, message: dbErr(error, "Buchung konnte nicht geladen werden.") };
@@ -910,7 +927,13 @@ async function loadPendingItemCredit(
     ok: true,
     supabase,
     actorId: auth.personId,
-    tx: { id: tx.id, trip_id: tx.trip_id, item_id: tx.item_id, amount: Number(tx.amount) },
+    tx: {
+      id: tx.id,
+      trip_id: tx.trip_id,
+      item_id: tx.item_id,
+      amount: Number(tx.amount),
+      credit_from: (tx.credit_from as string | null) ?? null,
+    },
   };
 }
 
@@ -990,6 +1013,22 @@ export async function rejectItemSelfPayment(_prev: ItemActionState, formData: Fo
     actor_person_id: actorId,
     payload: { kind: "item-self-payment-rejected", item_id: tx.item_id },
   });
+
+  // Erinnerungs-Log räumen (PR5, Pendant rejectSelfPayment): die Person
+  // galt wegen ihrer Meldung als „erledigt" bzw. wurde schon erinnert —
+  // nach der Ablehnung ist ihr Anteil wieder offen, der Cron soll sie im
+  // Fenster erneut erinnern dürfen. Best effort: ein Fehler (z. B. Tabelle
+  // aus 0061 fehlt noch) bricht das Ablehnen nicht ab.
+  if (tx.credit_from) {
+    const { error: logErr } = await supabase
+      .from("prepayment_item_reminder_log")
+      .delete()
+      .eq("trip_id", tx.trip_id)
+      .eq("item_id", tx.item_id)
+      .eq("person_id", tx.credit_from)
+      .eq("reminder_type", "item_crew_3d");
+    if (logErr) console.error("[bordkasse:db] item reminder_log cleanup:", logErr.message);
+  }
 
   // Pending zählte nirgends → Bilanz unverändert, kein Settlement-Marker.
   revalidateItemPaths(tx.trip_id);
