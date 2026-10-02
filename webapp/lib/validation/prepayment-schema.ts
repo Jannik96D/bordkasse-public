@@ -138,6 +138,92 @@ export const ReplaceMemberSchema = z
     { message: "Entweder E-Mail oder Name angeben.", path: ["new_display_name"] },
   );
 
+// ────────────────────────────────────────────────────────────────────────
+// Reise-Posten (Migration 0058) — Spec: docs/prepayments.md „Weitere Posten"
+// ────────────────────────────────────────────────────────────────────────
+
+/** Exakt der CHECK `pi_split_type` (kein „kojen" — Kojen gibt es nur bei der Yacht). */
+export const ItemSplitTypeSchema = z.enum(["gleichmaessig", "zeitanteilig", "individuell"], {
+  error: "Bitte eine Aufteilung wählen.",
+});
+
+const ItemAmount = z.preprocess(
+  decimalString,
+  z.coerce
+    .number({ error: "Bitte einen Betrag eingeben." })
+    .positive("Betrag muss > 0 sein.")
+    // NUMERIC(10,2) — ein größerer Wert scheiterte sonst erst als DB-Fehler.
+    .max(1_000_000, "Betrag ist unrealistisch hoch."),
+);
+
+const OptionalDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Datum-Format YYYY-MM-DD.")
+  .optional()
+  .or(z.literal(""))
+  .nullable();
+
+export const ItemObligationInput = z.object({
+  person_id: Uuid,
+  amount: Amount,
+});
+
+export const SaveItemSchema = z.object({
+  trip_id: Uuid,
+  /**
+   * Client-generierte ID (Idempotenz bei Retry, wie die Kojen im Wizard).
+   * ⚠️ Nur als Wunsch-ID für eine NEUANLAGE bzw. als Schlüssel eines Postens
+   * DIESES Törns — saveItem weist eine ID ab, die einem Posten eines anderen
+   * Törns gehört (Klasse Fund F1).
+   */
+  id: Uuid.optional(),
+  category_id: Uuid.optional().nullable(),
+  label: z.string().trim().min(1, "Bitte eine Bezeichnung eingeben.").max(80, "Bezeichnung ist zu lang."),
+  total_amount: ItemAmount,
+  due_date: OptionalDate,
+  /** Empfänger; leer = Trip-Skipper (Default beim Anlegen). */
+  payee_person_id: Uuid.optional().nullable(),
+  split_type: ItemSplitTypeSchema,
+  /** Nur für „individuell": Betrag pro Person. */
+  obligations: z.array(ItemObligationInput).default([]),
+  sort_order: z.coerce.number().int().nonnegative().default(0),
+});
+
+export const DeleteItemSchema = z.object({
+  trip_id: Uuid,
+  item_id: Uuid,
+});
+
+export const RecordItemPaymentSchema = z.object({
+  trip_id: Uuid,
+  item_id: Uuid,
+  person_id: Uuid,
+  amount: ItemAmount,
+  date: DateString,
+  note: z.string().trim().max(120).optional().or(z.literal("")),
+  idempotency_key: Uuid.optional(),
+});
+
+export const SubmitItemSelfPaymentSchema = z.object({
+  trip_id: Uuid,
+  item_id: Uuid,
+  amount: ItemAmount,
+  date: DateString,
+  note: z.string().trim().max(120).optional().or(z.literal("")),
+  idempotency_key: Uuid.optional(),
+});
+
+export const RecordItemProviderPaymentSchema = z.object({
+  trip_id: Uuid,
+  item_id: Uuid,
+  amount: ItemAmount,
+  date: DateString,
+  description: z.string().trim().max(120).optional().or(z.literal("")),
+  idempotency_key: Uuid.optional(),
+});
+
+export type SaveItemInput = z.infer<typeof SaveItemSchema>;
+
 export type PlanInput = z.infer<typeof PlanSchema>;
 export type TranchesInput = z.infer<typeof TranchesSchema>;
 export type RecordPaymentInput = z.infer<typeof RecordPaymentSchema>;

@@ -202,3 +202,58 @@ export async function requireMember(tripId: string): Promise<AuthzResult> {
   if (!member) return { ok: false, message: "Du bist nicht Mitglied dieses Törns." };
   return auth;
 }
+
+export type ItemAuthzResult =
+  | { ok: true; personId: string; tripId: string; payeePersonId: string }
+  | { ok: false; message: string };
+
+/**
+ * Eingeloggt UND (Empfänger dieses Reise-Postens ODER Skipper/Co-Skipper des
+ * Törns ODER globaler Admin) — Migration 0058, PR4.
+ *
+ * Bewusst NICHT der Vorstrecker der Charteranzahlung
+ * (`requireSkipperAdminOrAdvancer`): wer die Yacht vorstreckt, hat mit den
+ * Flügen nichts zu tun. Der Posten-Empfänger dagegen sieht den Geldeingang
+ * auf seinem Konto und darf deshalb Zahlungen erfassen, Selbstmeldungen
+ * bestätigen/ablehnen und die eigene Anbieter-Zahlung buchen.
+ *
+ * Liefert zusätzlich `tripId` + `payeePersonId` des Postens — die Actions
+ * MÜSSEN `tripId` gegen das trip_id aus dem Formular vergleichen (IDOR).
+ * Ein Lesefehler wird nicht verschluckt (fail-closed).
+ */
+export async function requireSkipperAdminOrItemPayee(itemId: string): Promise<ItemAuthzResult> {
+  const auth = await requireAuth();
+  if (!auth.ok) return auth;
+
+  const supabase = createAdminClient();
+  const { data: item, error } = await supabase
+    .from("prepayment_items")
+    .select("trip_id, payee_person_id")
+    .eq("id", itemId)
+    .maybeSingle();
+  if (error) {
+    console.error("[bordkasse:db] requireSkipperAdminOrItemPayee:", error.message);
+    return { ok: false, message: "Posten konnte nicht geladen werden. Bitte erneut versuchen." };
+  }
+  if (!item) return { ok: false, message: "Posten nicht gefunden." };
+
+  const granted = { ok: true as const, personId: auth.personId, tripId: item.trip_id as string, payeePersonId: item.payee_person_id as string };
+  if (item.payee_person_id === auth.personId) {
+    // Empfänger muss noch Crew sein — ein entfernter Ex-Empfänger behält
+    // sonst Schreibrechte (Muster canEditTransaction, Fund 12).
+    const { data: member } = await supabase
+      .from("trip_members")
+      .select("person_id")
+      .eq("trip_id", item.trip_id)
+      .eq("person_id", auth.personId)
+      .maybeSingle();
+    if (member) return granted;
+  }
+  if (await isAdmin()) return granted;
+  const skipper = await requireSkipper(item.trip_id as string);
+  if (skipper.ok) return granted;
+  return {
+    ok: false,
+    message: "Nur Skipper, Admin oder die Person, die diesen Posten empfängt, dürfen das.",
+  };
+}
