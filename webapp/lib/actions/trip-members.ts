@@ -236,6 +236,50 @@ export async function removeMember(
   // stehen (Σ balance ≠ 0), ohne jede Fehlermeldung — analog zum Blocker in
   // delete_my_account() (Migration 0021), der genau das schon verhindert.
   const personId = memberRow.person_id;
+
+  // PR4a (Reise-Posten, 0058): Empfänger eines Postens UND offenes Posten-
+  // Soll blocken das Entfernen — mit eigener, verständlicher Meldung (die
+  // Empfänger-Rolle zählt zusätzlich in personHasBookingTrace als Spur).
+  //   • Empfänger: die Crew zahlt ihr Geld an diese Person (credit_to); ohne
+  //     Mitgliedschaft fielen diese Gutschriften aus v_balances (Σ ≠ 0).
+  //   • Offenes Soll: ein stilles Löschen ließe Σ Soll < Posten-Summe zurück
+  //     (gleiche Begründung wie beim Charter-Soll unten, Fund E). Der Skipper
+  //     soll den Posten neu speichern (gleichmäßig/zeitanteilig verteilt dann
+  //     neu) bzw. bei „individuell" das Soll bewusst auf 0 setzen.
+  // Fail-closed bei Lesefehlern.
+  {
+    const [payeeRes, itemOblRes] = await Promise.all([
+      supabase
+        .from("prepayment_items")
+        .select("id", { count: "exact", head: true })
+        .eq("trip_id", tripId)
+        .eq("payee_person_id", personId),
+      supabase
+        .from("prepayment_item_obligations")
+        .select("amount")
+        .eq("trip_id", tripId)
+        .eq("person_id", personId),
+    ]);
+    if (payeeRes.error || itemOblRes.error) {
+      console.error("[bordkasse:db] removeMember item check:", payeeRes.error?.message ?? itemOblRes.error?.message);
+      return { ok: false, message: "Posten konnten nicht geprüft werden. Bitte erneut versuchen." };
+    }
+    if ((payeeRes.count ?? 0) > 0) {
+      return {
+        ok: false,
+        message:
+          "Diese Person empfängt die Zahlungen für einen Posten (z. B. An-/Abreise). Bitte zuerst im Posten eine andere Person als Empfänger eintragen.",
+      };
+    }
+    if ((itemOblRes.data ?? []).some((o) => Number(o.amount) > 0)) {
+      return {
+        ok: false,
+        message:
+          "Diese Person hat noch ein offenes Soll bei einem Posten (z. B. An-/Abreise). Bitte zuerst den Posten anpassen, bevor du sie entfernst.",
+      };
+    }
+  }
+
   // Geteilter Helfer mit replaceMember (lib/actions/prepayments.ts, PR 4) —
   // lib/auth/cross-trip.ts:personHasBookingTrace, DRY statt zweier
   // driftender Kopien.
@@ -283,6 +327,17 @@ export async function removeMember(
   // (falls vorhanden, mit total_amount = 0) kann gefahrlos mitgelöscht
   // werden — sie hätte ohnehin nichts mehr beigetragen.
   await supabase.from("prepayment_obligations").delete().eq("trip_id", tripId).eq("person_id", personId);
+  // PR4a: 0-€-Sollzeilen bei Posten ebenso (offenes Soll ist oben geblockt).
+  // person_id hat dort keinen FK auf trip_members, die Zeile bliebe sonst
+  // als Leiche stehen.
+  {
+    const { error } = await supabase
+      .from("prepayment_item_obligations")
+      .delete()
+      .eq("trip_id", tripId)
+      .eq("person_id", personId);
+    if (error) console.error("[bordkasse:db] removeMember item obligations cleanup:", error.message);
+  }
 
   // settled_debts referenziert die Person direkt (from_person_id/
   // to_person_id, kein FK auf trip_members) — ein Fantom-Häkchen für eine
@@ -684,6 +739,36 @@ async function mergeGhostIntoExistingPerson(
     };
   }
 
+  // Pre-Check (PR4a, Reise-Posten 0058): ist der Ghost Empfänger eines
+  // Postens? Dann MUSS der Empfänger vor jedem anderen Schreibschritt
+  // gewechselt werden — sonst bricht schon Schritt 1 (credit_to → real) am
+  // Trigger tx_item_credit_payee ab (Empfänger wäre noch der Ghost) und der
+  // Merge hinterließe einen Teilzustand; spätestens das finale
+  // persons-DELETE scheiterte an `payee_person_id ON DELETE RESTRICT`.
+  // Der Wechsel läuft atomar über move_item_payee (Migration 0059) und hängt
+  // die Posten-Gutschriften (credit_to) gleich mit um. Hier nur LESEN —
+  // Lesefehler brechen ab, BEVOR irgendetwas geschrieben wurde.
+  const { data: ghostPayeeItems, error: ghostPayeeErr } = await supabase
+    .from("prepayment_items")
+    .select("id")
+    .eq("trip_id", tripId)
+    .eq("payee_person_id", ghostId);
+  if (ghostPayeeErr) {
+    console.error("[bordkasse:db] mergeGhostIntoExistingPerson payee check:", ghostPayeeErr.message);
+    return { ok: false, message: "Posten konnten nicht geprüft werden. Bitte erneut versuchen." };
+  }
+  // Posten-Soll des Ghosts (person_id → persons ON DELETE CASCADE): würde
+  // beim finalen persons-DELETE sonst STILL verschwinden.
+  const { data: ghostItemObl, error: ghostItemOblErr } = await supabase
+    .from("prepayment_item_obligations")
+    .select("item_id, amount")
+    .eq("trip_id", tripId)
+    .eq("person_id", ghostId);
+  if (ghostItemOblErr) {
+    console.error("[bordkasse:db] mergeGhostIntoExistingPerson item obligations:", ghostItemOblErr.message);
+    return { ok: false, message: "Posten-Soll konnte nicht geprüft werden. Bitte erneut versuchen." };
+  }
+
   // Generischer Fehler-Text für alle Zwischenschritte unten — Fund 3
   // (Sanierungsplan PR 9a): jeder Schritt verwarf bisher den Rückgabewert,
   // ein Fehler mittendrin blieb unbemerkt und die Funktion log am Ende
@@ -699,6 +784,12 @@ async function mergeGhostIntoExistingPerson(
         `verschmolzen sein — bitte einen Admin kontaktieren, statt es erneut zu versuchen: ${message}`,
     };
   };
+
+  // 0. Posten-Empfänger (PR4a) — als ERSTER Schreibschritt, siehe Pre-Check.
+  for (const it of ghostPayeeItems ?? []) {
+    const { error } = await supabase.rpc("move_item_payee", { p_item_id: it.id, p_new_payee: realId });
+    if (error) return mergeStepFailed("prepayment_items.payee_person_id", error.message);
+  }
 
   // 1. transactions: paid_by / credit_from / credit_to umhängen — keine
   //    Constraints betroffen, einfache UPDATEs. Durch den Pre-Check oben
@@ -794,6 +885,44 @@ async function mergeGhostIntoExistingPerson(
     }
     const { error } = await supabase.from("prepayment_obligations").delete().eq("trip_id", tripId).eq("person_id", ghostId);
     if (error) return mergeStepFailed("prepayment_obligations.delete_ghost", error.message);
+  }
+
+  // 3b. Posten-Soll (PR4a): PK (item_id, person_id). Hat real für einen
+  //     Posten schon ein Soll (nur nach einem früheren Crewwechsel denkbar,
+  //     Self-Klausel aus 0058), werden die Beträge addiert — wie bei den
+  //     per_person-Anteilen in Schritt 2 (sonst wäre Σ Soll < Posten-Summe).
+  for (const o of ghostItemObl ?? []) {
+    const { data: realItemObl, error: realItemOblErr } = await supabase
+      .from("prepayment_item_obligations")
+      .select("amount")
+      .eq("item_id", o.item_id)
+      .eq("person_id", realId)
+      .maybeSingle();
+    if (realItemOblErr) return mergeStepFailed("prepayment_item_obligations.select_real", realItemOblErr.message);
+    if (realItemObl) {
+      const { error } = await supabase
+        .from("prepayment_item_obligations")
+        .update({ amount: Number(realItemObl.amount) + Number(o.amount) })
+        .eq("item_id", o.item_id)
+        .eq("trip_id", tripId)
+        .eq("person_id", realId);
+      if (error) return mergeStepFailed("prepayment_item_obligations.merge_amount", error.message);
+      const { error: delErr } = await supabase
+        .from("prepayment_item_obligations")
+        .delete()
+        .eq("item_id", o.item_id)
+        .eq("trip_id", tripId)
+        .eq("person_id", ghostId);
+      if (delErr) return mergeStepFailed("prepayment_item_obligations.delete_ghost", delErr.message);
+    } else {
+      const { error } = await supabase
+        .from("prepayment_item_obligations")
+        .update({ person_id: realId })
+        .eq("item_id", o.item_id)
+        .eq("trip_id", tripId)
+        .eq("person_id", ghostId);
+      if (error) return mergeStepFailed("prepayment_item_obligations.reassign", error.message);
+    }
   }
 
   // 4. trip_members: Ghost-Eintrag auf real umhängen. Der Pre-Check oben

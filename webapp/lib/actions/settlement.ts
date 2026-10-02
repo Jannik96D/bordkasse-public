@@ -63,6 +63,15 @@ export async function announceSettlement(tripId: string): Promise<Result> {
   }
 
   // Aktuelle Bilanz + Schulden-Plan ziehen.
+  //
+  // Bewusste Entscheidung (Reise-Posten, PR4a): der SALDO in der Mail kommt
+  // weiter aus v_balances (Gesamtbilanz über alle drei Töpfe), der
+  // ZAHLUNGSPLAN aus simplify_debts (nur Bordkasse). Posten und Charter-Pool
+  // laufen über die Anzahlungs-Matrix (Crew → Empfänger), nicht über den
+  // Schulden-Tab — eine Überweisung für Flüge darf dort nicht auftauchen.
+  // Den Saldo trotzdem gesamt zu zeigen ist ehrlich: wer seinen Flug noch
+  // nicht bezahlt hat, sieht das als negativen Saldo, statt fälschlich „0".
+  // Identisch zum Verhalten bei Tranchen seit 0026 — keine Änderung hier.
   const [balances, debts] = await Promise.all([
     getBalances(tripId),
     getSimplifiedDebts(tripId),
