@@ -55,9 +55,11 @@ function smtpConfig(): { host: string; port: number; secure: boolean; auth: { us
 }
 
 function toSendResult(err: unknown): SendResult {
-  console.error("[bordkasse:mail]", err);
   const message = err instanceof Error ? err.message : "unbekannter Fehler";
   const e = (err ?? {}) as { code?: unknown; responseCode?: unknown };
+  // Nur Codes loggen — das nodemailer-Fehlerobjekt (und oft auch seine
+  // Message) kann Empfängeradressen enthalten (keine PII in Logs).
+  console.error("[bordkasse:mail] Versand fehlgeschlagen", { code: e.code, responseCode: e.responseCode });
   return {
     ok: false,
     error: `Mail-Versand fehlgeschlagen: ${message}`,
@@ -97,13 +99,16 @@ export async function sendMail(
  * Aufrufer aggregiert sent/failed selbst. Wirft nie (jede Mail liefert ihr
  * eigenes SendResult). Leere Liste → leeres Array.
  */
-export async function sendMails(messages: MailMessage[]): Promise<SendResult[]> {
+export async function sendMails(messages: MailMessage[], opts: SendOptions = {}): Promise<SendResult[]> {
   if (messages.length === 0) return [];
   const cfg = smtpConfig();
   if (!cfg) return messages.map(() => ({ ok: false, error: NOT_CONFIGURED }));
 
   const transporter = nodemailer.createTransport({
     ...cfg,
+    ...(opts.connectionTimeoutMs !== undefined ? { connectionTimeout: opts.connectionTimeoutMs } : {}),
+    ...(opts.greetingTimeoutMs !== undefined ? { greetingTimeout: opts.greetingTimeoutMs } : {}),
+    ...(opts.socketTimeoutMs !== undefined ? { socketTimeout: opts.socketTimeoutMs } : {}),
     pool: true,
     maxConnections: 5, // schont den Mailserver (keine 12 gleichzeitigen Verbindungen)
     maxMessages: 100,

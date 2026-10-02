@@ -48,6 +48,7 @@ import {
 import type { PrepaymentItemView } from "@/lib/queries/prepayment-items";
 import { ItemFormModal } from "./item-form-modal";
 import { ItemPaymentModal, ItemProviderPaymentModal } from "./item-payment-modals";
+import { NotifyCrewButton } from "./notify-crew-button";
 
 interface Member {
   id: string;
@@ -73,6 +74,8 @@ export interface ItemsSectionProps {
   defaultPayeeId: string | null;
   /** Heutiges Datum (ISO), vom Server — Server und Client rechnen damit identisch (kein Hydration-Mismatch). */
   today: string;
+  /** Letzter Versand „Crew informieren" je Posten, server-seitig formatiert (PR6, fail-soft leer). */
+  itemLastNotifiedLabel?: Record<string, string>;
 }
 
 /** Nur IDs merken: die Modale lesen Soll/Bezahlt/Locks nach jedem router.refresh frisch aus `items`. */
@@ -88,6 +91,7 @@ export function ItemsSection({
   readOnly,
   defaultPayeeId,
   today,
+  itemLastNotifiedLabel = {},
 }: ItemsSectionProps) {
   const vocab = useTripVocab();
   const [form, setForm] = useState<{ itemId: string | null } | null>(null);
@@ -133,6 +137,12 @@ export function ItemsSection({
             Automatische Erinnerungen: Wer noch nicht gezahlt hat, bekommt 6 Tage vor der Fälligkeit beim Anbieter eine
             Mail (die {vocab.crew} soll 3 Tage vor dieser Fälligkeit zahlen). Der Empfänger bekommt 3 Tage vorher eine
             Übersicht, solange der Anbieter noch nicht voll bezahlt ist. Posten ohne Fälligkeit werden nicht erinnert.
+            {canManageItems && (
+              <>
+                {" "}Beim Anlegen eines Postens bekommen alle mit Anteil automatisch eine Mail; nach einer Änderung
+                informierst du sie über „{vocab.crew} informieren“.
+              </>
+            )}
           </span>
         </p>
       )}
@@ -163,6 +173,7 @@ export function ItemsSection({
                     canRecord={!readOnly}
                     today={today}
                     onEdit={() => setForm({ itemId: it.id })}
+                    lastNotifiedLabel={itemLastNotifiedLabel[it.id] || null}
                     onRecord={(c) => setPayment({ itemId: it.id, mode: "record", personId: c.person_id })}
                     onProvider={() => setProviderId(it.id)}
                   />
@@ -314,6 +325,7 @@ function ItemCard({
   canRecord,
   today,
   onEdit,
+  lastNotifiedLabel,
   onRecord,
   onProvider,
 }: {
@@ -325,6 +337,7 @@ function ItemCard({
   canRecord: boolean;
   today: string;
   onEdit: () => void;
+  lastNotifiedLabel: string | null;
   onRecord: (cell: PrepaymentItemView["cells"][number]) => void;
   onProvider: () => void;
 }) {
@@ -477,7 +490,13 @@ function ItemCard({
       </ul>
 
       {canEdit && (
-        <ItemAdminActions tripId={tripId} item={item} onEdit={onEdit} deleteReason={locks.deleteReason} />
+        <ItemAdminActions
+          tripId={tripId}
+          item={item}
+          onEdit={onEdit}
+          deleteReason={locks.deleteReason}
+          lastNotifiedLabel={lastNotifiedLabel}
+        />
       )}
     </article>
   );
@@ -488,11 +507,13 @@ function ItemAdminActions({
   item,
   onEdit,
   deleteReason,
+  lastNotifiedLabel,
 }: {
   tripId: string;
   item: PrepaymentItemView;
   onEdit: () => void;
   deleteReason: string | null;
+  lastNotifiedLabel: string | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -555,6 +576,8 @@ function ItemAdminActions({
           {pending ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
           Löschen
         </button>
+        {/* Update-Mail nach Änderungen (PR6); beim Anlegen geht die Mail automatisch raus. */}
+        <NotifyCrewButton tripId={tripId} itemId={item.id} subject={`„${item.label}“`} lastNotifiedLabel={lastNotifiedLabel} />
       </div>
       {deleteReason && (
         <p id={`item-${item.id}-del`} className="mt-2 text-xs text-ink-soft">{deleteReason}</p>

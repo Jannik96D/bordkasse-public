@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, UserPlus } from "lucide-react";
 import { savePrepaymentPlan, saveTranches } from "@/lib/actions/prepayments";
@@ -167,7 +167,13 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
     });
   }
 
+  // Doppelklick-Sperre (Review-Fund): `pending` aus useTransition wirkt erst
+  // nach dem nächsten Render — ein zweiter Klick davor schickte saveTranches
+  // doppelt ab. Die Ref sperrt synchron, bis der Request zurück ist.
+  const finishingRef = useRef(false);
+
   function saveTranchesAndFinish() {
+    if (finishingRef.current) return;
     setError(null);
     if (!percentValid) {
       setError(`Summe aller Tranchenprozente muss 100 % ergeben (aktuell: ${percentSum.toFixed(1)} %).`);
@@ -187,13 +193,21 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
     };
     const fd = new FormData();
     fd.set("payload", JSON.stringify(payload));
+    finishingRef.current = true;
     startTransition(async () => {
-      const res = await saveTranches({ status: "idle" }, fd);
-      if (res.status === "error") {
-        setError(res.message);
-      } else {
-        router.push(`/trips/${tripId}/prepayments`);
-        router.refresh();
+      try {
+        const res = await saveTranches({ status: "idle" }, fd);
+        if (res.status === "error") {
+          setError(res.message);
+          finishingRef.current = false;
+        } else {
+          // Bleibt gesperrt: die Seite wechselt gleich.
+          router.push(`/trips/${tripId}/prepayments`);
+          router.refresh();
+        }
+      } catch {
+        setError("Verbindung unterbrochen. Bitte erneut versuchen.");
+        finishingRef.current = false;
       }
     });
   }
@@ -562,6 +576,14 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
 
           <p className={`text-sm ${Math.abs(percentSum - 100) > 0.01 ? "text-danger" : "text-ink-soft"}`}>
             Summe: <strong>{percentSum.toFixed(1)} %</strong> (muss 100 % ergeben)
+          </p>
+
+          {/* Benachrichtigung (PR6): der Server verschickt die Mail beim ersten
+              Fertigstellen genau einmal (Claim crew_notified_at, 0062). */}
+          <p className="rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
+            {tranches.length === 0
+              ? `Beim Fertigstellen bekommt jede Person mit Anteil automatisch eine Mail mit ihrem Betrag, den Raten und Fristen.`
+              : `Änderungen verschicken keine Mail. Informiere die ${vocab.crew} danach auf der Anzahlungs-Seite über „${vocab.crew} informieren“.`}
           </p>
 
           {error && <p role="alert" className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}

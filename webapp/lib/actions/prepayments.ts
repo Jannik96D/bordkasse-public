@@ -358,10 +358,14 @@ export async function saveTranches(
   // Löschen einer Tranche setzt zugehörige transactions.tranche_id auf NULL
   // (via ON DELETE SET NULL aus 0023). Die Buchungen wandern dann in den
   // Bordkasse-Pool.
-  const { data: existing } = await supabase
+  const { data: existing, error: existingErr } = await supabase
     .from("prepayment_tranches")
     .select("id")
     .eq("trip_id", trip_id);
+  // Fail-loud (Review-Fund): ein Lesefehler ließe existingIds leer — dann
+  // würden alle Tranchen doppelt eingefügt und der Request hielte sich
+  // fälschlich für die Ersteinrichtung (Plan-angelegt-Mail).
+  if (existingErr) return { status: "error", message: dbErr(existingErr, "Tranchen konnten nicht geladen werden.") };
   const existingIds = new Set((existing ?? []).map((t) => t.id as string));
   const incomingIds = new Set(tranches.filter((t) => t.id).map((t) => t.id as string));
   const toDelete = [...existingIds].filter((id) => !incomingIds.has(id));
@@ -428,6 +432,18 @@ export async function saveTranches(
     actor_person_id: person.id,
     payload: { count: tranches.length },
   });
+
+  // „Anzahlungsplan angelegt" (PR6): beim ERSTEN Fertigstellen genau einmal
+  // an die Crew (+ Übersicht an die vorstreckende Person). Der Einmal-Claim
+  // über prepayment_plan.crew_notified_at (0062) macht Doppelklick/Retry und
+  // jedes spätere Speichern im Wizard wirkungslos. Wirft nie — ein
+  // Versandfehler ändert das Ergebnis von saveTranches nicht.
+  const { notifyPlanCreatedOnce } = await import("@/lib/email/send-prepayment-notices");
+  // firstSetup: nur wenn DIESER Request die ersten Tranchen angelegt hat.
+  const notice = await notifyPlanCreatedOnce(supabase, { tripId: trip_id, actorId: person.id, firstSetup: existingIds.size === 0 });
+  if (notice.error || notice.failed > 0) {
+    console.error("[bordkasse:plan-notice]", { claimed: notice.claimed, sent: notice.sent, failed: notice.failed, skipped: notice.skipped });
+  }
 
   revalidatePath(`/trips/${trip_id}/prepayments`);
   return { status: "ok" };

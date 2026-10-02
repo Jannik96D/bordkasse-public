@@ -1030,6 +1030,50 @@ Code: `lib/prepayments/item-reminders.ts` (reine Planung),
 `__tests__/item-reminder-cron.test.ts`, `prepayment-items-actions.test.ts`
 (Reject), pgTAP `prepayment_item_reminder_log_test.sql`.
 
+## Benachrichtigungen für Posten und Anzahlungsplan (PR6, Migration 0062)
+
+Alle Mails laufen über `mail-shell.ts`, Pushes gehen **additiv nach** der Mail
+(`docs/push-notifications.md`). Gemeinsame Regeln (rein und getestet in
+[`lib/prepayments/notify.ts`](../webapp/lib/prepayments/notify.ts), Versand in
+[`lib/email/send-prepayment-notices.ts`](../webapp/lib/email/send-prepayment-notices.ts)):
+
+- **Aktor bekommt nie etwas** über die eigene Aktion; jede Person höchstens eine Mail pro Ereignis.
+- **Erst die Aktion, dann die Mail.** Die Versand-Helfer werfen nie; ein Mail-/DB-Fehler beim Versand ändert das Ergebnis der Action nicht (nur Zählung `{sent, failed, skipped}` im Serverlog, ohne Adressen/Namen). Duplikat-Retrys (`idempotency_key`) verschicken nichts.
+- **Archivierte Törns** verschicken nichts (die auslösenden Actions sind ohnehin per `assertTripNotArchived` gesperrt).
+- **Escaping:** Bezeichnung, Kategorie, Törnname, Notiz, Wero-ID und alle Namen gehen im HTML durch `escapeHtml`.
+- **Reise-Typ:** Wortlaut über `tripVocab` (Urlaubskasse/Reise/Reisegruppe bei „Andere Reise").
+- **Wero-Regel (Entscheidung Nutzer):** Ohne Wero-ID (leer/nur Whitespace, `normalizeWeroId`) erwähnt eine Mail Wero mit keinem Wort — kein Block, kein Hinweistext. Der Verwendungszweck ist ein neutraler Vorschlag für jede Überweisung und steht deshalb auch ohne Wero da. Posten haben keine eigene Wero-ID: die des Anzahlungsplans gehört der vorstreckenden Person und wird in Posten-Mails **nur** genannt, wenn diese Person auch den Posten empfängt (`weroIdForItem`) — sonst ginge das Geld per Wero an die falsche Person. Gilt auch rückwirkend für die bestehende Erinnerungsmail (`prepayment-reminder-template.ts`).
+
+| Ereignis | Mail an | Variante |
+|---|---|---|
+| Posten-Selbstmeldung (`submitItemSelfPayment`) | Posten-Empfänger (nicht, wenn er selbst meldet) | „Zahlung gemeldet" — bitte bestätigen (`item-notice-template.ts:renderItemPendingMail`) |
+| Bestätigt / abgelehnt (`confirm/rejectItemSelfPayment`) | zahlende Person; zusätzlich der Empfänger, wenn ein Dritter (Skipper/Admin) gehandelt hat | `renderItemNoticeMail` |
+| Erfasst (`recordItemPayment`) | zahlende Person + Empfänger, jeweils ohne Aktor; Selbstverrechnung des Empfängers → niemand | `renderItemNoticeMail` |
+| Anbieter-Zahlung (`recordItemProviderPayment`) | — | keine Mail |
+| **Posten angelegt** (`saveItem`, nur Neuanlage) | alle mit Soll > 0 außer Aktor und Empfänger; Empfänger bekommt eine Übersicht (Summe Anbieter, Frist beim Anbieter, Soll je Person, eigener Anteil) | `announce-templates.ts:renderItemAnnounceCrewMail` / `…PayeeMail` |
+| **Anzahlungsplan angelegt** (erstes erfolgreiches `saveTranches`) | alle mit Soll > 0 außer Aktor und vorstreckender Person; diese bekommt die Charter-Übersicht (Rate an den Vercharterer, davon von der Crew, Soll je Person) | `renderPlanAnnounceCrewMail` / `…AdvancerMail` |
+| **Crew informieren** (Knopf, manuell) | wie „angelegt", Wortlaut „hat sich geändert" mit den AKTUELLEN Beträgen/Fristen | `isUpdate: true` |
+
+**Bereits Bezahltes und Gemeldetes:** alle Crew-Mails (auch „angelegt") ziehen bestätigte Zahlungen (`v_prepayment_item_payments` / `v_prepayment_payments`) UND offene Selbstmeldungen (`v_prepayment_item_pending` / `v_prepayment_pending`) ab und zeigen „bereits bezahlt / gemeldet, wartet auf Bestätigung / noch offen"; ist nichts mehr offen, entfällt der Zahlungsblock komplett („… bereits vollständig bezahlt" bzw. „… gemeldet und wartet auf die Bestätigung durch X"). Beim Plan werden Zahlungen und Meldungen einer Person **summiert und nach Fälligkeit auf die Raten verteilt** (`allocateCoverage`: erst bestätigt, dann gemeldet, früheste Rate zuerst) — eine Überzahlung einer Rate deckt so die anderen (Raten 50/50, Rate 2 mit 60 und Rate 1 mit 40 bezahlt → nichts offen), Gesamt-Offen wird nie negativ. Sind Zahlungen oder Meldungen nicht lesbar, wird fail-closed NICHTS verschickt.
+
+**Raten-Rundung:** die Raten in den neuen Mails werden per Largest-Remainder (`trancheShares` → `allocateByWeights`) verteilt, Σ Raten = Gesamtanteil exakt. Bewusst NUR in den neuen Mails: Matrix, Crew-Self-View und die bestehende Erinnerungsmail rechnen weiter pro Rate `round2(Soll × % / 100)` (eine zentrale Umstellung hätte angezeigte Sollbeträge und offen/bezahlt-Grenzen bestehender Törns verschoben) — zwischen Mail und Matrix kann eine Rate daher um 1 ct abweichen.
+
+**Empfänger ohne E-Mail (Ghost):** bei einer Posten-Selbstmeldung gehen Skipper und Co-Skipper (ohne Aktor/Empfänger) stellvertretend eine Mail („… an Ben gezahlt … stellvertretend, weil Ben keine E-Mail-Adresse hinterlegt hat"); sie dürfen die Meldung bestätigen. Versand mit knappen SMTP-Timeouts (10 s/15 s), weil er synchron am Ende der Action läuft.
+
+**Inhalt Crew-Mail:** wofür (Kategorie + Bezeichnung bzw. Anzahlungsplan), der eigene Betrag (beim Plan: jede Rate mit Betrag = Soll × % / 100 und Crewfrist), bis wann (**Crewfrist** = Fälligkeit − 3 Tage über `toCrewDueDate` inkl. Clamp; Posten ohne Fälligkeit: „Eine Frist ist noch nicht festgelegt — sie folgt."), an wen (Anzeigename), Zahlungshinweis (Wero nur mit ID), Link auf `/trips/{id}/prepayments`.
+
+**„Genau einmal" für den Anzahlungsplan:** Migration 0062 legt `prepayment_plan.crew_notified_at` an. Nach jedem erfolgreichen `saveTranches` prüft `notifyPlanCreatedOnce` zuerst, (a) dass DIESER Request die ersten Tranchen des Plans angelegt hat (`firstSetup` — vorher gab es keine; schließt auch das Deploy-Fenster „Migration vor App, alter Code legt Tranchen an" aus, in dem das Flag NULL bliebe) und (b) dass die gespeicherten Tranchen zusammen 100 % ergeben (`saveTranches` prüft seine Einzel-Writes nicht — ein teilweise gescheitertes Speichern soll das Flag nicht mit einer unvollständigen Mail verbrauchen), und beansprucht dann atomar `UPDATE … SET crew_notified_at = now() WHERE trip_id = … AND crew_notified_at IS NULL RETURNING`. Nur der Request, der die Zeile trifft, verschickt — Doppelklick, Netzwerk-Retry und jedes spätere Speichern im Wizard verschicken nichts. Bewusst **claim-first** (anders als das Reminder-Log, das „Mail zuerst" schreibt): ein doppelter Versand an die ganze Crew wäre schlimmer als ein verpasster, und für Letzteres gibt es den Knopf. Bestandspläne mit Tranchen wurden per Backfill als „informiert" markiert. Erkennung über eine Spalte statt über Audit-Log/Tranchen-Zählung, weil nur ein atomares Flag das Race zweier paralleler Requests schließt.
+
+**„Genau einmal" für Posten:** ohne Flag — der Create-Zweig von `saveItem` läuft pro Posten nur einmal (ein Retry mit derselben client-generierten ID findet den Posten als `existing` → Update-Pfad, ein paralleler Zweitversuch scheitert am PK).
+
+**Knopf „Crew informieren"** (`lib/actions/prepayment-notify.ts`, UI `app/trips/[id]/prepayments/notify-crew-button.tsx`): für den Plan im Kopf der Anzahlungs-Seite neben „Plan bearbeiten", für Posten in den Admin-Aktionen jeder Posten-Karte. Nur Skipper/Co-Skipper/Admin (`requireSkipperOrAdmin`), Archiv-Guard, Cross-Trip-Check für die Posten-ID. `ConfirmDialog` vor dem Versand, Ergebnis-Toast (`notifyResultMessage`: verschickt / nicht zugestellt / ohne E-Mail-Adresse), Fehler als `role="alert"`. **Weicher Spam-Schutz:** `crew_last_notified_at` (Plan und Posten, gesetzt bei ≥ 1 zugestellter Mail, auch beim automatischen Erstversand) erscheint als „Zuletzt informiert am …" (Europe/Berlin, hydration-sicher) am Knopf und im Dialog — kein harter Block. Änderungen selbst lösen **keine** automatische Mail aus.
+
+**Fail-soft bei fehlender Migration 0062** (App vor Migration): der Claim scheitert → keine „Plan angelegt"-Mail (lieber keine als eine bei jedem Speichern); `getCrewNotifyState` (`lib/queries/crew-notify.ts`, bewusst eine eigene Query statt Spalten in `getPlan`/`getItems`) liefert leer → „zuletzt informiert" fehlt; alle Kernaktionen speichern unverändert.
+
+**Bekannte Grenzen:** der Versand läuft synchron am Ende der Action (`saveItem`, `saveTranches`, Zahlungs-Actions) — bei langsamem Mailserver wartet der Nutzer bis zu den SMTP-Timeouts (10 s/15 s), auch wenn das Speichern schon fertig ist (reine UX, kein Datenproblem; ein asynchroner Versand ist bewusst nicht gebaut). `saveTranches` lehnt einen Lesefehler der bestehenden Tranchen jetzt ab (vorher: alles als Neuanlage), der Wizard sperrt „Fertig stellen" synchron gegen Doppelklick.
+
+Tests: `__tests__/prepayment-notifications.test.ts` (mutationsgeprüft: Empfänger-/Aktor-Ausschluss, Wero mit/ohne/Whitespace, Escaping, Frist mit Puffer/Clamp/ohne Fälligkeit, einmaliger Versand, Knopf-Berechtigung/Archiv, Mailfehler kippt nichts, fehlende Migration, Reise-Typ „other"), pgTAP `prepayment_crew_notified_test.sql`.
+
 ## Mail-Templates + WhatsApp-Texte
 
 WhatsApp-Versand läuft immer manuell. Mail-Versand läuft entweder manuell (🔔-Button) oder automatisch via Cron (siehe „Implementierte Erweiterungen" → Auto-Reminder).
@@ -1041,8 +1085,8 @@ Alle Mails nutzen [`lib/email/mail-shell.ts`](../webapp/lib/email/mail-shell.ts)
 Pro Person-Zeile in der Matrix ein Knopf 🔔, plus Auto-Versand vom Cron innerhalb der letzten 3 Tage vor Crew-Fälligkeit. Crew mit pending Selbstmeldung wird automatisch übersprungen. Inhalt:
 - Anrede mit Display-Name
 - Liste der offenen Tranchen mit Soll-Betrag und Crew-Fälligkeitsdatum (= Charterfrist minus 3 Tage)
-- Dynamischer Wero-Hinweis: „Bitte schicke **{Vorstrecker}** per Wero die fällige Anzahlung." mit Wero-ID + Verwendungszweck als Pille. **Kein Klick-Link** — Wero hat keine offene API. Falls keine Wero-ID gepflegt: „Frag {Vorstrecker} nach den Überweisungsdetails."
-- Hint-Block am Mail-Ende erklärt die Wero-Limitation
+- Dynamischer Wero-Hinweis: „Bitte schicke **{Vorstrecker}** per Wero die fällige Anzahlung." mit Wero-ID + Verwendungszweck als Pille. **Kein Klick-Link** — Wero hat keine offene API. Falls keine Wero-ID gepflegt (leer/Whitespace): „Frag {Vorstrecker} nach den Zahlungsdetails." — **ohne** jede Erwähnung von Wero (Wero-Regel, PR6).
+- Hint-Block am Mail-Ende erklärt die Wero-Limitation — nur, wenn eine Wero-ID hinterlegt ist
 - Link zur Bordkasse (`/trips/{id}/prepayments`)
 
 Voraussetzung: Crewmitglied hat E-Mail-Adresse. Sonst ist der 🔔-Button deaktiviert mit Tooltip „E-Mail fehlt".
@@ -1103,7 +1147,8 @@ Platzhalter werden zur Render-Zeit ersetzt. Modal hat „In Zwischenablage kopie
 - **Profil-Feld:** `prepayment_plan.wero_id` pro Trip (Mobilnummer oder E-Mail des Vorstrecker-Wero-Accounts, **nicht zwingend Skipper**). Wird im Wizard eingegeben.
 - **Tranche-Feld:** `prepayment_tranches.wero_request_link` — Spalte existiert noch im Schema, ist aber aus der UI entfernt (Wero-Link-Eingabe im Wizard fehlt, In-App- und Mail-Buttons rendern keinen Link mehr). Hintergrund: Wero hat **keine öffentliche API** für Klick-Links, die wir zuverlässig generieren könnten; vom Nutzer eingegebene Links funktionieren in der Praxis nicht.
 - **Crew-Sicht:** statt eines Klick-Buttons zeigt die App eine Wero-Pille mit Wero-ID + Verwendungszweck — die Crew kopiert das manuell in ihre Wero-App.
-- **Mail-Hinweis dynamisch:** „Bitte schicke **{Vorstrecker}** per Wero die fällige Anzahlung." Wero-ID + Verwendungszweck als Pille. Bei fehlender Wero-ID: „Frag {Vorstrecker} nach den Überweisungsdetails."
+- **Mail-Hinweis dynamisch:** „Bitte schicke **{Vorstrecker}** per Wero die fällige Anzahlung." Wero-ID + Verwendungszweck als Pille. Bei fehlender Wero-ID: „Frag {Vorstrecker} nach den Zahlungsdetails." — die Mail erwähnt Wero dann gar nicht (PR6, siehe „Benachrichtigungen"). Posten-Mails nennen die Wero-ID nur, wenn die vorstreckende Person auch den Posten empfängt.
+- **WhatsApp-Texte** (`lib/prepayments/whatsapp.ts`) folgen derselben Regel: ohne Wero-ID/-Link entfällt eine Zeile, die nur „Wero: {{wero_link_or_id}}" enthält (Default-Vorlage oder unverändert übernommen), sonst wird der Platzhalter leer ersetzt (früher „—").
 - **Kein IBAN-Fallback:** explizite Entscheidung. Crew ohne Wero muss sich beim Vorstrecker melden.
 
 ## Sichtbarkeit

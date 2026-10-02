@@ -19,6 +19,9 @@ import { tripVocab, type TripType } from "@/lib/trip-vocab";
 import { PrepaymentMatrix } from "./matrix";
 import { CrewSelfView } from "./crew-self-view";
 import { ItemsSection } from "./items-section";
+import { NotifyCrewButton } from "./notify-crew-button";
+import { getCrewNotifyState } from "@/lib/queries/crew-notify";
+import { formatNotifiedAt } from "@/lib/prepayments/notify";
 
 export default async function PrepaymentsPage({
   params,
@@ -27,7 +30,7 @@ export default async function PrepaymentsPage({
 }) {
   const { id } = await params;
 
-  const [trip, members, person, admin, plan, tranches, cabins, obligations, payments, pending, charterPaid, items, categories] =
+  const [trip, members, person, admin, plan, tranches, cabins, obligations, payments, pending, charterPaid, items, categories, notifyState] =
     await Promise.all([
       getTrip(id),
       getTripMembers(id),
@@ -42,6 +45,7 @@ export default async function PrepaymentsPage({
       getCharterPaymentsPerTranche(id),
       getItems(id),
       getCategories(id),
+      getCrewNotifyState(id),
     ]);
 
   if (!trip) return null;
@@ -71,6 +75,9 @@ export default async function PrepaymentsPage({
       canManageItems={canManageItems}
       readOnly={!!trip.archived}
       defaultPayeeId={trip.skipper_id}
+      itemLastNotifiedLabel={Object.fromEntries(
+        Object.entries(notifyState.itemLastNotifiedAt).map(([k, v]) => [k, formatNotifiedAt(v) ?? ""]),
+      )}
       today={new Date().toISOString().slice(0, 10)}
     />
   );
@@ -127,16 +134,27 @@ export default async function PrepaymentsPage({
 
   return (
     <main className="mx-auto max-w-4xl px-4 pb-24 pt-4">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
         <h1 className="text-lg font-bold text-primary">Anzahlungen</h1>
         {(admin || isMyTripSkipper) && (
-          <Link
-            href={`/trips/${id}/prepayments/setup`}
-            className="inline-flex items-center gap-1 rounded-md border border-rule px-3 py-1.5 text-sm hover:border-primary/40 hover:bg-navy-light/20"
-          >
-            <SettingsIcon className="h-4 w-4" />
-            Plan bearbeiten
-          </Link>
+          <div className="flex flex-wrap items-start gap-2">
+            {/* Update-Mail nach Änderungen (PR6) — Erstversand passiert
+                automatisch beim ersten Fertigstellen des Wizards. */}
+            {!trip.archived && (
+              <NotifyCrewButton
+                tripId={id}
+                subject="den Anzahlungsplan"
+                lastNotifiedLabel={formatNotifiedAt(notifyState.planLastNotifiedAt)}
+              />
+            )}
+            <Link
+              href={`/trips/${id}/prepayments/setup`}
+              className="inline-flex min-h-[44px] items-center gap-1 rounded-md border border-rule px-3 py-1.5 text-sm hover:border-primary/40 hover:bg-navy-light/20"
+            >
+              <SettingsIcon className="h-4 w-4" aria-hidden="true" />
+              Plan bearbeiten
+            </Link>
+          </div>
         )}
       </div>
 
