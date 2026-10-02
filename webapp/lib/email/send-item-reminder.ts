@@ -20,7 +20,16 @@ import { appOrigin } from "@/lib/auth/origin";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 
-export type ItemReminderResult = { ok: true } | { ok: false; message: string; reason?: "send_failed" };
+export type ItemReminderResult =
+  | { ok: true }
+  | { ok: false; message: string; reason?: "send_failed"; code?: string; responseCode?: number };
+
+/**
+ * Knappe SMTP-Timeouts NUR für diese Erinnerungen (Review P2): ein hängender
+ * Mailserver soll den Cron-Lauf nicht minutenlang blockieren. Andere Mails
+ * (Abrechnung, Magic-Link …) behalten die nodemailer-Defaults.
+ */
+export const ITEM_MAIL_TIMEOUTS = { connectionTimeoutMs: 10_000, greetingTimeoutMs: 10_000, socketTimeoutMs: 20_000 } as const;
 
 export interface ItemReminderContext {
   tripName: string;
@@ -83,7 +92,9 @@ export async function sendItemReminderMail(
         appUrl,
       });
 
-  const result = await sendMail({ to: email, subject: mail.subject, html: mail.html, text: mail.text });
-  if (!result.ok) return { ok: false, message: result.error, reason: "send_failed" };
+  const result = await sendMail({ to: email, subject: mail.subject, html: mail.html, text: mail.text }, ITEM_MAIL_TIMEOUTS);
+  if (!result.ok) {
+    return { ok: false, message: result.error, reason: "send_failed", code: result.code, responseCode: result.responseCode };
+  }
   return { ok: true };
 }

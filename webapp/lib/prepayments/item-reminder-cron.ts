@@ -39,15 +39,57 @@ function loadFailed(what: string, message: string): ItemReminderRunResult {
   return { ...empty(), failed: 1, errors: [{ type: "item_load", message: `${what}: ${message}`, kind: "failed" }] };
 }
 
-export async function runItemReminders(supabase: SupabaseAdmin, todayIso: string): Promise<ItemReminderRunResult> {
+/**
+ * Zeitbudget für den Posten-Teil (Review P2). Der Tranchen-Teil läuft vorher;
+ * dauert der Posten-Versand zu lang (hängender SMTP), bricht er ab, statt den
+ * Cron-Request in den Timeout zu treiben. Nicht verschickte Jobs bleiben
+ * ohne Log-Eintrag und kommen am nächsten Tag dran (Fenster).
+ */
+export const ITEM_TIME_BUDGET_MS = 150_000;
+
+export interface ItemReminderRunOptions {
+  /** Überschreibbar für Tests. */
+  budgetMs?: number;
+}
+
+/**
+ * Text für `errors[].message` im Cron-JSON — OHNE Roh-Text des SMTP-Servers
+ * (der nennt oft die Empfängeradresse; Coolify speichert die Antwort unter
+ * „Recent executions"). Nur Code/Antwortcode. Der Rohtext steht im Serverlog.
+ */
+export function safeMailErrorMessage(r: { code?: string; responseCode?: number }): string {
+  const parts = [r.code, r.responseCode !== undefined ? String(r.responseCode) : undefined].filter(Boolean);
+  return parts.length > 0 ? `Mail-Zustellung fehlgeschlagen (${parts.join(" ")})` : "Mail-Zustellung fehlgeschlagen";
+}
+
+const TIMED_OUT = Symbol("timed_out");
+
+/** Wartet höchstens `ms`; danach TIMED_OUT (die ursprüngliche Promise läuft im Hintergrund weiter). */
+async function withDeadline<T>(p: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), Math.max(0, ms));
+  });
   try {
-    return await runInner(supabase, todayIso);
+    return await Promise.race([p, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export async function runItemReminders(
+  supabase: SupabaseAdmin,
+  todayIso: string,
+  opts: ItemReminderRunOptions = {},
+): Promise<ItemReminderRunResult> {
+  try {
+    return await runInner(supabase, todayIso, Date.now() + (opts.budgetMs ?? ITEM_TIME_BUDGET_MS));
   } catch (e) {
     return loadFailed("run", e instanceof Error ? e.message : String(e));
   }
 }
 
-async function runInner(supabase: SupabaseAdmin, todayIso: string): Promise<ItemReminderRunResult> {
+async function runInner(supabase: SupabaseAdmin, todayIso: string, deadline: number): Promise<ItemReminderRunResult> {
   const windowEnd = addDays(todayIso, ITEM_CREW_WINDOW_DAYS);
 
   // Nur Posten mit Fälligkeit im größten Fenster (Crew, 6 Tage). Ohne
@@ -128,11 +170,21 @@ async function runInner(supabase: SupabaseAdmin, todayIso: string): Promise<Item
   const result = empty();
   result.processed = jobs.length;
 
-  for (const job of jobs) {
+  const budgetExceeded = (remaining: number) => {
+    result.failed++;
+    console.error("[bordkasse:cron] item reminders: time budget exceeded, jobs left:", remaining);
+    result.errors.push({ type: "time_budget", message: `Zeitbudget überschritten, ${remaining} Erinnerung(en) nicht verschickt`, kind: "failed" });
+  };
+
+  for (const [index, job] of jobs.entries()) {
     const item = itemById.get(job.itemId)!;
     const trip = tripById.get(job.tripId)!;
+    if (Date.now() >= deadline) {
+      budgetExceeded(jobs.length - index);
+      break;
+    }
     try {
-      const mail = await sendItemReminderMail(supabase, job, {
+      const mailOrTimeout = await withDeadline(sendItemReminderMail(supabase, job, {
         tripName: trip.name,
         tripType: trip.trip_type === "other" ? "other" : "sailing",
         item: {
@@ -142,12 +194,21 @@ async function runInner(supabase: SupabaseAdmin, todayIso: string): Promise<Item
           payeePersonId: item.payee_person_id as string,
         },
         todayIso,
-      });
+      }), deadline - Date.now());
+      if (mailOrTimeout === TIMED_OUT) {
+        // Ob diese Mail noch rausgeht, ist offen — ohne Log-Eintrag kommt sie
+        // im Zweifel morgen erneut (lieber doppelt als gar nicht).
+        budgetExceeded(jobs.length - index);
+        break;
+      }
+      const mail = mailOrTimeout;
       if (!mail.ok) {
         const kind = mail.reason === "send_failed" ? "failed" : "skipped";
         result[kind]++;
         if (kind === "failed") console.error("[bordkasse:cron] item mail send failed:", { job: jobRef(job), message: mail.message });
-        result.errors.push({ type: job.type, message: mail.message, kind });
+        // Nur bei skipped den (selbst formulierten, adressfreien) Text
+        // übernehmen; bei echten Fehlern nie den SMTP-Rohtext (PII).
+        result.errors.push({ type: job.type, message: kind === "failed" ? safeMailErrorMessage(mail) : mail.message, kind });
         continue;
       }
 
@@ -185,7 +246,7 @@ async function runInner(supabase: SupabaseAdmin, todayIso: string): Promise<Item
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[bordkasse:cron] item job failed:", { job: jobRef(job), msg });
-      result.errors.push({ type: job.type, message: msg, kind: "failed" });
+      result.errors.push({ type: job.type, message: "Unerwarteter Fehler beim Versand", kind: "failed" });
       result.failed++;
     }
   }

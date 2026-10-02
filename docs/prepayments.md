@@ -943,7 +943,9 @@ Für beide gilt: Fenster mit inklusiven Grenzen bis einschließlich zum
 Fälligkeitstag (ein ausgefallener Cron-Tag verliert nichts), eine
 verstrichene Frist wird nicht mehr beworben; nichts bei Posten ohne
 `due_date`, ohne Soll, und in Törns, die vorbei, archiviert oder gepurged
-sind.
+sind. ⚠️ Abweichung vom Tranchen-Teil: der (unveränderte) Tranchen-Code
+prüft `trips.archived` NICHT — ein archivierter Törn mit offener Tranche wird
+dort weiterhin erinnert, bei Posten nicht.
 
 **Inhalt.** Crew-Mail: Posten (Kategorie: Bezeichnung), offener Betrag (von
 Soll), Crewfrist, an wen zahlen, Hinweis „Ich habe gezahlt". Empfänger-Mail:
@@ -962,12 +964,28 @@ wie bei den Tranchen: Mail, dann Log-Eintrag; 23505 (paralleler Lauf) ist
 harmlos, jeder andere Log-Fehler zählt als `failed`. Keine E-Mail hinterlegt
 → `skipped`; Zustellungs- oder Lesefehler → `failed`. Die Cron-Antwort
 schlüsselt `tranches` und `items` auf, die Top-Level-Zähler sind die Summe.
+`errors[].message` enthält bei Zustellungsfehlern KEINEN SMTP-Rohtext (der
+nennt oft die Empfängeradresse, und Coolify speichert die Antwort unter
+„Recent executions"), sondern nur „Mail-Zustellung fehlgeschlagen (Code
+Antwortcode)"; der Rohtext steht nur im Serverlog. Gilt für beide Teile.
 
-**Fail-soft.** Läuft die App vor der Migration (Tabelle fehlt) oder
+**Fail-soft + Reihenfolge.** Der Tranchen-Teil läuft ZUERST (auch wenn er
+scheitert, läuft der Posten-Teil danach; die Antwort ist dann 500 mit
+`items`-Zählern). Läuft die App vor der Migration (Tabelle fehlt) oder
 scheitert eine Lese-Query des Posten-Teils, zählt das als ein `failed`,
 und es geht **keine** Posten-Mail raus (ohne Dedup würde sonst täglich
-gemahnt, ohne Zahlungsdaten falsch). Der Tranchen-Teil läuft davon
-unberührt; der Posten-Teil läuft zuerst und wirft nie.
+gemahnt, ohne Zahlungsdaten falsch). Der Posten-Teil wirft nie.
+
+**Zeitbudget.** Der Posten-Teil bricht nach `ITEM_TIME_BUDGET_MS` (150 s)
+ab — vor jedem Job und per Wettlauf gegen einen hängenden Versand — und
+vermerkt einen `failed`-Eintrag `time_budget`. Nicht verschickte Jobs haben
+keinen Log-Eintrag und kommen am nächsten Tag dran (Fenster). Eine bei
+Abbruch noch laufende Mail kann trotzdem ankommen und wird dann am nächsten
+Tag ein zweites Mal verschickt (lieber doppelt als gar nicht). Zusätzlich
+nutzen NUR die Posten-Mails knappe SMTP-Timeouts (`ITEM_MAIL_TIMEOUTS`:
+Verbindung/Begrüßung 10 s, Socket 20 s, über den optionalen zweiten
+Parameter von `sendMail`); alle anderen Mails behalten die
+nodemailer-Defaults.
 
 **Ablehnen.** `rejectItemSelfPayment` löscht den `item_crew_3d`-Eintrag der
 Person für diesen Posten (best effort), damit sie im Fenster erneut erinnert
@@ -977,15 +995,26 @@ wird (Pendant `rejectSelfPayment`).
 `admin_delete_person_data` und `delete_my_account` (Log der Person) — in 0061
 per `CREATE OR REPLACE` aus 0058 erweitert, Rechte unverändert.
 
-**Zurücksetzen.** `saveItem` löscht den Log des Postens, wenn sich die
-Fälligkeit, das Soll (Neuverteilung) oder der Empfänger ändert — sonst
-bliebe es beim Eintrag aus dem alten Fenster. `replaceMember` (klassischer
-Pfad) räumt den Log von A wie den der Tranchen (Pendant F7).
+**Zurücksetzen** (alles best effort, ein Fehler bricht die Aktion nicht ab):
+- `saveItem` löscht den Log des Postens, wenn sich die Fälligkeit, das Soll
+  (Neuverteilung) oder der Empfänger ändert — sonst bliebe es beim Eintrag
+  aus dem alten Fenster.
+- `removeMember` setzt nach einer Posten-Umverteilung den Log der
+  umverteilten Posten zurück (die Rest-Crew schuldet jetzt mehr) und löscht
+  die Zeilen der entfernten Person.
+- `replaceMember` (klassischer Pfad) räumt den Log von A wie den der
+  Tranchen (Pendant F7).
+- `deleteTransaction` einer Posten-Gutschrift räumt den `item_crew_3d`-
+  Eintrag von `credit_from` für diesen Posten (die Person ist wieder offen).
+  Bei Tranchen-Gutschriften bleibt das Altverhalten (kein Aufräumen).
 
-**Bekannte Grenzen.** Löscht der Skipper eine bereits bestätigte
-Posten-Gutschrift über die Buchungsliste, ist die Person wieder offen, ihr
-Log-Eintrag bleibt aber — sie wird für diesen Posten nicht erneut erinnert
-(gleiches Verhalten wie bei den Tranchen). Ein Ghost-Merge löscht den Ghost
+**Auskunft (Art. 15 DSGVO).** Der Log ist personenbezogen (wer wurde wann
+erinnert). Er ist nicht Teil des Self-Service-Exports (`exportMyData`, wie
+der bestehende `prepayment_reminder_log`); eine Auskunftsanfrage muss ihn
+deshalb manuell mit beantworten (`select * from prepayment_item_reminder_log
+where person_id = …`). Gelöscht wird er mit Purge und Kontolöschung.
+
+**Bekannte Grenzen.** Ein Ghost-Merge löscht den Ghost
 samt Log (CASCADE); die zusammengeführte Person kann im selben Fenster eine
 zweite Erinnerung bekommen. Wer nur einen Teil seines Anteils gemeldet hat,
 wird nicht erinnert (Pending-Awareness gilt ab der ersten offenen

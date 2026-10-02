@@ -19,6 +19,7 @@ import { sendPushToPersons } from "@/lib/notify/web-push";
 import { sendPrepaymentReminderMail } from "@/lib/email/send-prepayment-reminder";
 import { addDays } from "@/lib/prepayments/dates";
 import { createFakeSupabase, type Row } from "./helpers/fake-supabase";
+import { ITEM_TIME_BUDGET_MS, runItemReminders, safeMailErrorMessage } from "@/lib/prepayments/item-reminder-cron";
 
 const mockedAdmin = vi.mocked(createAdminClient);
 const mockedSendMail = vi.mocked(sendMail);
@@ -234,5 +235,93 @@ describe("Posten-Erinnerungen im Cron", () => {
     const res = await GET(new Request("https://x", { headers: { authorization: "Bearer t" } }) as never);
     expect(res.status).toBe(200);
     expect((await res.json()).items.failed).toBe(1);
+  });
+});
+
+describe("Zeitbudget + Reihenfolge (Review P2)", () => {
+  const trancheTables = () =>
+    tables({
+      prepayment_tranches: [{ id: TRANCHE, trip_id: TRIP, label: "1. Anzahlung", due_date: addDays(today(), 5), percent: 100 }],
+      prepayment_plan: [{ trip_id: TRIP, advancer_person_id: PAYEE, total_amount: 1000 }],
+      prepayment_obligations: [{ trip_id: TRIP, person_id: ANNA, total_amount: 500 }],
+      v_prepayment_payments: [],
+      v_prepayment_pending: [],
+      prepayment_reminder_log: [],
+    });
+
+  it("hängender Posten-Versand: Abbruch nach Budget mit time_budget, kein Log, Rest nicht versucht", async () => {
+    setup(tables());
+    mockedSendMail.mockImplementation(() => new Promise(() => {}) as never);
+    const res = await runItemReminders(fake.client as never, today(), { budgetMs: 20 });
+    expect(res.sent).toBe(0);
+    expect(res.failed).toBe(1);
+    expect(res.errors).toEqual([expect.objectContaining({ type: "time_budget", kind: "failed" })]);
+    expect(mockedSendMail).toHaveBeenCalledTimes(1);
+    expect(fake.rows("prepayment_item_reminder_log")).toHaveLength(0);
+  });
+
+  it("Budget schon verbraucht → kein Versand, time_budget-Vermerk", async () => {
+    setup(tables());
+    const res = await runItemReminders(fake.client as never, today(), { budgetMs: -1 });
+    expect(mockedSendMail).not.toHaveBeenCalled();
+    expect(res.errors[0].type).toBe("time_budget");
+  });
+
+  it("Route: hängender Posten-Versand verhindert die Tranchen-Erinnerungen nicht (Tranchen zuerst)", async () => {
+    vi.useFakeTimers();
+    try {
+      setup(trancheTables());
+      mockedTrancheMail.mockResolvedValue({ ok: true });
+      mockedSendMail.mockImplementation(() => new Promise(() => {}) as never);
+      const pending = run();
+      await vi.advanceTimersByTimeAsync(ITEM_TIME_BUDGET_MS + 1_000);
+      const json = await pending;
+      expect(mockedTrancheMail).toHaveBeenCalledTimes(1);
+      // Reihenfolge: Tranche vor dem ersten Posten-Versand.
+      expect(mockedTrancheMail.mock.invocationCallOrder[0]).toBeLessThan(mockedSendMail.mock.invocationCallOrder[0]);
+      expect(json.tranches.sent).toBe(1);
+      expect(json.items.failed).toBe(1);
+      expect(json.errors.some((e: { type: string }) => e.type === "time_budget")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Route: scheitert die Tranchen-Query, läuft der Posten-Teil trotzdem (500 mit items)", async () => {
+    const f = setup(tables());
+    f.failOn({ table: "prepayment_tranches", action: "select", error: { message: "boom" } });
+    const res = await GET(new Request("https://x", { headers: { authorization: "Bearer t" } }) as never);
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.items.sent).toBe(3);
+  });
+
+  it("Item-Mails nutzen knappe SMTP-Timeouts (nur für diesen Aufruf)", async () => {
+    setup(tables());
+    await run();
+    const opts = mockedSendMail.mock.calls[0][1] as { connectionTimeoutMs: number; socketTimeoutMs: number };
+    expect(opts.connectionTimeoutMs).toBeGreaterThan(0);
+    expect(opts.socketTimeoutMs).toBeGreaterThan(0);
+  });
+});
+
+describe("Keine PII im Cron-JSON (Review P4)", () => {
+  it("SMTP-Fehler: errors[].message ohne Adresse/Rohtext, nur Code", async () => {
+    setup(tables());
+    mockedSendMail.mockResolvedValue({
+      ok: false,
+      error: "Mail-Versand fehlgeschlagen: 550 5.1.1 <anna@example.test>: Recipient address rejected",
+      code: "EENVELOPE",
+      responseCode: 550,
+    } as never);
+    const json = await run();
+    const text = JSON.stringify(json);
+    expect(text).not.toContain("@example.test");
+    expect(text).not.toContain("Recipient address rejected");
+    expect(json.errors[0].message).toBe("Mail-Zustellung fehlgeschlagen (EENVELOPE 550)");
+  });
+
+  it("safeMailErrorMessage ohne Code → neutraler Text", () => {
+    expect(safeMailErrorMessage({})).toBe("Mail-Zustellung fehlgeschlagen");
   });
 });

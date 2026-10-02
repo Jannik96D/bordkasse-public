@@ -323,6 +323,14 @@ describe("saveItem — ändern", () => {
       expect(fake.rows("prepayment_item_reminder_log")).toHaveLength(1);
     });
 
+    it("Empfängerwechsel (Fälligkeit + Soll gleich) setzt die Erinnerungen zurück", async () => {
+      setupFake(withItem({ prepayment_item_reminder_log: log }));
+      const res = await saveItem({ status: "idle" }, payloadFd({ ...same(), due_date: "2027-03-01", payee_person_id: ANNA }));
+      expect(res.status).toBe("ok");
+      expect(fake.rpcCalls.some((c) => c.name === "move_item_payee")).toBe(true);
+      expect(itemLog()).toHaveLength(0);
+    });
+
     it("neu verteiltes Soll setzt die Erinnerungen zurück", async () => {
       setupFake(withItem({ prepayment_item_reminder_log: log }));
       const res = await saveItem({ status: "idle" }, payloadFd({ ...indiv([[ANNA, "150"], [BEN, "150"]]), due_date: "2027-03-01" }));
