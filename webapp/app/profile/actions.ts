@@ -73,7 +73,7 @@ export async function exportMyData(): Promise<ExportResult> {
   const me = person.id;
 
   try {
-    const [profile, priv, memberships, participations, obligations, paid, creditFrom, creditTo] =
+    const [profile, priv, memberships, participations, obligations, itemObligations, payeeItems, paid, creditFrom, creditTo] =
       await Promise.all([
         supabase.from("persons").select("id, display_name, is_alcoholic, created_at").eq("id", me).maybeSingle(),
         supabase.from("persons_private").select("last_name, email").eq("person_id", me).maybeSingle(),
@@ -83,10 +83,28 @@ export async function exportMyData(): Promise<ExportResult> {
           .eq("person_id", me),
         supabase.from("transaction_participants").select("transaction_id, amount").eq("person_id", me),
         supabase.from("prepayment_obligations").select("trip_id, total_amount").eq("person_id", me),
-        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id").eq("paid_by", me).is("deleted_at", null),
-        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id").eq("credit_from", me).is("deleted_at", null),
-        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id").eq("credit_to", me).is("deleted_at", null),
+        // Reise-Posten (0058): Soll je Posten, samt Bezeichnung + Fälligkeit.
+        supabase
+          .from("prepayment_item_obligations")
+          .select("trip_id, item_id, amount, prepayment_items(label, total_amount, due_date)")
+          .eq("person_id", me),
+        // Posten, bei denen ich Empfänger bin (prepayment_items.payee_person_id).
+        supabase
+          .from("prepayment_items")
+          .select("id, trip_id, label, total_amount, due_date")
+          .eq("payee_person_id", me),
+        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id, item_id").eq("paid_by", me).is("deleted_at", null),
+        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id, item_id").eq("credit_from", me).is("deleted_at", null),
+        supabase.from("transactions").select("id, trip_id, type, date, description, amount, tranche_id, item_id").eq("credit_to", me).is("deleted_at", null),
       ]);
+
+    // Ein unvollständiger DSGVO-Export ist schlimmer als gar keiner: ohne
+    // diese Prüfung lieferte z. B. eine fehlende Spalte (Versionsversatz
+    // App ↔ DB, siehe Deploy-Reihenfolge Migration 0058) still einen Export
+    // ganz ohne Buchungen.
+    const failed = [profile, priv, memberships, participations, obligations, itemObligations, payeeItems, paid, creditFrom, creditTo]
+      .find((r) => r.error);
+    if (failed?.error) throw new Error(failed.error.message);
 
     const data = {
       exportiert_am: new Date().toISOString(),
@@ -99,6 +117,8 @@ export async function exportMyData(): Promise<ExportResult> {
       gutschriften_an_mich: creditTo.data ?? [],
       einzelanteile: participations.data ?? [],
       anzahlungs_soll: obligations.data ?? [],
+      posten_soll: itemObligations.data ?? [],
+      posten_als_empfaenger: payeeItems.data ?? [],
     };
 
     return {
@@ -166,6 +186,16 @@ export async function deleteMyAccount(
       status: "error",
       message:
         "Du hast noch Buchungen in einem aktiven Törn. Bitte warte bis nach dem Törnende oder lass deine Buchungen vorher vom Skipper umbuchen.",
+    };
+  }
+  if (result === "is_active_item_payee") {
+    // Migration 0058: Empfänger eines Reise-Postens (z. B. Flüge) in einem
+    // laufenden Törn — die Crew zahlt ihr Geld an diese Person, sie darf
+    // also nicht verschwinden, auch wenn sie selbst noch nichts gebucht hat.
+    return {
+      status: "error",
+      message:
+        "Du bist in einem laufenden Törn als Empfänger eines Postens (z. B. An-/Abreise) eingetragen. Bitte warte bis nach dem Törnende oder lass vorher vom Skipper eine andere Person als Empfänger eintragen.",
     };
   }
   if (result === "not_authenticated") {

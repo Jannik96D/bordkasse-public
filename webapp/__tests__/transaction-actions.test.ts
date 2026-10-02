@@ -448,7 +448,14 @@ describe("updateCredit — Skipper/Admin-only, kein Ersteller-Recht (Fund 3)", (
     const make = (table: string) => {
       const b: Record<string, unknown> = {};
       const self = () => b;
-      b.select = self;
+      // Nur die tatsächlich selektierten Spalten zurückgeben — sonst bliebe
+      // ein Test grün, obwohl `.select(...)` eine benötigte Spalte (z. B.
+      // item_id) gar nicht lädt (Grill-Fund).
+      let selectedCols: string[] | null = null;
+      b.select = (cols?: string) => {
+        if (typeof cols === "string") selectedCols = cols.split(",").map((c) => c.trim());
+        return b;
+      };
       b.eq = self;
       b.in = self;
       b.insert = () => Promise.resolve({ error: null }); // logAudit
@@ -457,7 +464,13 @@ describe("updateCredit — Skipper/Admin-only, kein Ersteller-Recht (Fund 3)", (
         return b;
       };
       b.maybeSingle = () => {
-        if (table === "transactions") return Promise.resolve({ data: existing });
+        if (table === "transactions") {
+          if (!existing || !selectedCols) return Promise.resolve({ data: existing });
+          const cols = selectedCols;
+          return Promise.resolve({
+            data: Object.fromEntries(Object.entries(existing).filter(([k]) => cols.includes(k))),
+          });
+        }
         if (table === "prepayment_tranches") {
           return Promise.resolve({ data: trancheBelongs ? { id: OTHER_TRANCHE_ID } : null });
         }
@@ -633,6 +646,35 @@ describe("updateCredit — Skipper/Admin-only, kein Ersteller-Recht (Fund 3)", (
 
     expect((res as { status?: string } | undefined)?.status).not.toBe("error");
     expect(getCapturedUpdate()).not.toHaveProperty("confirmed_at");
+  });
+
+  // Reise-Posten (Migration 0058): eine Gutschrift mit item_id ist wie eine
+  // Tranchen-Gutschrift eine vom Empfänger BESTÄTIGTE Zahlung — ändert sie
+  // sich materiell, muss die Bestätigung fallen. Gleichzeitig darf das
+  // Speichern die Posten-Zuordnung nicht anfassen (das Posten-Feld kommt
+  // erst mit PR4; ein `item_id: null` im Update würde sie still lösen).
+  it("setzt confirmed_at zurück, wenn eine posten-getaggte Gutschrift materiell geändert wird (0058)", async () => {
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: true, personId: CREDIT_FROM });
+    const { supabase, getCapturedUpdate } = makeUpdateCreditSupabase({
+      existing: {
+        created_by: CREDIT_FROM,
+        type: "credit",
+        trip_id: TRIP_ID,
+        deleted_at: null,
+        amount: 100, // Formular schickt 150 → Betrag ändert sich materiell
+        credit_from: CREDIT_FROM,
+        credit_to: CREDIT_TO,
+        tranche_id: null,
+        item_id: "aaaaaaaa-0000-4000-8000-0000000000d1",
+      },
+    });
+    mockedAdminClient.mockReturnValue(supabase as never);
+
+    const res = await updateCredit({ status: "idle" }, creditFormData({ amount: "150,00" }));
+
+    expect((res as { status?: string } | undefined)?.status).not.toBe("error");
+    expect(getCapturedUpdate()?.confirmed_at).toBeNull();
+    expect(getCapturedUpdate()).not.toHaveProperty("item_id");
   });
 });
 

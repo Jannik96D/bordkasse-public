@@ -21,7 +21,7 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/auth/get-current-person", () => ({ getCurrentPerson: vi.fn() }));
 
-import { deleteMyAccount } from "@/app/profile/actions";
+import { deleteMyAccount, exportMyData } from "@/app/profile/actions";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -87,6 +87,21 @@ describe("deleteMyAccount", () => {
     expect(mockedRedirect).not.toHaveBeenCalled();
   });
 
+  it("meldet is_active_item_payee (Posten-Empfänger in laufendem Törn, Migration 0058) als eigene Fehlermeldung", async () => {
+    mockedPerson.mockResolvedValue({ id: PERSON_ID, auth_user_id: AUTH_USER_ID } as never);
+    const admin = makeAdmin({ data: "is_active_item_payee", error: null });
+    mockedAdminClient.mockReturnValue(admin as never);
+
+    const result = await deleteMyAccount({ status: "idle" }, new FormData());
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") throw new Error("unreachable");
+    expect(result.message).toMatch(/Empfänger eines Postens/);
+    expect(result.message).not.toMatch(/Unerwartete Antwort/);
+    expect(admin.auth.admin.deleteUser).not.toHaveBeenCalled();
+    expect(mockedRedirect).not.toHaveBeenCalled();
+  });
+
   it("leitet mit login_cleanup_pending=1 um, wenn das Auth-Konto nicht gelöscht werden konnte", async () => {
     mockedPerson.mockResolvedValue({ id: PERSON_ID, auth_user_id: AUTH_USER_ID } as never);
     const admin = makeAdmin({ data: "ok", error: null });
@@ -103,5 +118,98 @@ describe("deleteMyAccount", () => {
     // erreichen lassen, statt es nur bei `toHaveBeenCalledWith` zu verstecken.
     expect(mockedRedirect).toHaveBeenCalledTimes(1);
     expect(mockedRedirect).toHaveBeenCalledWith("/?account_deleted=1&login_cleanup_pending=1");
+  });
+});
+
+// ── exportMyData (DSGVO Art. 20) ─────────────────────────────────────────
+// Kettenfähiger Supabase-Mock: jede Abfrage `from(table).select().eq()…`
+// löst zu `results[table]` auf; die gesetzten Filter werden protokolliert,
+// damit der Test prüfen kann, WORAUF eine Tabelle eingeschränkt wurde.
+type QueryResult = { data: unknown; error: { message: string } | null };
+
+function makeExportAdmin(overrides: Record<string, QueryResult> = {}) {
+  const calls: { table: string; filters: [string, unknown][] }[] = [];
+  const defaults: Record<string, QueryResult> = {
+    persons: { data: { id: PERSON_ID, display_name: "Anna" }, error: null },
+    persons_private: { data: null, error: null },
+    trip_members: { data: [], error: null },
+    transaction_participants: { data: [], error: null },
+    prepayment_obligations: { data: [], error: null },
+    prepayment_item_obligations: { data: [], error: null },
+    prepayment_items: { data: [], error: null },
+    transactions: { data: [], error: null },
+  };
+  const from = vi.fn((table: string) => {
+    const call = { table, filters: [] as [string, unknown][] };
+    calls.push(call);
+    const result = overrides[table] ?? defaults[table] ?? { data: null, error: null };
+    const builder: Record<string, unknown> = {
+      select: () => builder,
+      eq: (col: string, val: unknown) => {
+        call.filters.push([col, val]);
+        return builder;
+      },
+      is: (col: string, val: unknown) => {
+        call.filters.push([col, val]);
+        return builder;
+      },
+      maybeSingle: () => Promise.resolve(result),
+      then: (resolve: (r: QueryResult) => unknown, reject?: (e: unknown) => unknown) =>
+        Promise.resolve(result).then(resolve, reject),
+    };
+    return builder;
+  });
+  return { admin: { from }, calls };
+}
+
+describe("exportMyData", () => {
+  it("exportiert Posten, bei denen die Person Empfänger ist (payee_person_id)", async () => {
+    mockedPerson.mockResolvedValue({ id: PERSON_ID, auth_user_id: AUTH_USER_ID } as never);
+    const item = { id: "i1", trip_id: "t1", label: "Flüge", total_amount: 300, due_date: null };
+    const { admin, calls } = makeExportAdmin({
+      prepayment_items: { data: [item], error: null },
+    });
+    mockedAdminClient.mockReturnValue(admin as never);
+
+    const result = await exportMyData();
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw new Error("unreachable");
+    expect(JSON.parse(result.json).posten_als_empfaenger).toEqual([item]);
+    // Streng auf die eigene Person begrenzt — kein ungefilterter Posten-Dump.
+    const itemCalls = calls.filter((c) => c.table === "prepayment_items");
+    expect(itemCalls).toHaveLength(1);
+    expect(itemCalls[0].filters).toEqual([["payee_person_id", PERSON_ID]]);
+  });
+
+  it("bricht ab, wenn die Posten-Empfänger-Abfrage scheitert (kein stiller Teil-Export)", async () => {
+    mockedPerson.mockResolvedValue({ id: PERSON_ID, auth_user_id: AUTH_USER_ID } as never);
+    const { admin } = makeExportAdmin({
+      prepayment_items: { data: null, error: { message: "relation does not exist" } },
+    });
+    mockedAdminClient.mockReturnValue(admin as never);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await exportMyData();
+
+    expect(result).toEqual({
+      status: "error",
+      message: "Export fehlgeschlagen. Bitte später erneut versuchen.",
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it("bricht ab, wenn eine Buchungs-Abfrage scheitert (z. B. fehlende item_id-Spalte)", async () => {
+    mockedPerson.mockResolvedValue({ id: PERSON_ID, auth_user_id: AUTH_USER_ID } as never);
+    const { admin } = makeExportAdmin({
+      transactions: { data: null, error: { message: "column transactions.item_id does not exist" } },
+    });
+    mockedAdminClient.mockReturnValue(admin as never);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await exportMyData();
+
+    expect(result.status).toBe("error");
+    consoleSpy.mockRestore();
   });
 });

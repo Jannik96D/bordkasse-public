@@ -11,7 +11,7 @@
 -- ═══════════════════════════════════════════════════════════════════════
 
 BEGIN;
-SELECT plan(10);
+SELECT plan(13);   -- 10 + 3 für 0058 (admin_delete_person_data neu definiert, Service-Role)
 
 -- ── Die vier Purge-/Settlement-Funktionen: kein EXECUTE für anon/authenticated ──
 SELECT ok(
@@ -41,6 +41,24 @@ SELECT ok(
 SELECT ok(
   NOT has_function_privilege('authenticated', 'mark_post_settlement_change(uuid)', 'EXECUTE'),
   'authenticated darf mark_post_settlement_change nicht ausführen');
+
+-- ── 0058: CREATE OR REPLACE hat die Sperren nicht aufgeweicht ──────────
+-- 0058 definiert purge_trip_data und admin_delete_person_data neu. Die
+-- Checks oben (purge) laufen ohnehin gegen den aktuellen Stand; hier
+-- zusätzlich admin_delete_person_data („lösche eine BELIEBIGE Person",
+-- 0051). Die Trigger-Funktion des Posten-Lösch-Schutzes wird bewusst NICHT
+-- geprüft: Trigger-Funktionen sind nicht direkt aufrufbar und EXECUTE wird
+-- beim Feuern nicht geprüft — ein Check wäre grün, egal was passiert.
+SELECT ok(
+  NOT has_function_privilege('anon', 'admin_delete_person_data(uuid)', 'EXECUTE'),
+  'anon darf admin_delete_person_data nicht ausführen');
+SELECT ok(
+  NOT has_function_privilege('authenticated', 'admin_delete_person_data(uuid)', 'EXECUTE'),
+  'authenticated darf admin_delete_person_data nicht ausführen');
+SELECT ok(
+  has_function_privilege('service_role', 'admin_delete_person_data(uuid)', 'EXECUTE')
+  AND has_function_privilege('service_role', 'purge_trip_data(uuid, boolean)', 'EXECUTE'),
+  'service_role darf admin_delete_person_data + purge_trip_data weiterhin ausführen (Server Actions/Cron)');
 
 -- ── Gegenprobe: simplify_debts bleibt für authenticated ausführbar ──────
 SELECT ok(

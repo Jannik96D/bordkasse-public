@@ -722,7 +722,9 @@ export async function replaceMember(
   //     bleibt A mit verkürzter Anwesenheit in der Crew und zahlt weiter
   //     für die eigenen Tage; B kommt ab dem Wechseltag dazu.
   //
-  //     Gezählt werden NUR Bordkasse-Buchungen (`tranche_id IS NULL`) MIT
+  //     Gezählt werden NUR Bordkasse-Buchungen (`tranche_id IS NULL` und
+  //     `item_id IS NULL` — Reise-Posten sind wie die Anzahlung ein eigener
+  //     Topf, typischerweise Monate vorher gebucht) MIT
   //     Datum ab Törnbeginn. Zwei bewusste Ausnahmen, die sonst den
   //     häufigsten Fall überhaupt blockieren würden — jemand sagt VOR dem
   //     Törn ab:
@@ -741,6 +743,7 @@ export async function replaceMember(
     .select("id", { count: "exact", head: true })
     .eq("trip_id", trip_id)
     .is("tranche_id", null)
+    .is("item_id", null)
     .is("deleted_at", null)
     .gte("date", tripRow.start_date);
   if (txCountErr) {

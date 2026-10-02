@@ -228,13 +228,16 @@ interface ExpenseBalanceFields {
   tip_distribution: string;
   split_type: string;
   tranche_id: string | null;
+  /** Reise-Posten (0058) — eigener Topf wie die Tranche. */
+  item_id: string | null;
   participants: { person_id: string; amount: number | null }[];
 }
 
 /**
  * Bilanz-relevant bei Ausgaben: Datum (steuert "An Bord"), Bezahler, Betrag,
  * Alkohol-/Trinkgeld-Anteil, Trinkgeld-Verteilung, Aufteilungsart,
- * Tranchen-Zuordnung (Pool ↔ Bordkasse) und die Beteiligten samt Anteilen.
+ * Tranchen-Zuordnung (Pool ↔ Bordkasse),
+ * Posten-Zuordnung und die Beteiligten samt Anteilen.
  */
 function expenseBalanceChanged(before: ExpenseBalanceFields, after: ExpenseBalanceFields): boolean {
   return (
@@ -246,6 +249,7 @@ function expenseBalanceChanged(before: ExpenseBalanceFields, after: ExpenseBalan
     before.tip_distribution !== after.tip_distribution ||
     before.split_type !== after.split_type ||
     (before.tranche_id ?? null) !== (after.tranche_id ?? null) ||
+    (before.item_id ?? null) !== (after.item_id ?? null) ||
     participantSignature(before.participants) !== participantSignature(after.participants)
   );
 }
@@ -255,10 +259,13 @@ interface CreditBalanceFields {
   credit_from: string;
   credit_to: string | null;
   tranche_id: string | null;
+  /** Reise-Posten (0058). */
+  item_id: string | null;
 }
 
 /**
- * Bilanz-relevant bei Gutschriften: Betrag, Von/An und Tranchen-Zuordnung.
+ * Bilanz-relevant bei Gutschriften: Betrag, Von/An und Tranchen-Zuordnung
+ * bzw. Posten-Zuordnung.
  * Das Datum ist bei Gutschriften rein informativ (keine datumsabhängige
  * Aufteilung) und zählt daher NICHT.
  */
@@ -267,7 +274,8 @@ function creditBalanceChanged(before: CreditBalanceFields, after: CreditBalanceF
     round2(before.amount) !== round2(after.amount) ||
     before.credit_from !== after.credit_from ||
     (before.credit_to ?? null) !== (after.credit_to ?? null) ||
-    (before.tranche_id ?? null) !== (after.tranche_id ?? null)
+    (before.tranche_id ?? null) !== (after.tranche_id ?? null) ||
+    (before.item_id ?? null) !== (after.item_id ?? null)
   );
 }
 
@@ -712,7 +720,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
   const { data: existing } = await supabase
     .from("transactions")
     .select(
-      "created_by, type, trip_id, deleted_at, description, category_id, date, paid_by, amount, alcohol_amount, tip_amount, tip_distribution, split_type, tranche_id, original_currency, original_amount, exchange_rate, rate_source, rate_confirmed_at",
+      "created_by, type, trip_id, deleted_at, description, category_id, date, paid_by, amount, alcohol_amount, tip_amount, tip_distribution, split_type, tranche_id, item_id, original_currency, original_amount, exchange_rate, rate_source, rate_confirmed_at",
     )
     .eq("id", transactionId)
     .maybeSingle();
@@ -895,6 +903,7 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
       tip_distribution: existing.tip_distribution ?? "proportional",
       split_type: existing.split_type,
       tranche_id: existing.tranche_id,
+      item_id: existing.item_id ?? null,
       participants: existingParts ?? [],
     },
     {
@@ -906,6 +915,8 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
       tip_distribution: txData.tip_distribution,
       split_type: txData.split_type,
       tranche_id: trancheToSave,
+      // item_id wird hier (noch) nicht editiert — PR4 bringt das Posten-Feld.
+      item_id: existing.item_id ?? null,
       // EUR-Anteile (nicht die Fremdbeträge) vergleichen — sonst gälte eine
       // Fremdwährungs-Buchung immer als „geändert".
       participants: newExpenseParticipants(txData.split_type, participant_ids, cur.perPerson),
@@ -969,7 +980,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
   const supabase = createAdminClient();
   const { data: existing } = await supabase
     .from("transactions")
-    .select("created_by, type, trip_id, deleted_at, amount, credit_from, credit_to, tranche_id")
+    .select("created_by, type, trip_id, deleted_at, amount, credit_from, credit_to, tranche_id, item_id")
     .eq("id", transactionId)
     .maybeSingle();
   if (!existing || existing.deleted_at) return { status: "error", message: "Buchung nicht gefunden." };
@@ -1045,22 +1056,26 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
   // Vorstrecker hat einen ANDEREN Betrag/eine andere Zuordnung bestätigt.
   // Ohne Reset bliebe eine nachträglich hochgesetzte Anzahlung fälschlich
   // als „bestätigt" stehen.
+  // Dasselbe gilt für Posten-Gutschriften (item_id, 0058): auch dort hat der
+  // Empfänger einen konkreten Betrag bestätigt.
   const balanceChanged = creditBalanceChanged(
     {
       amount: existing.amount,
       credit_from: existing.credit_from,
       credit_to: existing.credit_to,
       tranche_id: existing.tranche_id,
+      item_id: existing.item_id ?? null,
     },
     {
       amount: creditCur.amount,
       credit_from: parsed.data.credit_from,
       credit_to: parsed.data.credit_to,
       tranche_id: trancheToSave,
+      item_id: existing.item_id ?? null,
     },
   );
   const resetConfirmation =
-    balanceChanged && (existing.tranche_id != null || trancheToSave != null);
+    balanceChanged && (existing.tranche_id != null || trancheToSave != null || existing.item_id != null);
 
   const { error } = await supabase
     .from("transactions")
