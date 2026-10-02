@@ -23,12 +23,16 @@
 --   4. transactions.item_id          (Topf-Zuordnung) + CHECK „nie Tranche
 --                                     UND Posten" + tx_credit_self-Ausnahme
 --   5. Lösch-Schutz für Posten (Trigger, Fund B4)
+--   5b. Empfänger-Schutz: Posten-Gutschrift nur an den Posten-Empfänger,
+--      kein Empfängerwechsel bei hängenden Gutschriften (Trigger, Fund M3)
 --   6. v_balances_bordkasse_only     schließt Posten-Buchungen aus
 --      (→ simplify_debts/all_debts_settled bleiben Bordkasse-only, ohne
 --      eigene Änderung; v_balances bleibt unverändert die Gesamtbilanz)
 --   7. v_prepayment_item_payments / v_prepayment_item_pending
 --   8.–10. purge_trip_data / admin_delete_person_data / delete_my_account
---      räumen die neuen Tabellen mit ab (DSGVO)
+--      räumen die neuen Tabellen mit ab (DSGVO); die beiden Konto-Löschungen
+--      blocken einen Posten-Empfänger in einem laufenden Törn
+--      (`is_active_item_payee`, Review-Fund M1)
 --
 -- Additiv und mit dem ALTEN App-Code verträglich: neue Tabellen, eine
 -- nullable Spalte, gelockerte (nicht verschärfte) Checks. Der neue CHECK
@@ -39,6 +43,25 @@
 -- App-Deploy. Der App-Code dieses PRs filtert bereits `.is("item_id", null)`
 -- (Fortschritts-Checkliste, Crewwechsel, Datenexport, Crewwechsel-Warnung)
 -- — ohne die Spalte schlagen diese Queries mit „column does not exist" fehl.
+-- Danach den PostgREST-Schemacache neu laden (`NOTIFY pgrst, 'reload
+-- schema';`), falls der Stack keinen pgrst_ddl_watch-Event-Trigger hat —
+-- sonst kennt die REST-API die neuen Tabellen/die Spalte bis zum Neustart
+-- nicht.
+--
+-- ⚠️ VORAB-PRÜFUNG (lesend, vor dem Einspielen auf Produktion):
+--   select trip_id, count(*) from transactions
+--    where type = 'credit' and confirmed_at is null
+--      and tranche_id is null and deleted_at is null
+--    group by 1;
+-- Hintergrund: v_balances_bordkasse_only zählt unbestätigte Gutschriften ab
+-- jetzt nicht mehr (Abschnitt 6). Liefert die Abfrage Zeilen (verwaiste
+-- Selbstmeldungen, deren Tranche gelöscht wurde), ändert sich für diese
+-- Törns sofort die Bordkasse-Bilanz → simplify_debts liefert andere
+-- Überweisungen → bereits gesetzte Häkchen in settled_debts (Schlüssel
+-- from/to/amount) passen evtl. nicht mehr und erscheinen wieder offen →
+-- all_debts_settled kann kippen (Purge-Gate; in beide Richtungen). Bei
+-- abgerechneten Törns die Crew informieren bzw. die Zeile vorher bewusst
+-- bestätigen oder soft-löschen. Leeres Ergebnis = keine Auswirkung.
 --
 -- Spec: docs/prepayments.md (Abschnitt „Weitere Posten")
 -- Tests: supabase/tests/prepayment_items_test.sql,
@@ -305,6 +328,116 @@ DROP TRIGGER IF EXISTS pi_guard_delete ON prepayment_items;
 CREATE TRIGGER pi_guard_delete
   BEFORE DELETE ON prepayment_items
   FOR EACH ROW EXECUTE FUNCTION prepayment_item_guard_delete();
+
+
+-- ── 5b. Posten-Gutschrift nur an den Posten-Empfänger (Review-Fund M3) ───
+-- v_prepayment_item_payments zählt nach `credit_from`. Ohne diese Regel
+-- würde jede Gutschrift mit item_id als „bezahlt" zählen, egal an wen sie
+-- geht — z. B. eine Selbstverrechnung B→B eines Crewmitglieds (tx_credit_self
+-- erlaubt A→A bei item_id) oder B→C an eine dritte Person. Die App (PR4)
+-- setzt credit_to auf den Empfänger; das hier ist Defense in Depth.
+--
+-- Trigger statt Join in der View: die Regel verhindert die falsche Zeile,
+-- statt sie nur auszublenden — eine B→C-Gutschrift mit item_id würde sonst
+-- weiter in v_balances wirken, aber in keinem Topf als Zahlung erscheinen.
+--
+-- Ausnahmen (bewusst):
+--   • credit_to NULL → tx_item_credit_direct ist zuständig (eigene, klarere
+--     Fehlermeldung 23514); der Purge nullt credit_to und item_id zusammen.
+--   • deleted_at gesetzt → wirkt nirgends (Reject einer Selbstmeldung =
+--     Soft-Delete). Ein Zurückholen (deleted_at → NULL) prüft erneut.
+--   • Posten nicht gefunden → der Composite-FK tx_item_fk meldet das (23503).
+-- Spaltenliste beim UPDATE: nur die Spalten, die die Regel berühren. Ein
+-- Umhängen von credit_from (Ghost-Merge) feuert nicht.
+--
+-- Die Gegenseite (Grill-Fund): ein nachträglicher Wechsel von
+-- prepayment_items.payee_person_id ließe alle bisherigen Gutschriften mit
+-- dem ALTEN Empfänger zurück — sie zählten weiter als „bezahlt", obwohl sie
+-- die Regel jetzt verletzen. Deshalb blockt `pi_guard_payee_change` einen
+-- Empfängerwechsel, solange noch eine nicht gelöschte Gutschrift (auch
+-- pending — deren Bestätigung ändert nur confirmed_at und feuert diesen
+-- Trigger nicht) am Posten hängt. ⚠️ PR4: Ghost-Merge/replaceMember mit
+-- einem Empfänger, der schon Gutschriften hat, brauchen dafür eine eigene
+-- SQL-Funktion, die Empfänger und credit_to in EINER Transaktion umhängt
+-- und dabei beide Trigger kontrolliert umgeht (z. B. transaktionslokales
+-- Flag) — beide sind IMMEDIATE und blocken jeden Einzelschritt, auch in
+-- derselben Transaktion. Bewusst nicht hier gebaut,
+-- weil das Umhängen fremder Zahlungen eine fachliche Entscheidung ist.
+--
+-- `FOR SHARE` auf die Posten-Zeile: ein gleichzeitiger Empfängerwechsel
+-- wartet, bis diese Buchung committet ist, und sieht sie dann in seinem
+-- Guard (sonst Race unter READ COMMITTED).
+-- SECURITY DEFINER: die Prüfung soll den Posten unabhängig von der RLS des
+-- Aufrufers sehen.
+CREATE OR REPLACE FUNCTION transactions_item_credit_payee_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_payee UUID;
+BEGIN
+  IF NEW.type <> 'credit'
+     OR NEW.item_id IS NULL
+     OR NEW.credit_to IS NULL
+     OR NEW.deleted_at IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT payee_person_id INTO v_payee
+    FROM prepayment_items
+   WHERE id = NEW.item_id AND trip_id = NEW.trip_id
+     FOR SHARE;
+  IF NOT FOUND THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.credit_to <> v_payee THEN
+    RAISE EXCEPTION 'prepayment_item_credit_wrong_payee'
+      USING ERRCODE = 'P0001',
+            DETAIL = 'Eine Posten-Gutschrift muss an den Empfänger des Postens gehen.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION transactions_item_credit_payee_guard() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS tx_item_credit_payee ON transactions;
+CREATE TRIGGER tx_item_credit_payee
+  BEFORE INSERT OR UPDATE OF type, trip_id, item_id, credit_to, deleted_at ON transactions
+  FOR EACH ROW EXECUTE FUNCTION transactions_item_credit_payee_guard();
+
+CREATE OR REPLACE FUNCTION prepayment_item_guard_payee_change()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  IF NEW.payee_person_id IS DISTINCT FROM OLD.payee_person_id
+     AND EXISTS (
+       SELECT 1 FROM transactions
+        WHERE item_id = OLD.id
+          AND type = 'credit'
+          AND deleted_at IS NULL
+     ) THEN
+    RAISE EXCEPTION 'prepayment_item_payee_has_credits'
+      USING ERRCODE = 'P0001',
+            DETAIL = 'Der Empfänger eines Postens kann nicht wechseln, solange Gutschriften an ihn hängen.';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION prepayment_item_guard_payee_change() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS pi_guard_payee_change ON prepayment_items;
+CREATE TRIGGER pi_guard_payee_change
+  BEFORE UPDATE OF payee_person_id ON prepayment_items
+  FOR EACH ROW EXECUTE FUNCTION prepayment_item_guard_payee_change();
 
 
 -- ── 6. v_balances_bordkasse_only ohne Posten-Buchungen ───────────────────
@@ -575,12 +708,24 @@ GRANT EXECUTE ON FUNCTION purge_trip_data(UUID, BOOLEAN) TO service_role;
 
 
 -- ── 9. admin_delete_person_data: Posten-Soll mit löschen ─────────────────
--- 1:1 aus 0051, einzige Änderung: DELETE prepayment_item_obligations.
--- `payee_person_id` bleibt bewusst stehen: die persons-Zeile wird nur
--- anonymisiert (nicht gelöscht), der Posten zeigt dann auf „Ehemaliges
--- Crew-Mitglied" — wie advancer_person_id beim Charter-Plan. Der Blocker
--- `has_active_bookings` deckt Posten-Buchungen automatisch mit ab (paid_by/
--- credit_from/credit_to).
+-- 1:1 aus 0051, drei Änderungen (markiert mit „0058"):
+--   • DELETE prepayment_item_obligations.
+--   • Neuer Blocker `is_active_item_payee` (Review-Fund M1): ist die Person
+--     Empfänger eines Postens in einem laufenden Törn (end_date >= heute,
+--     nicht gepurged), wird abgewiesen — AUCH ohne jede Buchung. Sonst
+--     würde sie anonymisiert und aus trip_members entfernt (keine
+--     Buchungsspur), und jede spätere Crew-Gutschrift an sie (credit_to =
+--     payee) fiele aus v_balances (rein mitgliedschaftsgetrieben) → Σ ≠ 0.
+--     `has_active_bookings` greift hier nicht, weil es nur Buchungen prüft.
+--   • Ein Posten-Empfänger bleibt Mitglied seines Törns (trip_members wird
+--     für ihn nicht gelöscht) — auch nach Törnende zahlt die Crew oft noch
+--     Flüge zurück; ohne Mitgliedschaft fielen diese Gutschriften aus
+--     v_balances (Σ ≠ 0).
+-- In einem abgelaufenen Törn bleibt `payee_person_id` bewusst stehen: die
+-- persons-Zeile wird nur anonymisiert (nicht gelöscht), der Posten zeigt
+-- dann auf „Ehemaliges Crew-Mitglied" — wie advancer_person_id beim
+-- Charter-Plan. Der Blocker `has_active_bookings` deckt Posten-Buchungen
+-- automatisch mit ab (paid_by/credit_from/credit_to).
 CREATE OR REPLACE FUNCTION admin_delete_person_data(p_person_id UUID)
 RETURNS TEXT
 LANGUAGE plpgsql
@@ -622,6 +767,17 @@ BEGIN
     RETURN 'has_active_bookings';
   END IF;
 
+  -- 0058: Posten-Empfänger in einem laufenden Törn (siehe Kopfkommentar).
+  IF EXISTS (
+    SELECT 1 FROM prepayment_items pi
+      JOIN trips t ON t.id = pi.trip_id
+     WHERE pi.payee_person_id = p_person_id
+       AND t.retention_purged_at IS NULL
+       AND t.end_date >= CURRENT_DATE
+  ) THEN
+    RETURN 'is_active_item_payee';
+  END IF;
+
   DELETE FROM push_subscriptions WHERE person_id = p_person_id;
 
   DELETE FROM prepayment_reminder_log WHERE person_id = p_person_id;
@@ -651,6 +807,15 @@ BEGIN
         WHERE tx.trip_id = tm.trip_id
           AND tx.deleted_at IS NULL
           AND tp.person_id = p_person_id
+     )
+     -- 0058: Posten-Empfänger bleibt Crew dieses Törns (Grill-Fund), auch
+     -- nach Törnende: späte Rückzahlungen der Crew (credit_to = Empfänger)
+     -- wirken sonst nicht mehr in der mitgliedschaftsgetriebenen
+     -- v_balances → Σ ≠ 0.
+     AND NOT EXISTS (
+       SELECT 1 FROM prepayment_items pi
+        WHERE pi.trip_id = tm.trip_id
+          AND pi.payee_person_id = p_person_id
      );
 
   UPDATE audit_log SET actor_person_id = NULL WHERE actor_person_id = p_person_id;
@@ -673,7 +838,9 @@ GRANT EXECUTE ON FUNCTION admin_delete_person_data(UUID) TO service_role;
 -- Wird von der App seit 0051 nicht mehr gerufen (auth.uid() ist über den
 -- Service-Role-Client NULL), bleibt laut 0051 aber bis zum Drop im
 -- Folge-PR bestehen — und soll bis dahin nicht hinter der neuen Function
--- zurückfallen. 1:1 aus 0043 plus DELETE prepayment_item_obligations.
+-- zurückfallen. 1:1 aus 0043 plus DELETE prepayment_item_obligations, dem
+-- Blocker `is_active_item_payee` und der erhaltenen Mitgliedschaft eines
+-- Posten-Empfängers (wie oben).
 -- Rechte unverändert (CREATE OR REPLACE behält die ACL aus 0021/0043).
 CREATE OR REPLACE FUNCTION delete_my_account()
 RETURNS TEXT
@@ -721,6 +888,17 @@ BEGIN
     RETURN 'has_active_bookings';
   END IF;
 
+  -- 0058: Posten-Empfänger in einem laufenden Törn (wie admin_delete_person_data).
+  IF EXISTS (
+    SELECT 1 FROM prepayment_items pi
+      JOIN trips t ON t.id = pi.trip_id
+     WHERE pi.payee_person_id = v_person_id
+       AND t.retention_purged_at IS NULL
+       AND t.end_date >= CURRENT_DATE
+  ) THEN
+    RETURN 'is_active_item_payee';
+  END IF;
+
   DELETE FROM push_subscriptions WHERE person_id = v_person_id;
 
   DELETE FROM prepayment_reminder_log WHERE person_id = v_person_id;
@@ -750,6 +928,15 @@ BEGIN
         WHERE tx.trip_id = tm.trip_id
           AND tx.deleted_at IS NULL
           AND tp.person_id = v_person_id
+     )
+     -- 0058: Posten-Empfänger bleibt Crew dieses Törns (Grill-Fund), auch
+     -- nach Törnende: späte Rückzahlungen der Crew (credit_to = Empfänger)
+     -- wirken sonst nicht mehr in der mitgliedschaftsgetriebenen
+     -- v_balances → Σ ≠ 0.
+     AND NOT EXISTS (
+       SELECT 1 FROM prepayment_items pi
+        WHERE pi.trip_id = tm.trip_id
+          AND pi.payee_person_id = v_person_id
      );
 
   UPDATE persons

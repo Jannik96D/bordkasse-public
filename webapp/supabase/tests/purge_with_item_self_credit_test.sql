@@ -20,12 +20,16 @@
 --      Posten (Empfänger = anonymisierte Person) und dessen Selbstverrechnung
 --      stehen.
 --   4. delete_my_account (Altpfad) ebenso.
+--   5. Beide Konto-Löschungen blocken einen Posten-Empfänger in einem
+--      LAUFENDEN Törn (`is_active_item_payee`, Review-Fund M1), auch ohne
+--      jede Buchung; nach Törnende nicht mehr — dann bleibt der Empfänger
+--      aber (anonymisiert) Crew, damit späte Rückzahlungen Σ = 0 halten.
 --
 -- Lauf: cd webapp && supabase test db
 -- ═══════════════════════════════════════════════════════════════════════
 
 BEGIN;
-SELECT plan(14);
+SELECT plan(20);
 
 -- ── Setup Törn P (abgelaufen, abgerechnet) ────────────────────────────
 INSERT INTO persons(id, display_name, auth_user_id) VALUES
@@ -168,6 +172,76 @@ SELECT is(
 SELECT is(
   (SELECT count(*) FROM prepayment_item_obligations WHERE person_id = '58590000-0000-4000-8000-000000000004'),
   0::bigint, 'delete_my_account löscht das Posten-Soll der Person');
+
+-- ── 5. Posten-Empfänger in einem LAUFENDEN Törn (Review-Fund M1) ───────
+-- Bewusst OHNE jede Buchung: genau dann greift has_active_bookings nicht.
+-- Ohne Blocker würde die Person anonymisiert und aus trip_members entfernt;
+-- spätere Gutschriften an sie (credit_to = payee) fielen aus v_balances.
+INSERT INTO auth.users(id) VALUES
+  ('58590000-0000-4000-8000-0000000000f5'),
+  ('58590000-0000-4000-8000-0000000000f6');
+INSERT INTO persons(id, display_name, auth_user_id) VALUES
+  ('58590000-0000-4000-8000-000000000005', 'Aktiv Empfänger',         '58590000-0000-4000-8000-0000000000f5'),
+  ('58590000-0000-4000-8000-000000000006', 'Aktiv Empfänger Altpfad', '58590000-0000-4000-8000-0000000000f6');
+INSERT INTO persons_private(person_id, email) VALUES
+  ('58590000-0000-4000-8000-000000000005', 'aktiv-empfaenger@example.test');
+INSERT INTO trips(id, name, start_date, end_date, skipper_id) VALUES
+  ('58590000-0000-4000-8000-0000000000dd', 'pgTAP laufender Törn mit Posten', CURRENT_DATE - 2, CURRENT_DATE + 5, NULL);
+INSERT INTO trip_members(trip_id, person_id) VALUES
+  ('58590000-0000-4000-8000-0000000000dd', '58590000-0000-4000-8000-000000000005'),
+  ('58590000-0000-4000-8000-0000000000dd', '58590000-0000-4000-8000-000000000006');
+INSERT INTO prepayment_items(id, trip_id, label, total_amount, payee_person_id, split_type) VALUES
+  ('58590000-0000-4000-8000-0000000000e5', '58590000-0000-4000-8000-0000000000dd',
+   'Flüge', 100, '58590000-0000-4000-8000-000000000005', 'gleichmaessig'),
+  ('58590000-0000-4000-8000-0000000000e6', '58590000-0000-4000-8000-0000000000dd',
+   'Bahn', 50, '58590000-0000-4000-8000-000000000006', 'gleichmaessig');
+
+SELECT is(
+  admin_delete_person_data('58590000-0000-4000-8000-000000000005'),
+  'is_active_item_payee',
+  'admin_delete_person_data blockt einen Posten-Empfänger in einem laufenden Törn (ohne Buchungen)');
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM trip_members
+           WHERE trip_id = '58590000-0000-4000-8000-0000000000dd'
+             AND person_id = '58590000-0000-4000-8000-000000000005')
+  AND EXISTS (SELECT 1 FROM persons_private WHERE person_id = '58590000-0000-4000-8000-000000000005')
+  AND (SELECT display_name FROM persons WHERE id = '58590000-0000-4000-8000-000000000005') = 'Aktiv Empfänger',
+  'Blockierter Empfänger bleibt unverändert (Mitgliedschaft, Kontaktdaten, Name)');
+
+SELECT set_config('request.jwt.claims',
+  json_build_object('sub', '58590000-0000-4000-8000-0000000000f6')::text, TRUE);
+
+SELECT is(
+  delete_my_account(), 'is_active_item_payee',
+  'delete_my_account (Altpfad) blockt einen Posten-Empfänger in einem laufenden Törn');
+
+SELECT ok(
+  EXISTS (SELECT 1 FROM trip_members
+           WHERE trip_id = '58590000-0000-4000-8000-0000000000dd'
+             AND person_id = '58590000-0000-4000-8000-000000000006'),
+  'Blockierter Empfänger (Altpfad) bleibt Crew');
+
+-- Gegenprobe: derselbe Törn abgelaufen → kein Blocker (Abschnitt 3 deckt
+-- den Normalfall ab; hier dieselbe Person, nur das Datum ändert sich).
+UPDATE trips SET start_date = CURRENT_DATE - 10, end_date = CURRENT_DATE - 1
+ WHERE id = '58590000-0000-4000-8000-0000000000dd';
+SELECT is(
+  admin_delete_person_data('58590000-0000-4000-8000-000000000005'),
+  'ok', 'nach Törnende ist der Posten-Empfänger löschbar');
+
+-- … bleibt aber (anonymisiert) Crew des Törns, obwohl er keine Buchung hat:
+-- späte Rückzahlungen der Crew an ihn wirken sonst nicht in v_balances.
+INSERT INTO transactions(trip_id, type, date, amount, credit_from, credit_to, item_id) VALUES
+  ('58590000-0000-4000-8000-0000000000dd', 'credit', CURRENT_DATE, 50,
+   '58590000-0000-4000-8000-000000000006', '58590000-0000-4000-8000-000000000005',
+   '58590000-0000-4000-8000-0000000000e5');
+SELECT ok(
+  EXISTS (SELECT 1 FROM trip_members
+           WHERE trip_id = '58590000-0000-4000-8000-0000000000dd'
+             AND person_id = '58590000-0000-4000-8000-000000000005')
+  AND (SELECT SUM(balance) FROM v_balances WHERE trip_id = '58590000-0000-4000-8000-0000000000dd') = 0,
+  'gelöschter Empfänger bleibt Crew; späte Rückzahlung an ihn hält Σ v_balances = 0');
 
 SELECT * FROM finish();
 ROLLBACK;

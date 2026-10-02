@@ -519,6 +519,34 @@ ist der Posten-Topf je Person 0 (Gesamtbilanz = Bordkasse-Bilanz) — pgTAP
   entkoppelt aber vorher selbst (`item_id = NULL`).
 - `tx_item_credit_direct`: eine Posten-Gutschrift braucht einen konkreten
   Empfänger — „An Alle" mit `item_id` wird abgewiesen.
+- **Empfänger-Schutz** (Trigger `tx_item_credit_payee`, SECURITY DEFINER):
+  eine nicht gelöschte Gutschrift mit `item_id` muss `credit_to =
+  payee_person_id` des Postens haben, sonst `prepayment_item_credit_wrong_payee`
+  (P0001). Grund: `v_prepayment_item_payments` zählt nach `credit_from` —
+  ohne die Regel zählte z. B. eine Selbstverrechnung B→B eines
+  Crewmitglieds (tx_credit_self erlaubt A→A bei `item_id`) als „bezahlt".
+  Trigger statt View-Join, damit die falsche Zeile gar nicht entsteht (eine
+  B→C-Gutschrift mit `item_id` wirkte sonst in `v_balances`, ohne in einem
+  Topf als Zahlung zu erscheinen). Feuert bei INSERT und bei UPDATE von
+  `type`/`trip_id`/`item_id`/`credit_to`/`deleted_at` — NICHT bei `credit_from`
+  (Ghost-Merge). Ausgenommen: `credit_to NULL` (→ `tx_item_credit_direct`,
+  der Purge nullt `credit_to` und `item_id` zusammen) und soft-gelöschte Zeilen
+  (ein Zurückholen prüft erneut). Der Trigger liest den Posten `FOR SHARE`,
+  damit ein gleichzeitiger Empfängerwechsel serialisiert wird.
+- **Kein Empfängerwechsel bei hängenden Gutschriften** (Trigger
+  `pi_guard_payee_change`): solange eine nicht gelöschte Gutschrift (auch
+  eine offene Selbstmeldung) am Posten hängt, wirft ein Update von
+  `payee_person_id` `prepayment_item_payee_has_credits` (P0001) — sonst
+  zählten die alten Zahlungen (`credit_to` = alter Empfänger) weiter als
+  „bezahlt", und die spätere Bestätigung einer Selbstmeldung ändert nur
+  `confirmed_at`, ginge also am Empfänger-Trigger vorbei. ⚠️ **PR4:**
+  Ghost-Merge/`replaceMember` mit einem Empfänger, der schon Gutschriften
+  hat, brauchen eine SQL-Funktion, die `payee_person_id` und `credit_to` in
+  EINER Transaktion umhängt und dabei beide Trigger kontrolliert umgeht
+  (z. B. transaktionslokales Flag — beide sind IMMEDIATE und blocken jeden
+  Einzelschritt, auch innerhalb einer Transaktion) —
+  bewusst nicht in 0058, weil das Umhängen fremder Zahlungen eine fachliche
+  Entscheidung ist.
 - **Sichtbarkeit**: beide Tabellen sind für alle Mitglieder lesbar
   (Transparenz wie Migration 0057), das Posten-Soll zusätzlich für die Person
   selbst nach einem Crew-Wechsel. Schreiben nur über den Service-Role-Client.
@@ -544,9 +572,20 @@ ist der Posten-Topf je Person 0 (Gesamtbilanz = Bordkasse-Bilanz) — pgTAP
 Posten; der Orphan-Cleanup lässt Personen stehen, die in einem anderen Törn
 noch Posten-Empfänger sind oder dort ein Posten-Soll haben.
 `admin_delete_person_data` (und der Altpfad `delete_my_account`) löschen das
-Posten-Soll der Person; der Posten selbst bleibt mit der anonymisierten
-Person als Empfänger stehen (wie `advancer_person_id`). Der Datenexport
-(`exportMyData`) enthält `posten_soll` und `item_id` an jeder Buchung.
+Posten-Soll der Person. Ist die Person **Empfänger eines Postens in einem
+laufenden Törn** (`end_date >= heute`, nicht gepurged), lehnen beide mit
+`is_active_item_payee` ab — auch ohne jede Buchung (dann greift
+`has_active_bookings` nicht). Sonst würde sie anonymisiert und aus
+`trip_members` entfernt, und spätere Crew-Gutschriften an sie fielen aus der
+mitgliedschaftsgetriebenen `v_balances` (Σ ≠ 0). `deleteMyAccount` zeigt
+dafür eine eigene Meldung. Nach Törnende bleibt der Posten mit der
+anonymisierten Person als Empfänger stehen (wie `advancer_person_id`), und
+die Person bleibt (anonymisiert) Mitglied dieses Törns, auch ohne Buchung —
+die Crew zahlt Flüge oft erst nach dem Törn zurück, und diese Gutschriften
+müssen in `v_balances` weiter wirken. Der
+Datenexport (`exportMyData`) enthält `posten_soll`,
+`posten_als_empfaenger` (Posten mit `payee_person_id` = ich) und `item_id`
+an jeder Buchung.
 
 **Topf-Ausschluss im App-Code (schon in PR3):** Fortschritts-Checkliste
 (`countBordkasseExpenses`), Crewwechsel-Warnung (`countPresenceBlindBookings`)
@@ -561,8 +600,7 @@ Posten-Block), `replaceMember`/`removeMember`/Ghost-Merge mit Posten-Soll und
 RESTRICT scheitert er, sobald ein Ghost Empfänger ist), Pending-Pre-Check mit
 `item_id`, Posten-Feld im Buchungsformular (inkl. Exklusivität zur Tranche,
 sonst 23514 `tx_pool_exclusive`), Outbox-Replay ohne `item_id`,
-`admin_delete_person_data` für einen Posten-Empfänger in einem laufenden Törn
-blocken, Abrechnungsmail (Saldo aus `v_balances` enthält offene Posten,
+Abrechnungsmail (Saldo aus `v_balances` enthält offene Posten,
 Schulden nur Bordkasse — wie heute schon bei Tranchen), Self-Klausel für
 `prepayment_items` (Ex-Crew sieht ihr Posten-Soll, aber nicht den Posten).
 
@@ -571,7 +609,28 @@ PR auf `main` gemergt wird (Coolify deployt beim Merge sofort) — der
 App-Code filtert bereits auf die neue Spalte. Ohne Spalte zählen
 Checkliste und Crewwechsel-Warnung still 0, `replaceMember` blockt, und der
 Datenexport bricht mit Fehlermeldung ab (statt still ohne Buchungen zu
-exportieren).
+exportieren). Danach den PostgREST-Schemacache neu laden
+(`NOTIFY pgrst, 'reload schema';`), falls kein `pgrst_ddl_watch`-Event-Trigger
+existiert.
+
+**Vorab-Prüfung (lesend, vor dem Einspielen):**
+
+```sql
+select trip_id, count(*) from transactions
+ where type = 'credit' and confirmed_at is null
+   and tranche_id is null and deleted_at is null
+ group by 1;
+```
+
+`v_balances_bordkasse_only` zählt unbestätigte Gutschriften ab 0058 nicht
+mehr. Liefert die Abfrage Zeilen (verwaiste Selbstmeldungen, deren Tranche
+gelöscht wurde), ändert sich für diese Törns sofort die Bordkasse-Bilanz:
+`simplify_debts` liefert andere Überweisungen, bereits gesetzte Häkchen in
+`settled_debts` (Schlüssel `from/to/amount`) passen evtl. nicht mehr und
+erscheinen wieder offen, und `all_debts_settled` (Purge-Gate) kann in beide
+Richtungen kippen. Bei abgerechneten Törns die Crew informieren bzw. die
+Zeile vorher bewusst bestätigen oder soft-löschen. Leeres Ergebnis = keine
+Auswirkung.
 
 ## Mail-Templates + WhatsApp-Texte
 

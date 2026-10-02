@@ -19,13 +19,19 @@
 --        • v_prepayment_item_payments / _pending mit confirmed_at-Filter
 --   C. Lösch-Schutz (Fund B4): bestätigte Gutschrift / Anbieter-Ausgabe /
 --      Pending blocken; soft-gelöschte (auch Selbst-)Verrechnungen werden
---      entkoppelt; der Törn als Ganzes bleibt löschbar.
+--      entkoppelt; der Törn als Ganzes bleibt löschbar (auch in der
+--      ungünstigen Kaskaden-Reihenfolge, unabhängig von OIDs erzwungen).
+--   D. Empfänger-Schutz (Review-Fund M3): eine Posten-Gutschrift geht nur an
+--      den Posten-Empfänger (INSERT, UPDATE credit_to/item_id, Zurückholen
+--      einer soft-gelöschten Zeile, Typwechsel); Umhängen von credit_from
+--      feuert nicht; kein Empfängerwechsel am Posten, solange lebende
+--      Gutschriften daran hängen.
 --
 -- Lauf: cd webapp && supabase test db
 -- ═══════════════════════════════════════════════════════════════════════
 
 BEGIN;
-SELECT plan(32);
+SELECT plan(45);
 
 -- ── Setup ─────────────────────────────────────────────────────────────
 INSERT INTO persons(id, display_name) VALUES
@@ -238,6 +244,125 @@ SELECT is(
   (SELECT SUM(balance) FROM v_balances WHERE trip_id = '58580000-0000-4000-8000-0000000000aa'),
   0::numeric, 'B12: Σ v_balances = 0 auch nach Bestätigung');
 
+-- ── D. Posten-Gutschrift nur an den Empfänger (Review-Fund M3) ────────
+-- v_prepayment_item_payments zählt nach credit_from — ohne den Trigger
+-- zählte eine Selbstverrechnung B→B (tx_credit_self erlaubt A→A bei
+-- item_id) als „B hat bezahlt".
+SELECT throws_ok(
+  $$INSERT INTO transactions(trip_id, type, date, amount, credit_from, credit_to, item_id)
+    VALUES ('58580000-0000-4000-8000-0000000000aa', 'credit', '2027-03-09', 100,
+            '58580000-0000-4000-8000-000000000003', '58580000-0000-4000-8000-000000000003',
+            '58580000-0000-4000-8000-0000000000d1')$$,
+  'P0001', 'prepayment_item_credit_wrong_payee',
+  'D1: Selbstverrechnung B→B eines Nicht-Empfängers mit item_id wird abgewiesen');
+
+SELECT is(
+  (SELECT paid_amount FROM v_prepayment_item_payments
+    WHERE item_id = '58580000-0000-4000-8000-0000000000d1'
+      AND person_id = '58580000-0000-4000-8000-000000000003'),
+  100::numeric, 'D2: B→B zählt NICHT als bezahlt (B weiter 100 €, nur die echten Zahlungen an den Empfänger)');
+
+SELECT throws_ok(
+  $$INSERT INTO transactions(trip_id, type, date, amount, credit_from, credit_to, item_id)
+    VALUES ('58580000-0000-4000-8000-0000000000aa', 'credit', '2027-03-09', 10,
+            '58580000-0000-4000-8000-000000000003', '58580000-0000-4000-8000-000000000002',
+            '58580000-0000-4000-8000-0000000000d1')$$,
+  'P0001', 'prepayment_item_credit_wrong_payee',
+  'D3: Posten-Gutschrift an eine dritte Person (B→A) wird abgewiesen');
+
+SELECT throws_ok(
+  $$UPDATE transactions SET credit_to = '58580000-0000-4000-8000-000000000003'
+     WHERE id = '58580000-0000-4000-8000-000000000102'$$,
+  'P0001', 'prepayment_item_credit_wrong_payee',
+  'D4: nachträgliches Umbiegen des Empfängers (UPDATE credit_to) wird abgewiesen');
+
+-- Eine gewöhnliche Bordkasse-Gutschrift B→A nachträglich dem Posten zuordnen.
+INSERT INTO transactions(id, trip_id, type, date, amount, credit_from, credit_to) VALUES
+  ('58580000-0000-4000-8000-000000000197', '58580000-0000-4000-8000-0000000000aa', 'credit', '2027-05-04', 10,
+   '58580000-0000-4000-8000-000000000003', '58580000-0000-4000-8000-000000000002');
+SELECT throws_ok(
+  $$UPDATE transactions SET item_id = '58580000-0000-4000-8000-0000000000d1'
+     WHERE id = '58580000-0000-4000-8000-000000000197'$$,
+  'P0001', 'prepayment_item_credit_wrong_payee',
+  'D5: nachträgliches Zuordnen einer Gutschrift an Dritte zum Posten (UPDATE item_id) wird abgewiesen');
+DELETE FROM transactions WHERE id = '58580000-0000-4000-8000-000000000197';
+
+-- Soft-gelöschte Zeile darf existieren (Reject = Soft-Delete), aber nicht
+-- zurückgeholt werden.
+INSERT INTO transactions(id, trip_id, type, date, amount, credit_from, credit_to, item_id, deleted_at) VALUES
+  ('58580000-0000-4000-8000-000000000198', '58580000-0000-4000-8000-0000000000aa', 'credit', '2027-03-09', 10,
+   '58580000-0000-4000-8000-000000000003', '58580000-0000-4000-8000-000000000002',
+   '58580000-0000-4000-8000-0000000000d1', now());
+SELECT throws_ok(
+  $$UPDATE transactions SET deleted_at = NULL
+     WHERE id = '58580000-0000-4000-8000-000000000198'$$,
+  'P0001', 'prepayment_item_credit_wrong_payee',
+  'D6: soft-gelöschte Fehl-Gutschrift kann nicht zurückgeholt werden');
+DELETE FROM transactions WHERE id = '58580000-0000-4000-8000-000000000198';
+
+-- Umhängen von credit_from (Ghost-Merge-Pfad) feuert den Trigger nicht
+-- (Spaltenliste). Damit der Test nicht vacuous ist, eine Zeile, die die
+-- Regel VERLETZT (nur mit abgeschaltetem Trigger anlegbar): feuerte er,
+-- schlüge das Update fehl.
+ALTER TABLE transactions DISABLE TRIGGER tx_item_credit_payee;
+INSERT INTO transactions(id, trip_id, type, date, amount, credit_from, credit_to, item_id) VALUES
+  ('58580000-0000-4000-8000-000000000196', '58580000-0000-4000-8000-0000000000aa', 'credit', '2027-03-09', 10,
+   '58580000-0000-4000-8000-000000000003', '58580000-0000-4000-8000-000000000002',
+   '58580000-0000-4000-8000-0000000000d1');
+ALTER TABLE transactions ENABLE TRIGGER tx_item_credit_payee;
+SELECT lives_ok(
+  $$UPDATE transactions SET credit_from = '58580000-0000-4000-8000-000000000001'
+     WHERE id = '58580000-0000-4000-8000-000000000196'$$,
+  'D7: ein Update nur von credit_from feuert den Empfänger-Trigger nicht');
+DELETE FROM transactions WHERE id = '58580000-0000-4000-8000-000000000196';
+
+-- Typwechsel Ausgabe → Gutschrift an einen Nicht-Empfänger.
+SELECT throws_ok(
+  $$UPDATE transactions
+       SET type = 'credit', split_type = NULL, paid_by = NULL,
+           credit_from = '58580000-0000-4000-8000-000000000001',
+           credit_to   = '58580000-0000-4000-8000-000000000002'
+     WHERE id = '58580000-0000-4000-8000-000000000101'$$,
+  'P0001', 'prepayment_item_credit_wrong_payee',
+  'D8: Typwechsel Ausgabe → Posten-Gutschrift an Dritte wird abgewiesen');
+
+-- Empfängerwechsel am Posten, solange Gutschriften daran hängen: die alten
+-- Zahlungen (credit_to = alter Empfänger) zählten sonst weiter als bezahlt.
+SELECT throws_ok(
+  $$UPDATE prepayment_items SET payee_person_id = '58580000-0000-4000-8000-000000000002'
+     WHERE id = '58580000-0000-4000-8000-0000000000d1'$$,
+  'P0001', 'prepayment_item_payee_has_credits',
+  'D9: Empfängerwechsel bei bestätigten Gutschriften wird abgewiesen');
+
+INSERT INTO prepayment_items(id, trip_id, label, total_amount, payee_person_id, split_type) VALUES
+  ('58580000-0000-4000-8000-0000000000d6', '58580000-0000-4000-8000-0000000000aa', 'Bus', 20, '58580000-0000-4000-8000-000000000001', 'gleichmaessig'),
+  ('58580000-0000-4000-8000-0000000000d7', '58580000-0000-4000-8000-0000000000aa', 'Boot', 20, '58580000-0000-4000-8000-000000000001', 'gleichmaessig');
+-- d6: nur eine offene Selbstmeldung (deren spätere Bestätigung ändert nur
+-- confirmed_at und feuert den Empfänger-Trigger nicht) + eine soft-gelöschte.
+INSERT INTO transactions(trip_id, type, date, amount, credit_from, credit_to, item_id, confirmed_at) VALUES
+  ('58580000-0000-4000-8000-0000000000aa', 'credit', '2027-03-09', 10,
+   '58580000-0000-4000-8000-000000000002', '58580000-0000-4000-8000-000000000001',
+   '58580000-0000-4000-8000-0000000000d6', NULL);
+-- d7: nur eine soft-gelöschte Gutschrift.
+INSERT INTO transactions(trip_id, type, date, amount, credit_from, credit_to, item_id, deleted_at) VALUES
+  ('58580000-0000-4000-8000-0000000000aa', 'credit', '2027-03-09', 10,
+   '58580000-0000-4000-8000-000000000002', '58580000-0000-4000-8000-000000000001',
+   '58580000-0000-4000-8000-0000000000d7', now());
+
+SELECT throws_ok(
+  $$UPDATE prepayment_items SET payee_person_id = '58580000-0000-4000-8000-000000000002'
+     WHERE id = '58580000-0000-4000-8000-0000000000d6'$$,
+  'P0001', 'prepayment_item_payee_has_credits',
+  'D10: Empfängerwechsel bei offener Selbstmeldung wird abgewiesen');
+
+SELECT lives_ok(
+  $$UPDATE prepayment_items SET payee_person_id = '58580000-0000-4000-8000-000000000002'
+     WHERE id = '58580000-0000-4000-8000-0000000000d7'$$,
+  'D11: Empfängerwechsel ohne lebende Gutschriften bleibt möglich');
+
+DELETE FROM transactions WHERE item_id IN ('58580000-0000-4000-8000-0000000000d6', '58580000-0000-4000-8000-0000000000d7');
+DELETE FROM prepayment_items WHERE id IN ('58580000-0000-4000-8000-0000000000d6', '58580000-0000-4000-8000-0000000000d7');
+
 -- ── C. Lösch-Schutz (Fund B4) ─────────────────────────────────────────
 INSERT INTO prepayment_items(id, trip_id, label, total_amount, payee_person_id, split_type) VALUES
   ('58580000-0000-4000-8000-0000000000d2', '58580000-0000-4000-8000-0000000000aa', 'Bahn hin',  90, '58580000-0000-4000-8000-000000000001', 'gleichmaessig'),
@@ -318,20 +443,59 @@ SELECT is(
 -- Der ganze Törn bleibt löschbar (deleteTrip → CASCADE), auch mit Posten,
 -- bestätigten Zahlungen und einer Selbstverrechnung.
 --
--- Die CASCADE-Trigger auf trips feuern nach Triggername, also nach OID. Auf
--- einer frischen DB kommt transactions (alt) vor prepayment_items (neu) —
--- dann sind die Buchungen schon weg, wenn der Lösch-Schutz feuert, und der
--- „Törn ist weg"-Zweig im Trigger bliebe ungetestet (Grill-Fund,
--- mutationsgeprüft). Nach Dump/Restore kann die Reihenfolge kippen. Deshalb
--- hier den transactions→trips-FK neu anlegen: er bekommt die jüngste OID
--- und feuert ZULETZT — der Trigger sieht dann noch alle Buchungen.
+-- Die CASCADE-Trigger auf trips feuern nach Triggername
+-- („RI_ConstraintTrigger_a_<OID>", als STRING sortiert). Auf einer frischen
+-- DB kommt transactions (alt) vor prepayment_items (neu) — dann sind die
+-- Buchungen schon weg, wenn der Lösch-Schutz feuert, und der „Törn ist
+-- weg"-Zweig im Trigger bliebe ungetestet (Grill-Fund). Nach Dump/Restore
+-- oder einem Stellensprung der OID (99999 → 100000 sortiert als String
+-- VOR) kann die Reihenfolge kippen — deshalb erzwingt der Test die
+-- ungünstige Reihenfolge, OHNE von OIDs abzuhängen:
+--   • der transactions→trips-FK wird durch einen gewöhnlichen AFTER-
+--     DELETE-Trigger „zz_…" ersetzt, der die Buchungen löscht. Trigger
+--     feuern alphabetisch nach Name, „z" > „R" → er läuft garantiert NACH
+--     allen RI-Kaskaden, also nach dem Löschen der Posten;
+--   • ein BEFORE-DELETE-Sondentrigger „pi_0_…" (feuert vor
+--     „pi_guard_delete") protokolliert, wie viele blockierende Buchungen der
+--     Lösch-Schutz zu sehen bekommt. C9b prüft, dass das > 0 war — sonst
+--     wäre C9 ein Vacuous Pass (mutationsgeprüft: ohne den „Törn ist
+--     weg"-Zweig in prepayment_item_guard_delete wird C9 rot).
 ALTER TABLE transactions DROP CONSTRAINT transactions_trip_id_fkey;
-ALTER TABLE transactions ADD CONSTRAINT transactions_trip_id_fkey
-  FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE;
+
+CREATE FUNCTION pg_temp.c9_cascade_transactions() RETURNS TRIGGER
+LANGUAGE plpgsql AS $f$
+BEGIN
+  DELETE FROM transactions WHERE trip_id = OLD.id;
+  RETURN OLD;
+END $f$;
+CREATE TRIGGER zz_c9_cascade_transactions
+  AFTER DELETE ON trips
+  FOR EACH ROW EXECUTE FUNCTION pg_temp.c9_cascade_transactions();
+
+CREATE TEMP TABLE c9_probe(item_id UUID, blocking BIGINT);
+CREATE FUNCTION pg_temp.c9_probe() RETURNS TRIGGER
+LANGUAGE plpgsql AS $f$
+BEGIN
+  INSERT INTO c9_probe
+  SELECT OLD.id, count(*) FROM transactions
+   WHERE item_id = OLD.id AND deleted_at IS NULL;
+  RETURN OLD;
+END $f$;
+CREATE TRIGGER pi_0_c9_probe
+  BEFORE DELETE ON prepayment_items
+  FOR EACH ROW EXECUTE FUNCTION pg_temp.c9_probe();
 
 SELECT lives_ok(
   $$DELETE FROM trips WHERE id = '58580000-0000-4000-8000-0000000000aa'$$,
   'C9: Törn mit Posten + Zahlungen + Selbstverrechnung ist per CASCADE löschbar');
+
+SELECT ok(
+  (SELECT blocking FROM c9_probe WHERE item_id = '58580000-0000-4000-8000-0000000000d1') > 0,
+  'C9b: der Lösch-Schutz sah beim Törn-Löschen noch die bestätigten Zahlungen (ungünstige Reihenfolge wirklich erzwungen)');
+
+SELECT is(
+  (SELECT count(*) FROM transactions WHERE trip_id = '58580000-0000-4000-8000-0000000000aa'),
+  0::bigint, 'C9c: Buchungen sind mit dem Törn verschwunden');
 
 SELECT is(
   (SELECT count(*) FROM prepayment_items WHERE trip_id = '58580000-0000-4000-8000-0000000000aa'),
