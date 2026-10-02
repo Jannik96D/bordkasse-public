@@ -126,6 +126,8 @@ describe("itemCellStatus / isItemComplete", () => {
     expect(isItemComplete({ totalAmount: 100, providerPaid: 100, cells })).toBe(true);
     expect(isItemComplete({ totalAmount: 100, providerPaid: 99.99, cells })).toBe(false);
     expect(isItemComplete({ totalAmount: 100, providerPaid: 100, cells: [{ soll: 100, paid: 50 }] })).toBe(false);
+    // Delta 1: ohne jede Sollzeile ist ein Posten nicht abgeschlossen.
+    expect(isItemComplete({ totalAmount: 100, providerPaid: 100, cells: [] })).toBe(false);
     // M4: Überzahlung ist nicht „abgeschlossen" — das Geld muss zurück.
     expect(isItemComplete({ totalAmount: 100, providerPaid: 100, cells: [{ soll: 100, paid: 120 }] })).toBe(false);
     expect(isItemComplete({ totalAmount: 100, providerPaid: 100, cells: [{ soll: 0, paid: 5 }] })).toBe(false);

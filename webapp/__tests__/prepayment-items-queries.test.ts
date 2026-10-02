@@ -7,7 +7,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/read-client", () => ({ readClient: vi.fn() }));
 
 import { readClient } from "@/lib/supabase/read-client";
-import { getItems, getItemProviderPaymentsPerItem } from "@/lib/queries/prepayment-items";
+import { getItems, getItemProviderPaymentsPerItem, getItemPotBalances } from "@/lib/queries/prepayment-items";
 import { createFakeSupabase, type Row } from "./helpers/fake-supabase";
 
 const TRIP = "dddddddd-0000-4000-8000-000000000001";
@@ -88,5 +88,49 @@ describe("getItems", () => {
   it("wirft bei einem Lesefehler statt „kein Soll“ zu liefern (fail-loud)", async () => {
     fake.failOn({ table: "prepayment_item_obligations", action: "select" });
     await expect(getItems(TRIP)).rejects.toThrow(/Posten-Sollbeträge/);
+  });
+});
+
+describe("getItemPotBalances (Delta-Review 3)", () => {
+  it("Empfänger zahlt 300 an den Anbieter, A zahlt 100, B nichts → P +100, A 0, B −100, Σ = 0", async () => {
+    const f = createFakeSupabase({
+      transactions: [
+        { id: "prov", trip_id: TRIP, type: "expense", item_id: ITEM, amount: 300, paid_by: P, deleted_at: null, confirmed_at: "x" },
+        { id: "a-pays", trip_id: TRIP, type: "credit", item_id: ITEM, amount: 100, credit_from: A, credit_to: P, deleted_at: null, confirmed_at: "x" },
+        { id: "self", trip_id: TRIP, type: "credit", item_id: ITEM, amount: 100, credit_from: P, credit_to: P, deleted_at: null, confirmed_at: "x" },
+        { id: "b-pending", trip_id: TRIP, type: "credit", item_id: ITEM, amount: 100, credit_from: B, credit_to: P, deleted_at: null, confirmed_at: null },
+        { id: "kasse", trip_id: TRIP, type: "expense", item_id: null, amount: 50, paid_by: A, deleted_at: null, confirmed_at: "x" },
+      ],
+      transaction_participants: [
+        { transaction_id: "prov", person_id: P, amount: 100 },
+        { transaction_id: "prov", person_id: A, amount: 100 },
+        { transaction_id: "prov", person_id: B, amount: 100 },
+      ],
+    });
+    vi.mocked(readClient).mockResolvedValue(f.client as never);
+    const m = await getItemPotBalances(TRIP);
+    expect(m.get(P)).toBe(100);
+    expect(m.get(A) ?? 0).toBe(0);
+    expect(m.get(B)).toBe(-100);
+    expect([...m.values()].reduce((s, v) => s + v, 0)).toBe(0);
+  });
+
+  it("wirft bei einem Lesefehler", async () => {
+    const f = createFakeSupabase({});
+    f.failOn({ table: "transactions", action: "select" });
+    vi.mocked(readClient).mockResolvedValue(f.client as never);
+    await expect(getItemPotBalances(TRIP)).rejects.toThrow(/Posten-Buchungen/);
+  });
+});
+
+describe("Bilanz-Views fail-loud (Delta-Review 4)", () => {
+  it("getBalances / getBordkasseOnlyBalances werfen bei einem Lesefehler statt [] zu liefern", async () => {
+    const { getBalances, getBordkasseOnlyBalances } = await import("@/lib/queries/balances");
+    const f = createFakeSupabase({});
+    f.failOn({ table: "v_balances", action: "select" });
+    f.failOn({ table: "v_balances_bordkasse_only", action: "select" });
+    vi.mocked(readClient).mockResolvedValue(f.client as never);
+    await expect(getBalances(TRIP)).rejects.toThrow(/v_balances/);
+    await expect(getBordkasseOnlyBalances(TRIP)).rejects.toThrow(/v_balances_bordkasse_only/);
   });
 });

@@ -305,7 +305,7 @@ describe("saveItem — ändern", () => {
       ...indiv([[SKIPPER, "50"], [ANNA, "100"], [BEN, "150"]]), payee_person_id: ANNA,
     }));
     expect(res.status).toBe("ok");
-    expect(fake.rpcCalls).toContainEqual({ name: "move_item_payee", args: { p_item_id: ITEM, p_new_payee: ANNA } });
+    expect(fake.rpcCalls).toContainEqual({ name: "move_item_payee", args: { p_item_id: ITEM, p_new_payee: ANNA, p_move_credits: false } });
     // Der Empfänger wird NICHT per normalem UPDATE gesetzt (der Trigger würde
     // bei hängenden Gutschriften blocken) — nur die Funktion darf das.
     expect(fake.writes.some((w) => w.table === "prepayment_items" && w.action === "update" &&

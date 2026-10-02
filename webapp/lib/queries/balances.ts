@@ -37,7 +37,12 @@ async function getBalancesFromView(tripId: string, view: "v_balances" | "v_balan
   const columns = "person_id, paid, share, credit_given, credit_received, balance";
   const select = view === "v_balances" ? `${columns}, persons(display_name)` : columns;
   const { data, error } = await supabase.from(view).select(select).eq("trip_id", tripId);
-  if (error || !data) return [];
+  // Fail-loud (Delta-Review PR 271, Punkt 4): ein stilles [] sah auf der
+  // Bilanz-Seite wie „alle quitt" aus und ließ die Abrechnungsmail mit Saldo
+  // 0 an die ganze Crew rausgehen. Wirft in die Error-Boundary bzw. bricht
+  // den Mailversand ab.
+  if (error) throw new Error(`Bilanz (${view}) konnte nicht geladen werden: ${error.message}`);
+  if (!data) return [];
 
   type Raw = {
     person_id: string;

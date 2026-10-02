@@ -182,3 +182,49 @@ export const getItems = cache(async (tripId: string): Promise<PrepaymentItemView
     };
   });
 });
+
+/**
+ * Posten-Saldo je Person (Delta-Review Punkt 3) — exakt die Posten-Anteile von
+ * v_balances, nur auf Buchungen mit item_id beschränkt:
+ *   + Anbieter-Zahlungen (paid_by)   − eigene per_person-Anteile daran
+ *   + bestätigte Gutschriften gegeben − bestätigte Gutschriften erhalten
+ * Σ über alle Personen = 0. Beispiel: Empfänger P zahlt 300 an den Anbieter
+ * (Soll je 100 für P, A, B), A zahlt P 100 → P +100, A 0, B −100.
+ * Damit ist Gesamt = Bordkasse + Charter-Pool + Posten, ohne ein
+ * Matrix-Soll (das evtl. von den gebuchten Anteilen abweicht) einzumischen.
+ */
+export const getItemPotBalances = cache(async (tripId: string): Promise<Map<string, number>> => {
+  const supabase = await readClient();
+  const { data: txs, error } = await supabase
+    .from("transactions")
+    .select("id, type, amount, paid_by, credit_from, credit_to, confirmed_at")
+    .eq("trip_id", tripId)
+    .not("item_id", "is", null)
+    .is("deleted_at", null);
+  if (error) fail("Posten-Buchungen", error.message);
+  const live = (txs ?? []).filter((t) => t.type === "expense" || t.confirmed_at);
+  const expenseIds = live.filter((t) => t.type === "expense").map((t) => t.id as string);
+  let parts: { transaction_id: string; person_id: string; amount: number | null }[] = [];
+  if (expenseIds.length > 0) {
+    const res = await supabase
+      .from("transaction_participants")
+      .select("transaction_id, person_id, amount")
+      .in("transaction_id", expenseIds);
+    if (res.error) fail("Posten-Anteile", res.error.message);
+    parts = (res.data ?? []) as typeof parts;
+  }
+  const cents = new Map<string, number>();
+  const add = (p: string | null, v: number) => {
+    if (!p) return;
+    cents.set(p, (cents.get(p) ?? 0) + Math.round(v * 100));
+  };
+  for (const t of live) {
+    if (t.type === "expense") add(t.paid_by as string | null, Number(t.amount));
+    else {
+      add(t.credit_from as string | null, Number(t.amount));
+      add(t.credit_to as string | null, -Number(t.amount));
+    }
+  }
+  for (const p of parts) add(p.person_id, -Number(p.amount ?? 0));
+  return new Map([...cents].map(([k, v]) => [k, v / 100]));
+});

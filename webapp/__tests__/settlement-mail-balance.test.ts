@@ -24,7 +24,8 @@ describe("splitMailBalances", () => {
     });
     expect(text).toContain("Du zahlst noch 30,00");
     expect(text).toContain("Du zahlst 30,00");
-    expect(text).toContain("Anzahlung und weiteren Posten: du zahlst noch 100,00");
+    expect(text).toContain("Laut Bilanz sind bei Anzahlung und weiteren Posten zusätzlich −100,00");
+    expect(text).not.toMatch(/Posten[^\n]*du (zahlst|bekommst)/);
   });
 
   it("ohne offenen Posten-Anteil kein Zusatzsatz", () => {

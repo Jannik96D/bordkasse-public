@@ -168,6 +168,9 @@ export function isItemComplete(args: {
   cells: { soll: number; paid: number }[];
 }): boolean {
   const providerOk = Math.abs(args.providerPaid - args.totalAmount) <= 0.005;
+  // `every` auf einer leeren Liste wäre `true` — ein Posten ganz ohne Soll ist
+  // aber nicht „abgeschlossen", sondern kaputt (Delta-Review Punkt 1).
+  const hasSoll = args.cells.some((c) => c.soll > 0.005);
   const crewOk = args.cells.every((c) => Math.abs(c.paid - c.soll) <= 0.005);
-  return providerOk && crewOk;
+  return hasSoll && providerOk && crewOk;
 }

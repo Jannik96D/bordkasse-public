@@ -44,7 +44,41 @@ describe("announceSettlement — Saldo vs. Zahlungsplan", () => {
     expect(mails).toHaveLength(1);
     expect(mails[0].text).toContain("Du zahlst noch 30,00");
     expect(mails[0].text).toContain("Du zahlst 30,00");
-    expect(mails[0].text).toContain("weiteren Posten: du zahlst noch 100,00");
+    expect(mails[0].text).toContain("weiteren Posten zusätzlich −100,00");
     expect(mails[0].text).not.toContain("130");
+  });
+});
+
+describe("announceSettlement — fail-loud bei leerer/fehlerhafter Bilanz (Delta 4)", () => {
+  it("bricht ab, wenn die Bilanz leer ist, obwohl es Crew gibt", async () => {
+    const q = await import("@/lib/queries/balances");
+    vi.mocked(q.getBalances).mockResolvedValueOnce([]);
+    vi.mocked(sendMails).mockClear();
+    const fake = createFakeSupabase({
+      trips: [{ id: "t", name: "T", start_date: "2026-06-01", end_date: "2026-06-10", settlement_announced_at: null, trip_type: "sailing" }],
+      trip_members: [{ trip_id: "t", person_id: "anna" }],
+      persons_private: [{ person_id: "anna", email: "anna@example.test" }],
+      audit_log: [],
+    });
+    vi.mocked(createAdminClient).mockReturnValue(fake.client as never);
+    const res = await announceSettlement("t");
+    expect(res.ok).toBe(false);
+    expect(sendMails).not.toHaveBeenCalled();
+    expect(fake.rows("trips")[0].settlement_announced_at).toBeNull();
+  });
+
+  it("bricht ab, wenn die Bilanz nicht geladen werden kann", async () => {
+    const q = await import("@/lib/queries/balances");
+    vi.mocked(q.getBordkasseOnlyBalances).mockRejectedValueOnce(new Error("boom"));
+    vi.mocked(sendMails).mockClear();
+    const fake = createFakeSupabase({
+      trips: [{ id: "t", name: "T", start_date: "2026-06-01", end_date: "2026-06-10", settlement_announced_at: null, trip_type: "sailing" }],
+      trip_members: [{ trip_id: "t", person_id: "anna" }],
+      audit_log: [],
+    });
+    vi.mocked(createAdminClient).mockReturnValue(fake.client as never);
+    const res = await announceSettlement("t");
+    expect(res.ok).toBe(false);
+    expect(sendMails).not.toHaveBeenCalled();
   });
 });

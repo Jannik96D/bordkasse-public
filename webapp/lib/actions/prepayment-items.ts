@@ -582,6 +582,9 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
       const { error: moveErr } = await supabase.rpc("move_item_payee", {
         p_item_id: existing.id,
         p_new_payee: payeeId,
+        // 0060: Gutschriften wandern NICHT mit — SQL blockt, falls inzwischen
+        // eine entstanden ist (Race zum App-Check oben, Entscheidung H1).
+        p_move_credits: false,
       });
       if (moveErr) return rollbackAll(itemDbErrorMessage(moveErr, "Empfänger konnte nicht gewechselt werden."));
     }

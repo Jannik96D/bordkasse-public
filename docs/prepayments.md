@@ -805,6 +805,44 @@ und Anzahlung/Posten getrennt (M1, unten).
   antworten Fremden einheitlich „nicht gefunden oder keine Berechtigung"
   (kein Existenz-Leck).
 
+**Delta-Review (letzte Runde):**
+
+- `removeMember` verteilt neu, indem es ERST die neuen Beträge der Rest-Crew
+  per Upsert schreibt und DANN nur die Zeile der entfernten Person löscht —
+  nie ein Posten ohne Sollzeilen. Verteilt wird nur auf Personen, die für
+  diesen Posten schon eine Sollzeile haben (zeitanteilig mit deren Tagen);
+  ein Nachrücker ohne Soll bekommt keins. Danach Nachkontrolle auf eine
+  inzwischen gebuchte Anbieter-Zahlung; jeder Fehler (auch beim Entfernen
+  der Mitgliedschaft) schreibt die alten Beträge zurück. Audit-Eintrag ohne
+  Klartext.
+- `isItemComplete`: ein Posten ohne Sollzeilen ist NICHT abgeschlossen.
+- Bilanz-Seite: der Posten-Saldo je Person kommt aus den Buchungen
+  (`getItemPotBalances`: Anbieter-Zahlungen − eigene Anteile + gegebene −
+  erhaltene bestätigte Posten-Gutschriften), Σ = 0.
+- `getBalances`/`getBordkasseOnlyBalances` werfen bei einem Lesefehler statt
+  `[]`; `announceSettlement`/`resendSettlement` brechen ab, wenn die Bilanz
+  nicht geladen werden kann oder trotz Crew leer ist — keine
+  „Du bist quitt"-Mail an alle.
+- `move_item_payee` hat in 0060 den Parameter `p_move_credits` (Default
+  FALSE): ohne ihn scheitert der Wechsel an lebenden Posten-Gutschriften
+  (gleiche Regel wie H1, jetzt race-frei in SQL); nur der Ghost-Merge ruft
+  mit TRUE. Die No-op-Probe des Ghost-Merge beweist damit die Signatur aus
+  0060 — aber nicht, dass der spätere echte Wechsel gelingt.
+
+**Bekannte Grenzen:**
+
+- **Pool-Anteil in der Abrechnungsmail:** der getrennt ausgewiesene Betrag
+  „laut Bilanz" ist Gesamtbilanz − Bordkasse. Beim Charter-Pool stammt er aus
+  der Aufteilung der Charter-AUSGABE (equal/time_proportional über die ganze
+  Crew), nicht aus dem Matrix-Soll; beide können abweichen. Die Mail
+  formuliert deshalb ohne „du zahlst/bekommst" und verweist auf die
+  Anzahlungs-Übersicht.
+- **replaceMember (L3):** scheitert das Entfernen von A und zusätzlich das
+  Zurücksetzen der Posten-Zeilen, bleibt ein gemischter Zustand (Teile bei
+  A, Teile bei B); die Meldung sagt das ausdrücklich.
+- **UI:** ein „überzahlt"-Badge je Person (Daten: `status = "overpaid"`,
+  `overpaidTotal`) folgt mit PR4b.
+
 **Bekannte Grenze (L2):** zwei gleichzeitig gebuchte Teil-Anbieterzahlungen
 können je nach Reihenfolge um Rundungs-Cents von der kumulativen Verteilung
 abweichen; ihre jeweilige Summe stimmt, und zusammen überschreiten sie den

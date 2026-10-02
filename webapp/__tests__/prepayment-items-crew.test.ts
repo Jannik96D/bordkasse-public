@@ -194,6 +194,101 @@ describe("removeMember mit Posten", () => {
     expect(obl.map((o) => o.amount).sort()).toEqual([150, 150]);
   });
 
+  it("Delta 2: ein Nachrücker ohne Soll für den Posten bekommt bei der Neuverteilung keins", async () => {
+    const { removeMember } = await import("@/lib/actions/trip-members");
+    const t = tables();
+    t.transactions = [];
+    t.transaction_participants = [];
+    t.persons.push({ id: B_NEW, auth_user_id: null, display_name: "E" });
+    t.trip_members.push({ id: "bbbbbbbb-0000-4000-8000-0000000000a5", trip_id: TRIP, person_id: B_NEW, is_skipper: false, on_board_from: null, on_board_to: null });
+    setupFake(t);
+    expect((await removeMember(A_MEMBER_ROW, TRIP)).ok).toBe(true);
+    const obl = fake.rows("prepayment_item_obligations").filter((o) => o.item_id === ITEM);
+    expect(obl.some((o) => o.person_id === B_NEW)).toBe(false);
+    expect(obl.map((o) => o.amount).sort()).toEqual([150, 150]);
+  });
+
+  it("Delta 2: zeitanteilig verteilt nach den Tagen der verbleibenden Soll-Inhaber", async () => {
+    const { removeMember } = await import("@/lib/actions/trip-members");
+    const t = tables();
+    t.transactions = [];
+    t.transaction_participants = [];
+    t.prepayment_items[0].split_type = "zeitanteilig";
+    // Skipper 10 Tage, Payee 5 Tage (Törn 01.–10.05.)
+    t.trip_members = t.trip_members.map((m) => (m.person_id === PAYEE ? { ...m, on_board_to: "2099-05-05" } : m));
+    setupFake(t);
+    expect((await removeMember(A_MEMBER_ROW, TRIP)).ok).toBe(true);
+    const by = Object.fromEntries(fake.rows("prepayment_item_obligations").map((o) => [o.person_id, o.amount]));
+    expect(by[SKIPPER]).toBe(200);
+    expect(by[PAYEE]).toBe(100);
+  });
+
+  it("Delta 1: erst Upsert der Rest-Crew, dann Löschen von A — nie ein Posten ohne Sollzeilen", async () => {
+    const { removeMember } = await import("@/lib/actions/trip-members");
+    const t = tables();
+    t.transactions = [];
+    t.transaction_participants = [];
+    setupFake(t);
+    let minRows = Infinity;
+    for (let n = 1; n <= 12; n++) {
+      fake.onFrom("prepayment_item_obligations", n, () => {
+        minRows = Math.min(minRows, fake.rows("prepayment_item_obligations").filter((o) => o.item_id === ITEM).length);
+      });
+    }
+    expect((await removeMember(A_MEMBER_ROW, TRIP)).ok).toBe(true);
+    expect(minRows).toBeGreaterThan(0);
+    expect(fake.writes.find((w) => w.table === "prepayment_item_obligations")?.action).toBe("upsert");
+  });
+
+  it("Delta 1: scheitert das Löschen der Zeile von A, kommen die alten Beträge zurück", async () => {
+    const { removeMember } = await import("@/lib/actions/trip-members");
+    const t = tables();
+    t.transactions = [];
+    t.transaction_participants = [];
+    setupFake(t);
+    fake.failOn({ table: "prepayment_item_obligations", action: "delete" });
+    expect((await removeMember(A_MEMBER_ROW, TRIP)).ok).toBe(false);
+    const by = Object.fromEntries(fake.rows("prepayment_item_obligations").map((o) => [o.person_id, o.amount]));
+    expect(by).toEqual({ [SKIPPER]: 100, [PAYEE]: 100, [A]: 100 });
+    expect(fake.rows("trip_members").some((m) => m.person_id === A)).toBe(true);
+  });
+
+  it("Delta 5: entsteht während der Neuverteilung eine Anbieter-Zahlung, wird zurückgerollt", async () => {
+    const { removeMember } = await import("@/lib/actions/trip-members");
+    const t = tables();
+    t.transactions = [];
+    t.transaction_participants = [];
+    setupFake(t);
+    // transactions-Aufrufe: Spur-Check (1), Planung (2), Nachkontrolle (3).
+    fake.onFrom("transactions", 3, () =>
+      fake.rows("transactions").push({ id: "late", trip_id: TRIP, type: "expense", item_id: ITEM, paid_by: PAYEE, amount: 300, deleted_at: null }),
+    );
+    const res = await removeMember(A_MEMBER_ROW, TRIP);
+    expect(res.ok).toBe(false);
+    expect(fake.rows("prepayment_item_obligations").find((o) => o.person_id === A)?.amount).toBe(100);
+    expect(fake.rows("trip_members").some((m) => m.person_id === A)).toBe(true);
+  });
+
+  it("Delta 5: scheitert das Entfernen der Mitgliedschaft, kommt das alte Soll zurück; sonst Audit ohne PII", async () => {
+    const { removeMember } = await import("@/lib/actions/trip-members");
+    const t = tables();
+    t.transactions = [];
+    t.transaction_participants = [];
+    setupFake(t);
+    fake.failOn({ table: "trip_members", action: "delete" });
+    expect((await removeMember(A_MEMBER_ROW, TRIP)).ok).toBe(false);
+    expect(fake.rows("prepayment_item_obligations").find((o) => o.person_id === A)?.amount).toBe(100);
+
+    const t2 = tables();
+    t2.transactions = [];
+    t2.transaction_participants = [];
+    setupFake(t2);
+    expect((await removeMember(A_MEMBER_ROW, TRIP)).ok).toBe(true);
+    const audit = fake.rows("audit_log").find((a) => (a.payload as Row)?.kind === "item-soll-redistributed");
+    expect(audit).toBeTruthy();
+    expect(JSON.stringify(audit!.payload)).not.toMatch(/Flüge|Payee|Skipper/);
+  });
+
   it("M3: nach dem Entfernen bleibt das neu verteilte Soll beim Umbenennen des Postens stehen", async () => {
     const { removeMember } = await import("@/lib/actions/trip-members");
     const { saveItem } = await import("@/lib/actions/prepayment-items");
@@ -438,8 +533,8 @@ describe("Ghost-Merge mit Posten", () => {
     // und die Posten-Gutschriften nur über move_item_payee (sonst Trigger).
     // Erst die No-op-Probe (Review P1), dann der echte Wechsel.
     expect(fake.rpcCalls.filter((c) => c.name === "move_item_payee")).toEqual([
-      { name: "move_item_payee", args: { p_item_id: ITEM, p_new_payee: PAYEE } },
-      { name: "move_item_payee", args: { p_item_id: ITEM, p_new_payee: REAL } },
+      { name: "move_item_payee", args: { p_item_id: ITEM, p_new_payee: PAYEE, p_move_credits: true } },
+      { name: "move_item_payee", args: { p_item_id: ITEM, p_new_payee: REAL, p_move_credits: true } },
     ]);
     expect(realIsMemberAtMove).toBe(true);
     expect(itemCreditTouchedBeforeMove).toBe(false);

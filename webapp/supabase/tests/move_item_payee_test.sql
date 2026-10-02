@@ -24,7 +24,7 @@
 -- ═══════════════════════════════════════════════════════════════════════
 
 BEGIN;
-SELECT plan(23);
+SELECT plan(24);
 
 -- ── Setup ─────────────────────────────────────────────────────────────
 INSERT INTO persons(id, display_name) VALUES
@@ -81,11 +81,11 @@ INSERT INTO transactions(id, trip_id, type, date, amount, credit_from, credit_to
    '59590000-0000-4000-8000-0000000000d1', now(), now());
 
 -- ── A. Rechte ─────────────────────────────────────────────────────────
-SELECT ok(NOT has_function_privilege('anon', 'move_item_payee(uuid, uuid)', 'EXECUTE'),
+SELECT ok(NOT has_function_privilege('anon', 'move_item_payee(uuid, uuid, boolean)', 'EXECUTE'),
   'A1: anon darf move_item_payee nicht ausführen');
-SELECT ok(NOT has_function_privilege('authenticated', 'move_item_payee(uuid, uuid)', 'EXECUTE'),
+SELECT ok(NOT has_function_privilege('authenticated', 'move_item_payee(uuid, uuid, boolean)', 'EXECUTE'),
   'A2: authenticated darf move_item_payee nicht ausführen');
-SELECT ok(has_function_privilege('service_role', 'move_item_payee(uuid, uuid)', 'EXECUTE'),
+SELECT ok(has_function_privilege('service_role', 'move_item_payee(uuid, uuid, boolean)', 'EXECUTE'),
   'A3: service_role darf move_item_payee ausführen');
 
 -- ── C (vorab). Ohne Funktion bleibt der Wechsel gesperrt ──────────────
@@ -109,9 +109,15 @@ CREATE TEMP TABLE before_paid AS
   SELECT person_id, paid_amount FROM v_prepayment_item_payments
    WHERE item_id = '59590000-0000-4000-8000-0000000000d1';
 
--- ── B. Wechsel ────────────────────────────────────────────────────────
+-- 0060: ohne p_move_credits (saveItem) blocken lebende Gutschriften.
+SELECT throws_ok(
+  $$SELECT move_item_payee('59590000-0000-4000-8000-0000000000d1', '59590000-0000-4000-8000-000000000002')$$,
+  'P0001', 'prepayment_item_payee_has_credits',
+  'B0: ohne p_move_credits blocken lebende Posten-Gutschriften den Wechsel (0060)');
+
+-- ── B. Wechsel (Ghost-Merge-Pfad: p_move_credits = TRUE) ──────────────
 SELECT is(
-  move_item_payee('59590000-0000-4000-8000-0000000000d1', '59590000-0000-4000-8000-000000000002'),
+  move_item_payee('59590000-0000-4000-8000-0000000000d1', '59590000-0000-4000-8000-000000000002', TRUE),
   4,
   'B1: alle vier Gutschriften an den alten Empfänger werden umgehängt (inkl. offen + soft-gelöscht)');
 
@@ -192,12 +198,12 @@ SELECT throws_ok(
 
 -- ── D. Idempotenz + Fehlerfälle ───────────────────────────────────────
 SELECT is(
-  move_item_payee('59590000-0000-4000-8000-0000000000d1', '59590000-0000-4000-8000-000000000002'),
+  move_item_payee('59590000-0000-4000-8000-0000000000d1', '59590000-0000-4000-8000-000000000002', TRUE),
   0,
   'D1: erneuter Aufruf mit demselben Empfänger ist ein No-Op (Retry-sicher)');
 
 SELECT throws_ok(
-  $$SELECT move_item_payee('59590000-0000-4000-8000-0000000000d1', '59590000-0000-4000-8000-0000000009ff')$$,
+  $$SELECT move_item_payee('59590000-0000-4000-8000-0000000000d1', '59590000-0000-4000-8000-0000000009ff', TRUE)$$,
   'P0001', 'prepayment_item_payee_invalid',
   'D2: unbekannte Person als Empfänger wird abgewiesen');
 

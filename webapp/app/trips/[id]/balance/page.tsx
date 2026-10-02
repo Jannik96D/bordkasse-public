@@ -4,7 +4,7 @@ import { InfoTooltip } from "@/components/info-tooltip";
 import { getBalances, getBordkasseOnlyBalances } from "@/lib/queries/balances";
 import { getTrip } from "@/lib/queries/trips";
 import { getPlan, getPrepaymentPoolBalances, getCharterPaidTotal } from "@/lib/queries/prepayments";
-import { getItems, type PrepaymentItemView } from "@/lib/queries/prepayment-items";
+import { getItems, getItemPotBalances, type PrepaymentItemView } from "@/lib/queries/prepayment-items";
 import { formatEuro, todayIso } from "@/lib/utils";
 import { tripVocab, type TripType } from "@/lib/trip-vocab";
 import type { PrepaymentPoolBalance } from "@/lib/queries/prepayments";
@@ -16,7 +16,7 @@ export default async function BalancePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [rows, bordkasseRows, plan, poolBalances, trip, charterPaid, items] = await Promise.all([
+  const [rows, bordkasseRows, plan, poolBalances, trip, charterPaid, items, itemPot] = await Promise.all([
     getBalances(id),
     getBordkasseOnlyBalances(id),
     getPlan(id),
@@ -24,6 +24,7 @@ export default async function BalancePage({
     getTrip(id),
     getCharterPaidTotal(id),
     getItems(id),
+    getItemPotBalances(id),
   ]);
 
   const tripType: TripType = trip?.trip_type === "other" ? "other" : "sailing";
@@ -95,11 +96,13 @@ export default async function BalancePage({
           tripId={id}
           items={items}
           // M1 (PR4a-Review): je Person Posten-Saldo + Gesamtsaldo sichtbar —
-          // die Bordkasse-Tabelle oben zeigt Posten bewusst nicht mehr.
+          // die Bordkasse-Tabelle oben zeigt Posten bewusst nicht mehr. Der
+          // Posten-Saldo kommt aus den Buchungen (getItemPotBalances), nicht
+          // aus dem Matrix-Soll, damit Σ = 0 und Gesamt = Summe der Töpfe.
           people={rows.map((r) => ({
             person_id: r.person_id,
             name: r.display_name,
-            itemBalance: itemBalanceFor(items, r.person_id),
+            itemBalance: itemPot.get(r.person_id) ?? 0,
             total: r.balance,
           }))}
         />
@@ -248,16 +251,6 @@ function PrepaymentsSummary({
       </details>
     </section>
   );
-}
-
-/** Posten-Saldo einer Person: Σ (bestätigt gezahlt − Soll) über alle Posten. */
-function itemBalanceFor(items: PrepaymentItemView[], personId: string): number {
-  let b = 0;
-  for (const it of items) {
-    const c = it.cells.find((x) => x.person_id === personId);
-    if (c) b += c.paid - c.soll;
-  }
-  return Math.round(b * 100) / 100;
 }
 
 /** Kurzübersicht der Reise-Posten: Crew-Beiträge und Anbieter-Zahlung je Posten. */

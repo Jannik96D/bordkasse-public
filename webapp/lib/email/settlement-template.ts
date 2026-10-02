@@ -58,12 +58,15 @@ export function renderSettlementMail(p: SettlementMailParams): { html: string; t
       ? `Du zahlst noch ${fmtEuro(Math.abs(p.balance))}.`
       : `Du bist quitt, nichts mehr zu tun.`;
   const pool = p.poolBalance ?? 0;
+  // Delta-Review 4: vorsichtig formuliert, ohne „du zahlst/bekommst". Der
+  // Anteil stammt aus der Gesamtbilanz (Charter-AUSGABE-Aufteilung bzw.
+  // gebuchte Posten-Anteile), nicht aus dem Matrix-Soll — beide können
+  // abweichen (bekannte Grenze, docs/prepayments.md). Maßgeblich für die
+  // Rückzahlung ist die Anzahlungs-Übersicht in der App.
   const poolText =
-    pool < -0.005
-      ? `Außerdem offen bei Anzahlung und weiteren Posten: du zahlst noch ${fmtEuro(Math.abs(pool))} (nicht im Zahlungsplan, siehe Anzahlung in der App).`
-      : pool > 0.005
-        ? `Außerdem bei Anzahlung und weiteren Posten: du bekommst noch ${fmtEuro(pool)} (nicht im Zahlungsplan, siehe Anzahlung in der App).`
-        : "";
+    Math.abs(pool) > 0.005
+      ? `Laut Bilanz sind bei Anzahlung und weiteren Posten zusätzlich ${pool < 0 ? "−" : "+"}${fmtEuro(Math.abs(pool))} offen. Das ist nicht im Zahlungsplan enthalten; maßgeblich ist die Anzahlungs-Übersicht in der App.`
+      : "";
   const introText = p.isUpdate
     ? `${p.skipperName} hat Buchungen für unseren ${vocab.trip} aktualisiert, die Bilanz hat sich seit der letzten Mail geändert.`
     : `${p.skipperName} hat die ${vocab.kitty} für unseren ${vocab.trip} final abgerechnet.`;

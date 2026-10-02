@@ -70,11 +70,19 @@ export async function announceSettlement(tripId: string): Promise<Result> {
   // Bordkasse) und zur Bilanz-Seite. Offene Beträge aus Anzahlung/Posten
   // werden getrennt ausgewiesen (lib/calc/settlement-balances.ts). Vorher
   // stand dort die Gesamtbilanz, die mit dem Zahlungsplan nicht aufging.
-  const [totalBalances, kittyBalances, debts] = await Promise.all([
-    getBalances(tripId),
-    getBordkasseOnlyBalances(tripId),
-    getSimplifiedDebts(tripId),
-  ]);
+  let totalBalances: Awaited<ReturnType<typeof getBalances>>;
+  let kittyBalances: Awaited<ReturnType<typeof getBordkasseOnlyBalances>>;
+  let debts: Awaited<ReturnType<typeof getSimplifiedDebts>>;
+  try {
+    [totalBalances, kittyBalances, debts] = await Promise.all([
+      getBalances(tripId),
+      getBordkasseOnlyBalances(tripId),
+      getSimplifiedDebts(tripId),
+    ]);
+  } catch (e) {
+    console.error("[bordkasse:settlement] balances:", e);
+    return { ok: false, message: "Bilanz konnte nicht geladen werden — es wurde keine Mail verschickt. Bitte erneut versuchen." };
+  }
   const mailBalances = splitMailBalances(totalBalances, kittyBalances);
 
   // Crew + Mails laden (über Admin-Client, RLS-Bypass).
@@ -90,6 +98,11 @@ export async function announceSettlement(tripId: string): Promise<Result> {
     `)
     .eq("trip_id", tripId);
   const members = (membersRaw ?? []) as unknown as MemberRow[];
+  // Delta-Review 4: leere Bilanz trotz Crew = Lesefehler o. ä. — nie eine
+  // Mail mit „Du bist quitt" an alle schicken.
+  if (members.length > 0 && totalBalances.length === 0) {
+    return { ok: false, message: "Bilanz ist leer, obwohl es eine Crew gibt — es wurde keine Mail verschickt." };
+  }
   const displayName = (m: MemberRow) =>
     (Array.isArray(m.person) ? m.person[0]?.display_name : m.person?.display_name) ?? "";
 
@@ -307,11 +320,19 @@ export async function resendSettlement(tripId: string): Promise<Result> {
     }
   }
 
-  const [totalBalances, kittyBalances, debts] = await Promise.all([
-    getBalances(tripId),
-    getBordkasseOnlyBalances(tripId),
-    getSimplifiedDebts(tripId),
-  ]);
+  let totalBalances: Awaited<ReturnType<typeof getBalances>>;
+  let kittyBalances: Awaited<ReturnType<typeof getBordkasseOnlyBalances>>;
+  let debts: Awaited<ReturnType<typeof getSimplifiedDebts>>;
+  try {
+    [totalBalances, kittyBalances, debts] = await Promise.all([
+      getBalances(tripId),
+      getBordkasseOnlyBalances(tripId),
+      getSimplifiedDebts(tripId),
+    ]);
+  } catch (e) {
+    console.error("[bordkasse:settlement] balances:", e);
+    return { ok: false, message: "Bilanz konnte nicht geladen werden — es wurde keine Mail verschickt. Bitte erneut versuchen." };
+  }
   const mailBalances = splitMailBalances(totalBalances, kittyBalances);
 
   type MemberRow = {
@@ -326,6 +347,11 @@ export async function resendSettlement(tripId: string): Promise<Result> {
     `)
     .eq("trip_id", tripId);
   const members = (membersRaw ?? []) as unknown as MemberRow[];
+  // Delta-Review 4: leere Bilanz trotz Crew = Lesefehler o. ä. — nie eine
+  // Mail mit „Du bist quitt" an alle schicken.
+  if (members.length > 0 && totalBalances.length === 0) {
+    return { ok: false, message: "Bilanz ist leer, obwohl es eine Crew gibt — es wurde keine Mail verschickt." };
+  }
   const displayName = (m: MemberRow) =>
     (Array.isArray(m.person) ? m.person[0]?.display_name : m.person?.display_name) ?? "";
 
