@@ -33,7 +33,10 @@
 // -pages-Cache trägt die Tranchen-Vorbelegung. Online holt `networkFirst` das
 // neue Dokument ohnehin; der Bump verwirft zusätzlich die alte Kopie bei allen,
 // die zwischenzeitlich offline waren.
-const CACHE_VERSION = "bordkasse-v14";
+// v15: Reise-Posten-Oberfläche (PR4b) — neue Anzahlungs-/Bilanz-Seiten und
+// ein Anzahlungen-Tab, der auch ohne Plan erscheint. Der Bump verwirft die
+// gecachten RSC-Payloads/Dokumente der alten Seiten.
+const CACHE_VERSION = "bordkasse-v15";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE = `${CACHE_VERSION}-pages`;
 const RSC_CACHE = `${CACHE_VERSION}-rsc`;

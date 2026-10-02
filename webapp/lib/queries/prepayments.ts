@@ -6,6 +6,8 @@
 import { cache } from "react";
 import { readClient } from "@/lib/supabase/read-client";
 import type { PrepaymentSplitMethod } from "@/lib/validation/prepayment-schema";
+import { getItems } from "@/lib/queries/prepayment-items";
+import { itemsNavRelevant } from "@/lib/prepayments/item-ui";
 
 export interface PrepaymentPlan {
   trip_id: string;
@@ -303,17 +305,39 @@ export async function getPendingPayments(tripId: string): Promise<PendingPayment
  * `isManager` (Skipper / Admin / Vorstrecker) wird intern aus dem Plan
  * abgeleitet, damit der Plan nicht doppelt geladen werden muss.
  */
-export async function getPrepaymentNavState(
-  tripId: string,
-  viewer: {
-    personId: string | null;
-    isAdmin: boolean;
-    isTripSkipper: boolean;
-    tripSkipperId: string | null;
-  },
-): Promise<{ show: boolean }> {
+type NavViewer = {
+  personId: string | null;
+  isAdmin: boolean;
+  isTripSkipper: boolean;
+  tripSkipperId: string | null;
+};
+
+export async function getPrepaymentNavState(tripId: string, viewer: NavViewer): Promise<{ show: boolean }> {
+  const [planShow, itemsShow] = await Promise.all([planNavShow(tripId, viewer), itemsNavShow(tripId, viewer)]);
+  return { show: planShow || itemsShow };
+}
+
+/**
+ * Reise-Posten (PR4b): der Anzahlungen-Tab erscheint auch bei Törns OHNE Plan,
+ * sobald es einen für die Person relevanten Posten gibt. Läuft im Trip-Layout
+ * → Lesefehler werden eingefangen (kein Posten-Tab statt Absturz aller Tabs;
+ * die Anzahlungs-Seite meldet den Fehler dann selbst sichtbar).
+ */
+async function itemsNavShow(tripId: string, viewer: NavViewer): Promise<boolean> {
+  try {
+    const items = await getItems(tripId);
+    return itemsNavRelevant(items, {
+      personId: viewer.personId,
+      isManager: viewer.isAdmin || viewer.isTripSkipper,
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function planNavShow(tripId: string, viewer: NavViewer): Promise<boolean> {
   const plan = await getPlan(tripId);
-  if (!plan) return { show: false };
+  if (!plan) return false;
 
   // Nach dem Plan-Gate hängen tranches/obligations/payments/pending nur noch
   // von tripId ab → in EINER Welle laden statt hintereinander (Fund E-3). Ist
@@ -338,9 +362,9 @@ export async function getPrepaymentNavState(
       getPendingPayments(tripId),
     ]);
   } catch {
-    return { show: true };
+    return true;
   }
-  if (tranches.length === 0) return { show: false };
+  if (tranches.length === 0) return false;
 
   const advancerId = plan.advancer_person_id ?? viewer.tripSkipperId;
   const isManager =
@@ -364,10 +388,10 @@ export async function getPrepaymentNavState(
   };
 
   if (!isManager) {
-    if (!viewer.personId) return { show: false };
+    if (!viewer.personId) return false;
     const myOpen = openFor(viewer.personId) > 0.005;
     const myPending = pending.some((p) => p.person_id === viewer.personId);
-    return { show: myOpen || myPending };
+    return myOpen || myPending;
   }
 
   const anyCrewOpen = obligations.some((o) => openFor(o.person_id) > 0.005);
@@ -377,6 +401,6 @@ export async function getPrepaymentNavState(
   // Tranche deckt eine andere) — konsistent mit der Bilanz (getCharterPaidTotal).
   const charterPaidTotal = await getCharterPaidTotal(tripId);
   const advancerOwes = plan.total_amount - charterPaidTotal > 0.005;
-  return { show: anyCrewOpen || anyPending || advancerOwes };
+  return anyCrewOpen || anyPending || advancerOwes;
 }
 

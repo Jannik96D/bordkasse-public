@@ -5,6 +5,8 @@ import { getBalances, getBordkasseOnlyBalances } from "@/lib/queries/balances";
 import { getTrip } from "@/lib/queries/trips";
 import { getPlan, getPrepaymentPoolBalances, getCharterPaidTotal } from "@/lib/queries/prepayments";
 import { getItems, getItemPotBalances, type PrepaymentItemView } from "@/lib/queries/prepayment-items";
+import { CategoryIcon } from "@/components/category-icon";
+import { itemOverallStatus, ITEM_OVERALL_LABEL } from "@/lib/prepayments/item-ui";
 import { formatEuro, todayIso } from "@/lib/utils";
 import { tripVocab, type TripType } from "@/lib/trip-vocab";
 import type { PrepaymentPoolBalance } from "@/lib/queries/prepayments";
@@ -64,14 +66,10 @@ export default async function BalancePage({
     <main className="mx-auto max-w-2xl px-4 pb-24 pt-4">
       <h1 className="mb-4 text-lg font-bold text-primary">
         Bilanz
-        {hasPlan && (
+        {(hasPlan || hasItems) && (
           <InfoTooltip
             label="Bilanzblöcke erklärt"
-            text={
-              tripType === "other"
-                ? `Diese Bilanz hat zwei Töpfe: „Anzahlung“ ist das Geld für die Reise, das vorab an den Anbieter gezahlt wird. „${vocab.kitty}“ sind die laufenden Kosten während der Reise (z. B. Verpflegung, Unterkunft). „Gesamt“ fasst beide zusammen. Das ist unterm Strich dein Saldo.`
-                : `Diese Bilanz hat zwei Töpfe: „Anzahlung“ ist das Geld für die Yachtcharter, das vorab an den Vercharterer gezahlt wird. „${vocab.kitty}“ sind die laufenden Kosten während des Törns (Sprit, Hafen, Essen). „Gesamt“ fasst beide zusammen. Das ist unterm Strich dein Saldo.`
-            }
+            text={balanceExplanation(tripType, hasPlan, hasItems)}
           />
         )}
       </h1>
@@ -89,12 +87,12 @@ export default async function BalancePage({
 
       <BordkasseTable rows={tableRows} sum={sum} hasPlan={hasPlan || hasItems} tripType={tripType} />
 
-      {/* Reise-Posten (PR4a): bewusst minimal — das eigentliche Layout
-          (Drei-Topf-Erklärung, Status je Person) kommt mit PR4b. */}
+      {/* Reise-Posten: dritter Topf neben Bordkasse und Anzahlung (PR4b). */}
       {hasItems && (
         <ItemsSummary
           tripId={id}
           items={items}
+          tripType={tripType}
           // M1 (PR4a-Review): je Person Posten-Saldo + Gesamtsaldo sichtbar —
           // die Bordkasse-Tabelle oben zeigt Posten bewusst nicht mehr. Der
           // Posten-Saldo kommt aus den Buchungen (getItemPotBalances), nicht
@@ -253,52 +251,138 @@ function PrepaymentsSummary({
   );
 }
 
-/** Kurzübersicht der Reise-Posten: Crew-Beiträge und Anbieter-Zahlung je Posten. */
+/**
+ * Erklärt die Töpfe der Bilanz — nur die, die es im Törn wirklich gibt.
+ * Reine Funktion (Text), damit er in Server-Komponente und Test gleich ist.
+ */
+function balanceExplanation(tripType: TripType, hasPlan: boolean, hasItems: boolean): string {
+  const vocab = tripVocab(tripType);
+  const other = tripType === "other";
+  const parts: string[] = [];
+  if (hasPlan) {
+    parts.push(
+      other
+        ? "„Anzahlung“ ist das Geld für die Reise, das vorab an den Anbieter gezahlt wird."
+        : "„Anzahlung“ ist das Geld für die Yachtcharter, das vorab an den Vercharterer gezahlt wird.",
+    );
+  }
+  if (hasItems) {
+    parts.push("„Weitere Posten“ sind Zahlungen neben der Anzahlung, z. B. Flüge oder Bahn für die An-/Abreise.");
+  }
+  parts.push(
+    other
+      ? `„${vocab.kitty}“ sind die laufenden Kosten während der Reise (z. B. Verpflegung, Unterkunft).`
+      : `„${vocab.kitty}“ sind die laufenden Kosten während des Törns (Sprit, Hafen, Essen).`,
+  );
+  parts.push("„Gesamt“ fasst alle Töpfe zusammen. Das ist unterm Strich dein Saldo.");
+  return `Diese Bilanz hat mehrere Töpfe: ${parts.join(" ")}`;
+}
+
+/**
+ * Reise-Posten: Status je Posten (Icon + Text) und je Person Posten-Saldo
+ * sowie Gesamtsaldo. Der Posten-Saldo kommt aus den Buchungen
+ * (getItemPotBalances), nicht aus dem Matrix-Soll — Σ = 0.
+ */
 function ItemsSummary({
   tripId,
   items,
   people,
+  tripType,
 }: {
   tripId: string;
   items: PrepaymentItemView[];
   people: { person_id: string; name: string; itemBalance: number; total: number }[];
+  tripType: TripType;
 }) {
+  const vocab = tripVocab(tripType);
+  const overpaidPersonIds = new Set(
+    items.flatMap((it) => it.cells.filter((c) => c.status === "overpaid").map((c) => c.person_id)),
+  );
+  const fmtSigned = (n: number) => `${n > 0.005 ? "+" : n < -0.005 ? "−" : ""}${formatEuro(Math.abs(n))}`;
+  const srSaldo = (name: string, n: number, pot: string) =>
+    n > 0.005
+      ? `${name} bekommt ${formatEuro(n)} (${pot})`
+      : n < -0.005
+        ? `${name} zahlt ${formatEuro(-n)} (${pot})`
+        : `${name} ist ausgeglichen (${pot})`;
+
   return (
     <section className="mb-4 rounded-lg border border-rule bg-paper p-4" aria-labelledby="items-summary-heading">
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <h2 id="items-summary-heading" className="text-sm font-semibold text-primary">Weitere Posten</h2>
-        <Link className="text-xs text-primary hover:underline" href={`/trips/${tripId}/prepayments`}>
+        <Link className="inline-flex min-h-[44px] items-center text-xs text-primary hover:underline" href={`/trips/${tripId}/prepayments`}>
           Details →
         </Link>
       </div>
       <ul className="divide-y divide-rule text-sm">
-        {items.map((it) => (
-          <li key={it.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-            <span className="font-medium">{it.label}</span>
-            <span className="inline-flex items-center gap-2 text-xs text-ink-soft">
-              <StatusBadge status={it.complete ? "paid" : it.paidTotal > 0.005 ? "partial" : "open"} />
-              <span className="tabular-nums">
-                Crew {formatEuro(Math.min(it.paidTotal, it.sollTotal))} / {formatEuro(it.sollTotal)} · Anbieter{" "}
-                {formatEuro(it.providerPaid)} / {formatEuro(it.total_amount)}
-              </span>
-              <span className="sr-only">{it.complete ? "abgeschlossen" : "noch offen"}</span>
-            </span>
-          </li>
-        ))}
+        {items.map((it) => {
+          const overall = itemOverallStatus(it);
+          // Überzahlung geht vor „teilweise": das Geld muss zurück (M4).
+          const badge: "open" | "partial" | "paid" | "overpaid" =
+            overall === "complete" ? "paid" : overall === "overpaid" ? "overpaid" : it.paidTotal > 0.005 ? "partial" : "open";
+          return (
+            <li key={it.id} className="py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="inline-flex min-w-0 items-center gap-2 font-medium">
+                  <CategoryIcon icon={it.category_icon} name={it.category_name} className="h-4 w-4 shrink-0 text-primary" />
+                  <span className="truncate">{it.label}</span>
+                </span>
+                <span className="inline-flex items-center gap-2 text-xs text-ink-soft">
+                  <StatusBadge status={badge} />
+                  {ITEM_OVERALL_LABEL[overall]}
+                </span>
+              </div>
+              <p className="mt-1 pl-6 text-xs tabular-nums text-ink-soft">
+                {vocab.crew}: {formatEuro(Math.min(it.paidTotal, it.sollTotal))} von {formatEuro(it.sollTotal)} · Anbieter:{" "}
+                {formatEuro(it.providerPaid)} von {formatEuro(it.total_amount)}
+                {it.overpaidTotal > 0.005 && <> · <strong className="text-danger">{formatEuro(it.overpaidTotal)} zu viel bezahlt</strong></>}
+              </p>
+            </li>
+          );
+        })}
       </ul>
-      {/* Minimal (Layout kommt mit PR4b): je Person Posten-Saldo und Gesamt. */}
-      <ul className="mt-3 divide-y divide-rule border-t border-rule text-xs text-ink-soft">
-        {people.map((p) => (
-          <li key={p.person_id} className="flex justify-between gap-2 py-1">
-            <span>{p.name}</span>
-            <span className="tabular-nums">
-              Posten {p.itemBalance > 0.005 ? "+" : p.itemBalance < -0.005 ? "−" : ""}
-              {formatEuro(Math.abs(p.itemBalance))} · Gesamt {p.total > 0.005 ? "+" : p.total < -0.005 ? "−" : ""}
-              {formatEuro(Math.abs(p.total))}
-            </span>
-          </li>
-        ))}
-      </ul>
+
+      <div className="mt-3 overflow-hidden rounded-md border border-rule">
+        <table className="w-full text-sm">
+          <caption className="sr-only">
+            Saldo pro Person: erst nur der Topf „Weitere Posten“, dann Gesamt aus allen Töpfen. Positive Beträge bekommen
+            Geld zurück, negative zahlen nach.
+          </caption>
+          <thead className="bg-paper-soft text-xs text-ink-soft">
+            <tr>
+              <th scope="col" className="px-3 py-2 text-left font-medium">Person</th>
+              <th scope="col" className="px-3 py-2 text-right font-medium">Weitere Posten</th>
+              <th scope="col" className="px-3 py-2 text-right font-medium">Gesamt</th>
+            </tr>
+          </thead>
+          <tbody>
+            {people.map((p) => (
+              <tr key={p.person_id} className="border-t border-rule">
+                <th scope="row" className="px-3 py-2 text-left font-medium">
+                  {p.name}
+                  {overpaidPersonIds.has(p.person_id) && (
+                    <span className="ml-2 inline-flex items-center gap-1 text-xs font-normal text-danger">
+                      <StatusBadge status="overpaid" /> überzahlt
+                    </span>
+                  )}
+                </th>
+                <td className={`px-3 py-2 text-right tabular-nums ${p.itemBalance > 0.005 ? "text-success" : p.itemBalance < -0.005 ? "text-danger" : "text-ink-soft"}`}>
+                  <span className="sr-only">{srSaldo(p.name, p.itemBalance, "Weitere Posten")}</span>
+                  <span aria-hidden>{fmtSigned(p.itemBalance)}</span>
+                </td>
+                <td className={`px-3 py-2 text-right font-semibold tabular-nums ${p.total > 0.005 ? "text-success" : p.total < -0.005 ? "text-danger" : "text-ink-soft"}`}>
+                  <span className="sr-only">{srSaldo(p.name, p.total, "Gesamt")}</span>
+                  <span aria-hidden>{fmtSigned(p.total)}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-ink-soft">
+        „Weitere Posten“ enthält nur die Buchungen dieser Posten — die Bordkasse-Tabelle oben zählt sie nicht mit. „Gesamt“ ist die
+        Summe aus allen Töpfen.
+      </p>
     </section>
   );
 }
