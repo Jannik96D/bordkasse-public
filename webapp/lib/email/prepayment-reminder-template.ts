@@ -8,6 +8,7 @@
 
 import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
 import { tripVocab } from "@/lib/trip-vocab";
+import { normalizeWeroId } from "@/lib/prepayments/notify";
 
 export type ReminderTrancheItem = {
   label: string;
@@ -34,6 +35,9 @@ export function renderPrepaymentReminderMail(p: PrepaymentReminderParams): {
   subject: string;
 } {
   const vocab = tripVocab(p.tripType);
+  // Wero-Regel (PR6, Entscheidung Nutzer): ohne Wero-ID (leer/Whitespace)
+  // erwähnt die Mail Wero mit keinem Wort — weder Block noch Hinweistext.
+  const weroId = normalizeWeroId(p.weroId);
   const subject = `Erinnerung ${vocab.kitty}-Anzahlung: ${p.tripName}`;
   const totalOpen = p.tranches.reduce((s, t) => s + t.amount_due, 0);
 
@@ -57,7 +61,7 @@ export function renderPrepaymentReminderMail(p: PrepaymentReminderParams): {
   // Wero stellt aktuell keine öffentliche API für Zahl-Links bereit — daher
   // gibt es keinen Klick-Link, sondern nur die Wero-ID zum manuellen
   // Übernehmen in die Wero-App.
-  const weroBlock = p.weroId
+  const weroBlock = weroId
     ? `
             <tr>
               <td style="padding:8px 32px 0 32px;">
@@ -65,7 +69,7 @@ export function renderPrepaymentReminderMail(p: PrepaymentReminderParams): {
                   Bitte schicke <strong>${escapeHtml(p.advancerName)}</strong> per Wero die fällige Anzahlung.
                 </p>
                 <p style="margin:0;padding:10px 14px;background-color:#FDF6DC;border-left:3px solid #C8A51E;font-size:13px;color:#1A2533;border-radius:4px;">
-                  <strong>Wero-ID (${escapeHtml(p.advancerName)}):</strong> ${escapeHtml(p.weroId)}<br/>
+                  <strong>Wero-ID (${escapeHtml(p.advancerName)}):</strong> ${escapeHtml(weroId)}<br/>
                   <span style="color:#587EA8;">Verwendungszweck: Anzahlung ${escapeHtml(p.tripName)}</span>
                 </p>
               </td>
@@ -74,7 +78,7 @@ export function renderPrepaymentReminderMail(p: PrepaymentReminderParams): {
             <tr>
               <td style="padding:8px 32px 0 32px;">
                 <p style="margin:0;padding:10px 14px;background-color:#FDF6DC;border-left:3px solid #C8A51E;font-size:13px;color:#1A2533;border-radius:4px;">
-                  Frag <strong>${escapeHtml(p.advancerName)}</strong> nach den Überweisungsdetails, es ist keine Wero-ID hinterlegt.
+                  Frag <strong>${escapeHtml(p.advancerName)}</strong> nach den Zahlungsdetails.
                 </p>
               </td>
             </tr>`;
@@ -108,9 +112,13 @@ export function renderPrepaymentReminderMail(p: PrepaymentReminderParams): {
             </tr>
 ${weroBlock}
 ${renderActionButton(p.appUrl, `In der ${vocab.kitty} anzeigen`)}
-${renderHintBlock(
-  "Wero bietet aktuell keine öffentliche Schnittstelle für Klick-Links. Bitte die Wero-ID in deiner Wero-App als Empfänger eingeben und Betrag + Verwendungszweck manuell übernehmen.",
-)}`;
+${
+  weroId
+    ? renderHintBlock(
+        "Wero bietet aktuell keine öffentliche Schnittstelle für Klick-Links. Bitte die Wero-ID in deiner Wero-App als Empfänger eingeben und Betrag + Verwendungszweck manuell übernehmen.",
+      )
+    : ""
+}`;
 
   const html = renderMailShell({
     title: subject,
@@ -125,12 +133,12 @@ ${renderHintBlock(
     )
     .join("\n");
 
-  const weroText = p.weroId
+  const weroText = weroId
     ? `Bitte schicke ${p.advancerName} per Wero die fällige Anzahlung.
-Wero-ID (${p.advancerName}): ${p.weroId}
+Wero-ID (${p.advancerName}): ${weroId}
 Verwendungszweck: Anzahlung ${p.tripName}
 (Wero bietet keine Klick-Links: Bitte Wero-ID in deiner Wero-App als Empfänger eingeben und Betrag/Verwendungszweck manuell kopieren.)`
-    : `Frag ${p.advancerName} nach den Überweisungsdetails, es ist keine Wero-ID hinterlegt.`;
+    : `Frag ${p.advancerName} nach den Zahlungsdetails.`;
 
   const text = `Erinnerung: Anzahlung
 ${p.tripName}

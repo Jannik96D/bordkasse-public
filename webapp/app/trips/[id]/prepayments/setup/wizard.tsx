@@ -564,6 +564,14 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
             Summe: <strong>{percentSum.toFixed(1)} %</strong> (muss 100 % ergeben)
           </p>
 
+          {/* Benachrichtigung (PR6): der Server verschickt die Mail beim ersten
+              Fertigstellen genau einmal (Claim crew_notified_at, 0062). */}
+          <p className="rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
+            {tranches.length === 0
+              ? `Beim Fertigstellen bekommt jede Person mit Anteil automatisch eine Mail mit ihrem Betrag, den Raten und Fristen.`
+              : `Änderungen verschicken keine Mail. Informiere die ${vocab.crew} danach auf der Anzahlungs-Seite über „${vocab.crew} informieren“.`}
+          </p>
+
           {error && <p role="alert" className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
 
           <div className="flex justify-end gap-2">

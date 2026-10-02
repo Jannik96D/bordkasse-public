@@ -28,6 +28,10 @@
 | Posten-Übersicht `item_payee_3d` (Cron) | ✅ | Empfänger des Postens | Tag `item-payee-<item>` |
 | Selbstmeldung „ich habe gezahlt" | ✅ | Vorstrecker | actionable |
 | Zahlung bestätigt / abgelehnt / erfasst | ✅ | betroffene Crewperson | Actor ausgenommen |
+| Posten-Selbstmeldung (`submitItemSelfPayment`, PR6) | ✅ | Posten-Empfänger | Tag `item-pending-<item>-<melder>` |
+| Posten-Zahlung erfasst / bestätigt / abgelehnt (PR6) | ✅ | zahlende Person (+ Empfänger bei Dritt-Aktion) | Actor ausgenommen, gleiche Empfänger wie die Mail |
+| „Posten angelegt" / „Posten geändert" (PR6) | ✅ | alle mit Soll > 0 + Empfänger, ohne Actor | Tag `item-announce-<item>` — auch an Personen ohne Mail-Adresse |
+| „Anzahlungsplan steht" / „Plan geändert" (PR6) | ✅ | alle mit Soll > 0 + vorstreckende Person, ohne Actor | Tag `plan-announce-<trip>` |
 | Notice an Observer (Dritt-Aktion) | ❌ | — | Mail-only |
 | Crew-Einladung (Magic-Link) | ❌ | — | technisch unmöglich (noch kein Abo) |
 | Manueller Einzel-Reminder (🔔-Button) | ❌ | — | **bewusst Mail-only** (kein Tranche-/Betrag-Kontext am Aufrufpunkt; der Cron deckt den automatischen Pfad ab) |

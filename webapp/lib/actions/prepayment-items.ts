@@ -24,10 +24,18 @@
  *   • Audit-Log ohne Klartext-PII (keine Namen, keine Freitexte),
  *   • markPostSettlementChange, sobald sich v_balances ändert.
  *
- * Ohne eigene Mails/Push: die automatischen Posten-Erinnerungen verschickt
- * der tägliche Anzahlungs-Cron (PR5, lib/prepayments/item-reminder-cron.ts).
- * Einzige Berührung hier: rejectItemSelfPayment räumt den Dedup-Log-Eintrag
- * der Person, damit sie nach der Ablehnung erneut erinnert werden kann.
+ * Benachrichtigungen (PR6, lib/email/send-prepayment-notices.ts): NACH dem
+ * erfolgreichen Schreiben gehen Mail + (additiv) Push raus — beim Anlegen
+ * eines Postens an alle Betroffenen, bei Selbstmeldung an den Empfänger, bei
+ * Erfassung/Bestätigung/Ablehnung an die zahlende Person (+ Empfänger, wenn
+ * ein Dritter handelt). Der Aktor bekommt nie etwas über die eigene Aktion,
+ * ein Versandfehler ändert das Ergebnis der Action nie (die Helfer werfen
+ * nicht, das Ergebnis wird nur geloggt). Duplikat-Retrys (idempotency_key)
+ * verschicken nichts. Die Anbieter-Zahlung löst keine Mail aus.
+ *
+ * Die automatischen Posten-Erinnerungen verschickt der tägliche
+ * Anzahlungs-Cron (PR5, lib/prepayments/item-reminder-cron.ts);
+ * rejectItemSelfPayment räumt dafür den Dedup-Log-Eintrag der Person.
  */
 
 import { revalidatePath } from "next/cache";
@@ -51,6 +59,12 @@ import {
   type ItemShare,
 } from "@/lib/calc/prepayment-item-shares";
 import { daysBetween } from "@/lib/utils";
+import {
+  sendItemAnnouncement,
+  sendItemPaymentNotices,
+  sendItemPendingNotice,
+  type NoticeResult,
+} from "@/lib/email/send-prepayment-notices";
 import { z } from "zod";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
@@ -136,6 +150,16 @@ function itemDbErrorMessage(err: DbError, fallback: string): string {
 async function markPostSettlementChange(supabase: AdminClient, tripId: string): Promise<void> {
   const { error } = await supabase.rpc("mark_post_settlement_change", { p_trip_id: tripId });
   if (error) console.error("[bordkasse:settlement-resend]", error.message);
+}
+
+/** Benachrichtigung nach erfolgreicher Aktion — darf das Ergebnis nie kippen. */
+async function notifySafely(kind: string, run: () => Promise<NoticeResult>): Promise<void> {
+  try {
+    const r = await run();
+    if (r.error || r.failed > 0) console.error("[bordkasse:item-notice]", kind, { sent: r.sent, failed: r.failed, skipped: r.skipped });
+  } catch (err) {
+    console.error("[bordkasse:item-notice]", kind, err instanceof Error ? err.message : String(err));
+  }
 }
 
 function revalidateItemPaths(tripId: string, opts: { balance?: boolean } = {}): void {
@@ -622,6 +646,16 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
     },
   });
 
+  // „Posten angelegt" (PR6): NUR beim erstmaligen Anlegen — dieser Zweig
+  // läuft genau einmal pro Posten, weil ein Retry mit derselben ID den
+  // Posten als `existing` findet (Update-Pfad) bzw. am PK scheitert.
+  // Spätere Änderungen: Knopf „Crew informieren" (notifyItemCrew).
+  if (!existing) {
+    await notifySafely("item-created", () =>
+      sendItemAnnouncement(supabase, { tripId, itemId, actorId: person.id, isUpdate: false }),
+    );
+  }
+
   // Ein Empfängerwechsel hängt credit_to um → v_balances ändert sich.
   if (payeeChanged) await markPostSettlementChange(supabase, tripId);
   revalidateItemPaths(tripId, { balance: payeeChanged });
@@ -800,6 +834,16 @@ export async function recordItemPayment(_prev: ItemActionState, formData: FormDa
   });
 
   await markPostSettlementChange(supabase, tripId);
+  await notifySafely("item-payment-recorded", () =>
+    sendItemPaymentNotices(supabase, {
+      kind: "item_payment_recorded",
+      tripId,
+      itemId,
+      actorId: person.id,
+      payerId,
+      amount,
+    }),
+  );
   revalidateItemPaths(tripId, { balance: true });
   return { status: "ok", itemId };
 }
@@ -876,6 +920,10 @@ export async function submitItemSelfPayment(_prev: ItemActionState, formData: Fo
     actor_person_id: auth.personId,
     payload: { kind: "item-self-payment-pending", item_id: itemId, amount },
   });
+
+  await notifySafely("item-pending", () =>
+    sendItemPendingNotice(supabase, { tripId, itemId, actorId: auth.personId, amount, date, note: note || null }),
+  );
 
   // Pending ändert keine Bilanz → kein markPostSettlementChange.
   revalidateItemPaths(tripId);
@@ -971,6 +1019,16 @@ export async function confirmItemSelfPayment(_prev: ItemActionState, formData: F
   });
 
   await markPostSettlementChange(supabase, tx.trip_id);
+  await notifySafely("item-payment-confirmed", () =>
+    sendItemPaymentNotices(supabase, {
+      kind: "item_payment_confirmed",
+      tripId: tx.trip_id,
+      itemId: tx.item_id,
+      actorId,
+      payerId: tx.credit_from,
+      amount: tx.amount,
+    }),
+  );
   revalidateItemPaths(tx.trip_id, { balance: true });
   return { status: "ok", itemId: tx.item_id };
 }
@@ -1029,6 +1087,17 @@ export async function rejectItemSelfPayment(_prev: ItemActionState, formData: Fo
       .eq("reminder_type", "item_crew_3d");
     if (logErr) console.error("[bordkasse:db] item reminder_log cleanup:", logErr.message);
   }
+
+  await notifySafely("item-payment-rejected", () =>
+    sendItemPaymentNotices(supabase, {
+      kind: "item_payment_rejected",
+      tripId: tx.trip_id,
+      itemId: tx.item_id,
+      actorId,
+      payerId: tx.credit_from,
+      amount: tx.amount,
+    }),
+  );
 
   // Pending zählte nirgends → Bilanz unverändert, kein Settlement-Marker.
   revalidateItemPaths(tx.trip_id);

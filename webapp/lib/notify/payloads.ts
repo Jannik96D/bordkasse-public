@@ -173,3 +173,83 @@ export function paymentRejectedPush(args: { amount: number; tripId: string }): P
     url: tripUrl(args.tripId, "/prepayments"),
   };
 }
+
+// ── Reise-Posten & Anzahlungsplan (PR6) ────────────────────────────────────
+
+/** Posten-Selbstmeldung → an den Posten-Empfänger. */
+export function itemPaymentPendingPush(args: {
+  payerName: string;
+  itemLabel: string;
+  amount: number;
+  tripId: string;
+  itemId: string;
+  payerPersonId: string;
+}): PushPayload {
+  return {
+    title: "Zahlung gemeldet",
+    body: `${args.payerName} meldet ${fmtEuro(args.amount)} für ${args.itemLabel}. Bitte bestätigen oder ablehnen.`,
+    url: tripUrl(args.tripId, "/prepayments"),
+    // Pro (Posten, Melder) eindeutig — jede Meldung wird einzeln bestätigt.
+    tag: `item-pending-${args.itemId}-${args.payerPersonId}`,
+  };
+}
+
+/** Posten-Zahlung erfasst/bestätigt/abgelehnt → an zahlende Person bzw. Empfänger. */
+export function itemPaymentNoticePush(args: {
+  kind: "item_payment_recorded" | "item_payment_confirmed" | "item_payment_rejected";
+  role: "payer" | "payee";
+  payerName: string;
+  itemLabel: string;
+  amount: number;
+  tripId: string;
+}): PushPayload {
+  const whose = args.role === "payer" ? "Deine Zahlung" : `Die Zahlung von ${args.payerName}`;
+  const amount = fmtEuro(args.amount);
+  const map = {
+    item_payment_recorded: { title: "Zahlung erfasst", body: `${whose} über ${amount} für ${args.itemLabel} wurde erfasst.` },
+    item_payment_confirmed: { title: "Zahlung bestätigt", body: `${whose} über ${amount} für ${args.itemLabel} wurde bestätigt.` },
+    item_payment_rejected: {
+      title: "Zahlung abgelehnt",
+      body: `${args.role === "payer" ? "Deine Meldung" : `Die Meldung von ${args.payerName}`} über ${amount} für ${args.itemLabel} wurde abgelehnt. Bitte prüfen.`,
+    },
+  } as const;
+  return { ...map[args.kind], url: tripUrl(args.tripId, "/prepayments") };
+}
+
+/** „Posten angelegt" / „Posten geändert" (Crew informieren). */
+export function itemAnnouncedPush(args: {
+  isUpdate: boolean;
+  itemLabel: string;
+  amount: number | null;
+  tripName: string;
+  tripId: string;
+  itemId: string;
+}): PushPayload {
+  return {
+    title: args.isUpdate ? "Posten geändert" : "Neuer Posten",
+    body:
+      args.amount !== null
+        ? `${args.itemLabel}: dein Anteil ${fmtEuro(args.amount)} für „${args.tripName}“.`
+        : `${args.itemLabel} für „${args.tripName}“ — Übersicht in der App.`,
+    url: tripUrl(args.tripId, "/prepayments"),
+    tag: `item-announce-${args.itemId}`,
+  };
+}
+
+/** „Anzahlungsplan angelegt" / „Plan geändert" (Crew informieren). */
+export function planAnnouncedPush(args: {
+  isUpdate: boolean;
+  amount: number | null;
+  tripName: string;
+  tripId: string;
+}): PushPayload {
+  return {
+    title: args.isUpdate ? "Anzahlungsplan geändert" : "Anzahlungsplan steht",
+    body:
+      args.amount !== null
+        ? `Dein Anteil für „${args.tripName}“: ${fmtEuro(args.amount)}. Raten und Fristen in der App.`
+        : `Übersicht für „${args.tripName}“ in der App.`,
+    url: tripUrl(args.tripId, "/prepayments"),
+    tag: `plan-announce-${args.tripId}`,
+  };
+}

@@ -434,6 +434,14 @@ const features: Feature[] = [
           wie bei der Anzahlung automatisch: die Crew 6 Tage vorher, den
           Empfänger 3 Tage vorher.
         </p>
+        <p className="mt-2">
+          Steht der Anzahlungsplan oder ist ein Posten neu angelegt,
+          bekommt jede Person mit Anteil automatisch eine Mail: wofür, wie
+          viel, an wen und bis wann. Ändert sich später etwas, informiert
+          der Skipper die Crew mit einem Klick auf „Crew informieren“.
+          Meldungen, Bestätigungen und Ablehnungen von Zahlungen kommen
+          per Mail und, falls aktiviert, als Push aufs Handy.
+        </p>
       </>
     ),
     screenshot: "/about/16-anzahlung-matrix.webp",
