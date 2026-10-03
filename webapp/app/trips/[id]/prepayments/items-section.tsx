@@ -23,29 +23,22 @@
  * steht sichtbar in der Sektion. Ohne Fälligkeit gibt es keine Erinnerung.
  */
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { Plus, RefreshCw, Trash2, Info } from "lucide-react";
+import { useState } from "react";
+import { Plus, Info } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
-import { useConfirm } from "@/components/confirm-dialog";
-import { useToast } from "@/components/toast-provider";
 import { useTripVocab } from "@/components/trip-vocab-provider";
 import { formatEuro } from "@/lib/utils";
 import { formatDeDate, toCrewDueDate } from "@/lib/prepayments/dates";
 import {
-  itemLocks,
   groupPaidCapped,
   itemOverallStatus,
   itemsVisibleTo,
-  NETWORK_ERROR_MESSAGE,
   providerDueInfo,
 } from "@/lib/prepayments/item-ui";
 import { ACTION_RECORD, ACTION_REPORT, LABEL_PROVIDER_PAID, NOUN_ITEM, NOUN_ITEMS } from "@/lib/prepayments/payment-words";
 import {
   confirmItemSelfPayment,
-  deleteItem,
   rejectItemSelfPayment,
-  type ItemActionState,
 } from "@/lib/actions/prepayment-items";
 import type { PrepaymentItemView } from "@/lib/queries/prepayment-items";
 import { sendItemReminder } from "@/lib/actions/prepayment-item-reminder";
@@ -291,7 +284,6 @@ function ItemCard({
 }) {
   const vocab = useTripVocab();
   const overall = itemOverallStatus(item);
-  const locks = itemLocks(item);
   const due = providerDueInfo(item, today, formatDeDate);
   const personRows = visiblePersonRows(
     item.cells.map((c) =>
@@ -398,7 +390,6 @@ function ItemCard({
         canRecord={canRecord && pickOptions.length > 0}
         onRecordClick={() => setPicker(true)}
         onEdit={onEdit}
-        deleteReason={locks.deleteReason}
         lastNotifiedLabel={lastNotifiedLabel}
       />
       {picker && (
@@ -425,7 +416,6 @@ function ItemActions({
   canRecord,
   onRecordClick,
   onEdit,
-  deleteReason,
   lastNotifiedLabel,
 }: {
   tripId: string;
@@ -434,78 +424,16 @@ function ItemActions({
   canRecord: boolean;
   onRecordClick: () => void;
   onEdit: () => void;
-  deleteReason: string | null;
   lastNotifiedLabel: string | null;
 }) {
-  const router = useRouter();
-  const toast = useToast();
-  const { confirm, confirmDialog } = useConfirm();
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-
-  async function remove() {
-    setError(null);
-    const ok = await confirm({
-      title: `„${item.label}“ löschen?`,
-      body: "Die Karte und ihr Soll werden entfernt. Das lässt sich nicht rückgängig machen.",
-      confirmLabel: "Löschen",
-      danger: true,
-    });
-    if (!ok) return;
-    const fd = new FormData();
-    fd.set("trip_id", tripId);
-    fd.set("item_id", item.id);
-    startTransition(async () => {
-      let res: ItemActionState;
-      try {
-        res = await deleteItem({ status: "idle" }, fd);
-      } catch {
-        setError(NETWORK_ERROR_MESSAGE);
-        return;
-      }
-      if (res.status === "error") {
-        setError(res.message);
-        return;
-      }
-      toast.show(`${NOUN_ITEM} gelöscht.`, { variant: "success" });
-      router.refresh();
-    });
-  }
-
+  // Gleiche Leiste wie beim Anzahlungsplan; Löschen sitzt im Bearbeiten-Dialog.
   return (
     <PaymentActionBar
       record={canRecord ? <RecordPaymentButton onClick={onRecordClick} /> : null}
       // Update-Mail nach Änderungen (PR6); beim Anlegen geht die Mail automatisch raus.
       notify={canEdit ? <NotifyCrewButton tripId={tripId} itemId={item.id} subject={`„${item.label}“`} lastNotifiedLabel={lastNotifiedLabel} /> : null}
       edit={canEdit ? <EditButton onClick={onEdit} /> : null}
-      extra={
-        canEdit ? (
-          <button
-            type="button"
-            onClick={() => {
-              if (!pending && deleteReason === null) void remove();
-            }}
-            // aria-disabled statt disabled: bleibt fokussierbar, die Begründung wird vorgelesen.
-            aria-disabled={pending || deleteReason !== null}
-            aria-describedby={deleteReason ? `item-${item.id}-del` : undefined}
-            className={`inline-flex min-h-[44px] items-center gap-1 rounded-md border border-rule px-3 py-2 text-sm text-danger hover:border-danger/40 focus:outline-none focus:ring-2 focus:ring-danger/30 ${
-              pending || deleteReason !== null ? "cursor-not-allowed opacity-50" : ""
-            }`}
-          >
-            {pending ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
-            Löschen
-          </button>
-        ) : null
-      }
-    >
-      {canEdit && deleteReason && (
-        <p id={`item-${item.id}-del`} className="mt-2 text-xs text-ink-soft">{deleteReason}</p>
-      )}
-      {error && (
-        <p role="alert" className="mt-2 rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
-      )}
-      {confirmDialog}
-    </PaymentActionBar>
+    />
   );
 }
 

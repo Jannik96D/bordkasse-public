@@ -107,8 +107,8 @@ describe("weitere Zahlung (Karte)", () => {
     expect(html).toContain("Noch an Anbieter zu überweisen");
     expect(html).toContain("Überweisung an Anbieter erfassen");
   });
-  it("Aktionsleiste (gerendertes HTML) in fester Reihenfolge: Einzahlung erfassen · Crew informieren · Bearbeiten · Löschen", () => {
-    expect(actionLabels(html)).toEqual(["Einzahlung erfassen", "Crew informieren", "Bearbeiten", "Löschen"]);
+  it("Aktionsleiste (gerendertes HTML) wie beim Plan: Einzahlung erfassen · Crew informieren · Bearbeiten (Löschen sitzt im Bearbeiten-Dialog)", () => {
+    expect(actionLabels(html)).toEqual(["Einzahlung erfassen", "Crew informieren", "Bearbeiten"]);
   });
   it("Crew sieht nur die eigene Zeile: „Ich habe gezahlt“, keine Skipper-Aktionsleiste", () => {
     const crew = renderItems({ viewerId: ANNA, canManageItems: false });

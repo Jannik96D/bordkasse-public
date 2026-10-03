@@ -54,7 +54,7 @@ export function PersonStatusList({
   actionLabel,
   onAct,
   renderExtras,
-  defaultExpanded = false,
+  alwaysExpanded = false,
   emptyText = "Noch keine Sollbeträge hinterlegt.",
   contextLabel,
 }: {
@@ -66,16 +66,14 @@ export function PersonStatusList({
   onAct?: (personKey: string, rateKey?: string) => void;
   /** Zusatzknöpfe je Person (Erinnerung, WhatsApp). */
   renderExtras?: (row: PersonRow) => ReactNode;
-  /** Crew-Sicht (eine Zeile): Raten gleich offen zeigen. */
-  defaultExpanded?: boolean;
+  /** Crew-Sicht (nur die eigene Zeile): Raten immer sichtbar, ohne Auf-/Zuklappen. */
+  alwaysExpanded?: boolean;
   emptyText?: string;
   /** Wofür gezahlt wird („Flüge", „Yachtanzahlung") — nur für Screenreader-Beschriftung der Knöpfe. */
   contextLabel?: string;
 }) {
   const baseId = useId();
-  const [expanded, setExpanded] = useState<Set<string>>(
-    () => new Set(defaultExpanded ? rows.filter(isExpandable).map((r) => r.key) : []),
-  );
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const toggle = (key: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -88,8 +86,9 @@ export function PersonStatusList({
   return (
     <ul className="divide-y divide-rule rounded-md border border-rule text-sm" aria-label={ariaLabel}>
       {rows.map((row) => {
-        const expandable = isExpandable(row);
-        const isOpen = expandable && expanded.has(row.key);
+        const hasRates = isExpandable(row);
+        const expandable = hasRates && !alwaysExpanded;
+        const isOpen = hasRates && (alwaysExpanded || expanded.has(row.key));
         const panelId = `${baseId}-${row.key}`;
         const nameNode = (
           <>
