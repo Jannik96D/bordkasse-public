@@ -18,6 +18,7 @@ import { tripVocab, type TripType } from "@/lib/trip-vocab";
 import { PrepaymentMatrix } from "./matrix";
 import { CrewSelfView } from "./crew-self-view";
 import { ItemsSection } from "./items-section";
+import { StatusLegend } from "./payment-card-parts";
 import { getCrewNotifyState } from "@/lib/queries/crew-notify";
 import { formatNotifiedAt } from "@/lib/prepayments/notify";
 
@@ -104,6 +105,7 @@ export default async function PrepaymentsPage({
           </p>
         ) : null}
         {itemsSection}
+        {(plan || itemsVisibleTo(items, person?.id ?? null).length > 0) && <StatusLegend />}
       </main>
     );
   }
@@ -127,6 +129,7 @@ export default async function PrepaymentsPage({
           </Link>
         </section>
         {itemsSection}
+        {items.length > 0 && <StatusLegend bell />}
       </main>
     );
   }
@@ -156,6 +159,8 @@ export default async function PrepaymentsPage({
         lastNotifiedLabel={formatNotifiedAt(notifyState.planLastNotifiedAt)}
       />
       {itemsSection}
+      {/* Eine Legende für die ganze Seite, ganz unten (einklappbar) */}
+      <StatusLegend bell whatsapp />
     </main>
   );
 }

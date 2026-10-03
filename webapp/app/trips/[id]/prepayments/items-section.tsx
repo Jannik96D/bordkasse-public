@@ -55,7 +55,6 @@ import {
   PaymentSummaryLine,
   PendingReportsBanner,
   ReminderBell,
-  StatusLegend,
   PaymentCardHeader,
   PaymentProgress,
   ProviderOpenBlock,
@@ -374,7 +373,6 @@ function ItemCard({
             );
           } : undefined}
         />
-        {canRecord && <StatusLegend bell />}
       </div>
 
       <ItemActions

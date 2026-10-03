@@ -31,6 +31,7 @@ vi.mock("@/lib/actions/prepayment-notify", () => ({ notifyItemCrew: vi.fn(), not
 
 import { ItemsSection } from "@/app/trips/[id]/prepayments/items-section";
 import { PrepaymentMatrix } from "@/app/trips/[id]/prepayments/matrix";
+import { StatusLegend } from "@/app/trips/[id]/prepayments/payment-card-parts";
 import { TripVocabProvider } from "@/components/trip-vocab-provider";
 import type { PrepaymentItemView } from "@/lib/queries/prepayment-items";
 
@@ -219,28 +220,34 @@ describe("Plan-Karte und weitere Zahlung teilen dieselben Elemente (PR8b)", () =
   });
 });
 
-describe("Erinnerungs-Glocke + Legende in beiden Karten (PR8c)", () => {
-  it("weitere Zahlung: Glocke je Person + Legende; ohne E-Mail deaktiviert, Crew-Karte ohne", () => {
+describe("Erinnerungs-Glocke in beiden Karten, Legende nur einmal pro Seite (PR8c)", () => {
+  it("weitere Zahlung: Glocke je Person; ohne E-Mail/Frist deaktiviert, Crew-Karte ohne Glocke", () => {
     const html = renderItems({ members: [{ id: JAN, display_name: "Jannik" }, { id: ANNA, display_name: "Anna", hasEmail: false } as never] });
     expect(html).toContain('aria-label="E-Mail fehlt"');
     expect(html).toContain("Übersicht an Jannik schicken");
-    expect(html).toContain("Was bedeuten die Symbole?");
-    expect(html).toContain("Erinnerung per Mail");
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*aria-label="E-Mail fehlt"/);
     expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*aria-label="Übersicht an Jannik/);
     const noDue = renderItems({ items: [{ ...item, due_date: null }] });
     expect(noDue).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Ohne Frist keine Erinnerung/);
     const crew = renderItems({ viewerId: ANNA, canManageItems: false });
-    expect(crew).not.toContain("Was bedeuten die Symbole?");
+    expect(crew).not.toContain("Übersicht an Jannik schicken");
   });
-  it("Plan: Glocke + Legende, gleiche Wörter", () => {
-    const html = renderPlan();
-    expect(html).toContain("Was bedeuten die Symbole?");
-    expect(html).toContain("Erinnerung per Mail");
+  it("Plan: Glocke je Person", () => {
+    expect(renderPlan()).toContain("Erinnerungsmail");
   });
   it("archiviert: keine Glocke bei weiteren Zahlungen", () => {
-    const html = renderItems({ readOnly: true });
-    expect(html).not.toContain("Übersicht an Jannik schicken");
-    expect(html).not.toContain("Was bedeuten die Symbole?");
+    expect(renderItems({ readOnly: true })).not.toContain("Übersicht an Jannik schicken");
+  });
+  it("die Legende steckt in KEINER der beiden Karten (steht einmal unten auf der Seite)", () => {
+    for (const html of [renderItems(), renderPlan()]) expect(html).not.toContain("Was bedeuten die Symbole?");
+  });
+  it("StatusLegend: einklappbar (<details>), Symbole aus der Statuslogik, Glocke/WhatsApp optional", () => {
+    const html = renderToStaticMarkup(h(StatusLegend, { bell: true, whatsapp: true }));
+    expect(html).toMatch(/^<details/);
+    expect(html).not.toMatch(/<details[^>]*\bopen/);
+    for (const w of ["offen", "gemeldet – wartet auf Bestätigung", "teilweise bezahlt", "bezahlt", "überzahlt", "Erinnerung per Mail", "WhatsApp-Text"]) expect(html).toContain(w);
+    const plain = renderToStaticMarkup(h(StatusLegend, {}));
+    expect(plain).not.toContain("Erinnerung per Mail");
+    expect(plain).not.toContain("WhatsApp-Text");
   });
 });
