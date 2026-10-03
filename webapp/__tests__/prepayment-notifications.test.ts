@@ -834,7 +834,7 @@ describe("Knopf „Crew informieren“", () => {
     }));
     await notifyItemCrew(TRIP, ITEM);
     const anna = mails().find((m) => m.to === EMAIL[ANNA])!;
-    expect(anna.text).toContain("bereits vollständig bezahlt");
+    expect(anna.text).toContain("Status: bereits vollständig bezahlt");
     expect(anna.text.toLowerCase()).not.toContain("wero");
     expect(anna.text).not.toContain("Bitte zahlen bis");
     const ben = mails().find((m) => m.to === EMAIL[BEN])!;
@@ -857,7 +857,7 @@ describe("Knopf „Crew informieren“", () => {
     }));
     await notifyPlanCrew(TRIP);
     const anna = mails().find((m) => m.to === EMAIL[ANNA])!;
-    expect(anna.text).toContain("bereits vollständig bezahlt");
+    expect(anna.text).toContain("Status: bereits vollständig bezahlt");
     expect(anna.text.toLowerCase()).not.toContain("wero");
     const ben = mails().find((m) => m.to === EMAIL[BEN])!;
     expect(ben.text).toContain("1. Anzahlung bis 7.1.2027: 200,00 € (bezahlt)");
@@ -872,7 +872,8 @@ describe("Knopf „Crew informieren“", () => {
     }));
     await notifyItemCrew(TRIP, ITEM);
     const anna = mails().find((m) => m.to === EMAIL[ANNA])!;
-    expect(anna.text).toContain("wartet auf die Bestätigung durch Jannik");
+    expect(anna.text).toContain("Status: gemeldet – wartet auf Bestätigung");
+    expect(anna.text).not.toContain("Bis wann:");
     expect(anna.text).not.toContain("Bitte zahlen bis");
     expect(anna.text.toLowerCase()).not.toContain("wero");
   });
@@ -904,10 +905,10 @@ describe("Knopf „Crew informieren“", () => {
     }));
     await notifyPlanCrew(TRIP);
     const anna = mails().find((m) => m.to === EMAIL[ANNA])!;
-    expect(anna.text).toContain("bereits vollständig bezahlt");
+    expect(anna.text).toContain("Status: bereits vollständig bezahlt");
     expect(anna.text.toLowerCase()).not.toContain("wero");
     const ben = mails().find((m) => m.to === EMAIL[BEN])!;
-    expect(ben.text).toContain("wartet auf die Bestätigung");
+    expect(ben.text).toContain("Status: gemeldet – wartet auf Bestätigung");
     expect(ben.text.toLowerCase()).not.toContain("wero");
   });
 

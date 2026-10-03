@@ -83,7 +83,14 @@ function renderPlan(over: Record<string, unknown> = {}, tripType: "sailing" | "o
   );
 }
 
-const idx = (html: string, s: string) => html.indexOf(s);
+/** Beschriftungen der Aktionsleiste (role=group „Aktionen“) in gerenderter Reihenfolge. */
+function actionLabels(html: string): string[] {
+  const start = html.indexOf('aria-label="Aktionen"');
+  expect(start, "Aktionsleiste nicht gerendert").toBeGreaterThan(-1);
+  const seg = html.slice(start, html.indexOf("</article>", start));
+  const known = ["Einzahlung erfassen", "Crew informieren", "Bearbeiten", "Löschen"];
+  return [...seg.matchAll(/>(Einzahlung erfassen|Crew informieren|Bearbeiten|Löschen)</g)].map((m) => m[1]).filter((l) => known.includes(l));
+}
 
 describe("weitere Zahlung (Karte)", () => {
   const html = renderItems();
@@ -99,10 +106,8 @@ describe("weitere Zahlung (Karte)", () => {
     expect(html).toContain("Noch an Anbieter zu überweisen");
     expect(html).toContain("Überweisung an Anbieter erfassen");
   });
-  it("Aktionsleiste in fester Reihenfolge: Einzahlung erfassen · Crew informieren · Bearbeiten · Löschen", () => {
-    const order = ["Einzahlung erfassen", "Crew informieren", "Bearbeiten", "Löschen"].map((k) => idx(html, `>${k}<`) >= 0 ? idx(html, `>${k}<`) : html.lastIndexOf(k));
-    expect(order.every((i) => i >= 0), String(order)).toBe(true);
-    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  it("Aktionsleiste (gerendertes HTML) in fester Reihenfolge: Einzahlung erfassen · Crew informieren · Bearbeiten · Löschen", () => {
+    expect(actionLabels(html)).toEqual(["Einzahlung erfassen", "Crew informieren", "Bearbeiten", "Löschen"]);
   });
   it("Crew sieht nur die eigene Zeile: „Ich habe gezahlt“, keine Skipper-Aktionsleiste", () => {
     const crew = renderItems({ viewerId: ANNA, canManageItems: false });
@@ -131,10 +136,8 @@ describe("Anzahlungsplan (Karte) hat dieselbe Anatomie", () => {
     expect(html).toContain("Überweisung an Anbieter erfassen");
     expect(html).not.toMatch(/Vercharterer|Charteragentur/);
   });
-  it("Aktionsleiste: Einzahlung erfassen · Crew informieren · Bearbeiten (Plan bearbeiten wandert hierher)", () => {
-    const order = ["Einzahlung erfassen", "Crew informieren", "Bearbeiten"].map((k) => html.lastIndexOf(k));
-    expect(order.every((i) => i >= 0), String(order)).toBe(true);
-    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  it("Aktionsleiste (gerendertes HTML): Einzahlung erfassen · Crew informieren · Bearbeiten (Plan bearbeiten wandert hierher)", () => {
+    expect(actionLabels(html)).toEqual(["Einzahlung erfassen", "Crew informieren", "Bearbeiten"]);
     expect(html).not.toContain("Plan bearbeiten");
     expect(html).toContain("/trips/t/prepayments/setup");
   });
@@ -155,5 +158,26 @@ describe("Anzahlungsplan (Karte) hat dieselbe Anatomie", () => {
     const crewMgr = renderPlan({ canEditPlan: false });
     expect(crewMgr).not.toContain("Crew informieren");
     expect(crewMgr).toContain("Einzahlung erfassen");
+  });
+});
+
+describe("Plan-Karte: Rundungsrand bei „Noch an Anbieter zu überweisen“", () => {
+  const third = [
+    { id: "a", trip_id: "t", due_date: "2099-11-10", label: "1. Anzahlung", percent: 100 / 3, wero_request_link: null, sort_order: 0 },
+    { id: "b", trip_id: "t", due_date: "2099-12-10", label: "2. Anzahlung", percent: 100 / 3, wero_request_link: null, sort_order: 1 },
+    { id: "c", trip_id: "t", due_date: "2100-01-10", label: "Endzahlung", percent: 100 / 3, wero_request_link: null, sort_order: 2 },
+  ];
+  const hundred = { ...(plan as object), total_amount: 100 } as never;
+
+  it("3 × 33,33 € voll überwiesen: nichts offen, kein Button, Status nicht „Anbieter noch nicht bezahlt“", () => {
+    const html = renderPlan({ plan: hundred, tranches: third, charterPaidByTranche: { a: 33.33, b: 33.33, c: 33.33 } });
+    expect(html).toContain("vollständig an den Anbieter überwiesen");
+    expect(html).not.toContain("Überweisung an Anbieter erfassen");
+    expect(html).not.toContain("Anbieter noch nicht bezahlt");
+  });
+  it("Gegenprobe: 0,02 € Rest bleibt offen (Button, Betrag)", () => {
+    const html = renderPlan({ plan: hundred, tranches: third, charterPaidByTranche: { a: 33.33, b: 33.33, c: 33.31 } });
+    expect(html).toContain("Überweisung an Anbieter erfassen");
+    expect(html).not.toContain("vollständig an den Anbieter überwiesen");
   });
 });

@@ -228,3 +228,73 @@ describe("Pushs: nennen die Sache + Betrag/Frist, nie „Posten“", () => {
     expect(paymentRejectedPush({ amount: 1, tripId: "t" }).title).toContain("abgelehnt");
   });
 });
+
+describe("Bereits bezahlter Anteil: Zeile „Status“ statt Satz in „Bis wann“ (Plan UND weitere Zahlung)", () => {
+  const base = { tripName: "Ostsee", tripType: "sailing" as const, appUrl: URL, recipientName: "Anna", weroId: null };
+  const itemPaid = renderItemAnnounceCrewMail({ ...base, isUpdate: true, payeeName: "Jannik", item, amount: 180, paid: 180, crewDue: "9.10.2026" });
+  const planPaid = renderPlanAnnounceCrewMail({
+    ...base, isUpdate: true, advancerName: "Jannik", total: 200,
+    tranches: [{ label: "Endzahlung", amount: 200, paid: 200, crewDue: "7.4.2027" }],
+  });
+  const planPending = renderPlanAnnounceCrewMail({
+    ...base, isUpdate: true, advancerName: "Jannik", total: 200,
+    tranches: [{ label: "Endzahlung", amount: 200, pending: 200, crewDue: "7.4.2027" }],
+  });
+  it("Reihenfolge Dein Anteil · Status · An wen, kein „Bis wann“, kein So-geht's", () => {
+    for (const m of [itemPaid, planPaid]) {
+      expect(m.text).toContain("Status: bereits vollständig bezahlt");
+      expect(m.text).not.toContain("Bis wann");
+      expect(m.text).not.toContain("So geht's");
+      const o = ["Dein Anteil:", "Status:", "An wen:"].map((k) => m.text.indexOf(k));
+      expect([...o].sort((a, b) => a - b)).toEqual(o);
+      expect(o.every((i) => i >= 0)).toBe(true);
+    }
+    expect(planPending.text).toContain(`Status: ${PAYMENT_STATUS.pending}`);
+  });
+});
+
+describe("Reise-Typ other: Fließtext der Plan-Mails nutzt vocab.prepayment", () => {
+  const base = { tripName: "Rom", tripType: "other" as const, appUrl: URL };
+  it("Crew- und Vorstreck-Mail, auch als Update", () => {
+    const mails = [
+      renderPlanAnnounceCrewMail({ ...base, isUpdate: true, recipientName: "Anna", advancerName: "Jannik", total: 100, tranches: [{ label: "Endzahlung", amount: 100, crewDue: "1.2.2027" }], weroId: null }),
+      renderPlanAnnounceCrewMail({ ...base, isUpdate: false, recipientName: "Anna", advancerName: "Jannik", total: 100, tranches: [{ label: "Endzahlung", amount: 100, crewDue: "1.2.2027" }], weroId: null }),
+      renderPlanAnnounceAdvancerMail({ ...base, isUpdate: true, recipientName: "Jannik", providerTotal: 100, tranches: [{ label: "Endzahlung", charterDue: "1.2.2027", toProvider: 100, fromCrew: 50 }], rows: [], ownAmount: 0 }),
+      renderPlanAnnounceAdvancerMail({ ...base, isUpdate: false, recipientName: "Jannik", providerTotal: 100, tranches: [{ label: "Endzahlung", charterDue: "1.2.2027", toProvider: 100, fromCrew: 50 }], rows: [], ownAmount: 0 }),
+    ];
+    for (const m of mails) {
+      expect(m.text).toContain("Urlaubsanzahlung");
+      expect(m.text).not.toMatch(/Anzahlungsplan|Yacht/);
+      expect(m.html).not.toMatch(/Anzahlungsplan|Yacht/);
+    }
+  });
+});
+
+describe("Betreff-/Titel-Sicherheit (Header-Injection)", () => {
+  const evil = "Flüge\r\nBcc: x@y.z\tX";
+  it("keine CR/LF/Tabs im Betreff, Länge begrenzt", () => {
+    const long = "A".repeat(500);
+    const subjects = [
+      shareSubject({ what: evil, amount: 1, due: "1.1.\r\nBcc: a@b.c" }),
+      advanceSubject({ what: evil, amount: 1, due: null }),
+      eventSubject({ what: evil, kind: "pending", who: evil, amount: 1 }),
+      shareSubject({ what: long, amount: 1, due: null }),
+      renderItemPendingMail({ tripName: "T", tripType: "sailing", appUrl: URL, recipientName: "J", reporterName: evil, item: { label: evil, categoryName: null }, amount: 1, date: "1.1.2027" }).subject,
+    ];
+    for (const s of subjects) {
+      expect(s).not.toMatch(/[\r\n\t]/);
+      expect(s.length).toBeLessThan(200);
+    }
+    expect(nb(subjects[0])).toContain("Flüge Bcc: x@y.z X");
+  });
+  it("keine Zeilenumbrüche in Push-Titeln", () => {
+    const ps = [
+      itemReminderPush({ tripName: "T", tripId: "t", itemLabel: evil, amount: 1, itemId: "i" }),
+      itemAnnouncedPush({ tripName: "T", tripId: "t", isUpdate: true, itemLabel: evil, amount: 1, itemId: "i" }),
+      itemPaymentPendingPush({ payerName: evil, itemLabel: evil, amount: 1, tripId: "t", itemId: "i", payerPersonId: "p" }),
+      paymentPendingPush({ payerName: evil, amount: 1, tripId: "t", trancheId: "x", payerPersonId: "p", what: evil }),
+      planAnnouncedPush({ tripName: "T", tripId: "t", isUpdate: false, amount: 1, what: evil }),
+    ];
+    for (const p of ps) expect(p.title).not.toMatch(/[\r\n\t]/);
+  });
+});

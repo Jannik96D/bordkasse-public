@@ -356,3 +356,33 @@ export function itemsNavRelevant(
   }
   return false;
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// Anzahlungsplan: noch an den Anbieter zu überweisen (Rundungsrand)
+// ────────────────────────────────────────────────────────────────────────
+
+/** Rundungstoleranz: ≤ 1 ct Rest gilt als erledigt (3 × 33,33 € von 100,00 €). */
+export const PROVIDER_REST_TOLERANCE = 0.01;
+
+/**
+ * Rest an den Anbieter aus den RATEN-Soll-Beträgen (je Rate auf Cent gerundet)
+ * statt aus der Plansumme: 100,00 € in 3 × 33,33 € → Σ Soll 99,99 €; sind alle
+ * Raten überwiesen, bleibt nichts offen. Rest ≤ 1 ct zählt als erledigt.
+ */
+export function planProviderRemaining(
+  totalAmount: number,
+  tranches: { id: string; percent: number }[],
+  paidByTranche: Record<string, number>,
+): { outstanding: number; nextOpenId: string | null } {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const sollOf = (t: { percent: number }) => r2((totalAmount * t.percent) / 100);
+  const sumSoll = tranches.reduce((s, t) => s + sollOf(t), 0);
+  const sumPaid = tranches.reduce((s, t) => s + (paidByTranche[t.id] ?? 0), 0);
+  const rest = r2(sumSoll - sumPaid);
+  const outstanding = rest > PROVIDER_REST_TOLERANCE + 1e-9 ? rest : 0;
+  const next =
+    outstanding > 0
+      ? tranches.find((t) => r2(sollOf(t) - (paidByTranche[t.id] ?? 0)) > PROVIDER_REST_TOLERANCE + 1e-9)
+      : undefined;
+  return { outstanding, nextOpenId: next?.id ?? null };
+}

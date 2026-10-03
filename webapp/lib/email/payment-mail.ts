@@ -29,7 +29,7 @@
 
 import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
 import { normalizeWeroId } from "@/lib/prepayments/notify";
-import { NO_DUE_TEXT, PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
+import { NO_DUE_TEXT, PAYMENT_STATUS, cleanLine } from "@/lib/prepayments/payment-words";
 
 /** CTA-Text aller Zahlungs-Mails. */
 export const PAYMENT_CTA = "Zahlungen öffnen";
@@ -42,7 +42,7 @@ export const tripPhrase = (t: TripType) => (t === "other" ? "die Reise" : "den T
 // ── Betreffzeilen ──────────────────────────────────────────────────────────
 
 function dueTail(due: string | null | undefined): string {
-  return due ? ` bis ${due}` : ` – ${NO_DUE_TEXT}`;
+  return due ? ` bis ${cleanLine(due, 20)}` : ` – ${NO_DUE_TEXT}`;
 }
 
 function subjectPrefix(args: { isUpdate?: boolean; isReminder?: boolean }): string {
@@ -59,7 +59,7 @@ export function shareSubject(args: {
   isUpdate?: boolean;
   isReminder?: boolean;
 }): string {
-  return `${subjectPrefix(args)}${args.what}: dein Anteil ${fmtEuro(args.amount)}${dueTail(args.due)}`;
+  return `${subjectPrefix(args)}${cleanLine(args.what)}: dein Anteil ${fmtEuro(args.amount)}${dueTail(args.due)}`;
 }
 
 /** „{Was}: du streckst {Betrag} vor – bis {Datum}" (vorstreckende Person). */
@@ -70,8 +70,8 @@ export function advanceSubject(args: {
   isUpdate?: boolean;
   isReminder?: boolean;
 }): string {
-  const tail = args.due ? ` – bis ${args.due}` : ` – ${NO_DUE_TEXT}`;
-  return `${subjectPrefix(args)}${args.what}: du streckst ${fmtEuro(args.amount)} vor${tail}`;
+  const tail = args.due ? ` – bis ${cleanLine(args.due, 20)}` : ` – ${NO_DUE_TEXT}`;
+  return `${subjectPrefix(args)}${cleanLine(args.what)}: du streckst ${fmtEuro(args.amount)} vor${tail}`;
 }
 
 export type PaymentEventKind = "pending" | "recorded" | "confirmed" | "rejected";
@@ -85,7 +85,7 @@ export const EVENT_WORD: Record<PaymentEventKind, string> = {
 
 /** „{Was}: {Betrag} von {Name} {Status}" (Ereignis-Mails). */
 export function eventSubject(args: { what: string; kind: PaymentEventKind; who: string; amount: number }): string {
-  return `${args.what}: ${fmtEuro(args.amount)} von ${args.who} – ${EVENT_WORD[args.kind]}`;
+  return `${cleanLine(args.what)}: ${fmtEuro(args.amount)} von ${cleanLine(args.who, 40)} – ${EVENT_WORD[args.kind]}`;
 }
 
 // ── Bausteine ──────────────────────────────────────────────────────────────

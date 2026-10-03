@@ -33,3 +33,13 @@ export const NOUN_ITEM = "Weitere Zahlung";
 export const LABEL_CREW_PAID = "Von der Crew bezahlt";
 export const LABEL_PROVIDER_PAID = "An Anbieter bezahlt";
 export const LABEL_PROVIDER_OPEN = "Noch an Anbieter zu überweisen";
+
+/**
+ * Freitext für EINE Zeile (Mail-Betreff, Push-Titel): CR/LF/Tabs/Unicode-
+ * Zeilentrenner → Leerzeichen (Header-Injection, z. B. „Flüge\r\nBcc: x@y.z"),
+ * Mehrfach-Leerzeichen zusammenziehen, auf `max` Zeichen kürzen.
+ */
+export function cleanLine(s: string, max = 80): string {
+  const t = (s ?? "").replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}

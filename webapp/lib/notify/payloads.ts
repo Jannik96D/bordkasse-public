@@ -14,7 +14,7 @@
  * abgerechnet" → später „Bilanz aktualisiert").
  */
 import { fmtEuro } from "@/lib/email/mail-shell";
-import { NO_DUE_TEXT, PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
+import { NO_DUE_TEXT, PAYMENT_STATUS, cleanLine } from "@/lib/prepayments/payment-words";
 
 export interface PushPayload {
   title: string;
@@ -101,7 +101,7 @@ export function prepaymentReminderPush(args: {
   due?: string | null;
 }): PushPayload {
   return {
-    title: `${args.trancheLabel}: dein Anteil ${fmtEuro(args.amount)}`,
+    title: `${cleanLine(args.trancheLabel)}: dein Anteil ${fmtEuro(args.amount)}`,
     body: dueBody(args.due, args.tripName),
     url: tripUrl(args.tripId, "/prepayments"),
     tag: `prepay-${args.trancheId}`,
@@ -120,7 +120,7 @@ export function charterReminderPush(args: {
   /** Bezeichnung der Sache, z. B. „Yachtanzahlung". */
   what?: string;
 }): PushPayload {
-  const what = args.what ?? "Anzahlung";
+  const what = cleanLine(args.what ?? "Anzahlung");
   return {
     title:
       args.amount !== undefined
@@ -142,7 +142,7 @@ export function itemReminderPush(args: {
   due?: string | null;
 }): PushPayload {
   return {
-    title: `${args.itemLabel}: dein Anteil ${fmtEuro(args.amount)}`,
+    title: `${cleanLine(args.itemLabel)}: dein Anteil ${fmtEuro(args.amount)}`,
     body: dueBody(args.due, args.tripName),
     url: tripUrl(args.tripId, "/prepayments"),
     tag: `item-${args.itemId}`,
@@ -159,7 +159,7 @@ export function itemPayeeReminderPush(args: {
   due?: string | null;
 }): PushPayload {
   return {
-    title: `${args.itemLabel}: noch ${fmtEuro(args.amount)} an Anbieter überweisen`,
+    title: `${cleanLine(args.itemLabel)}: noch ${fmtEuro(args.amount)} an Anbieter überweisen`,
     body: dueBody(args.due, args.tripName),
     url: tripUrl(args.tripId, "/prepayments"),
     tag: `item-payee-${args.itemId}`,
@@ -177,7 +177,7 @@ export function paymentPendingPush(args: {
   what?: string;
 }): PushPayload {
   return {
-    title: `${args.what ?? "Einzahlung"}: ${fmtEuro(args.amount)} von ${args.payerName}`,
+    title: `${cleanLine(args.what ?? "Einzahlung")}: ${fmtEuro(args.amount)} von ${cleanLine(args.payerName)}`,
     body: `Einzahlung ${PAYMENT_STATUS.pending}. Bitte bestätigen oder ablehnen.`,
     url: tripUrl(args.tripId, "/prepayments"),
     // Pro (Trip, Tranche, Melder) eindeutig → zwei verschiedene Selbstmeldungen
@@ -214,7 +214,7 @@ export function itemPaymentPendingPush(args: {
   payerPersonId: string;
 }): PushPayload {
   return {
-    title: `${args.itemLabel}: ${fmtEuro(args.amount)} von ${args.payerName}`,
+    title: `${cleanLine(args.itemLabel)}: ${fmtEuro(args.amount)} von ${cleanLine(args.payerName)}`,
     body: `Einzahlung ${PAYMENT_STATUS.pending}. Bitte bestätigen oder ablehnen.`,
     url: tripUrl(args.tripId, "/prepayments"),
     // Pro (Zahlung, Melder) eindeutig — jede Meldung wird einzeln bestätigt.
@@ -234,13 +234,13 @@ export function itemPaymentNoticePush(args: {
   const whose = args.role === "payer" ? "Deine Einzahlung" : `Die Einzahlung von ${args.payerName}`;
   const amount = fmtEuro(args.amount);
   const map = {
-    item_payment_recorded: { title: `${args.itemLabel}: Einzahlung erfasst`, body: `${whose} über ${amount} wurde erfasst.` },
+    item_payment_recorded: { title: `${cleanLine(args.itemLabel)}: Einzahlung erfasst`, body: `${whose} über ${amount} wurde erfasst.` },
     item_payment_confirmed: {
-      title: `${args.itemLabel}: Einzahlung ${PAYMENT_STATUS.confirmed}`,
+      title: `${cleanLine(args.itemLabel)}: Einzahlung ${PAYMENT_STATUS.confirmed}`,
       body: `${whose} über ${amount} wurde ${PAYMENT_STATUS.confirmed}.`,
     },
     item_payment_rejected: {
-      title: `${args.itemLabel}: Einzahlung ${PAYMENT_STATUS.rejected}`,
+      title: `${cleanLine(args.itemLabel)}: Einzahlung ${PAYMENT_STATUS.rejected}`,
       body: `${args.role === "payer" ? "Deine Meldung" : `Die Meldung von ${args.payerName}`} über ${amount} wurde ${PAYMENT_STATUS.rejected}. Bitte prüfen.`,
     },
   } as const;
@@ -263,8 +263,8 @@ export function itemAnnouncedPush(args: {
   return {
     title:
       args.amount !== null
-        ? `${prefix}${args.itemLabel}: dein Anteil ${fmtEuro(args.amount)}`
-        : `${prefix}${args.itemLabel}: du streckst vor`,
+        ? `${prefix}${cleanLine(args.itemLabel)}: dein Anteil ${fmtEuro(args.amount)}`
+        : `${prefix}${cleanLine(args.itemLabel)}: du streckst vor`,
     body: args.amount !== null ? dueBody(args.due, args.tripName) : `Übersicht für „${args.tripName}“ in der App.`,
     url: tripUrl(args.tripId, "/prepayments"),
     tag: `item-announce-${args.itemId}`,
@@ -284,7 +284,7 @@ export function planAnnouncedPush(args: {
   due?: string | null;
 }): PushPayload {
   const prefix = updatePrefix(args.isUpdate);
-  const what = args.what ?? "Anzahlungsplan";
+  const what = cleanLine(args.what ?? "Anzahlungsplan");
   return {
     title:
       args.amount !== null

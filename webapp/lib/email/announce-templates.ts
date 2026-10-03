@@ -46,9 +46,11 @@ export interface PersonAmountRow {
   amount: number;
 }
 
-const PAID_DONE = "Dein Anteil ist bereits vollständig bezahlt — es ist nichts mehr zu tun.";
-const pendingDone = (payee: string) =>
-  `Deine Einzahlung ist gemeldet und wartet auf die Bestätigung durch ${payee} — von dir ist nichts mehr zu tun.`;
+/** Zeile „Status" bei bereits gedecktem Anteil (statt Frist): bezahlt bzw. gemeldet. */
+const settledStatusFact = (hasPending: boolean): Fact => {
+  const t = hasPending ? PAYMENT_STATUS.pending : "bereits vollständig bezahlt";
+  return { label: "Status", html: escapeHtml(t), text: t };
+};
 
 /** Zeile „Bis wann" der Anteil-Mail (Frist oder „Frist folgt"). */
 const dueFact = (crewDue: string | null): Fact => ({
@@ -84,7 +86,6 @@ export function renderItemAnnounceCrewMail(p: ItemAnnounceCrewParams): { html: s
   const pending = Math.max(0, p.pending ?? 0);
   const open = Math.max(0, round2(p.amount - paid - pending));
   const settled = open <= 0.005;
-  const doneText = pending > 0.005 ? pendingDone(p.payeeName) : PAID_DONE;
   const subject = shareSubject({ what: p.item.label, amount: p.amount, due: p.crewDue, isUpdate: p.isUpdate });
   const headline = p.isUpdate ? `Geändert: ${p.item.label}` : `Neu: ${p.item.label}`;
   const introHtml = p.isUpdate
@@ -108,7 +109,7 @@ export function renderItemAnnounceCrewMail(p: ItemAnnounceCrewParams): { html: s
   if (paid > 0.005 || pending > 0.005) {
     facts.push({ label: "Noch offen", html: fmtEuro(open), text: fmtEuro(open), strong: true });
   }
-  facts.push(settled ? { label: "Bis wann", html: escapeHtml(doneText), text: doneText } : dueFact(p.crewDue));
+  facts.push(settled ? settledStatusFact(pending > 0.005) : dueFact(p.crewDue));
   facts.push({ label: "An wen", html: `<strong>${escapeHtml(p.payeeName)}</strong>`, text: p.payeeName });
 
   // „So geht's" nur, wenn noch etwas offen ist (Grill-Fund P2-1).
@@ -229,16 +230,15 @@ export function renderPlanAnnounceCrewMail(p: PlanAnnounceCrewParams): { html: s
   const totalCovered = round2(rows.reduce((s, t) => s + t.paid + t.pending, 0));
   const totalPending = round2(rows.reduce((s, t) => s + t.pending, 0));
   const settled = totalOpen <= 0.005;
-  const doneText = totalPending > 0.005 ? pendingDone(p.advancerName) : PAID_DONE;
   // Betreff-Frist: nächste noch offene Rate, sonst die letzte.
   const subjectDue = (rows.find((t) => t.open > 0.005) ?? rows[rows.length - 1])?.crewDue ?? null;
   const subject = shareSubject({ what: vocab.prepayment, amount: p.total, due: subjectDue, isUpdate: p.isUpdate });
   const headline = p.isUpdate ? `Geändert: ${vocab.prepayment}` : `${vocab.prepayment}: dein Anteil`;
   const introHtml = p.isUpdate
-    ? `der Anzahlungsplan für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> hat sich geändert. Hier deine aktuellen Raten.`
+    ? `der Plan der ${escapeHtml(vocab.prepayment)} für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> hat sich geändert. Hier deine aktuellen Raten.`
     : `für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> streckt <strong>${escapeHtml(p.advancerName)}</strong> die ${escapeHtml(vocab.prepayment)} vor. Hier dein Anteil und wann du welche Rate zahlst.`;
   const introText = p.isUpdate
-    ? `der Anzahlungsplan für ${tripPhrase(p.tripType)} ${p.tripName} hat sich geändert. Hier deine aktuellen Raten.`
+    ? `der Plan der ${vocab.prepayment} für ${tripPhrase(p.tripType)} ${p.tripName} hat sich geändert. Hier deine aktuellen Raten.`
     : `für ${tripPhrase(p.tripType)} ${p.tripName} streckt ${p.advancerName} die ${vocab.prepayment} vor. Hier dein Anteil und wann du welche Rate zahlst.`;
   const status = (t: (typeof rows)[number]) => {
     if (t.paid <= 0.005 && t.pending <= 0.005) return "";
@@ -264,7 +264,7 @@ export function renderPlanAnnounceCrewMail(p: PlanAnnounceCrewParams): { html: s
   if (totalCovered > 0.005) facts.push({ label: "Noch offen", html: fmtEuro(totalOpen), text: fmtEuro(totalOpen), strong: true });
   facts.push(
     settled
-      ? { label: "Bis wann", html: escapeHtml(doneText), text: doneText }
+      ? settledStatusFact(totalPending > 0.005)
       : { label: "Bis wann", html: rateHtml, text: rateText },
   );
   facts.push({ label: "An wen", html: `<strong>${escapeHtml(p.advancerName)}</strong>`, text: p.advancerName });

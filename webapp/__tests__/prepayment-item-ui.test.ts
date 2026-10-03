@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  planProviderRemaining,
   ITEM_STATUS_META,
   buildSaveItemPayload,
   defaultItemCategoryId,
@@ -312,5 +313,21 @@ describe("itemsNavRelevant Rollen", () => {
     expect(itemsNavRelevant([open], { personId: null, isManager: true })).toBe(true);
     expect(itemsNavRelevant([open], { personId: "co", isManager: true })).toBe(true);
     expect(itemsNavRelevant([item()], { personId: "co", isManager: true })).toBe(false);
+  });
+});
+
+describe("planProviderRemaining (Rundungsrand)", () => {
+  const t3 = [{ id: "a", percent: 100 / 3 }, { id: "b", percent: 100 / 3 }, { id: "c", percent: 100 / 3 }];
+  it("100 € in 3 × 33,33 €, alle voll überwiesen → 0 offen, keine nächste Rate", () => {
+    expect(planProviderRemaining(100, t3, { a: 33.33, b: 33.33, c: 33.33 })).toEqual({ outstanding: 0, nextOpenId: null });
+  });
+  it("1 ct Rest gilt als erledigt, 2 ct bleiben offen", () => {
+    expect(planProviderRemaining(100, t3, { a: 33.33, b: 33.33, c: 33.32 }).outstanding).toBe(0);
+    const r = planProviderRemaining(100, t3, { a: 33.33, b: 33.33, c: 33.31 });
+    expect(r.outstanding).toBe(0.02);
+    expect(r.nextOpenId).toBe("c");
+  });
+  it("nichts gezahlt → Σ Rate-Soll, erste Rate zuerst", () => {
+    expect(planProviderRemaining(100, t3, {})).toEqual({ outstanding: 99.99, nextOpenId: "a" });
   });
 });

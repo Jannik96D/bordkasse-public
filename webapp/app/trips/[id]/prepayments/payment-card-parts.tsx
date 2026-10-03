@@ -276,11 +276,13 @@ export interface RecordOption {
  */
 export function RecordPickerModal({
   title,
+  subtitle = "Für wen möchtest du eine Einzahlung erfassen?",
   options,
   onPick,
   onClose,
 }: {
   title: string;
+  subtitle?: string;
   options: RecordOption[];
   onPick: (key: string) => void;
   onClose: () => void;
@@ -291,7 +293,7 @@ export function RecordPickerModal({
       <h2 id={`${id}-t`} className="text-base font-semibold text-primary">
         {title}
       </h2>
-      <p className="mt-1 text-sm text-ink-soft">Für wen möchtest du eine Einzahlung erfassen?</p>
+      <p className="mt-1 text-sm text-ink-soft">{subtitle}</p>
       {options.length === 0 ? (
         <p className="mt-4 rounded-md bg-paper-soft px-3 py-2 text-sm text-ink-soft">Es ist nichts mehr offen.</p>
       ) : (

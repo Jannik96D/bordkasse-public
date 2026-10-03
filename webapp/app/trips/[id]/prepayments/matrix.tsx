@@ -15,7 +15,7 @@ import {
   RecordPaymentButton,
   RecordPickerModal,
 } from "./payment-card-parts";
-import { providerDueInfo, type ItemOverall } from "@/lib/prepayments/item-ui";
+import { planProviderRemaining, providerDueInfo, type ItemOverall } from "@/lib/prepayments/item-ui";
 import { LABEL_PROVIDER_PAID, PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
 import { formatEuro, formatAmount, todayIso, round2 } from "@/lib/utils";
 import {
@@ -81,6 +81,8 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
   const [paymentModal, setPaymentModal] = useState<{ cell: MatrixCell; personName: string } | null>(null);
   const [whatsAppModal, setWhatsAppModal] = useState<{ text: string; title: string } | null>(null);
   const [picker, setPicker] = useState(false);
+  // Zweiter Schritt „Welche Rate?" — nur wenn die Person in mehreren Raten offen ist.
+  const [ratePicker, setRatePicker] = useState<string | null>(null);
 
   const obligationByPerson = useMemo(
     () => new Map(obligations.map((o) => [o.person_id, o])),
@@ -174,7 +176,8 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
   // Überzahlung auf einer Tranche deckt eine andere → maßgeblich ist nur die
   // Gesamtsumme, konsistent mit der Bilanz (charterOpen = total − Σ gezahlt).
   const charterPaidTotal = tranches.reduce((sum, t) => sum + (charterPaidByTranche[t.id] ?? 0), 0);
-  const charterOutstanding = Math.max(0, plan.total_amount - charterPaidTotal);
+  // Rundungsrand-sicher (3 × 33,33 € von 100,00 €): Rest aus den Raten-Soll-Beträgen, ≤ 1 ct = erledigt.
+  const { outstanding: charterOutstanding, nextOpenId } = planProviderRemaining(plan.total_amount, tranches, charterPaidByTranche);
 
   // Pro Person einmal berechnen — von Mobile-Karten UND Desktop-Tabelle genutzt.
   const memberRows = members.map((m) => {
@@ -183,7 +186,7 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
     const cells = tranches.map((t) => cellFor(t.id, m.id, t.percent));
     const rowOpen = cells.reduce((s, c) => s + Math.max(0, c.open), 0);
     const isAdvancerRow = plan.advancer_person_id === m.id;
-    const advancerNothingOpen = isAdvancerRow && charterOutstanding <= 0.005;
+    const advancerNothingOpen = isAdvancerRow && charterOutstanding <= 0;
     return { m, obl, cabin, cells, rowOpen, isAdvancerRow, advancerNothingOpen };
   });
 
@@ -200,12 +203,9 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
 
   // Gesamtstatus wie bei den weiteren Zahlungen (gleiche Kopfzeile).
   const charterPaidCapped = Math.min(charterPaidTotal, plan.total_amount);
-  const nextOpenTranche = tranches.find((t) => {
-    const soll = round2((plan.total_amount * t.percent) / 100);
-    return round2(soll - (charterPaidByTranche[t.id] ?? 0)) > 0.005;
-  });
+  const nextOpenTranche = tranches.find((t) => t.id === nextOpenId);
   const overall: ItemOverall =
-    withObligation > 0 && fullyPaid === withObligation && pending.length === 0 && charterOutstanding <= 0.005
+    withObligation > 0 && fullyPaid === withObligation && pending.length === 0 && charterOutstanding <= 0
       ? "complete"
       : collected < plan.total_amount - 0.005 || pending.length > 0
         ? "crew_open"
@@ -222,8 +222,13 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
   function pickPerson(personId: string) {
     setPicker(false);
     const row = memberRows.find((r) => r.m.id === personId);
-    const cell = row?.cells.find((c) => c.open > 0.005);
-    if (row && cell) openPayment(cell, row.m.display_name);
+    if (!row) return;
+    const openCells = row.cells.filter((c) => c.open > 0.005);
+    if (openCells.length > 1) {
+      setRatePicker(personId);
+      return;
+    }
+    if (openCells[0]) openPayment(openCells[0], row.m.display_name);
   }
   const showActions = canEditPlan && !readOnly;
   const crewPaidLabel = `Von der ${vocab.crew} bezahlt`;
@@ -280,7 +285,7 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
         <ProviderOpenBlock
           open={charterOutstanding}
           due={providerDue}
-          action={charterOutstanding > 0.005 ? { href: `/trips/${tripId}/transactions/new` } : null}
+          action={charterOutstanding > 0 ? { href: `/trips/${tripId}/transactions/new` } : null}
         >
           {tranches.length > 0 && plan.total_amount > 0 && (
             <ProviderTrancheDetails
@@ -506,6 +511,26 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
           onPick={pickPerson}
         />
       )}
+      {ratePicker && (() => {
+        const row = memberRows.find((r) => r.m.id === ratePicker);
+        if (!row) return null;
+        const options = row.cells
+          .filter((c) => c.open > 0.005)
+          .map((c) => ({ key: c.trancheId, label: tranches.find((t) => t.id === c.trancheId)?.label ?? "Rate", detail: formatEuro(c.open) }));
+        return (
+          <RecordPickerModal
+            title={`Welche Rate? ${row.m.display_name}`}
+            subtitle="Für welche Rate möchtest du die Einzahlung erfassen?"
+            options={options}
+            onClose={() => setRatePicker(null)}
+            onPick={(trancheId) => {
+              setRatePicker(null);
+              const cell = row.cells.find((c) => c.trancheId === trancheId);
+              if (cell) openPayment(cell, row.m.display_name);
+            }}
+          />
+        );
+      })()}
       {paymentModal && (
         <PaymentModal
           tripId={tripId}
@@ -897,8 +922,8 @@ function ProviderTrancheDetails({
     const paid = round2(charterPaidByTranche[t.id] ?? 0);
     const remaining = round2(soll - paid);
     const daysLeft = inDays(t.due_date);
-    const overdue = daysLeft < 0 && remaining > 0.005;
-    const soon = daysLeft >= 0 && daysLeft <= 14 && remaining > 0.005;
+    const overdue = daysLeft < 0 && remaining > 0.01;
+    const soon = daysLeft >= 0 && daysLeft <= 14 && remaining > 0.01;
     return { tranche: t, soll, paid, remaining, daysLeft, overdue, soon };
   });
 
@@ -912,19 +937,19 @@ function ProviderTrancheDetails({
       </summary>
       <ul className="space-y-1.5 text-sm">
         {rows.map((r) => {
-          const dot = r.overdue ? "⏰" : r.soon ? "⚠" : r.remaining <= 0.005 ? "✓" : "○";
+          const dot = r.overdue ? "⏰" : r.soon ? "⚠" : r.remaining <= 0.01 ? "✓" : "○";
           const tone = r.overdue
             ? "text-danger"
             : r.soon
               ? "text-amber-700"
-              : r.remaining <= 0.005
+              : r.remaining <= 0.01
                 ? "text-success"
                 : "text-ink-soft";
           const dueText = r.overdue
             ? `seit ${-r.daysLeft} Tag${r.daysLeft === -1 ? "" : "en"} überfällig`
             : r.soon
               ? `in ${r.daysLeft} Tag${r.daysLeft === 1 ? "" : "en"} fällig`
-              : r.remaining <= 0.005
+              : r.remaining <= 0.01
                 ? "überwiesen"
                 : `fällig ${formatDeDate(r.tranche.due_date)}`;
           return (
@@ -936,7 +961,7 @@ function ProviderTrancheDetails({
                 <span>{dueText}</span>
               </span>
               <span className="tabular-nums text-ink-soft">
-                {r.remaining > 0.005
+                {r.remaining > 0.01
                   ? <>noch <strong className={tone}>{formatEuro(r.remaining)}</strong> von {formatEuro(r.soll)}</>
                   : <strong className="text-success">{formatEuro(r.soll)} überwiesen</strong>
                 }
