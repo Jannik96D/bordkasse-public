@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Settings as SettingsIcon } from "lucide-react";
 import { getTrip, getTripMembers } from "@/lib/queries/trips";
 import {
   getPlan,
@@ -19,7 +18,6 @@ import { tripVocab, type TripType } from "@/lib/trip-vocab";
 import { PrepaymentMatrix } from "./matrix";
 import { CrewSelfView } from "./crew-self-view";
 import { ItemsSection } from "./items-section";
-import { NotifyCrewButton } from "./notify-crew-button";
 import { getCrewNotifyState } from "@/lib/queries/crew-notify";
 import { formatNotifiedAt } from "@/lib/prepayments/notify";
 
@@ -55,14 +53,15 @@ export default async function PrepaymentsPage({
 
   const myMember = members.find((m) => m.person_id === person?.id);
   const isMyTripSkipper = !!myMember?.is_skipper;
-  // Vorstrecker darf die Matrix ebenfalls sehen + verwalten, auch wenn er
-  // nicht Skipper ist (Lucas streckt für Jannik vor → Lucas hakt seine
-  // eingegangenen Zahlungen ab).
+  // Die vorstreckende Person darf die Matrix ebenfalls sehen + verwalten, auch
+  // wenn sie nicht Skipper ist (Lucas streckt für Jannik vor → Lucas hakt die
+  // eingegangenen Einzahlungen ab).
   const isAdvancer = !!plan && !!person && (plan.advancer_person_id ?? trip.skipper_id) === person.id;
   const canManage = admin || isMyTripSkipper || isAdvancer;
-  // Posten (PR4b): anlegen/bearbeiten/löschen nur Skipper/Admin (wie die
-  // Actions). Der Empfänger eines Postens sieht seinen Posten in der
-  // Vollansicht, unabhängig davon, ob er die Charter-Matrix verwalten darf.
+  // Weitere Zahlungen (intern `item`, PR4b): anlegen/bearbeiten/löschen nur
+  // Skipper/Admin (wie die Actions). Die vorstreckende Person einer weiteren
+  // Zahlung sieht ihre Karte in der Vollansicht, unabhängig davon, ob sie die
+  // Matrix des Anzahlungsplans verwalten darf.
   const canManageItems = admin || isMyTripSkipper;
   const itemMembers = members.map((m) => ({ id: m.person_id, display_name: m.display_name }));
   const itemsSection = (
@@ -134,29 +133,7 @@ export default async function PrepaymentsPage({
 
   return (
     <main className="mx-auto max-w-4xl px-4 pb-24 pt-4">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
-        <h1 className="text-lg font-bold text-primary">Anzahlungen</h1>
-        {(admin || isMyTripSkipper) && (
-          <div className="flex flex-wrap items-start gap-2">
-            {/* Update-Mail nach Änderungen (PR6) — Erstversand passiert
-                automatisch beim ersten Fertigstellen des Wizards. */}
-            {!trip.archived && (
-              <NotifyCrewButton
-                tripId={id}
-                subject="den Anzahlungsplan"
-                lastNotifiedLabel={formatNotifiedAt(notifyState.planLastNotifiedAt)}
-              />
-            )}
-            <Link
-              href={`/trips/${id}/prepayments/setup`}
-              className="inline-flex min-h-[44px] items-center gap-1 rounded-md border border-rule px-3 py-1.5 text-sm hover:border-primary/40 hover:bg-navy-light/20"
-            >
-              <SettingsIcon className="h-4 w-4" aria-hidden="true" />
-              Plan bearbeiten
-            </Link>
-          </div>
-        )}
-      </div>
+      <h1 className="mb-4 text-lg font-bold text-primary">Anzahlungen</h1>
 
       <PrepaymentMatrix
         tripId={id}
@@ -174,6 +151,9 @@ export default async function PrepaymentsPage({
         payments={payments}
         pending={pending}
         charterPaidByTranche={charterPaid}
+        canEditPlan={admin || isMyTripSkipper}
+        readOnly={!!trip.archived}
+        lastNotifiedLabel={formatNotifiedAt(notifyState.planLastNotifiedAt)}
       />
       {itemsSection}
     </main>

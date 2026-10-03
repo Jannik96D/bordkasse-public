@@ -218,7 +218,7 @@ export async function sendItemPendingNotice(
 ): Promise<NoticeResult> {
   try {
     const loaded = await loadItemContext(supabase, args.tripId, args.itemId);
-    if (!loaded.ok) return loadError("Posten", loaded.message);
+    if (!loaded.ok) return loadError("Weitere Zahlungen", loaded.message);
     const { trip, item } = loaded.ctx;
     // Meldet der Empfänger für sich selbst, gibt es niemanden zu informieren.
     if (item.payeeId === args.actorId) return { ...EMPTY };
@@ -288,7 +288,7 @@ export async function sendItemPaymentNotices(
 ): Promise<NoticeResult> {
   try {
     const loaded = await loadItemContext(supabase, args.tripId, args.itemId);
-    if (!loaded.ok) return loadError("Posten", loaded.message);
+    if (!loaded.ok) return loadError("Weitere Zahlungen", loaded.message);
     const { trip, item } = loaded.ctx;
     const recipients = itemNoticeRecipients({ actorId: args.actorId, payerId: args.payerId, payeeId: item.payeeId });
     if (recipients.length === 0) return { ...EMPTY };
@@ -340,7 +340,7 @@ export async function sendItemAnnouncement(
 ): Promise<NoticeResult> {
   try {
     const loaded = await loadItemContext(supabase, args.tripId, args.itemId);
-    if (!loaded.ok) return loadError("Posten", loaded.message);
+    if (!loaded.ok) return loadError("Weitere Zahlungen", loaded.message);
     const { trip, item } = loaded.ctx;
 
     const [oblRes, planRes, paidRes, pendRes] = await Promise.all([
@@ -425,6 +425,7 @@ export async function sendItemAnnouncement(
         tripName: trip.name,
         tripId: args.tripId,
         itemId: item.id,
+        due: crewDue,
       }),
     }));
     if (payeeId) {
@@ -454,6 +455,7 @@ export async function sendItemAnnouncement(
           tripName: trip.name,
           tripId: args.tripId,
           itemId: item.id,
+          due: item.dueDate ? formatDeDate(item.dueDate) : null,
         }),
       });
     }
@@ -466,7 +468,7 @@ export async function sendItemAnnouncement(
         .eq("id", item.id)
         .eq("trip_id", args.tripId);
       // Fail-soft (z. B. Migration 0062 fehlt): nur die Anzeige „zuletzt informiert" fehlt.
-      if (error) console.error(LOG, "crew_last_notified_at (Posten):", error.message);
+      if (error) console.error(LOG, "crew_last_notified_at (weitere Zahlung):", error.message);
     }
     return result;
   } catch (err) {
@@ -629,7 +631,14 @@ export async function sendPlanAnnouncement(
         weroId,
         appUrl,
       }),
-      push: planAnnouncedPush({ isUpdate: args.isUpdate, amount: c.amount, tripName: trip.name, tripId: args.tripId }),
+      push: planAnnouncedPush({
+        isUpdate: args.isUpdate,
+        amount: c.amount,
+        tripName: trip.name,
+        tripId: args.tripId,
+        what: tripVocab(trip.tripType).prepayment,
+        due: dueOrder[0] ? crewDue(dueOrder[0].t.due) : null,
+      }),
     }));
     if (payeeId) {
       const providerTotal = Number(planRes.data.total_amount ?? 0);
@@ -661,7 +670,13 @@ export async function sendPlanAnnouncement(
           ownAmount: round2(soll.find((s) => s.personId === payeeId)?.amount ?? 0),
           appUrl,
         }),
-        push: planAnnouncedPush({ isUpdate: args.isUpdate, amount: null, tripName: trip.name, tripId: args.tripId }),
+        push: planAnnouncedPush({
+          isUpdate: args.isUpdate,
+          amount: null,
+          tripName: trip.name,
+          tripId: args.tripId,
+          what: tripVocab(trip.tripType).prepayment,
+        }),
       });
     }
 

@@ -43,6 +43,15 @@ const FILES = ROOTS.flatMap((root) => collectSources(root));
 
 const rel = (p: string) => p.replace(/.*\/webapp\//, "webapp/");
 
+/** Kommentare entfernen (Block + Zeile; „://“ in URLs bleibt unangetastet). */
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .map((l) => l.replace(/(^|[^:])\/\/.*$/, "$1"))
+    .join("\n");
+}
+
 /** Alte Schreibweise → darf in app/ + lib/ nicht (mehr) vorkommen. */
 const FORBIDDEN: { term: string; allowed?: string[] }[] = [
   { term: "Törn-Datum" },
@@ -98,18 +107,51 @@ describe("Begriffs-Konsistenz (Dehyphenierung aus den letzten Sessions)", () => 
     ).toEqual([]);
   });
 
-  it("Anzahlungs-Banner-Label kommt aus dem Reise-Vokabular", () => {
-    // Seit dem Reise-Typ-Feature liefert lib/trip-vocab.ts das Banner-Label
-    // (Segeltörn: „Offene Charteranzahlungen", Andere Reise: „Offene
-    // Anzahlungen"); matrix.tsx rendert es über vocab.openPrepayments.
-    const vocab = readFileSync(resolve(here, "../lib/trip-vocab.ts"), "utf8");
-    expect(vocab).toContain("Offene Charteranzahlungen");
-    expect(vocab).toContain("Offene Anzahlungen");
-    const matrix = readFileSync(
-      resolve(here, "../app/trips/[id]/prepayments/matrix.tsx"),
-      "utf8",
-    );
-    expect(matrix).toContain("vocab.openPrepayments");
-    expect(matrix).not.toContain("deine Überweisungen");
+  it("Anbieter heißt in Nutzertexten einheitlich „Anbieter“, nicht Vercharterer/Charteragentur", () => {
+    // PR7: eine Rolle, ein Wort — für Anzahlungsplan UND weitere Zahlungen,
+    // für beide Reise-Typen. Das Vokabular liefert die Quelle.
+    const vocab = stripComments(readFileSync(resolve(here, "../lib/trip-vocab.ts"), "utf8"));
+    expect(vocab).toContain('provider: "Anbieter"');
+    expect(vocab).not.toContain("Vercharterer");
+    expect(vocab).not.toContain("Charteragentur");
+    const hits: string[] = [];
+    for (const file of FILES) {
+      const code = stripComments(readFileSync(file, "utf8"));
+      if (/Vercharterer|Charteragentur|Fluggesellschaft/.test(code)) hits.push(rel(file));
+    }
+    expect(hits, `Nutzertext mit altem Anbieter-Wort in:\n${hits.join("\n")}`).toEqual([]);
+  });
+
+  it("„Posten“ ist kein Nutzerwort mehr (app/ + lib/, ohne Kommentare)", () => {
+    // PR7: Nutzer sehen „Weitere Zahlung(en)“; „Posten“ lebt nur noch als
+    // interner Begriff (item / prepayment_items) in Kommentaren und Docs.
+    // Gescannt wird der Code OHNE Kommentare; Bezeichner sind lowercase
+    // (item, posten_soll …), das Nutzerwort ist großgeschrieben. „Einzelposten“
+    // (Kleinbuchstabe, ganz anderes Wort) wird nicht erfasst.
+    const hits: string[] = [];
+    for (const file of FILES) {
+      const code = stripComments(readFileSync(file, "utf8"));
+      if (/\bPosten/.test(code)) hits.push(rel(file));
+    }
+    expect(hits, `„Posten“ im Nutzertext gefunden in:\n${hits.join("\n")}`).toEqual([]);
+  });
+
+  it("Plan-Karte und weitere Zahlungen teilen sich dieselben Karten-Bausteine", () => {
+    // Gleiche Anatomie (PR7): Kopf, zwei Fortschrittsbalken, Hinweisblock
+    // „Noch an Anbieter zu überweisen", Aktionsleiste Einzahlung erfassen ·
+    // Crew informieren · Bearbeiten. Beide Karten importieren die Bausteine.
+    const dir = resolve(here, "../app/trips/[id]/prepayments");
+    for (const f of ["matrix.tsx", "items-section.tsx"]) {
+      const src = readFileSync(resolve(dir, f), "utf8");
+      expect(src, f).toContain("./payment-card-parts");
+      expect(src, f).toContain("PaymentCardHeader");
+      expect(src, f).toContain("PaymentProgress");
+      expect(src, f).toContain("ProviderOpenBlock");
+      expect(src, f).toContain("PaymentActionBar");
+    }
+    const parts = readFileSync(resolve(dir, "payment-card-parts.tsx"), "utf8");
+    // Reihenfolge der Slots in der Aktionsleiste ist fix.
+    expect(parts.indexOf("{record}")).toBeLessThan(parts.indexOf("{notify}"));
+    expect(parts.indexOf("{notify}")).toBeLessThan(parts.indexOf("{edit}"));
   });
 });

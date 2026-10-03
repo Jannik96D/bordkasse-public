@@ -195,7 +195,7 @@ export async function deleteMyAccount(
     return {
       status: "error",
       message:
-        "Du bist in einem laufenden Törn als Empfänger eines Postens (z. B. An-/Abreise) eingetragen. Bitte warte bis nach dem Törnende oder lass vorher vom Skipper eine andere Person als Empfänger eintragen.",
+        "Du streckst in einem laufenden Törn eine weitere Zahlung (z. B. An-/Abreise) vor. Bitte warte bis nach dem Törnende oder lass vorher vom Skipper eine andere Person als vorstreckende Person eintragen.",
     };
   }
   if (result === "not_authenticated") {

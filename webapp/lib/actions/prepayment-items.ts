@@ -76,10 +76,10 @@ export type ItemActionState =
   | { status: "error"; message: string; field?: string };
 
 const PG_UNIQUE_VIOLATION = "23505";
-const ITEM_FOREIGN_MSG = "Dieser Posten gehört nicht zu diesem Törn. Bitte Seite neu laden.";
+const ITEM_FOREIGN_MSG = "Diese weitere Zahlung gehört nicht zu diesem Törn. Bitte Seite neu laden.";
 const NOT_FOUND_OR_FORBIDDEN_MSG = "Buchung nicht gefunden oder keine Berechtigung.";
 const ROLLBACK_FAILED_SUFFIX =
-  "Achtung: das Zurücksetzen ist ebenfalls fehlgeschlagen — bitte den Posten prüfen oder einen Admin fragen.";
+  "Achtung: das Zurücksetzen ist ebenfalls fehlgeschlagen — bitte die weitere Zahlung prüfen oder einen Admin fragen.";
 
 /**
  * Retry-Erkennung über `idempotency_key` (UNIQUE trip_id+key, 0005): nur als
@@ -116,33 +116,33 @@ function dbErr(err: DbError, fallback: string): string {
 function itemDbErrorMessage(err: DbError, fallback: string): string {
   const msg = err?.message ?? "";
   if (msg.includes("prepayment_item_has_payments")) {
-    return "An diesem Posten hängen bereits bestätigte Zahlungen. Er kann nicht gelöscht werden.";
+    return "Hier hängen bereits bestätigte Zahlungen. Die weitere Zahlung kann nicht gelöscht werden.";
   }
   if (msg.includes("prepayment_item_has_pending")) {
-    return "An diesem Posten hängt noch eine unbestätigte Selbstmeldung. Bitte erst bestätigen oder ablehnen.";
+    return "Hier wartet noch eine Meldung auf Bestätigung. Bitte erst bestätigen oder ablehnen.";
   }
   if (msg.includes("prepayment_item_credit_wrong_payee")) {
-    return "Eine Zahlung für diesen Posten muss an die Person gehen, die ihn empfängt.";
+    return "Eine Einzahlung muss an die vorstreckende Person gehen.";
   }
   if (msg.includes("prepayment_item_payee_has_credits")) {
-    return "Der Empfänger kann gerade nicht gewechselt werden, weil Zahlungen an ihn hängen. Bitte erneut versuchen.";
+    return "Die vorstreckende Person kann gerade nicht gewechselt werden, weil Einzahlungen an sie hängen. Bitte erneut versuchen.";
   }
   if (msg.includes("prepayment_item_payee_invalid") || msg.includes("prepayment_item_not_found")) {
-    return "Posten oder Empfänger nicht gefunden. Bitte Seite neu laden.";
+    return "Weitere Zahlung oder vorstreckende Person nicht gefunden. Bitte Seite neu laden.";
   }
   if (msg.includes("tx_pool_exclusive")) {
-    return "Eine Buchung kann nicht gleichzeitig einer Anzahlungstranche und einem Posten zugeordnet sein.";
+    return "Eine Buchung kann nicht gleichzeitig einer Anzahlungstranche und einer weiteren Zahlung zugeordnet sein.";
   }
   if (msg.includes("tx_item_credit_direct")) {
-    return "Eine Zahlung für einen Posten braucht einen konkreten Empfänger (nicht „An Alle“).";
+    return "Eine Einzahlung kann nicht an „Alle“ gehen.";
   }
   if (msg.includes("prepayment_item_provider_paid_by_other")) {
-    return "Der Empfänger kann nicht wechseln: die Zahlung an den Anbieter hat jemand anderes geleistet.";
+    return "Die vorstreckende Person kann nicht wechseln: die Überweisung an den Anbieter hat jemand anderes geleistet.";
   }
   // Deadlock zwischen parallelen Requests (FOR SHARE/FOR UPDATE in 0058/0059).
   if (err?.code === "40P01" || msg.includes("deadlock detected")) {
     console.error("[bordkasse:db]", msg);
-    return "Gerade wurde gleichzeitig etwas am Posten geändert. Bitte erneut versuchen.";
+    return "Gerade wurde gleichzeitig etwas geändert. Bitte erneut versuchen.";
   }
   return dbErr(err, fallback);
 }
@@ -213,7 +213,7 @@ async function loadItem(
     .eq("id", itemId)
     .eq("trip_id", tripId)
     .maybeSingle();
-  if (error) return { ok: false, message: dbErr(error, "Posten konnte nicht geladen werden.") };
+  if (error) return { ok: false, message: dbErr(error, "Weitere Zahlung konnte nicht geladen werden.") };
   if (!data) return { ok: false, message: ITEM_FOREIGN_MSG };
   return { ok: true, item: { ...(data as ItemRow), total_amount: Number(data.total_amount) } };
 }
@@ -249,7 +249,7 @@ async function loadProviderPayments(
     .eq("item_id", itemId)
     .eq("type", "expense")
     .is("deleted_at", null);
-  if (error) return { ok: false, message: dbErr(error, "Anbieter-Zahlungen konnten nicht geladen werden.") };
+  if (error) return { ok: false, message: dbErr(error, "Überweisungen an den Anbieter konnten nicht geladen werden.") };
   return { ok: true, rows: (data ?? []).map((r) => ({ id: r.id as string, amount: Number(r.amount) })) };
 }
 
@@ -359,14 +359,14 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
   let existing: ItemRow | null = null;
   if (input.id) {
     const { data, error } = await supabase.from("prepayment_items").select(ITEM_COLS).eq("id", input.id).maybeSingle();
-    if (error) return { status: "error", message: dbErr(error, "Posten konnte nicht geladen werden.") };
+    if (error) return { status: "error", message: dbErr(error, "Weitere Zahlung konnte nicht geladen werden.") };
     if (data && data.trip_id !== tripId) return { status: "error", message: ITEM_FOREIGN_MSG };
     if (data) existing = { ...(data as ItemRow), total_amount: Number(data.total_amount) };
   }
 
   const payeeId = input.payee_person_id ?? existing?.payee_person_id ?? trip.skipper_id;
   if (!payeeId) {
-    return { status: "error", message: "Bitte eine Person als Empfänger wählen.", field: "payee_person_id" };
+    return { status: "error", message: "Bitte wählen, wer vorstreckt.", field: "payee_person_id" };
   }
   // Empfänger MUSS Crew dieses Törns sein — die DB erzwingt das nicht
   // (payee_person_id → persons), und an ihn gehen echte Gutschriften.
@@ -451,8 +451,8 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
         return {
           status: "error",
           message:
-            "Für diesen Posten ist schon eine Zahlung an den Anbieter gebucht. Betrag und Aufteilung lassen sich " +
-            "danach nicht mehr ändern. Lösche zuerst die Anbieter-Zahlung in der Buchungsliste und erfasse sie nach " +
+            "Hier ist schon eine Überweisung an den Anbieter gebucht. Betrag und Aufteilung lassen sich " +
+            "danach nicht mehr ändern. Lösche zuerst die Überweisung in der Buchungsliste und erfasse sie nach " +
             "der Änderung neu.",
           field: "total_amount",
         };
@@ -461,7 +461,7 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
         return {
           status: "error",
           message:
-            "Für diesen Posten hat der bisherige Empfänger schon an den Anbieter gezahlt. Der Empfänger lässt " +
+            "Die bisher vorstreckende Person hat schon an den Anbieter überwiesen. Sie lässt " +
             "sich deshalb nicht mehr wechseln.",
           field: "payee_person_id",
         };
@@ -487,8 +487,8 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
         return {
           status: "error",
           message:
-            "An den bisherigen Empfänger wurde für diesen Posten schon gezahlt bzw. eine Zahlung gemeldet. Der " +
-            "Empfänger lässt sich erst wechseln, wenn diese Zahlungen gelöscht bzw. die Meldungen abgelehnt sind.",
+            "An die bisher vorstreckende Person wurde schon eingezahlt bzw. eine Einzahlung gemeldet. Sie " +
+            "lässt sich erst wechseln, wenn diese Einzahlungen gelöscht bzw. die Meldungen abgelehnt sind.",
           field: "payee_person_id",
         };
       }
@@ -513,9 +513,9 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
     if (insErr) {
       // Paralleler Zweitversuch mit derselben ID: der erste hat gewonnen.
       if (insErr.code === PG_UNIQUE_VIOLATION) {
-        return { status: "error", message: "Der Posten wird gerade schon gespeichert. Bitte Seite neu laden." };
+        return { status: "error", message: "Die weitere Zahlung wird gerade schon gespeichert. Bitte Seite neu laden." };
       }
-      return { status: "error", message: itemDbErrorMessage(insErr, "Posten konnte nicht gespeichert werden.") };
+      return { status: "error", message: itemDbErrorMessage(insErr, "Weitere Zahlung konnte nicht gespeichert werden.") };
     }
     const { error: oblErr } = await supabase.from("prepayment_item_obligations").insert(obligationRows);
     if (oblErr) {
@@ -571,7 +571,7 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
       .update(baseRow)
       .eq("id", existing.id)
       .eq("trip_id", tripId);
-    if (updErr) return { status: "error", message: itemDbErrorMessage(updErr, "Posten konnte nicht gespeichert werden.") };
+    if (updErr) return { status: "error", message: itemDbErrorMessage(updErr, "Weitere Zahlung konnte nicht gespeichert werden.") };
 
     if (!keepObligations) {
       const { error: delErr } = await supabase
@@ -595,7 +595,7 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
       if (!recheck.ok) return rollbackAll(recheck.message);
       if (recheck.rows.length > 0 && !(await providerSharesMatchSoll(supabase, recheck.rows, shares))) {
         return rollbackAll(
-          "Während des Speicherns wurde eine Zahlung an den Anbieter gebucht. Bitte Seite neu laden und erneut versuchen.",
+          "Während des Speicherns wurde eine Überweisung an den Anbieter gebucht. Bitte Seite neu laden und erneut versuchen.",
         );
       }
     }
@@ -612,7 +612,7 @@ export async function saveItem(_prev: ItemActionState, formData: FormData): Prom
         // eine entstanden ist (Race zum App-Check oben, Entscheidung H1).
         p_move_credits: false,
       });
-      if (moveErr) return rollbackAll(itemDbErrorMessage(moveErr, "Empfänger konnte nicht gewechselt werden."));
+      if (moveErr) return rollbackAll(itemDbErrorMessage(moveErr, "Die vorstreckende Person konnte nicht gewechselt werden."));
     }
   }
 
@@ -724,19 +724,19 @@ export async function deleteItem(_prev: ItemActionState, formData: FormData): Pr
     return {
       status: "error",
       message:
-        "An diesem Posten hängen bereits bestätigte Zahlungen. Er kann nicht gelöscht werden — " +
+        "Hier hängen bereits bestätigte Zahlungen. Die weitere Zahlung kann nicht gelöscht werden — " +
         "lösche zuerst die Zahlungen in der Buchungsliste, falls sie falsch erfasst wurden.",
     };
   }
   if ((pendingRes.count ?? 0) > 0) {
     return {
       status: "error",
-      message: "An diesem Posten hängt noch eine unbestätigte Selbstmeldung. Bitte erst bestätigen oder ablehnen.",
+      message: "Hier wartet noch eine Meldung auf Bestätigung. Bitte erst bestätigen oder ablehnen.",
     };
   }
 
   const { error } = await supabase.from("prepayment_items").delete().eq("id", itemId).eq("trip_id", tripId);
-  if (error) return { status: "error", message: itemDbErrorMessage(error, "Posten konnte nicht gelöscht werden.") };
+  if (error) return { status: "error", message: itemDbErrorMessage(error, "Weitere Zahlung konnte nicht gelöscht werden.") };
 
   await logAudit(supabase, {
     table_name: "prepayment_items",
@@ -803,7 +803,7 @@ export async function recordItemPayment(_prev: ItemActionState, formData: FormDa
     trip_id: tripId,
     type: "credit",
     date,
-    description: note || `Posten ${loaded.item.label}`,
+    description: note || `Einzahlung ${loaded.item.label}`,
     amount,
     credit_from: payerId,
     credit_to: loaded.item.payee_person_id,
@@ -891,7 +891,7 @@ export async function submitItemSelfPayment(_prev: ItemActionState, formData: Fo
       trip_id: tripId,
       type: "credit",
       date,
-      description: note || `Posten ${loaded.item.label} (selbst gemeldet)`,
+      description: note || `Einzahlung ${loaded.item.label} (selbst gemeldet)`,
       amount,
       credit_from: auth.personId,
       credit_to: loaded.item.payee_person_id,
@@ -1172,7 +1172,7 @@ export async function recordItemProviderPayment(
     const open = Math.max(0, item.total_amount - alreadyPaid);
     return {
       status: "error",
-      message: `Das übersteigt den Betrag des Postens. Noch offen beim Anbieter: ${open.toFixed(2).replace(".", ",")} €.`,
+      message: `Das übersteigt den Betrag. Noch offen beim Anbieter: ${open.toFixed(2).replace(".", ",")} €.`,
       field: "amount",
     };
   }
@@ -1190,7 +1190,7 @@ export async function recordItemProviderPayment(
 
   const shares = allocateItemProviderShares(amount, obl.rows, already);
   if (shares.length === 0) {
-    return { status: "error", message: "Für diesen Posten ist noch kein Soll verteilt. Bitte den Posten zuerst speichern." };
+    return { status: "error", message: "Hier ist noch kein Soll verteilt. Bitte zuerst speichern." };
   }
 
   const { data: tx, error } = await supabase
@@ -1254,10 +1254,10 @@ export async function recordItemProviderPayment(
   if (!afterProvider.ok) return rollback(afterProvider.message);
   if (!afterObl.ok) return rollback(afterObl.message);
   if (afterProvider.rows.reduce((s, r) => s + r.amount, 0) > item.total_amount + 0.005) {
-    return rollback("Gleichzeitig wurde eine weitere Zahlung an den Anbieter gebucht; zusammen übersteigen sie den Posten. Bitte Seite neu laden.");
+    return rollback("Gleichzeitig wurde eine weitere Überweisung an den Anbieter gebucht; zusammen übersteigen sie den Betrag. Bitte Seite neu laden.");
   }
   if (sollSignature(afterObl.rows) !== sollSignature(obl.rows)) {
-    return rollback("Der Posten wurde gerade geändert. Bitte Seite neu laden und die Zahlung erneut erfassen.");
+    return rollback("Die weitere Zahlung wurde gerade geändert. Bitte Seite neu laden und die Überweisung erneut erfassen.");
   }
 
   await logAudit(supabase, {

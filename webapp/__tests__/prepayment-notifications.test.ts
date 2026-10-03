@@ -410,10 +410,13 @@ describe("Frist in der Posten-Mail", () => {
       isUpdate: false, recipientName: "Anna", payeeName: "Jannik", tripName: "Ostsee", tripType: "sailing" as const,
       item, amount: 100, weroId: null, appUrl: "https://x.test",
     };
-    expect(renderItemAnnounceCrewMail({ ...base, crewDue: "7.3.2027" }).text).toContain("Bitte zahlen bis: 7.3.2027");
+    const dated = renderItemAnnounceCrewMail({ ...base, crewDue: "7.3.2027" });
+    expect(dated.text).toContain("Bis wann: 7.3.2027");
+    expect(norm(dated.subject)).toBe("Flüge <b>: dein Anteil 100,00 € bis 7.3.2027");
     const none = renderItemAnnounceCrewMail({ ...base, crewDue: null });
-    expect(none.text).toContain("sie folgt");
-    expect(none.text).not.toContain("Bitte zahlen bis");
+    expect(none.text).toContain("Bis wann: Frist folgt");
+    expect(none.text).not.toContain("7.3.2027");
+    expect(norm(none.subject)).toBe("Flüge <b>: dein Anteil 100,00 € – Frist folgt");
   });
 });
 
@@ -426,13 +429,15 @@ describe("Reise-Typ „other“", () => {
     expect(norm(m.text)).toContain("Urlaubsanzahlung");
     expect(m.text).toContain("die Reise");
     expect(m.text).not.toContain("den Törn");
-    expect(m.html).toContain("In der Urlaubskasse ansehen");
+    expect(norm(m.subject)).toBe("Urlaubsanzahlung: dein Anteil 100,00 € bis 1.2.2027");
+    expect(m.html).toContain("Zahlungen öffnen");
     const it2 = renderItemAnnounceCrewMail({
       isUpdate: false, recipientName: "Anna", payeeName: "Jannik", tripName: "Rom", tripType: "other",
       item, amount: 100, crewDue: null, weroId: null, appUrl: "https://x.test",
     });
-    expect(it2.html).toContain("In der Urlaubskasse ansehen");
+    expect(it2.html).toContain("Zahlungen öffnen");
     expect(it2.text).toContain("die Reise");
+    expect(it2.text).not.toContain("den Törn");
   });
 });
 
@@ -458,7 +463,7 @@ describe("saveItem — Mail „Posten angelegt“", () => {
     expect(mailedTo()).toEqual([EMAIL[ANNA], EMAIL[BEN]].sort());
     expect(pushedTo()).toEqual([ANNA, BEN].sort());
     expect(pushedTo()).not.toContain(SKIPPER);
-    expect(mails()[0].subject).toContain("Neuer Posten: Bahn");
+    expect(norm(mails()[0].subject)).toBe("Bahn: dein Anteil 30,00 € bis 7.3.2027");
     // Push additiv NACH der Mail.
     expect(mockedSendMails.mock.invocationCallOrder[0]).toBeLessThan(mockedPush.mock.invocationCallOrder[0]);
     // „zuletzt informiert" gesetzt.
@@ -471,7 +476,7 @@ describe("saveItem — Mail „Posten angelegt“", () => {
     await saveItem({ status: "idle" }, payloadFd(createPayload));
     expect(mailedTo()).toEqual([EMAIL[ANNA], EMAIL[BEN], EMAIL[SKIPPER]].sort());
     const payeeMail = mails().find((m) => m.to === EMAIL[SKIPPER])!;
-    expect(payeeMail.subject).toContain("Übersicht für dich");
+    expect(norm(payeeMail.subject)).toContain("Bahn: du streckst 90,00 € vor – bis 10.3.2027");
     expect(payeeMail.text).toContain("Anna: 30,00 €");
     expect(mailedTo()).not.toContain(EMAIL[ADMIN]);
   });
@@ -538,7 +543,7 @@ describe("Posten-Zahlungen — Benachrichtigungen", () => {
     }));
     expect(res.status).toBe("ok");
     expect(mailedTo()).toEqual([EMAIL[SKIPPER]]);
-    expect(mails()[0].subject).toContain("Zahlung gemeldet: Anna");
+    expect(norm(mails()[0].subject)).toBe("Flüge: 100,00 € von Anna – gemeldet – wartet auf Bestätigung");
     expect(pushedTo()).toEqual([SKIPPER]);
   });
 
@@ -591,7 +596,7 @@ describe("Posten-Zahlungen — Benachrichtigungen", () => {
     const res = await confirmItemSelfPayment({ status: "idle" }, fd({ transaction_id: TX_PENDING }));
     expect(res.status).toBe("ok");
     expect(mailedTo()).toEqual([EMAIL[ANNA]]);
-    expect(mails()[0].subject).toContain("Zahlung bestätigt");
+    expect(norm(mails()[0].subject)).toBe("Flüge: 100,00 € von Anna – bestätigt");
     expect(pushedTo()).toEqual([ANNA]);
   });
 
@@ -679,7 +684,8 @@ describe("saveTranches — „Anzahlungsplan angelegt“ genau einmal", () => {
     expect(res.status).toBe("ok");
     expect(mailedTo()).toEqual([EMAIL[ANNA], EMAIL[BEN]].sort());
     const ben = mails().find((m) => m.to === EMAIL[BEN])!;
-    expect(ben.text).toContain("Dein Anteil gesamt: 500,00 €");
+    expect(ben.text).toContain("Dein Anteil: 500,00 € gesamt");
+    expect(norm(ben.subject)).toBe("Yachtanzahlung: dein Anteil 500,00 € bis 7.1.2027");
     expect(ben.text).toContain("1. Anzahlung bis 7.1.2027: 200,00 €");
     expect(ben.text).toContain("Endzahlung bis 7.4.2027: 300,00 €");
     // leere Wero-ID → kein Wort über Wero
@@ -715,8 +721,10 @@ describe("saveTranches — „Anzahlungsplan angelegt“ genau einmal", () => {
     await saveTranches({ status: "idle" }, payloadFd(tranchePayload));
     expect(mailedTo()).toEqual([EMAIL[ANNA], EMAIL[BEN], EMAIL[SKIPPER]].sort());
     const anna = mails().find((m) => m.to === EMAIL[ANNA])!;
-    expect(anna.subject).toContain("Übersicht für dich");
-    expect(anna.text).toContain("Summe an den Vercharterer: 1.000,00 €");
+    expect(norm(anna.subject)).toBe("Yachtanzahlung: du streckst 1.000,00 € vor – bis 10.1.2027");
+    expect(anna.text).toContain("Du streckst vor: 1.000,00 €");
+    expect(anna.text).toContain("An wen: Anbieter");
+    expect(anna.text).not.toContain("Vercharterer");
     const ben = mails().find((m) => m.to === EMAIL[BEN])!;
     expect(ben.text).toContain("Wero-ID (Anna): W-1");
   });
@@ -801,7 +809,7 @@ describe("Knopf „Crew informieren“", () => {
     }));
     const res = await notifyPlanCrew(TRIP);
     expect(res).toEqual({ status: "ok", sent: 1, failed: 0, skipped: 1 });
-    expect(mails()[0].subject).toContain("Plan geändert");
+    expect(norm(mails()[0].subject)).toBe("Geändert: Yachtanzahlung: dein Anteil 250,00 € bis 7.4.2027");
     // Ben bekommt trotzdem den Push (Push hängt nicht an der Mail-Adresse).
     expect(pushedTo()).toEqual([ANNA, BEN].sort());
     expect(fake.rows("prepayment_plan")[0].crew_last_notified_at).toBeTruthy();
@@ -826,11 +834,11 @@ describe("Knopf „Crew informieren“", () => {
     }));
     await notifyItemCrew(TRIP, ITEM);
     const anna = mails().find((m) => m.to === EMAIL[ANNA])!;
-    expect(anna.text).toContain("bereits vollständig bezahlt");
+    expect(anna.text).toContain("Status: bereits vollständig bezahlt");
     expect(anna.text.toLowerCase()).not.toContain("wero");
     expect(anna.text).not.toContain("Bitte zahlen bis");
     const ben = mails().find((m) => m.to === EMAIL[BEN])!;
-    expect(ben.text).toContain("Noch offen:  100,00 €");
+    expect(ben.text).toContain("Noch offen: 100,00 €");
     expect(ben.text).toContain("WERO-9");
   });
 
@@ -849,7 +857,7 @@ describe("Knopf „Crew informieren“", () => {
     }));
     await notifyPlanCrew(TRIP);
     const anna = mails().find((m) => m.to === EMAIL[ANNA])!;
-    expect(anna.text).toContain("bereits vollständig bezahlt");
+    expect(anna.text).toContain("Status: bereits vollständig bezahlt");
     expect(anna.text.toLowerCase()).not.toContain("wero");
     const ben = mails().find((m) => m.to === EMAIL[BEN])!;
     expect(ben.text).toContain("1. Anzahlung bis 7.1.2027: 200,00 € (bezahlt)");
@@ -864,7 +872,8 @@ describe("Knopf „Crew informieren“", () => {
     }));
     await notifyItemCrew(TRIP, ITEM);
     const anna = mails().find((m) => m.to === EMAIL[ANNA])!;
-    expect(anna.text).toContain("wartet auf die Bestätigung durch Jannik");
+    expect(anna.text).toContain("Status: gemeldet – wartet auf Bestätigung");
+    expect(anna.text).not.toContain("Bis wann:");
     expect(anna.text).not.toContain("Bitte zahlen bis");
     expect(anna.text.toLowerCase()).not.toContain("wero");
   });
@@ -896,10 +905,10 @@ describe("Knopf „Crew informieren“", () => {
     }));
     await notifyPlanCrew(TRIP);
     const anna = mails().find((m) => m.to === EMAIL[ANNA])!;
-    expect(anna.text).toContain("bereits vollständig bezahlt");
+    expect(anna.text).toContain("Status: bereits vollständig bezahlt");
     expect(anna.text.toLowerCase()).not.toContain("wero");
     const ben = mails().find((m) => m.to === EMAIL[BEN])!;
-    expect(ben.text).toContain("wartet auf die Bestätigung");
+    expect(ben.text).toContain("Status: gemeldet – wartet auf Bestätigung");
     expect(ben.text.toLowerCase()).not.toContain("wero");
   });
 
@@ -944,7 +953,7 @@ describe("Knopf „Crew informieren“", () => {
     setup(tables());
     const res = await notifyItemCrew(TRIP, ITEM);
     expect(res).toEqual({ status: "ok", sent: 2, failed: 0, skipped: 0 });
-    expect(mails().every((m) => m.subject.startsWith("Posten geändert"))).toBe(true);
+    expect(mails().every((m) => m.subject.startsWith("Geändert: Flüge: dein Anteil"))).toBe(true);
     expect(mailedTo()).toEqual([EMAIL[ANNA], EMAIL[BEN]].sort());
 
     mockedSendMails.mockClear();

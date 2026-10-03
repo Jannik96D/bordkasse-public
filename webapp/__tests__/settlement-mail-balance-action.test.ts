@@ -44,7 +44,7 @@ describe("announceSettlement — Saldo vs. Zahlungsplan", () => {
     expect(mails).toHaveLength(1);
     expect(mails[0].text).toContain("Du zahlst noch 30,00");
     expect(mails[0].text).toContain("Du zahlst 30,00");
-    expect(mails[0].text).toContain("weiteren Posten zusätzlich −100,00");
+    expect(mails[0].text).toContain("weiteren Zahlungen zusätzlich −100,00");
     expect(mails[0].text).not.toContain("130");
   });
 });

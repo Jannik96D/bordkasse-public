@@ -1,17 +1,16 @@
 /**
- * „Neu angelegt"- und „hat sich geändert"-Mails für Reise-Posten und den
- * Anzahlungsplan (PR6). Layout über mail-shell wie alle anderen Mails.
+ * „Neu angelegt"- und „hat sich geändert"-Mails für weitere Zahlungen (intern
+ * `item`) und den Anzahlungsplan (PR6, PR7 vereinheitlicht). Alle Mails laufen
+ * über das gemeinsame Gerüst `payment-mail.ts` (Betreff „{Was}: dein Anteil
+ * {Betrag} bis {Datum}", Blöcke „Dein Anteil · Bis wann · An wen · So geht's").
  *
- *   Posten:  renderItemAnnounceCrewMail   — Person mit Soll: wofür, wie viel,
- *                                           bis wann (Crewfrist), an wen
- *            renderItemAnnouncePayeeMail  — Empfänger: Übersicht + Frist beim
- *                                           Anbieter
- *   Plan:    renderPlanAnnounceCrewMail   — Crew: eigener Gesamtbetrag, jede
- *                                           Rate mit Betrag + Crewfrist
- *            renderPlanAnnounceAdvancerMail — vorstreckende Person: Übersicht
+ *   Weitere Zahlung:  renderItemAnnounceCrewMail   — Person mit Soll
+ *                     renderItemAnnouncePayeeMail  — vorstreckende Person: Übersicht
+ *   Plan:             renderPlanAnnounceCrewMail   — Crew: Gesamtanteil + Raten
+ *                     renderPlanAnnounceAdvancerMail — vorstreckende Person: Übersicht
  *
- * `isUpdate` = Variante für den Knopf „Crew informieren" (Wortlaut „hat sich
- * geändert", sonst identischer Inhalt mit den AKTUELLEN Beträgen/Fristen).
+ * `isUpdate` = Variante für den Knopf „Crew informieren" (Betreff „Geändert: …",
+ * sonst identischer Inhalt mit den AKTUELLEN Beträgen/Fristen).
  *
  * WERO-REGEL (Entscheidung Nutzer): Ist keine Wero-ID übergeben (null — der
  * Aufrufer normalisiert leer/Whitespace über normalizeWeroId), erwähnt die
@@ -22,110 +21,45 @@
  * frei editierbar → im HTML IMMER escapeHtml. Text-Variante bleibt roh.
  */
 
-import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
+import { escapeHtml, fmtEuro } from "./mail-shell";
 import { tripVocab } from "@/lib/trip-vocab";
 import { itemMailTitle, type ItemMailInfo } from "./item-notice-template";
-import { normalizeWeroId } from "@/lib/prepayments/notify";
 import { round2 } from "@/lib/utils";
-
-type TripType = "sailing" | "other";
-const FOOTER = "—\nBordkasse · Faire Kostenaufteilung auf Segeltörns\n";
-const tripPhrase = (t: TripType) => (t === "other" ? "die Reise" : "den Törn");
-const NO_DUE_TEXT = "Eine Frist ist noch nicht festgelegt — sie folgt.";
+import {
+  NO_DUE_TEXT,
+  PAYMENT_STATUS,
+  advanceSubject,
+  howToBlock,
+  howToPayBlock,
+  personTable,
+  renderPaymentMail,
+  shareSubject,
+  titledTableCard,
+  tripPhrase,
+  type Block,
+  type Fact,
+  type TripType,
+} from "./payment-mail";
 
 export interface PersonAmountRow {
   name: string;
   amount: number;
 }
 
-// ── Bausteine ─────────────────────────────────────────────────────────────
+/** Zeile „Status" bei bereits gedecktem Anteil (statt Frist): bezahlt bzw. gemeldet. */
+const settledStatusFact = (hasPending: boolean): Fact => {
+  const t = hasPending ? PAYMENT_STATUS.pending : "bereits vollständig bezahlt";
+  return { label: "Status", html: escapeHtml(t), text: t };
+};
 
-/** „So zahlst du": Empfänger, Wero (nur mit ID), neutraler Verwendungszweck. */
-function paymentBlock(args: { payeeName: string; weroId: string | null; purpose: string }): { html: string; text: string } {
-  const n = escapeHtml(args.payeeName);
-  // Defensiv nochmals normalisieren: leer/Whitespace = keine Wero-ID.
-  const weroId = normalizeWeroId(args.weroId);
-  if (weroId) {
-    return {
-      html: `
-            <tr>
-              <td style="padding:16px 32px 0 32px;">
-                <p style="margin:0 0 8px 0;font-size:14px;line-height:1.55;color:#1A2533;">
-                  Bitte schicke <strong>${n}</strong> deinen Anteil per Wero.
-                </p>
-                <p style="margin:0;padding:10px 14px;background-color:#FDF6DC;border-left:3px solid #C8A51E;font-size:13px;color:#1A2533;border-radius:4px;">
-                  <strong>Wero-ID (${n}):</strong> ${escapeHtml(weroId)}<br/>
-                  <span style="color:#587EA8;">Verwendungszweck: ${escapeHtml(args.purpose)}</span>
-                </p>
-              </td>
-            </tr>`,
-      text: `Bitte schicke ${args.payeeName} deinen Anteil per Wero.
-Wero-ID (${args.payeeName}): ${weroId}
-Verwendungszweck: ${args.purpose}`,
-    };
-  }
-  return {
-    html: `
-            <tr>
-              <td style="padding:16px 32px 0 32px;">
-                <p style="margin:0;padding:10px 14px;background-color:#FDF6DC;border-left:3px solid #C8A51E;font-size:13px;color:#1A2533;border-radius:4px;">
-                  Bitte überweise deinen Anteil an <strong>${n}</strong> — frag ${n} nach den Zahlungsdetails.<br/>
-                  <span style="color:#587EA8;">Verwendungszweck: ${escapeHtml(args.purpose)}</span>
-                </p>
-              </td>
-            </tr>`,
-    text: `Bitte überweise deinen Anteil an ${args.payeeName} — frag ${args.payeeName} nach den Zahlungsdetails.
-Verwendungszweck: ${args.purpose}`,
-  };
-}
+/** Zeile „Bis wann" der Anteil-Mail (Frist oder „Frist folgt"). */
+const dueFact = (crewDue: string | null): Fact => ({
+  label: "Bis wann",
+  html: crewDue ? `<strong>${escapeHtml(crewDue)}</strong>` : escapeHtml(NO_DUE_TEXT),
+  text: crewDue ?? NO_DUE_TEXT,
+});
 
-function headerBlock(headline: string, recipientName: string, introHtml: string): string {
-  return `
-            <tr>
-              <td style="padding:32px 32px 8px 32px;">
-                <h2 style="margin:0 0 12px 0;font-size:18px;font-weight:600;color:#1D4281;">
-                  ${escapeHtml(headline)}
-                </h2>
-                <p style="margin:0 0 12px 0;font-size:15px;line-height:1.55;color:#1A2533;">
-                  Hi ${escapeHtml(recipientName)},
-                </p>
-                <p style="margin:0;font-size:15px;line-height:1.55;color:#1A2533;">
-                  ${introHtml}
-                </p>
-              </td>
-            </tr>`;
-}
-
-function personTable(rows: PersonAmountRow[]): { html: string; text: string } {
-  const html = rows
-    .map(
-      (r) => `
-                        <tr>
-                          <td style="padding:2px 0;color:#1A2533;">${escapeHtml(r.name)}</td>
-                          <td style="padding:2px 0;text-align:right;">${fmtEuro(r.amount)}</td>
-                        </tr>`,
-    )
-    .join("");
-  const text = rows.map((r) => `  - ${r.name}: ${fmtEuro(r.amount)}`).join("\n");
-  return { html, text };
-}
-
-function card(inner: string): string {
-  return `
-            <tr>
-              <td style="padding:18px 32px 0 32px;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                  <tr>
-                    <td style="padding:14px;background-color:#F4F2EC;border-radius:6px;font-size:14px;color:#1A2533;">
-                      ${inner}
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>`;
-}
-
-// ── Posten ────────────────────────────────────────────────────────────────
+// ── Weitere Zahlung ────────────────────────────────────────────────────────
 
 export interface ItemAnnounceCrewParams {
   isUpdate: boolean;
@@ -146,87 +80,60 @@ export interface ItemAnnounceCrewParams {
   appUrl: string;
 }
 
-const PAID_DONE = "Dein Anteil ist bereits vollständig bezahlt — es ist nichts mehr zu tun.";
-const pendingDone = (payee: string) =>
-  `Deine Zahlung ist gemeldet und wartet auf die Bestätigung durch ${payee} — von dir ist nichts mehr zu tun.`;
-
 export function renderItemAnnounceCrewMail(p: ItemAnnounceCrewParams): { html: string; text: string; subject: string } {
-  const vocab = tripVocab(p.tripType);
   const title = itemMailTitle(p.item);
   const paid = Math.max(0, p.paid ?? 0);
   const pending = Math.max(0, p.pending ?? 0);
   const open = Math.max(0, round2(p.amount - paid - pending));
   const settled = open <= 0.005;
-  const doneText = pending > 0.005 ? pendingDone(p.payeeName) : PAID_DONE;
-  const subject = p.isUpdate
-    ? `Posten geändert: ${p.item.label} – ${p.tripName}`
-    : `Neuer Posten: ${p.item.label} – ${p.tripName}`;
-  const headline = p.isUpdate ? "Posten hat sich geändert" : "Neuer Posten";
-  const lead = p.isUpdate
-    ? `der Posten <strong>${escapeHtml(title)}</strong> für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> hat sich geändert. Hier der aktuelle Stand für dich.`
-    : `für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> gibt es einen neuen Posten: <strong>${escapeHtml(title)}</strong>. ${escapeHtml(p.payeeName)} zahlt vorab an den Anbieter und bekommt dafür deinen Anteil.`;
-  const leadText = p.isUpdate
-    ? `der Posten ${title} für ${tripPhrase(p.tripType)} ${p.tripName} hat sich geändert. Hier der aktuelle Stand für dich.`
-    : `für ${tripPhrase(p.tripType)} ${p.tripName} gibt es einen neuen Posten: ${title}. ${p.payeeName} zahlt vorab an den Anbieter und bekommt dafür deinen Anteil.`;
-  const dueHtml = settled
-    ? escapeHtml(doneText)
-    : p.crewDue
-      ? `bitte zahlen bis <strong>${escapeHtml(p.crewDue)}</strong>`
-      : escapeHtml(NO_DUE_TEXT);
-  const dueText = settled ? doneText : p.crewDue ? `Bitte zahlen bis: ${p.crewDue}` : NO_DUE_TEXT;
-  const purpose = `${p.item.label} ${p.tripName}`;
-  // Zahlungsaufforderung nur, wenn noch etwas offen ist (Grill-Fund P2-1).
-  const pay = settled ? { html: "", text: "" } : paymentBlock({ payeeName: p.payeeName, weroId: p.weroId, purpose });
-  const paidHtml =
-    paid > 0.005 || pending > 0.005
-      ? `${paid > 0.005 ? `Bereits bezahlt: ${fmtEuro(paid)}<br/>` : ""}${
-          pending > 0.005 ? `Gemeldet, wartet auf Bestätigung: ${fmtEuro(pending)}<br/>` : ""
-        }
-                      Noch offen: <strong>${fmtEuro(open)}</strong><br/>`
-      : "";
-  const paidText =
-    paid > 0.005 || pending > 0.005
-      ? `${paid > 0.005 ? `\n  Bereits bezahlt: ${fmtEuro(paid)}` : ""}${
-          pending > 0.005 ? `\n  Gemeldet, wartet auf Bestätigung: ${fmtEuro(pending)}` : ""
-        }\n  Noch offen:  ${fmtEuro(open)}`
-      : "";
-  const hint = `Schon gezahlt? Dann tippe in der App beim Posten auf „Ich habe gezahlt“, damit ${p.payeeName} die Zahlung bestätigen kann.`;
+  const subject = shareSubject({ what: p.item.label, amount: p.amount, due: p.crewDue, isUpdate: p.isUpdate });
+  const headline = p.isUpdate ? `Geändert: ${p.item.label}` : `Neu: ${p.item.label}`;
+  const introHtml = p.isUpdate
+    ? `<strong>${escapeHtml(title)}</strong> für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> hat sich geändert. Hier der aktuelle Stand für dich.`
+    : `für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> gibt es eine weitere Zahlung: <strong>${escapeHtml(title)}</strong>. ${escapeHtml(p.payeeName)} streckt vor und bekommt dafür deinen Anteil.`;
+  const introText = p.isUpdate
+    ? `${title} für ${tripPhrase(p.tripType)} ${p.tripName} hat sich geändert. Hier der aktuelle Stand für dich.`
+    : `für ${tripPhrase(p.tripType)} ${p.tripName} gibt es eine weitere Zahlung: ${title}. ${p.payeeName} streckt vor und bekommt dafür deinen Anteil.`;
 
-  const body = `${headerBlock(headline, p.recipientName, lead)}
-${card(`<strong>${escapeHtml(title)}</strong><br/>
-                      Dein Anteil: <strong style="color:#114884;">${fmtEuro(p.amount)}</strong><br/>
-                      ${paidHtml}An: <strong>${escapeHtml(p.payeeName)}</strong><br/>
-                      <span style="color:#587EA8;">${dueHtml}</span>`)}
-${pay.html}
-${renderActionButton(p.appUrl, `In der ${vocab.kitty} ansehen`)}
-${settled ? "" : renderHintBlock(hint)}`;
+  const facts: Fact[] = [
+    { label: "Dein Anteil", html: fmtEuro(p.amount), text: fmtEuro(p.amount), strong: true, color: "#114884" },
+  ];
+  if (paid > 0.005) facts.push({ label: "Bereits bezahlt", html: fmtEuro(paid), text: fmtEuro(paid) });
+  if (pending > 0.005) {
+    facts.push({
+      label: "Gemeldet",
+      html: `${fmtEuro(pending)} — ${escapeHtml(PAYMENT_STATUS.pending)}`,
+      text: `${fmtEuro(pending)} — ${PAYMENT_STATUS.pending}`,
+    });
+  }
+  if (paid > 0.005 || pending > 0.005) {
+    facts.push({ label: "Noch offen", html: fmtEuro(open), text: fmtEuro(open), strong: true });
+  }
+  facts.push(settled ? settledStatusFact(pending > 0.005) : dueFact(p.crewDue));
+  facts.push({ label: "An wen", html: `<strong>${escapeHtml(p.payeeName)}</strong>`, text: p.payeeName });
 
-  const html = renderMailShell({
-    title: subject,
+  // „So geht's" nur, wenn noch etwas offen ist (Grill-Fund P2-1).
+  const how: Block | null = settled
+    ? null
+    : howToPayBlock({ payeeName: p.payeeName, weroId: p.weroId, purpose: `${p.item.label} ${p.tripName}` });
+
+  return renderPaymentMail({
+    subject,
+    headline,
+    recipientName: p.recipientName,
+    tripName: p.tripName,
+    introHtml,
+    introText,
     preheader: settled
       ? `${p.item.label}: dein Anteil ist bezahlt`
       : `${p.item.label}: offen ${fmtEuro(open)}${p.crewDue ? ` bis ${p.crewDue}` : ""}`,
-    subtitle: p.tripName,
-    body,
+    appUrl: p.appUrl,
+    facts,
+    how,
+    hint: settled
+      ? null
+      : `Schon gezahlt? Dann tippe in der App bei „${p.item.label}“ auf „Ich habe gezahlt“, damit ${p.payeeName} die Einzahlung bestätigen kann.`,
   });
-
-  const text = `${headline}
-${p.tripName}
-
-Hi ${p.recipientName},
-
-${leadText}
-
-  Posten:      ${title}
-  Dein Anteil: ${fmtEuro(p.amount)}${paidText}
-  An:          ${p.payeeName}
-  ${dueText}
-${pay.text ? `\n${pay.text}\n` : ""}${settled ? "" : `\n${hint}\n`}
-In der App: ${p.appUrl}
-
-${FOOTER}`;
-
-  return { html, text, subject };
 }
 
 export interface ItemAnnouncePayeeParams {
@@ -235,13 +142,13 @@ export interface ItemAnnouncePayeeParams {
   tripName: string;
   tripType: TripType;
   item: ItemMailInfo;
-  /** Betrag des Postens (= Summe an den Anbieter). */
+  /** Betrag der weiteren Zahlung (= Summe an den Anbieter). */
   total: number;
   /** Formatierte Fälligkeit beim Anbieter oder null. */
   providerDue: string | null;
-  /** Soll der übrigen Personen (ohne den Empfänger selbst). */
+  /** Soll der übrigen Personen (ohne die vorstreckende Person selbst). */
   rows: PersonAmountRow[];
-  /** Eigener Anteil des Empfängers (Selbstverrechnung). */
+  /** Eigener Anteil der vorstreckenden Person (Selbstverrechnung). */
   ownAmount: number;
   appUrl: string;
 }
@@ -249,62 +156,45 @@ export interface ItemAnnouncePayeeParams {
 export function renderItemAnnouncePayeeMail(p: ItemAnnouncePayeeParams): { html: string; text: string; subject: string } {
   const vocab = tripVocab(p.tripType);
   const title = itemMailTitle(p.item);
-  const subject = p.isUpdate
-    ? `Posten geändert: ${p.item.label} – Übersicht für dich`
-    : `Neuer Posten: ${p.item.label} – Übersicht für dich`;
-  const headline = p.isUpdate ? "Dein Posten hat sich geändert" : "Du empfängst einen Posten";
-  const lead = `für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> ${p.isUpdate ? "hat sich der Posten" : "ist der Posten"} <strong>${escapeHtml(title)}</strong> ${p.isUpdate ? "geändert" : "angelegt"}. Du zahlst an den Anbieter und bekommst die Anteile der ${escapeHtml(vocab.crew)}.`;
-  const leadText = `für ${tripPhrase(p.tripType)} ${p.tripName} ${p.isUpdate ? "hat sich der Posten" : "ist der Posten"} ${title} ${p.isUpdate ? "geändert" : "angelegt"}. Du zahlst an den Anbieter und bekommst die Anteile der ${vocab.crew}.`;
-  const dueHtml = p.providerDue
-    ? `An den Anbieter zu zahlen bis <strong>${escapeHtml(p.providerDue)}</strong>`
-    : escapeHtml(NO_DUE_TEXT);
-  const dueText = p.providerDue ? `An den Anbieter zu zahlen bis: ${p.providerDue}` : NO_DUE_TEXT;
+  const subject = advanceSubject({ what: p.item.label, amount: p.total, due: p.providerDue, isUpdate: p.isUpdate });
+  const headline = p.isUpdate ? `Geändert: ${p.item.label}` : "Du streckst vor";
+  const introHtml = `für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> ${p.isUpdate ? "hat sich" : "gibt es"} <strong>${escapeHtml(title)}</strong> ${p.isUpdate ? "geändert" : "als weitere Zahlung"}. Du zahlst vorab an den Anbieter und bekommst die Anteile der ${escapeHtml(vocab.crew)}.`;
+  const introText = `für ${tripPhrase(p.tripType)} ${p.tripName} ${p.isUpdate ? "hat sich" : "gibt es"} ${title} ${p.isUpdate ? "geändert" : "als weitere Zahlung"}. Du zahlst vorab an den Anbieter und bekommst die Anteile der ${vocab.crew}.`;
   const table = personTable(p.rows);
   const ownLine = p.ownAmount > 0.005 ? `Dein eigener Anteil: ${fmtEuro(p.ownAmount)} (Selbstverrechnung)` : "";
 
-  const body = `${headerBlock(headline, p.recipientName, lead)}
-${card(`<strong>${escapeHtml(title)}</strong> · Summe Anbieter: <strong>${fmtEuro(p.total)}</strong><br/>
-                      <span style="color:#587EA8;">${dueHtml}</span>
-                      ${
-                        p.rows.length > 0
-                          ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;font-size:13px;">${table.html}
-                      </table>`
-                          : ""
-                      }
-                      ${ownLine ? `<p style="margin:8px 0 0 0;font-size:13px;color:#587EA8;">${escapeHtml(ownLine)}</p>` : ""}`)}
-${renderActionButton(p.appUrl, `In der ${vocab.kitty} ansehen`)}
-${renderHintBlock(
-  "Bestätige eingehende Zahlungen in der App und erfasse deine Zahlung an den Anbieter beim Posten unter „Zahlung an Anbieter erfassen“.",
-)}`;
+  const facts: Fact[] = [
+    { label: "Du streckst vor", html: fmtEuro(p.total), text: fmtEuro(p.total), strong: true, color: "#114884" },
+    {
+      label: "Bis wann",
+      html: p.providerDue ? `<strong>${escapeHtml(p.providerDue)}</strong>` : escapeHtml(NO_DUE_TEXT),
+      text: p.providerDue ?? NO_DUE_TEXT,
+    },
+    { label: "An wen", html: "<strong>Anbieter</strong>", text: "Anbieter" },
+  ];
+  const extra: Block[] = [];
+  if (p.rows.length > 0 || ownLine) {
+    extra.push(titledTableCard("Soll je Person", table, ownLine || undefined));
+  }
 
-  const html = renderMailShell({
-    title: subject,
+  return renderPaymentMail({
+    subject,
+    headline,
+    recipientName: p.recipientName,
+    tripName: p.tripName,
+    introHtml,
+    introText,
     preheader: `${p.item.label}: ${fmtEuro(p.total)} an den Anbieter${p.providerDue ? ` bis ${p.providerDue}` : ""}`,
-    subtitle: p.tripName,
-    body,
+    appUrl: p.appUrl,
+    facts,
+    extra,
+    how: howToBlock(
+      "Bestätige eingehende Einzahlungen in der App und erfasse deine Überweisung an den Anbieter bei der Karte unter „Überweisung an Anbieter erfassen“.",
+    ),
   });
-
-  const text = `${headline}
-${p.tripName}
-
-Hi ${p.recipientName},
-
-${leadText}
-
-  Posten:          ${title}
-  Summe Anbieter:  ${fmtEuro(p.total)}
-  ${dueText}
-${p.rows.length > 0 ? `\nSoll je Person:\n${table.text}\n` : ""}${ownLine ? `\n${ownLine}\n` : ""}
-Bestätige eingehende Zahlungen in der App und erfasse deine Zahlung an den Anbieter beim Posten unter „Zahlung an Anbieter erfassen“.
-
-In der App: ${p.appUrl}
-
-${FOOTER}`;
-
-  return { html, text, subject };
 }
 
-// ── Anzahlungsplan ────────────────────────────────────────────────────────
+// ── Anzahlungsplan ─────────────────────────────────────────────────────────
 
 export interface PlanCrewTranche {
   label: string;
@@ -340,20 +230,19 @@ export function renderPlanAnnounceCrewMail(p: PlanAnnounceCrewParams): { html: s
   const totalCovered = round2(rows.reduce((s, t) => s + t.paid + t.pending, 0));
   const totalPending = round2(rows.reduce((s, t) => s + t.pending, 0));
   const settled = totalOpen <= 0.005;
-  const doneText = totalPending > 0.005 ? pendingDone(p.advancerName) : PAID_DONE;
-  const subject = p.isUpdate
-    ? `${vocab.prepayment}: Plan geändert – ${p.tripName}`
-    : `${vocab.prepayment}: dein Anteil für ${p.tripName}`;
-  const headline = p.isUpdate ? "Anzahlungsplan hat sich geändert" : "Anzahlungsplan steht";
-  const lead = p.isUpdate
-    ? `der Anzahlungsplan für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> hat sich geändert. Hier deine aktuellen Raten.`
+  // Betreff-Frist: nächste noch offene Rate, sonst die letzte.
+  const subjectDue = (rows.find((t) => t.open > 0.005) ?? rows[rows.length - 1])?.crewDue ?? null;
+  const subject = shareSubject({ what: vocab.prepayment, amount: p.total, due: subjectDue, isUpdate: p.isUpdate });
+  const headline = p.isUpdate ? `Geändert: ${vocab.prepayment}` : `${vocab.prepayment}: dein Anteil`;
+  const introHtml = p.isUpdate
+    ? `der Plan der ${escapeHtml(vocab.prepayment)} für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> hat sich geändert. Hier deine aktuellen Raten.`
     : `für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> streckt <strong>${escapeHtml(p.advancerName)}</strong> die ${escapeHtml(vocab.prepayment)} vor. Hier dein Anteil und wann du welche Rate zahlst.`;
-  const leadText = p.isUpdate
-    ? `der Anzahlungsplan für ${tripPhrase(p.tripType)} ${p.tripName} hat sich geändert. Hier deine aktuellen Raten.`
+  const introText = p.isUpdate
+    ? `der Plan der ${vocab.prepayment} für ${tripPhrase(p.tripType)} ${p.tripName} hat sich geändert. Hier deine aktuellen Raten.`
     : `für ${tripPhrase(p.tripType)} ${p.tripName} streckt ${p.advancerName} die ${vocab.prepayment} vor. Hier dein Anteil und wann du welche Rate zahlst.`;
   const status = (t: (typeof rows)[number]) => {
     if (t.paid <= 0.005 && t.pending <= 0.005) return "";
-    if (t.open <= 0.005) return t.pending > 0.005 ? " (gemeldet, wartet auf Bestätigung)" : " (bezahlt)";
+    if (t.open <= 0.005) return t.pending > 0.005 ? ` (${PAYMENT_STATUS.pending})` : " (bezahlt)";
     const parts = [
       t.paid > 0.005 ? `bezahlt ${fmtEuro(t.paid)}` : "",
       t.pending > 0.005 ? `gemeldet ${fmtEuro(t.pending)}` : "",
@@ -361,60 +250,47 @@ export function renderPlanAnnounceCrewMail(p: PlanAnnounceCrewParams): { html: s
     ].filter(Boolean);
     return ` (${parts.join(", ")})`;
   };
-  const rowsHtml = rows
+  const rateHtml = rows
     .map(
-      (t) => `
-                        <tr>
-                          <td style="padding:3px 0;color:#1A2533;"><strong>${escapeHtml(t.label)}</strong> <span style="color:#587EA8;">bis ${escapeHtml(t.crewDue)}${escapeHtml(status(t))}</span></td>
-                          <td style="padding:3px 0;text-align:right;">${fmtEuro(t.amount)}</td>
-                        </tr>`,
+      (t) =>
+        `<strong>${escapeHtml(t.label)}</strong> bis ${escapeHtml(t.crewDue)}: ${fmtEuro(t.amount)}<span style="color:#587EA8;">${escapeHtml(status(t))}</span>`,
     )
-    .join("");
-  const rowsText = rows.map((t) => `  - ${t.label} bis ${t.crewDue}: ${fmtEuro(t.amount)}${status(t)}`).join("\n");
-  // Zahlungsaufforderung nur, wenn noch etwas offen ist (Grill-Fund P2-1).
-  const pay = settled
-    ? { html: "", text: "" }
-    : paymentBlock({ payeeName: p.advancerName, weroId: p.weroId, purpose: `Anzahlung ${p.tripName}` });
-  const summaryHtml = settled
-    ? `<p style="margin:8px 0 0 0;font-size:13px;color:#1E8449;">${escapeHtml(doneText)}</p>`
-    : totalCovered > 0.005
-      ? `<p style="margin:8px 0 0 0;font-size:13px;color:#1A2533;">Noch offen: <strong>${fmtEuro(totalOpen)}</strong></p>`
-      : "";
-  const summaryText = settled ? `\n${doneText}` : totalCovered > 0.005 ? `\nNoch offen: ${fmtEuro(totalOpen)}` : "";
-  const hint = `Schon gezahlt? Dann tippe in der App bei der Rate auf „Ich habe gezahlt“, damit ${p.advancerName} die Zahlung bestätigen kann.`;
+    .join("<br/>");
+  const rateText = rows.map((t) => `  - ${t.label} bis ${t.crewDue}: ${fmtEuro(t.amount)}${status(t)}`).join("\n");
 
-  const body = `${headerBlock(headline, p.recipientName, lead)}
-${card(`Dein Anteil gesamt: <strong style="color:#114884;">${fmtEuro(p.total)}</strong> · an <strong>${escapeHtml(p.advancerName)}</strong>
-                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;font-size:13px;">${rowsHtml}
-                      </table>${summaryHtml}`)}
-${pay.html}
-${renderActionButton(p.appUrl, `In der ${vocab.kitty} ansehen`)}
-${settled ? "" : renderHintBlock(hint)}`;
+  const facts: Fact[] = [
+    { label: "Dein Anteil", html: `${fmtEuro(p.total)} gesamt`, text: `${fmtEuro(p.total)} gesamt`, strong: true, color: "#114884" },
+  ];
+  if (totalCovered > 0.005) facts.push({ label: "Noch offen", html: fmtEuro(totalOpen), text: fmtEuro(totalOpen), strong: true });
+  facts.push(
+    settled
+      ? settledStatusFact(totalPending > 0.005)
+      : { label: "Bis wann", html: rateHtml, text: rateText },
+  );
+  facts.push({ label: "An wen", html: `<strong>${escapeHtml(p.advancerName)}</strong>`, text: p.advancerName });
 
-  const html = renderMailShell({
-    title: subject,
+  // „So geht's" nur, wenn noch etwas offen ist (Grill-Fund P2-1).
+  const how: Block | null = settled
+    ? null
+    : howToPayBlock({ payeeName: p.advancerName, weroId: p.weroId, purpose: `Anzahlung ${p.tripName}` });
+
+  return renderPaymentMail({
+    subject,
+    headline,
+    recipientName: p.recipientName,
+    tripName: p.tripName,
+    introHtml,
+    introText,
     preheader: settled
       ? "Dein Anteil ist bezahlt"
       : `Offen: ${fmtEuro(totalOpen)} in ${rows.length} ${rows.length === 1 ? "Rate" : "Raten"}`,
-    subtitle: p.tripName,
-    body,
+    appUrl: p.appUrl,
+    facts,
+    how,
+    hint: settled
+      ? null
+      : `Schon gezahlt? Dann tippe in der App bei der Rate auf „Ich habe gezahlt“, damit ${p.advancerName} die Einzahlung bestätigen kann.`,
   });
-
-  const text = `${headline}
-${p.tripName}
-
-Hi ${p.recipientName},
-
-${leadText}
-
-Dein Anteil gesamt: ${fmtEuro(p.total)} (an ${p.advancerName})
-${rowsText}${summaryText}
-${pay.text ? `\n${pay.text}\n` : ""}${settled ? "" : `\n${hint}\n`}
-In der App: ${p.appUrl}
-
-${FOOTER}`;
-
-  return { html, text, subject };
 }
 
 export interface PlanAdvancerTranche {
@@ -441,70 +317,44 @@ export interface PlanAnnounceAdvancerParams {
 
 export function renderPlanAnnounceAdvancerMail(p: PlanAnnounceAdvancerParams): { html: string; text: string; subject: string } {
   const vocab = tripVocab(p.tripType);
-  const subject = p.isUpdate
-    ? `${vocab.prepayment}: Plan geändert – Übersicht für dich`
-    : `${vocab.prepayment}: Übersicht für dich – ${p.tripName}`;
-  const headline = p.isUpdate ? "Anzahlungsplan hat sich geändert" : "Du streckst vor";
-  const lead = `für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> streckst du die ${escapeHtml(vocab.prepayment)} vor. ${p.isUpdate ? "Der Plan hat sich geändert — hier" : "Hier"} die Übersicht: was du an den ${escapeHtml(vocab.provider)} zahlst und was die ${escapeHtml(vocab.crew)} dir überweist.`;
-  const leadText = `für ${tripPhrase(p.tripType)} ${p.tripName} streckst du die ${vocab.prepayment} vor. ${p.isUpdate ? "Der Plan hat sich geändert — hier" : "Hier"} die Übersicht: was du an den ${vocab.provider} zahlst und was die ${vocab.crew} dir überweist.`;
-  const trHtml = p.tranches
+  const subjectDue = p.tranches[0]?.charterDue ?? null;
+  const subject = advanceSubject({ what: vocab.prepayment, amount: p.providerTotal, due: subjectDue, isUpdate: p.isUpdate });
+  const headline = p.isUpdate ? `Geändert: ${vocab.prepayment}` : "Du streckst vor";
+  const introHtml = `für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> streckst du die ${escapeHtml(vocab.prepayment)} vor. ${p.isUpdate ? "Der Plan hat sich geändert — hier" : "Hier"} die Übersicht: was du an den Anbieter zahlst und was die ${escapeHtml(vocab.crew)} dir überweist.`;
+  const introText = `für ${tripPhrase(p.tripType)} ${p.tripName} streckst du die ${vocab.prepayment} vor. ${p.isUpdate ? "Der Plan hat sich geändert — hier" : "Hier"} die Übersicht: was du an den Anbieter zahlst und was die ${vocab.crew} dir überweist.`;
+  const rateHtml = p.tranches
     .map(
-      (t) => `
-                        <tr>
-                          <td style="padding:3px 0;color:#1A2533;"><strong>${escapeHtml(t.label)}</strong> <span style="color:#587EA8;">fällig ${escapeHtml(t.charterDue)}</span></td>
-                          <td style="padding:3px 0;text-align:right;">${fmtEuro(t.toProvider)}</td>
-                        </tr>
-                        <tr>
-                          <td style="padding:0 0 4px 0;color:#587EA8;font-size:12px;">davon von der ${escapeHtml(vocab.crew)}</td>
-                          <td style="padding:0 0 4px 0;text-align:right;color:#587EA8;font-size:12px;">${fmtEuro(t.fromCrew)}</td>
-                        </tr>`,
+      (t) =>
+        `<strong>${escapeHtml(t.label)}</strong> bis ${escapeHtml(t.charterDue)}: ${fmtEuro(t.toProvider)}<br/><span style="color:#587EA8;font-size:12px;">davon von der ${escapeHtml(vocab.crew)}: ${fmtEuro(t.fromCrew)}</span>`,
     )
-    .join("");
-  const trText = p.tranches
-    .map((t) => `  - ${t.label} (fällig ${t.charterDue}): ${fmtEuro(t.toProvider)} an den ${vocab.provider}, davon ${fmtEuro(t.fromCrew)} von der ${vocab.crew}`)
+    .join("<br/>");
+  const rateText = p.tranches
+    .map((t) => `  - ${t.label} bis ${t.charterDue}: ${fmtEuro(t.toProvider)} an den Anbieter, davon ${fmtEuro(t.fromCrew)} von der ${vocab.crew}`)
     .join("\n");
   const table = personTable(p.rows);
   const ownLine = p.ownAmount > 0.005 ? `Dein eigener Anteil: ${fmtEuro(p.ownAmount)} (Selbstverrechnung)` : "";
 
-  const body = `${headerBlock(headline, p.recipientName, lead)}
-${card(`Summe an den ${escapeHtml(vocab.provider)}: <strong>${fmtEuro(p.providerTotal)}</strong>
-                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;font-size:13px;">${trHtml}
-                      </table>`)}
-${
-  p.rows.length > 0 || ownLine
-    ? card(`<strong>Soll je Person</strong>
-                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:6px;font-size:13px;">${table.html}
-                      </table>
-                      ${ownLine ? `<p style="margin:8px 0 0 0;font-size:13px;color:#587EA8;">${escapeHtml(ownLine)}</p>` : ""}`)
-    : ""
-}
-${renderActionButton(p.appUrl, `In der ${vocab.kitty} ansehen`)}
-${renderHintBlock(
-  `Die ${vocab.crew} soll jeweils 3 Tage vor der Fälligkeit zahlen, damit du das Geld rechtzeitig zusammen hast. Bestätige eingehende Zahlungen in der App.`,
-)}`;
+  const facts: Fact[] = [
+    { label: "Du streckst vor", html: fmtEuro(p.providerTotal), text: fmtEuro(p.providerTotal), strong: true, color: "#114884" },
+    { label: "Bis wann", html: rateHtml, text: rateText },
+    { label: "An wen", html: "<strong>Anbieter</strong>", text: "Anbieter" },
+  ];
+  const extra: Block[] = [];
+  if (p.rows.length > 0 || ownLine) extra.push(titledTableCard("Soll je Person", table, ownLine || undefined));
 
-  const html = renderMailShell({
-    title: subject,
-    preheader: `${fmtEuro(p.providerTotal)} an den ${vocab.provider} in ${p.tranches.length} ${p.tranches.length === 1 ? "Rate" : "Raten"}`,
-    subtitle: p.tripName,
-    body,
+  return renderPaymentMail({
+    subject,
+    headline,
+    recipientName: p.recipientName,
+    tripName: p.tripName,
+    introHtml,
+    introText,
+    preheader: `${fmtEuro(p.providerTotal)} an den Anbieter in ${p.tranches.length} ${p.tranches.length === 1 ? "Rate" : "Raten"}`,
+    appUrl: p.appUrl,
+    facts,
+    extra,
+    how: howToBlock(
+      `Die ${vocab.crew} soll jeweils 3 Tage vor der Fälligkeit zahlen, damit du das Geld rechtzeitig zusammen hast. Bestätige eingehende Einzahlungen in der App.`,
+    ),
   });
-
-  const text = `${headline}
-${p.tripName}
-
-Hi ${p.recipientName},
-
-${leadText}
-
-Summe an den ${vocab.provider}: ${fmtEuro(p.providerTotal)}
-${trText}
-${p.rows.length > 0 ? `\nSoll je Person:\n${table.text}\n` : ""}${ownLine ? `\n${ownLine}\n` : ""}
-Die ${vocab.crew} soll jeweils 3 Tage vor der Fälligkeit zahlen, damit du das Geld rechtzeitig zusammen hast. Bestätige eingehende Zahlungen in der App.
-
-In der App: ${p.appUrl}
-
-${FOOTER}`;
-
-  return { html, text, subject };
 }

@@ -233,7 +233,7 @@ export async function requireSkipperAdminOrItemPayee(itemId: string): Promise<It
     .maybeSingle();
   if (error) {
     console.error("[bordkasse:db] requireSkipperAdminOrItemPayee:", error.message);
-    return { ok: false, message: "Posten konnte nicht geladen werden. Bitte erneut versuchen." };
+    return { ok: false, message: "Weitere Zahlung konnte nicht geladen werden. Bitte erneut versuchen." };
   }
   // Einheitliche Meldung für „gibt es nicht" und „keine Rechte" (Review P3) —
   // sonst verriete die Antwort, ob eine Posten-ID existiert.
@@ -258,4 +258,4 @@ export async function requireSkipperAdminOrItemPayee(itemId: string): Promise<It
 }
 
 const ITEM_FORBIDDEN_MSG =
-  "Posten nicht gefunden oder keine Berechtigung (nur Skipper, Admin oder die Person, die den Posten empfängt).";
+  "Weitere Zahlung nicht gefunden oder keine Berechtigung (nur Skipper, Admin oder die vorstreckende Person).";

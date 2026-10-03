@@ -70,7 +70,7 @@ export async function notifyItemCrew(tripId: string, itemId: string): Promise<No
   if (!archived.ok) return { status: "error", message: archived.message };
   // Cross-Trip: der Posten muss zu DIESEM Törn gehören (Rolle gilt nur dort).
   if (!(await itemBelongsToTrip(supabase, itemId, tripId))) {
-    return { status: "error", message: "Dieser Posten gehört nicht zu diesem Törn. Bitte Seite neu laden." };
+    return { status: "error", message: "Diese weitere Zahlung gehört nicht zu diesem Törn. Bitte Seite neu laden." };
   }
 
   const result = await sendItemAnnouncement(supabase, { tripId, itemId, actorId: auth.personId, isUpdate: true });

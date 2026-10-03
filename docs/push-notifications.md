@@ -24,13 +24,13 @@
 | Schuld abgehakt (`toggleDebtSettled`) | ✅ | nur Gegenpartei | Observer (Skipper/Vorstrecker) = **Mail-only** |
 | Anzahlungs-Reminder `crew_3d` (Cron) | ✅ | offene Crew | teilt `prepayment_reminder_log` mit der Mail |
 | Charter-Reminder `advancer_3d` (Cron) | ✅ | Vorstrecker | |
-| Posten-Erinnerung `item_crew_3d` (Cron) | ✅ | offene Crew eines Postens | teilt `prepayment_item_reminder_log` mit der Mail, Tag `item-<item>` |
-| Posten-Übersicht `item_payee_3d` (Cron) | ✅ | Empfänger des Postens | Tag `item-payee-<item>` |
+| Erinnerung weitere Zahlung `item_crew_3d` (Cron; intern „Posten") | ✅ | offene Crew einer weiteren Zahlung | teilt `prepayment_item_reminder_log` mit der Mail, Tag `item-<item>` |
+| Übersicht `item_payee_3d` (Cron) | ✅ | vorstreckende Person der weiteren Zahlung | Tag `item-payee-<item>` |
 | Selbstmeldung „ich habe gezahlt" | ✅ | Vorstrecker | actionable |
 | Zahlung bestätigt / abgelehnt / erfasst | ✅ | betroffene Crewperson | Actor ausgenommen |
-| Posten-Selbstmeldung (`submitItemSelfPayment`, PR6) | ✅ | Posten-Empfänger | Tag `item-pending-<item>-<melder>` |
-| Posten-Zahlung erfasst / bestätigt / abgelehnt (PR6) | ✅ | zahlende Person (+ Empfänger bei Dritt-Aktion) | Actor ausgenommen, gleiche Empfänger wie die Mail |
-| „Posten angelegt" / „Posten geändert" (PR6) | ✅ | alle mit Soll > 0 + Empfänger, ohne Actor | Tag `item-announce-<item>` — auch an Personen ohne Mail-Adresse |
+| Meldung „Ich habe gezahlt" (`submitItemSelfPayment`, PR6) | ✅ | vorstreckende Person | Tag `item-pending-<item>-<melder>` |
+| Einzahlung erfasst / bestätigt / abgelehnt (weitere Zahlung, PR6) | ✅ | zahlende Person (+ vorstreckende Person bei Dritt-Aktion) | Actor ausgenommen, gleiche Empfänger wie die Mail |
+| Weitere Zahlung angelegt / geändert (PR6) | ✅ | alle mit Soll > 0 + vorstreckende Person, ohne Actor | Tag `item-announce-<item>` — auch an Personen ohne Mail-Adresse |
 | „Anzahlungsplan steht" / „Plan geändert" (PR6) | ✅ | alle mit Soll > 0 + vorstreckende Person, ohne Actor | Tag `plan-announce-<trip>` |
 | Notice an Observer (Dritt-Aktion) | ❌ | — | Mail-only |
 | Crew-Einladung (Magic-Link) | ❌ | — | technisch unmöglich (noch kein Abo) |
@@ -124,3 +124,7 @@ Rotieren entwertet alle bestehenden Geräte-Abos (Versand → HTTP 403).
   (iOS widerruft das Abo sonst).
 - Kein zentrales Notification-Center in der App; Push ist flüchtig, die Historie
   steht in den jeweiligen Trip-Tabs + Mails.
+
+## Wording der Pushs (PR7)
+
+Titel nennen die Sache + Betrag, der Body die Frist; „Posten" kommt in keinem Push vor (intern `item` = weitere Zahlung). Beispiele: „Flüge: dein Anteil 180,00 €" / „Bis 12.10.2026 · „Ostsee"" (ohne Datum „Frist folgt"), Update „Geändert: Flüge: dein Anteil …", vorstreckende Person „Flüge: noch 540,00 € an Anbieter überweisen", Meldung „Flüge: 180,00 € von Anna" + „Einzahlung gemeldet – wartet auf Bestätigung. Bitte bestätigen oder ablehnen.", Bestätigung „Einzahlung bestätigt" / Ablehnung „Einzahlung abgelehnt". Gleiche Wörter wie in den Mails (`lib/prepayments/payment-words.ts`).

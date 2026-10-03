@@ -6,6 +6,21 @@ Modul zur Erfassung, Planung und Nachverfolgung von Anzahlungen, die Crewmitglie
 
 > **Sprachregelung:** „Vorstrecker" ist in dieser Spec der interne Konzept-Name (Code-Identifier `advancer_*`, `requireSkipperAdminOrAdvancer`). In **Endnutzer-Texten (UI/Mail)** wird die Rolle geschlechtsneutral formuliert: Badge „Streckt vor", sonst „die vorstreckende Person" bzw. das Verb „vorstrecken". Analog werden „Schuldner/Gläubiger" im UI als „wer zahlt / wer das Geld bekommt" ausgedrückt.
 
+> **Begriffe seit PR7 („Weitere Zahlungen"):** Intern heißt eine weitere Zahlung weiterhin **`item`** bzw. **„Posten"** (Tabellen `prepayment_items`/`prepayment_item_*`, `item_id`, Funktionen `saveItem` …, dieser Spec-Teil). In **allen Nutzertexten** (UI, Mails, Pushs, /about) gibt es das Wort „Posten" nicht mehr — dort heißt es „Weitere Zahlung(en)" (nur in Überschriften/Navigation/Dialogtiteln; Mails und Pushs nennen die Sache beim Label, z. B. „Flüge: dein Anteil 180,00 € bis 12.10."). Der Test `__tests__/term-consistency.test.ts` scannt `app/` + `lib/` (ohne Kommentare) und schlägt bei „Posten" im Nutzertext fehl. Einheitliche Wörter (`lib/prepayments/payment-words.ts`):
+>
+> | Konzept | Wort |
+> |---|---|
+> | Crew meldet eine Einzahlung | „Ich habe gezahlt" (Modal „Einzahlung melden") |
+> | Skipper/vorstreckende Person bucht eine Einzahlung der Crew | „Einzahlung erfassen" |
+> | vorstreckende Person hat an den Anbieter überwiesen | „Überweisung an Anbieter erfassen" |
+> | Rolle des Geldempfängers (Plan UND weitere Zahlung) | Badge „Streckt vor: Name" / „die vorstreckende Person" — „Empfänger/Empfängt" entfällt |
+> | Gegenstelle der Karte | „Anbieter" (nie Vercharterer/Charteragentur/Fluggesellschaft; `tripVocab().provider`) |
+> | Status einer Meldung | „gemeldet – wartet auf Bestätigung", „bestätigt", „abgelehnt" |
+>
+> **Eine Kartenstruktur:** Anzahlungsplan („Yachtanzahlung"/„Urlaubsanzahlung" über `tripVocab().prepayment`) und jede weitere Zahlung haben dieselbe Anatomie (`payment-card-parts.tsx`): Kopf (Icon + Titel + Betrag + Frist(en) + Badge „Streckt vor: Name" + Gesamtstatus), zwei Fortschrittsbalken „Von der Crew bezahlt" / „An Anbieter bezahlt", Hinweisblock „Noch an Anbieter zu überweisen" (mit „Überweisung an Anbieter erfassen"; beim Plan zusätzlich aufklappbar die Raten-Aufschlüsselung), Personen-/Ratenliste (beim Plan die unveränderte Matrix) und Aktionsleiste in fester Reihenfolge **Einzahlung erfassen · Crew informieren · Bearbeiten** (· Löschen bei weiteren Zahlungen). „Einzahlung erfassen" in der Leiste öffnet erst die Auswahl „Für wen?" (`RecordPickerModal`, nur Personen mit offenem Betrag) und dann den bestehenden Einzahlungs-Dialog; ein Klick auf eine Zelle/Zeile geht weiter direkt. „Plan bearbeiten"/„Crew informieren" sind aus dem Seitenkopf in die Plan-Karte gewandert.
+>
+> **Ein Mail-Gerüst** (`lib/email/payment-mail.ts`, `renderPaymentMail`): Betreff „{Was}: dein Anteil {Betrag} bis {Datum}" (ohne Datum „– Frist folgt"; Update „Geändert: …"; Erinnerung „Erinnerung: …"), vorstreckende Person „{Was}: du streckst {Betrag} vor – bis {Datum}", Ereignisse „{Was}: {Betrag} von {Name} – {Status}". Blöcke immer „Dein Anteil · Bis wann · An wen · So geht's" (vorstreckend: „Du streckst vor · Bis wann · An wen · So geht's" plus Übersicht Soll Anbieter / von der Crew bei dir / an Anbieter überwiesen / noch zu überweisen), CTA überall „Zahlungen öffnen", Anrede „Hi {Name}," und dieselbe Fußzeile. Wero-Regel unverändert (ohne Wero-ID keine Wero-Erwähnung). Pushs (`lib/notify/payloads.ts`) analog: Titel nennt die Sache + Betrag, Body die Frist.
+
 ## Problem
 
 Ein realer Fall: Skipper bucht die Yacht 10 Monate vor dem Törn und streckt die Anzahlung vor. Crewmitglieder sagen zu und überweisen ihre Beteiligung **in unterschiedlichem Tempo** — manche sofort, manche erst kurz vor Törn-Start, manche gar nicht. Zwischendurch fällt Person A ab, Person B rückt nach; B übernimmt die Anzahlung, die A bereits geleistet hatte.
@@ -854,14 +869,14 @@ App-Merge auf Produktion einspielen, danach `NOTIFY pgrst, 'reload schema';`.
 
 ## Weitere Posten — Oberfläche (PR4b)
 
-**Wo:** Sektion „Weitere Posten" unter der Matrix auf `/trips/[id]/prepayments`
+**Wo:** Sektion „Weitere Zahlungen" (intern: Posten) unter der Plan-Karte auf `/trips/[id]/prepayments`
 (`items-section.tsx`). Sie funktioniert auch **ohne Anzahlungsplan** (eigener
 Posten-Törn ohne Charter); die Seite zeigt dann die Karte „Noch kein
 Anzahlungsplan" plus die Posten. Einstieg: Anzahlungen-Tab (erscheint über
 `getPrepaymentNavState` jetzt auch wegen Posten, Regel `itemsNavRelevant`:
 Skipper/Admin = irgendein Posten nicht abgeschlossen, Empfänger = eigener
 Posten nicht abgeschlossen, Crew = eigener Anteil offen/gemeldet) und Settings
-→ „Anzahlungsplan" → „Weitere Posten verwalten".
+→ „Anzahlungsplan" → „Weitere Zahlungen verwalten".
 
 **Rollensicht:**
 

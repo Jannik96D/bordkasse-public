@@ -142,13 +142,12 @@ function PrepaymentsSummary({
   tripType: TripType;
 }) {
   const vocab = tripVocab(tripType);
-  const isOther = tripType === "other";
   // Σ Beiträge (für Header-Zeile)
   const sumSoll = poolBalances.reduce((s, p) => s + p.soll, 0);
   const sumPaid = poolBalances.reduce((s, p) => s + Math.min(p.paid, p.soll), 0);
   const sumOpen = Math.max(0, sumSoll - sumPaid);
 
-  // Charterauslage: was wurde an den Vercharterer überwiesen vs. Soll
+  // Auslage: was wurde an den Anbieter überwiesen vs. Soll
   const charterSoll = planTotal;
   const charterOpen = Math.max(0, charterSoll - charterPaid);
   const charterFulfilled = charterSoll > 0 && charterOpen <= 0.005;
@@ -241,7 +240,7 @@ function PrepaymentsSummary({
           </div>
           {charterOpen > 0.005 && (
             <p className="mt-2 text-xs text-ink-soft">
-              Noch <strong className="text-danger">{formatEuro(charterOpen)}</strong> {isOther ? "an den Anbieter" : "an die Charteragentur"} zu überweisen.
+              Noch <strong className="text-danger">{formatEuro(charterOpen)}</strong> an den Anbieter zu überweisen.
             </p>
           )}
         </div>
@@ -263,11 +262,11 @@ function balanceExplanation(tripType: TripType, hasPlan: boolean, hasItems: bool
     parts.push(
       other
         ? "„Anzahlung“ ist das Geld für die Reise, das vorab an den Anbieter gezahlt wird."
-        : "„Anzahlung“ ist das Geld für die Yachtcharter, das vorab an den Vercharterer gezahlt wird.",
+        : "„Anzahlung“ ist das Geld für die Yachtcharter, das vorab an den Anbieter gezahlt wird.",
     );
   }
   if (hasItems) {
-    parts.push("„Weitere Posten“ sind Zahlungen neben der Anzahlung, z. B. Flüge oder Bahn für die An-/Abreise.");
+    parts.push("„Weitere Zahlungen“ sind Zahlungen neben der Anzahlung, z. B. Flüge oder Bahn für die An-/Abreise.");
   }
   parts.push(
     other
@@ -309,7 +308,7 @@ function ItemsSummary({
   return (
     <section className="mb-4 rounded-lg border border-rule bg-paper p-4" aria-labelledby="items-summary-heading">
       <div className="mb-2 flex items-baseline justify-between gap-2">
-        <h2 id="items-summary-heading" className="text-sm font-semibold text-primary">Weitere Posten</h2>
+        <h2 id="items-summary-heading" className="text-sm font-semibold text-primary">Weitere Zahlungen</h2>
         <Link className="inline-flex min-h-[44px] items-center text-xs text-primary hover:underline" href={`/trips/${tripId}/prepayments`}>
           Details →
         </Link>
@@ -345,13 +344,13 @@ function ItemsSummary({
       <div className="mt-3 overflow-hidden rounded-md border border-rule">
         <table className="w-full text-sm">
           <caption className="sr-only">
-            Saldo pro Person: erst nur der Topf „Weitere Posten“, dann Gesamt aus allen Töpfen. Positive Beträge bekommen
+            Saldo pro Person: erst nur der Topf „Weitere Zahlungen“, dann Gesamt aus allen Töpfen. Positive Beträge bekommen
             Geld zurück, negative zahlen nach.
           </caption>
           <thead className="bg-paper-soft text-xs text-ink-soft">
             <tr>
               <th scope="col" className="px-3 py-2 text-left font-medium">Person</th>
-              <th scope="col" className="px-3 py-2 text-right font-medium">Weitere Posten</th>
+              <th scope="col" className="px-3 py-2 text-right font-medium">Weitere Zahlungen</th>
               <th scope="col" className="px-3 py-2 text-right font-medium">Gesamt</th>
             </tr>
           </thead>
@@ -367,7 +366,7 @@ function ItemsSummary({
                   )}
                 </th>
                 <td className={`px-3 py-2 text-right tabular-nums ${p.itemBalance > 0.005 ? "text-success" : p.itemBalance < -0.005 ? "text-danger" : "text-ink-soft"}`}>
-                  <span className="sr-only">{srSaldo(p.name, p.itemBalance, "Weitere Posten")}</span>
+                  <span className="sr-only">{srSaldo(p.name, p.itemBalance, "Weitere Zahlungen")}</span>
                   <span aria-hidden>{fmtSigned(p.itemBalance)}</span>
                 </td>
                 <td className={`px-3 py-2 text-right font-semibold tabular-nums ${p.total > 0.005 ? "text-success" : p.total < -0.005 ? "text-danger" : "text-ink-soft"}`}>
@@ -380,7 +379,7 @@ function ItemsSummary({
         </table>
       </div>
       <p className="mt-2 text-xs text-ink-soft">
-        „Weitere Posten“ enthält nur die Buchungen dieser Posten — die Bordkasse-Tabelle oben zählt sie nicht mit. „Gesamt“ ist die
+        „Weitere Zahlungen“ enthält nur deren Buchungen — die Bordkasse-Tabelle oben zählt sie nicht mit. „Gesamt“ ist die
         Summe aus allen Töpfen.
       </p>
     </section>

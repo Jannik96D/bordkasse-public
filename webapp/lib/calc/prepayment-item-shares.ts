@@ -53,10 +53,10 @@ export function calculateItemObligations(
   members: ItemMember[],
 ): ItemObligationResult {
   if (!(totalAmount > 0)) {
-    return { ok: false, message: "Der Betrag des Postens muss größer als 0 € sein." };
+    return { ok: false, message: "Der Betrag muss größer als 0 € sein." };
   }
   if (members.length === 0) {
-    return { ok: false, message: "Für diesen Posten ist niemand eingetragen." };
+    return { ok: false, message: "Hier ist niemand eingetragen." };
   }
   if (splitType === "individuell") {
     if (members.some((m) => (m.manualAmount ?? 0) < 0)) {
@@ -68,7 +68,7 @@ export function calculateItemObligations(
     if (sumCents !== totalCents) {
       return {
         ok: false,
-        message: `Die Einzelbeträge ergeben ${euro(sumCents)}, der Posten kostet ${euro(totalCents)}. Bitte angleichen.`,
+        message: `Die Einzelbeträge ergeben ${euro(sumCents)}, der Betrag ist ${euro(totalCents)}. Bitte angleichen.`,
       };
     }
     return { ok: true, shares: members.map((m, i) => ({ personId: m.personId, amount: cents[i] / 100 })) };

@@ -1,23 +1,28 @@
 /**
- * Generische Info-Mail für Anzahlungs-Aktionen, die von einer DRITTEN Person
- * (Admin, Co-Skipper, Vorstrecker) ausgelöst werden — und über die der
- * Betroffene normalerweise informiert werden sollte.
+ * Generische Info-Mail für Aktionen zum Anzahlungsplan, die von einer DRITTEN
+ * Person (Admin, Co-Skipper, vorstreckende Person) ausgelöst werden — und über
+ * die der Betroffene normalerweise informiert werden sollte.
  *
  * Drei Varianten (`kind`):
- *   - "payment_recorded"  → Eine Anzahlung wurde im Namen von X erfasst.
- *                           Empfänger: die Crewperson UND der Vorstrecker
- *                           (sofern Actor ≠ Vorstrecker).
+ *   - "payment_recorded"  → Eine Einzahlung wurde im Namen von X erfasst.
+ *                           Empfänger: die Crewperson UND die vorstreckende
+ *                           Person (sofern Actor ≠ vorstreckende Person).
  *   - "payment_confirmed" → Eine Selbstmeldung von X wurde bestätigt.
- *                           Empfänger: Vorstrecker, falls Actor ≠ Vorstrecker.
  *   - "payment_rejected"  → Eine Selbstmeldung von X wurde abgelehnt.
- *                           Empfänger: Vorstrecker und (sofern unterscheidbar)
- *                           die Crewperson, damit sie reagieren kann.
  *
- * Layout via mail-shell.
+ * Layout über das gemeinsame Gerüst `payment-mail.ts`.
  */
 
-import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
+import { escapeHtml, fmtEuro } from "./mail-shell";
 import { tripVocab } from "@/lib/trip-vocab";
+import {
+  EVENT_WORD,
+  eventSubject,
+  howToBlock,
+  renderPaymentMail,
+  type Fact,
+  type PaymentEventKind,
+} from "./payment-mail";
 
 export type PrepaymentNoticeKind = "payment_recorded" | "payment_confirmed" | "payment_rejected";
 
@@ -27,7 +32,7 @@ export type PrepaymentNoticeParams = {
   actorName: string;
   /** Name der Crewperson, um die es bei der Buchung geht. */
   subjectPersonName: string;
-  /** Optional: Name des Vorstreckers, wenn der Empfänger nicht selbst der Vorstrecker ist. */
+  /** Optional: Name der vorstreckenden Person, wenn der Empfänger nicht selbst vorstreckt. */
   advancerName?: string;
   amount: number;
   trancheLabel: string;
@@ -35,6 +40,12 @@ export type PrepaymentNoticeParams = {
   appUrl: string;
   /** Reise-Typ — steuert das Vokabular (Bordkasse/Skipper vs. Urlaubskasse/Reiseleitung). */
   tripType: "sailing" | "other";
+};
+
+const KIND_MAP: Record<PrepaymentNoticeKind, PaymentEventKind> = {
+  payment_recorded: "recorded",
+  payment_confirmed: "confirmed",
+  payment_rejected: "rejected",
 };
 
 export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
@@ -46,110 +57,71 @@ export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
   // Dativ für „sprich mit … oder {…}" — Segeltörn „dem Skipper", sonst
   // „der Reiseleitung".
   const skipperDative = p.tripType === "other" ? "der Reiseleitung" : "dem Skipper";
-  let subject: string;
+  const event = KIND_MAP[p.kind];
+  const what = `${vocab.prepayment} (${p.trancheLabel})`;
+  const amount = fmtEuro(p.amount);
+  const a = escapeHtml(p.actorName);
+  const s = escapeHtml(p.subjectPersonName);
+  const t = escapeHtml(p.trancheLabel);
+
   let headline: string;
+  let introHtml: string;
   let introText: string;
-  let pillColor = "#587EA8";
+  let accent = "#587EA8";
 
   switch (p.kind) {
-    case "payment_recorded":
-      subject = `Anzahlung erfasst: ${p.subjectPersonName} (${fmtEuro(p.amount)})`;
-      headline = "Anzahlung wurde erfasst";
-      introText =
-        p.recipientName === p.subjectPersonName
-          ? `${escapeHtml(p.actorName)} hat soeben eine Anzahlung in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} im Namen von dir erfasst.`
-          : `${escapeHtml(p.actorName)} hat soeben eine Anzahlung von ${escapeHtml(p.subjectPersonName)} in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} in der ${vocab.kitty} erfasst.`;
-      pillColor = "#1E8449";
+    case "payment_recorded": {
+      headline = "Einzahlung erfasst";
+      const self = p.recipientName === p.subjectPersonName;
+      introHtml = self
+        ? `${a} hat soeben eine Einzahlung in Höhe von ${amount} für ${t} im Namen von dir erfasst.`
+        : `${a} hat soeben eine Einzahlung von ${s} in Höhe von ${amount} für ${t} in der ${vocab.kitty} erfasst.`;
+      introText = self
+        ? `${p.actorName} hat soeben eine Einzahlung in Höhe von ${amount} für ${p.trancheLabel} im Namen von dir erfasst.`
+        : `${p.actorName} hat soeben eine Einzahlung von ${p.subjectPersonName} in Höhe von ${amount} für ${p.trancheLabel} in der ${vocab.kitty} erfasst.`;
+      accent = "#1E8449";
       break;
+    }
     case "payment_confirmed":
-      subject = `Anzahlung bestätigt: ${p.subjectPersonName} (${fmtEuro(p.amount)})`;
-      headline = "Anzahlung wurde bestätigt";
-      introText = `${escapeHtml(p.actorName)} hat soeben die Selbstmeldung von ${escapeHtml(p.subjectPersonName)} in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} als bestätigt markiert.`;
-      pillColor = "#1E8449";
+      headline = "Einzahlung bestätigt";
+      introHtml = `${a} hat soeben die Meldung von ${s} in Höhe von ${amount} für ${t} bestätigt.`;
+      introText = `${p.actorName} hat soeben die Meldung von ${p.subjectPersonName} in Höhe von ${amount} für ${p.trancheLabel} bestätigt.`;
+      accent = "#1E8449";
       break;
     case "payment_rejected":
-      subject = `Anzahlung abgelehnt: ${p.subjectPersonName} (${fmtEuro(p.amount)})`;
-      headline = "Anzahlung wurde abgelehnt";
-      introText = `${escapeHtml(p.actorName)} hat soeben die Selbstmeldung von ${escapeHtml(p.subjectPersonName)} in Höhe von ${fmtEuro(p.amount)} für ${escapeHtml(p.trancheLabel)} abgelehnt.`;
-      pillColor = "#A93226";
+      headline = "Einzahlung abgelehnt";
+      introHtml = `${a} hat soeben die Meldung von ${s} in Höhe von ${amount} für ${t} abgelehnt.`;
+      introText = `${p.actorName} hat soeben die Meldung von ${p.subjectPersonName} in Höhe von ${amount} für ${p.trancheLabel} abgelehnt.`;
+      accent = "#A93226";
       break;
   }
 
   const followupText =
     p.kind === "payment_rejected"
-      ? `Falls die Ablehnung ein Versehen war, sprich kurz mit der vorstreckenden Person oder ${skipperDative}, die Buchung kann neu erfasst werden.`
-      : `Falls etwas nicht stimmt, sprich kurz mit der vorstreckenden Person oder ${skipperDative}, Buchungen können in der App noch geändert werden.`;
+      ? `Falls die Ablehnung ein Versehen war, sprich kurz mit der vorstreckenden Person oder ${skipperDative}, die Einzahlung kann neu erfasst werden.`
+      : `Falls etwas nicht stimmt, sprich kurz mit der vorstreckenden Person oder ${skipperDative}, Einzahlungen können in der App noch geändert werden.`;
 
-  const detailLine = `${escapeHtml(p.subjectPersonName)} · ${escapeHtml(p.trancheLabel)} · ${fmtEuro(p.amount)}`;
+  const facts: Fact[] = [
+    { label: "Was", html: escapeHtml(what), text: what },
+    { label: "Von", html: `<strong>${s}</strong>`, text: p.subjectPersonName },
+    { label: "Betrag", html: amount, text: amount, strong: true, color: "#114884" },
+    { label: "Status", html: escapeHtml(EVENT_WORD[event]), text: EVENT_WORD[event] },
+  ];
 
-  const body = `
-            <tr>
-              <td style="padding:32px 32px 8px 32px;">
-                <h2 style="margin:0 0 12px 0;font-size:18px;font-weight:600;color:#1D4281;">
-                  ${escapeHtml(headline)}
-                </h2>
-                <p style="margin:0 0 12px 0;font-size:15px;line-height:1.55;color:#1A2533;">
-                  Hi ${escapeHtml(p.recipientName)},
-                </p>
-                <p style="margin:0 0 16px 0;font-size:15px;line-height:1.55;color:#1A2533;">
-                  ${introText}
-                </p>
-              </td>
-            </tr>
-
-            <tr>
-              <td style="padding:0 32px 8px 32px;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                  <tr>
-                    <td style="padding:12px 16px;background-color:#F4F2EC;border-left:3px solid ${pillColor};border-radius:6px;font-size:14px;color:#1A2533;">
-                      ${detailLine}
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-
-            <tr>
-              <td style="padding:16px 32px 8px 32px;">
-                <p style="margin:0;font-size:14px;line-height:1.55;color:#1A2533;">
-                  ${escapeHtml(followupText)}
-                </p>
-              </td>
-            </tr>
-${renderActionButton(p.appUrl, `In der ${vocab.kitty} ansehen`)}
-${renderHintBlock(
-  p.advancerName
-    ? `Du bekommst diese Mail, weil ${p.advancerName} für ${p.tripType === "other" ? "diese Reise" : "diesen Törn"} vorstreckt und ${p.actorName} eine Aktion zu deiner Anzahlung ausgelöst hat.`
-    : `Du bekommst diese Mail, weil die Anzahlungen an dich gehen (du streckst für ${p.tripType === "other" ? "diese Reise" : "diesen Törn"} vor). Aktionen anderer Personen — wie ${p.actorName} hier — landen automatisch bei dir.`,
-)}`;
-
-  const html = renderMailShell({
-    title: subject,
-    preheader: `${p.actorName}: ${p.subjectPersonName} · ${p.trancheLabel} · ${fmtEuro(p.amount)}`,
-    subtitle: p.tripName,
-    body,
+  return renderPaymentMail({
+    subject: eventSubject({ what, kind: event, who: p.subjectPersonName, amount: p.amount }),
+    headline,
+    recipientName: p.recipientName,
+    tripName: p.tripName,
+    introHtml,
+    introText,
+    preheader: `${p.actorName}: ${p.subjectPersonName} · ${p.trancheLabel} · ${amount}`,
+    appUrl: p.appUrl,
+    facts,
+    accent,
+    how: howToBlock(followupText),
+    hint: p.advancerName
+      ? `Du bekommst diese Mail, weil ${p.advancerName} für ${p.tripType === "other" ? "diese Reise" : "diesen Törn"} vorstreckt und ${p.actorName} eine Aktion zu deiner Einzahlung ausgelöst hat.`
+      : `Du bekommst diese Mail, weil die Einzahlungen an dich gehen (du streckst für ${p.tripType === "other" ? "diese Reise" : "diesen Törn"} vor). Aktionen anderer Personen — wie ${p.actorName} hier — landen automatisch bei dir.`,
   });
-
-  const text = `${headline}
-${p.tripName}
-
-Hi ${p.recipientName},
-
-${stripTags(introText)}
-
-  ${p.subjectPersonName} · ${p.trancheLabel} · ${fmtEuro(p.amount)}
-
-${followupText}
-
-In der App: ${p.appUrl}
-
-—
-Bordkasse · Faire Kostenaufteilung auf Segeltörns
-`;
-
-  return { html, text, subject };
-}
-
-function stripTags(s: string): string {
-  return s.replace(/<[^>]+>/g, "");
 }

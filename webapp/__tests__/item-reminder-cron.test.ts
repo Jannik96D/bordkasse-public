@@ -128,7 +128,11 @@ describe("Posten-Erinnerungen im Cron", () => {
     const [y, m, d] = today().split("-");
     const crewDue = `${Number(d)}.${Number(m)}.${y}`;
     const anna = mockedSendMail.mock.calls.map((c) => c[0] as { to: string; html: string }).find((x) => x.to === "anna@example.test")!;
-    expect(anna.html).toContain(`bitte zahlen bis ${crewDue}`);
+    // Kein Regex aus dem Datum bauen (CodeQL js/incomplete-sanitization): das
+    // Datum muss NACH der Zeile „Bis wann" als <strong> stehen.
+    const bisWann = anna.html.indexOf("Bis wann");
+    expect(bisWann).toBeGreaterThan(-1);
+    expect(anna.html.indexOf(`<strong>${crewDue}</strong>`, bisWann)).toBeGreaterThan(bisWann);
   });
 
   it("zweiter Lauf am selben Tag verschickt nichts (Dedup)", async () => {

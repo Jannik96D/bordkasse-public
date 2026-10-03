@@ -11,6 +11,7 @@
 
 import { safeMathEval } from "@/lib/utils/math-eval";
 import { parseAmountDe } from "@/lib/utils";
+import { PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
 import type { ItemCellStatus, ItemSplitType } from "@/lib/calc/prepayment-item-shares";
 
 /** Struktureller Ausschnitt von `PrepaymentItemView` (kein Server-Import im Client). */
@@ -49,7 +50,7 @@ export const ITEM_STATUS_META: Record<ItemCellStatus, StatusMeta> = {
   open: { glyph: "○", label: "offen", box: "border-rule bg-paper text-ink-soft", text: "text-ink-soft" },
   pending: {
     glyph: "⏳",
-    label: "gemeldet, wartet auf Bestätigung",
+    label: PAYMENT_STATUS.pending,
     box: "border-amber-400 bg-amber-50 text-base",
     text: "text-amber-700",
   },
@@ -76,7 +77,7 @@ export function itemCellAriaLabel(args: {
   if (open > 0.005) parts.push(`${fmt(open)} offen`);
   if (paid > soll + 0.005) parts.push(`${fmt(paid - soll)} zu viel`);
   if (pending > 0.005) parts.push(`${fmt(pending)} gemeldet`);
-  return parts.join(", ") + (actionable ? ". Zahlung erfassen" : "");
+  return parts.join(", ") + (actionable ? ". Einzahlung erfassen" : "");
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -197,18 +198,18 @@ export function itemLocks(item: ItemLike): ItemLocks {
   const livingCredits = confirmedCrew || pending;
 
   const distributionReason = providerPaid
-    ? "Für diesen Posten ist schon eine Zahlung an den Anbieter gebucht. Betrag und Aufteilung lassen sich danach nicht mehr ändern. Lösche zuerst die Anbieter-Zahlung in der Buchungsliste und erfasse sie nach der Änderung neu."
+    ? "Hier ist schon eine Überweisung an den Anbieter gebucht. Betrag und Aufteilung lassen sich danach nicht mehr ändern. Lösche zuerst die Überweisung in der Buchungsliste und erfasse sie nach der Änderung neu."
     : null;
   const payeeReason = providerPaid
-    ? "Der Empfänger hat schon an den Anbieter gezahlt und lässt sich deshalb nicht mehr wechseln."
+    ? "Die vorstreckende Person hat schon an den Anbieter überwiesen und lässt sich deshalb nicht mehr wechseln."
     : livingCredits
-      ? "An den Empfänger wurde schon gezahlt bzw. eine Zahlung gemeldet. Er lässt sich erst wechseln, wenn diese Zahlungen gelöscht bzw. die Meldungen abgelehnt sind."
+      ? "An die vorstreckende Person wurde schon eingezahlt bzw. eine Einzahlung gemeldet. Sie lässt sich erst wechseln, wenn diese Einzahlungen gelöscht bzw. die Meldungen abgelehnt sind."
       : null;
   const deleteReason =
     providerPaid || confirmedCrew
-      ? "Löschen nicht möglich: Es hängen bestätigte Zahlungen am Posten. Lösche sie bei Bedarf zuerst in der Buchungsliste."
+      ? "Löschen nicht möglich: Es hängen bestätigte Zahlungen daran. Lösche sie bei Bedarf zuerst in der Buchungsliste."
       : pending
-        ? "Löschen nicht möglich: Eine Selbstmeldung wartet noch auf Bestätigung. Bitte erst bestätigen oder ablehnen."
+        ? "Löschen nicht möglich: Eine Meldung wartet noch auf Bestätigung. Bitte erst bestätigen oder ablehnen."
         : null;
 
   return {
@@ -354,4 +355,34 @@ export function itemsNavRelevant(
     if (mine && (mine.soll > 0.005 || mine.paid > 0.005 || mine.pending > 0.005) && mine.status !== "paid") return true;
   }
   return false;
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Anzahlungsplan: noch an den Anbieter zu überweisen (Rundungsrand)
+// ────────────────────────────────────────────────────────────────────────
+
+/** Rundungstoleranz: ≤ 1 ct Rest gilt als erledigt (3 × 33,33 € von 100,00 €). */
+export const PROVIDER_REST_TOLERANCE = 0.01;
+
+/**
+ * Rest an den Anbieter aus den RATEN-Soll-Beträgen (je Rate auf Cent gerundet)
+ * statt aus der Plansumme: 100,00 € in 3 × 33,33 € → Σ Soll 99,99 €; sind alle
+ * Raten überwiesen, bleibt nichts offen. Rest ≤ 1 ct zählt als erledigt.
+ */
+export function planProviderRemaining(
+  totalAmount: number,
+  tranches: { id: string; percent: number }[],
+  paidByTranche: Record<string, number>,
+): { outstanding: number; nextOpenId: string | null } {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const sollOf = (t: { percent: number }) => r2((totalAmount * t.percent) / 100);
+  const sumSoll = tranches.reduce((s, t) => s + sollOf(t), 0);
+  const sumPaid = tranches.reduce((s, t) => s + (paidByTranche[t.id] ?? 0), 0);
+  const rest = r2(sumSoll - sumPaid);
+  const outstanding = rest > PROVIDER_REST_TOLERANCE + 1e-9 ? rest : 0;
+  const next =
+    outstanding > 0
+      ? tranches.find((t) => r2(sollOf(t) - (paidByTranche[t.id] ?? 0)) > PROVIDER_REST_TOLERANCE + 1e-9)
+      : undefined;
+  return { outstanding, nextOpenId: next?.id ?? null };
 }

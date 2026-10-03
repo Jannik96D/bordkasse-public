@@ -239,7 +239,11 @@ describe("Templates", () => {
     });
     expect(m.html).not.toContain("<img src=x");
     for (const amount of ["300,00", "100,00", "200,00", "120,00", "180,00", "60,00"]) expect(m.html).toContain(amount);
-    expect(m.html).toContain("Urlaubskasse");
+    // Reise-Typ „other“: neutrales Vokabular (Reisegruppe/die Reise), kein Törn-Wort.
+    expect(m.text).toContain("Reisegruppe");
+    expect(m.text).toContain("die Reise");
+    expect(m.text).not.toContain("den Törn");
+    expect(m.html).toContain("Zahlungen öffnen");
     expect(m.text).toContain("Selbstverrechnung");
   });
 

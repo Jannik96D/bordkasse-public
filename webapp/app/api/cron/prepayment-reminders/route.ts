@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyCronAuth } from "@/lib/auth/cron-auth";
 import { sendPrepaymentReminderMail } from "@/lib/email/send-prepayment-reminder";
-import { CREW_DUE_DAYS_BEFORE_CHARTER, addDays } from "@/lib/prepayments/dates";
+import { CREW_DUE_DAYS_BEFORE_CHARTER, addDays, formatDeDate, toCrewDueDate } from "@/lib/prepayments/dates";
 import { sendPushToPersons } from "@/lib/notify/web-push";
 import { prepaymentReminderPush, charterReminderPush } from "@/lib/notify/payloads";
 import { runItemReminders, safeMailErrorMessage, type ItemReminderRunResult } from "@/lib/prepayments/item-reminder-cron";
@@ -56,6 +56,8 @@ interface ReminderJob {
   trancheLabel: string;
   tripName: string;
   amount: number;
+  /** Echte Charterfrist (ISO) — für die Frist im Push. */
+  dueDate: string;
 }
 
 export async function GET(request: NextRequest) {
@@ -248,6 +250,7 @@ async function runTrancheReminders(supabase: SupabaseAdmin, todayIso: string): P
           trancheLabel: t.label,
           tripName: trip.name,
           amount: remainingTotal,
+          dueDate: t.due_date,
         });
       }
     }
@@ -280,6 +283,7 @@ async function runTrancheReminders(supabase: SupabaseAdmin, todayIso: string): P
           trancheLabel: t.label,
           tripName: trip.name,
           amount: trancheSoll - paid,
+          dueDate: t.due_date,
         });
       }
     }
@@ -351,8 +355,15 @@ async function runTrancheReminders(supabase: SupabaseAdmin, todayIso: string): P
               tripName: job.tripName,
               tripId: job.tripId,
               trancheId: job.trancheId,
+              due: formatDeDate(toCrewDueDate(job.dueDate)),
             })
-          : charterReminderPush({ tripName: job.tripName, tripId: job.tripId, trancheId: job.trancheId }),
+          : charterReminderPush({
+              tripName: job.tripName,
+              tripId: job.tripId,
+              trancheId: job.trancheId,
+              amount: job.amount,
+              due: formatDeDate(job.dueDate),
+            }),
       );
 
       sent++;

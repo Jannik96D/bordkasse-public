@@ -84,7 +84,7 @@ export const getItemProviderPaymentsPerItem = cache(async (tripId: string): Prom
     .eq("type", "expense")
     .not("item_id", "is", null)
     .is("deleted_at", null);
-  if (error) fail("Anbieter-Zahlungen der Posten", error.message);
+  if (error) fail("Überweisungen an den Anbieter", error.message);
   const map: Record<string, number> = {};
   for (const r of data ?? []) {
     if (r.item_id) map[r.item_id] = (map[r.item_id] ?? 0) + Number(r.amount);
@@ -115,10 +115,10 @@ export const getItems = cache(async (tripId: string): Promise<PrepaymentItemView
     supabase.from("trip_categories").select("id, name, icon").eq("trip_id", tripId),
     getItemProviderPaymentsPerItem(tripId),
   ]);
-  if (itemsRes.error) fail("Posten", itemsRes.error.message);
-  if (oblRes.error) fail("Posten-Sollbeträge", oblRes.error.message);
-  if (paidRes.error) fail("Posten-Zahlungen", paidRes.error.message);
-  if (pendingRes.error) fail("Posten-Selbstmeldungen", pendingRes.error.message);
+  if (itemsRes.error) fail("Weitere Zahlungen", itemsRes.error.message);
+  if (oblRes.error) fail("Sollbeträge der weiteren Zahlungen", oblRes.error.message);
+  if (paidRes.error) fail("Einzahlungen der weiteren Zahlungen", paidRes.error.message);
+  if (pendingRes.error) fail("Meldungen der weiteren Zahlungen", pendingRes.error.message);
   if (catRes.error) fail("Kategorien", catRes.error.message);
 
   const catById = new Map((catRes.data ?? []).map((c) => [c.id as string, c]));
@@ -201,7 +201,7 @@ export const getItemPotBalances = cache(async (tripId: string): Promise<Map<stri
     .eq("trip_id", tripId)
     .not("item_id", "is", null)
     .is("deleted_at", null);
-  if (error) fail("Posten-Buchungen", error.message);
+  if (error) fail("Buchungen der weiteren Zahlungen", error.message);
   const live = (txs ?? []).filter((t) => t.type === "expense" || t.confirmed_at);
   const expenseIds = live.filter((t) => t.type === "expense").map((t) => t.id as string);
   let parts: { transaction_id: string; person_id: string; amount: number | null }[] = [];
@@ -210,7 +210,7 @@ export const getItemPotBalances = cache(async (tripId: string): Promise<Map<stri
       .from("transaction_participants")
       .select("transaction_id, person_id, amount")
       .in("transaction_id", expenseIds);
-    if (res.error) fail("Posten-Anteile", res.error.message);
+    if (res.error) fail("Anteile der weiteren Zahlungen", res.error.message);
     parts = (res.data ?? []) as typeof parts;
   }
   const cents = new Map<string, number>();

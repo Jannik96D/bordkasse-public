@@ -87,7 +87,7 @@ describe("getItems", () => {
 
   it("wirft bei einem Lesefehler statt „kein Soll“ zu liefern (fail-loud)", async () => {
     fake.failOn({ table: "prepayment_item_obligations", action: "select" });
-    await expect(getItems(TRIP)).rejects.toThrow(/Posten-Sollbeträge/);
+    await expect(getItems(TRIP)).rejects.toThrow(/Sollbeträge der weiteren Zahlungen/);
   });
 });
 
@@ -119,7 +119,7 @@ describe("getItemPotBalances (Delta-Review 3)", () => {
     const f = createFakeSupabase({});
     f.failOn({ table: "transactions", action: "select" });
     vi.mocked(readClient).mockResolvedValue(f.client as never);
-    await expect(getItemPotBalances(TRIP)).rejects.toThrow(/Posten-Buchungen/);
+    await expect(getItemPotBalances(TRIP)).rejects.toThrow(/Buchungen der weiteren Zahlungen/);
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  planProviderRemaining,
   ITEM_STATUS_META,
   buildSaveItemPayload,
   defaultItemCategoryId,
@@ -62,14 +63,14 @@ describe("ITEM_STATUS_META", () => {
 describe("itemCellAriaLabel", () => {
   it("trägt Name, Posten, Status, Beträge und die Aktion", () => {
     const l = itemCellAriaLabel({ name: "Anna", itemLabel: "Flüge", status: "underpaid", soll: 100, paid: 40, pending: 0, fmt, actionable: true });
-    expect(l).toBe("Anna, Flüge: teilweise bezahlt, 40,00 € von 100,00 € bezahlt, 60,00 € offen. Zahlung erfassen");
+    expect(l).toBe("Anna, Flüge: teilweise bezahlt, 40,00 € von 100,00 € bezahlt, 60,00 € offen. Einzahlung erfassen");
   });
   it("nennt Überzahlung und offene Meldung; ohne Aktion kein Aktionssatz", () => {
     const l = itemCellAriaLabel({ name: "Ben", itemLabel: "Bahn", status: "overpaid", soll: 50, paid: 80, pending: 10, fmt, actionable: false });
     expect(l).toContain("überzahlt");
     expect(l).toContain("30,00 € zu viel");
     expect(l).toContain("10,00 € gemeldet");
-    expect(l).not.toContain("Zahlung erfassen");
+    expect(l).not.toContain("Einzahlung erfassen");
     expect(l).not.toContain("offen");
   });
 });
@@ -143,12 +144,12 @@ describe("itemLocks", () => {
     const l = itemLocks(item({ providerPaid: 0, cells: [cell("a", 100, 30), cell("b", 100, 0)] }));
     expect(l.distributionLocked).toBe(false);
     expect(l.payeeLocked).toBe(true);
-    expect(l.payeeReason).toMatch(/Zahlungen/);
+    expect(l.payeeReason).toMatch(/Einzahlungen/);
     expect(l.deleteReason).not.toBeNull();
   });
   it("nur offene Selbstmeldung: Löschen mit eigener Begründung", () => {
     const l = itemLocks(item({ providerPaid: 0, pendingTotal: 20, cells: [cell("a", 100, 0, 20), cell("b", 100, 0)] }));
-    expect(l.deleteReason).toMatch(/Selbstmeldung/);
+    expect(l.deleteReason).toMatch(/Meldung wartet noch auf Bestätigung/);
     expect(l.payeeLocked).toBe(true);
   });
 });
@@ -312,5 +313,21 @@ describe("itemsNavRelevant Rollen", () => {
     expect(itemsNavRelevant([open], { personId: null, isManager: true })).toBe(true);
     expect(itemsNavRelevant([open], { personId: "co", isManager: true })).toBe(true);
     expect(itemsNavRelevant([item()], { personId: "co", isManager: true })).toBe(false);
+  });
+});
+
+describe("planProviderRemaining (Rundungsrand)", () => {
+  const t3 = [{ id: "a", percent: 100 / 3 }, { id: "b", percent: 100 / 3 }, { id: "c", percent: 100 / 3 }];
+  it("100 € in 3 × 33,33 €, alle voll überwiesen → 0 offen, keine nächste Rate", () => {
+    expect(planProviderRemaining(100, t3, { a: 33.33, b: 33.33, c: 33.33 })).toEqual({ outstanding: 0, nextOpenId: null });
+  });
+  it("1 ct Rest gilt als erledigt, 2 ct bleiben offen", () => {
+    expect(planProviderRemaining(100, t3, { a: 33.33, b: 33.33, c: 33.32 }).outstanding).toBe(0);
+    const r = planProviderRemaining(100, t3, { a: 33.33, b: 33.33, c: 33.31 });
+    expect(r.outstanding).toBe(0.02);
+    expect(r.nextOpenId).toBe("c");
+  });
+  it("nichts gezahlt → Σ Rate-Soll, erste Rate zuerst", () => {
+    expect(planProviderRemaining(100, t3, {})).toEqual({ outstanding: 99.99, nextOpenId: "a" });
   });
 });

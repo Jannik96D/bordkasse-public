@@ -1,11 +1,12 @@
 /**
- * Mails zu Zahlungen für Reise-Posten (PR6) — Pendant zu
- * payment-pending-template (Selbstmeldung) und prepayment-notice-template
- * (Erfassung/Bestätigung/Ablehnung) der Charteranzahlung, aber mit
- * Posten-Kontext („An-/Abreise: Flüge") statt „N. Anzahlung".
+ * Mails zu Einzahlungen für weitere Zahlungen (intern `item`, PR6/PR7) —
+ * Pendant zu payment-pending-template (Selbstmeldung) und
+ * prepayment-notice-template (Erfassung/Bestätigung/Ablehnung) des
+ * Anzahlungsplans, mit der Sache beim Namen („An-/Abreise: Flüge") statt
+ * „N. Anzahlung". Beide laufen über das gemeinsame Gerüst `payment-mail.ts`.
  *
- *   • renderItemPendingMail — an den Posten-Empfänger: X meldet eine Zahlung.
- *   • renderItemNoticeMail  — Info an zahlende Person bzw. Empfänger.
+ *   • renderItemPendingMail — an die vorstreckende Person: X meldet eine Einzahlung.
+ *   • renderItemNoticeMail  — Info an zahlende bzw. vorstreckende Person.
  *
  * ⚠️ Escaping: Bezeichnung, Kategorie, Törnname, Notiz und alle Namen sind
  * frei editierbar → im HTML IMMER durch escapeHtml. Die Text-Variante bleibt
@@ -13,9 +14,20 @@
  * eine bereits geleistete Zahlung).
  */
 
-import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
+import { escapeHtml, fmtEuro } from "./mail-shell";
 import { tripVocab } from "@/lib/trip-vocab";
 import type { ItemNoticeKind } from "@/lib/prepayments/notify";
+import {
+  EVENT_WORD,
+  PAYMENT_STATUS,
+  eventSubject,
+  howToBlock,
+  noteCard,
+  renderPaymentMail,
+  type Block,
+  type Fact,
+  type PaymentEventKind,
+} from "./payment-mail";
 
 export interface ItemMailInfo {
   label: string;
@@ -23,7 +35,6 @@ export interface ItemMailInfo {
 }
 
 export const itemMailTitle = (i: ItemMailInfo): string => (i.categoryName ? `${i.categoryName}: ${i.label}` : i.label);
-const FOOTER = "—\nBordkasse · Faire Kostenaufteilung auf Segeltörns\n";
 
 export interface ItemPendingParams {
   recipientName: string;
@@ -38,86 +49,41 @@ export interface ItemPendingParams {
   appUrl: string;
   /**
    * Gesetzt, wenn die Mail stellvertretend an Skipper/Co-Skipper geht, weil
-   * der Empfänger (Name hier) keine E-Mail-Adresse hinterlegt hat.
+   * die vorstreckende Person (Name hier) keine E-Mail-Adresse hinterlegt hat.
    */
   onBehalfOfName?: string;
 }
 
 export function renderItemPendingMail(p: ItemPendingParams): { html: string; text: string; subject: string } {
-  const vocab = tripVocab(p.tripType);
   const title = itemMailTitle(p.item);
-  const subject = `Zahlung gemeldet: ${p.reporterName} – ${p.item.label} (${fmtEuro(p.amount)})`;
-  const noteBlock = p.note
-    ? `
-            <tr>
-              <td style="padding:8px 32px 0 32px;">
-                <p style="margin:0;padding:10px 14px;background-color:#FDF6DC;border-left:3px solid #C8A51E;font-size:13px;color:#1A2533;border-radius:4px;">
-                  <strong>Notiz von ${escapeHtml(p.reporterName)}:</strong> ${escapeHtml(p.note)}
-                </p>
-              </td>
-            </tr>`
-    : "";
-
-  const body = `
-            <tr>
-              <td style="padding:32px 32px 8px 32px;">
-                <h2 style="margin:0 0 12px 0;font-size:18px;font-weight:600;color:#1D4281;">
-                  Zahlung gemeldet
-                </h2>
-                <p style="margin:0 0 12px 0;font-size:15px;line-height:1.55;color:#1A2533;">
-                  Hi ${escapeHtml(p.recipientName)},
-                </p>
-                <p style="margin:0;font-size:15px;line-height:1.55;color:#1A2533;">
-                  <strong>${escapeHtml(p.reporterName)}</strong> meldet, den Anteil am Posten
-                  <strong>${escapeHtml(title)}</strong> an ${p.onBehalfOfName ? `<strong>${escapeHtml(p.onBehalfOfName)}</strong>` : "dich"} gezahlt zu haben:
-                </p>
-              </td>
-            </tr>
-
-            <tr>
-              <td style="padding:14px 32px 0 32px;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F4F2EC;border-radius:6px;">
-                  <tr>
-                    <td style="padding:14px;font-size:14px;color:#1A2533;">
-                      <strong>Posten:</strong> ${escapeHtml(title)}<br/>
-                      <strong>Gezahlt am:</strong> ${escapeHtml(p.date)}<br/>
-                      <strong>Betrag:</strong> <strong style="color:#114884;">${fmtEuro(p.amount)}</strong>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-${noteBlock}
-${renderActionButton(p.appUrl, `In der ${vocab.kitty} bestätigen`)}
-${renderHintBlock(
-  p.onBehalfOfName
-    ? `Du bekommst diese Mail stellvertretend, weil ${p.onBehalfOfName} keine E-Mail-Adresse hinterlegt hat. Bitte kläre mit ${p.onBehalfOfName}, ob das Geld angekommen ist, und bestätige oder lehne die Meldung in der App ab — vorher zählt sie nicht.`
-    : "Du bekommst diese Mail, weil das Geld für diesen Posten an dich geht. Bestätige die Zahlung in der App, sobald sie bei dir angekommen ist — vorher zählt sie nicht.",
-)}`;
-
-  const html = renderMailShell({
-    title: subject,
+  const subject = eventSubject({ what: p.item.label, kind: "pending", who: p.reporterName, amount: p.amount });
+  const facts: Fact[] = [
+    { label: "Was", html: escapeHtml(title), text: title },
+    { label: "Von", html: `<strong>${escapeHtml(p.reporterName)}</strong>`, text: p.reporterName },
+    { label: "Betrag", html: fmtEuro(p.amount), text: fmtEuro(p.amount), strong: true, color: "#114884" },
+    { label: "Gezahlt am", html: escapeHtml(p.date), text: p.date },
+    { label: "Status", html: escapeHtml(PAYMENT_STATUS.pending), text: PAYMENT_STATUS.pending },
+  ];
+  const extra: Block[] = [];
+  if (p.note) {
+    extra.push(noteCard(`<strong>Notiz von ${escapeHtml(p.reporterName)}:</strong> ${escapeHtml(p.note)}`, `Notiz von ${p.reporterName}: ${p.note}`));
+  }
+  return renderPaymentMail({
+    subject,
+    headline: "Einzahlung gemeldet",
+    recipientName: p.recipientName,
+    tripName: p.tripName,
+    introHtml: `<strong>${escapeHtml(p.reporterName)}</strong> meldet, den Anteil für <strong>${escapeHtml(title)}</strong> an ${p.onBehalfOfName ? `<strong>${escapeHtml(p.onBehalfOfName)}</strong>` : "dich"} gezahlt zu haben.`,
+    introText: `${p.reporterName} meldet, den Anteil für ${title} an ${p.onBehalfOfName ?? "dich"} gezahlt zu haben.`,
     preheader: `${p.reporterName} meldet ${fmtEuro(p.amount)} für ${p.item.label} — bitte bestätigen.`,
-    subtitle: p.tripName,
-    body,
+    appUrl: p.appUrl,
+    facts,
+    extra,
+    how: howToBlock("Bestätige die Meldung in der App, sobald das Geld angekommen ist — oder lehne sie ab. Vorher zählt sie nicht."),
+    hint: p.onBehalfOfName
+      ? `Du bekommst diese Mail stellvertretend, weil ${p.onBehalfOfName} keine E-Mail-Adresse hinterlegt hat. Bitte kläre mit ${p.onBehalfOfName}, ob das Geld angekommen ist.`
+      : "Du bekommst diese Mail, weil du hier vorstreckst und das Geld an dich geht.",
   });
-
-  const text = `Zahlung gemeldet
-${p.tripName}
-
-Hi ${p.recipientName},
-
-${p.reporterName} meldet, den Anteil am Posten ${title} an ${p.onBehalfOfName ?? "dich"} gezahlt zu haben:
-
-  Posten:     ${title}
-  Gezahlt am: ${p.date}
-  Betrag:     ${fmtEuro(p.amount)}
-${p.note ? `  Notiz:      ${p.note}\n` : ""}
-${p.onBehalfOfName ? `Du bekommst diese Mail stellvertretend, weil ${p.onBehalfOfName} keine E-Mail-Adresse hinterlegt hat.\n` : ""}Bitte in der App bestätigen oder ablehnen: ${p.appUrl}
-
-${FOOTER}`;
-
-  return { html, text, subject };
 }
 
 export interface ItemNoticeParams {
@@ -135,6 +101,12 @@ export interface ItemNoticeParams {
   appUrl: string;
 }
 
+const KIND_MAP: Record<ItemNoticeKind, PaymentEventKind> = {
+  item_payment_recorded: "recorded",
+  item_payment_confirmed: "confirmed",
+  item_payment_rejected: "rejected",
+};
+
 export function renderItemNoticeMail(p: ItemNoticeParams): { html: string; text: string; subject: string } {
   const vocab = tripVocab(p.tripType);
   const title = itemMailTitle(p.item);
@@ -142,108 +114,64 @@ export function renderItemNoticeMail(p: ItemNoticeParams): { html: string; text:
   const eTitle = escapeHtml(title);
   const amount = fmtEuro(p.amount);
   const isPayer = p.role === "payer";
-  // „deine Zahlung" für die zahlende Person, sonst „die Zahlung von X".
-  const whoseHtml = isPayer ? "deine Zahlung" : `die Zahlung von ${escapeHtml(p.payerName)}`;
-  const whoseText = isPayer ? "deine Zahlung" : `die Zahlung von ${p.payerName}`;
+  const event = KIND_MAP[p.kind];
+  // „deine Einzahlung" für die zahlende Person, sonst „die Einzahlung von X".
+  const whoseHtml = isPayer ? "deine Einzahlung" : `die Einzahlung von ${escapeHtml(p.payerName)}`;
+  const whoseText = isPayer ? "deine Einzahlung" : `die Einzahlung von ${p.payerName}`;
 
-  let subject: string;
   let headline: string;
   let introHtml: string;
   let introText: string;
-  let pill = "#1E8449";
+  let accent = "#1E8449";
   switch (p.kind) {
     case "item_payment_recorded":
-      subject = `Zahlung erfasst: ${p.item.label} (${amount})`;
-      headline = "Zahlung wurde erfasst";
-      introHtml = `${a} hat ${whoseHtml} über ${amount} für den Posten <strong>${eTitle}</strong> in der ${vocab.kitty} erfasst.`;
-      introText = `${p.actorName} hat ${whoseText} über ${amount} für den Posten ${title} in der ${vocab.kitty} erfasst.`;
+      headline = "Einzahlung erfasst";
+      introHtml = `${a} hat ${whoseHtml} über ${amount} für <strong>${eTitle}</strong> in der ${vocab.kitty} erfasst.`;
+      introText = `${p.actorName} hat ${whoseText} über ${amount} für ${title} in der ${vocab.kitty} erfasst.`;
       break;
     case "item_payment_confirmed":
-      subject = `Zahlung bestätigt: ${p.item.label} (${amount})`;
-      headline = "Zahlung wurde bestätigt";
-      introHtml = `${a} hat ${whoseHtml} über ${amount} für den Posten <strong>${eTitle}</strong> bestätigt. Sie zählt ab jetzt.`;
-      introText = `${p.actorName} hat ${whoseText} über ${amount} für den Posten ${title} bestätigt. Sie zählt ab jetzt.`;
+      headline = "Einzahlung bestätigt";
+      introHtml = `${a} hat ${whoseHtml} über ${amount} für <strong>${eTitle}</strong> bestätigt. Sie zählt ab jetzt.`;
+      introText = `${p.actorName} hat ${whoseText} über ${amount} für ${title} bestätigt. Sie zählt ab jetzt.`;
       break;
     case "item_payment_rejected":
-      subject = `Zahlung abgelehnt: ${p.item.label} (${amount})`;
-      headline = "Zahlung wurde abgelehnt";
-      introHtml = `${a} hat ${isPayer ? "deine Meldung" : `die Meldung von ${escapeHtml(p.payerName)}`} über ${amount} für den Posten <strong>${eTitle}</strong> abgelehnt.`;
-      introText = `${p.actorName} hat ${isPayer ? "deine Meldung" : `die Meldung von ${p.payerName}`} über ${amount} für den Posten ${title} abgelehnt.`;
-      pill = "#A93226";
+      headline = "Einzahlung abgelehnt";
+      introHtml = `${a} hat ${isPayer ? "deine Meldung" : `die Meldung von ${escapeHtml(p.payerName)}`} über ${amount} für <strong>${eTitle}</strong> abgelehnt.`;
+      introText = `${p.actorName} hat ${isPayer ? "deine Meldung" : `die Meldung von ${p.payerName}`} über ${amount} für ${title} abgelehnt.`;
+      accent = "#A93226";
       break;
   }
 
   const followup =
     p.kind === "item_payment_rejected"
       ? isPayer
-        ? `Der Anteil ist damit wieder offen. Falls die Ablehnung ein Versehen war, sprich kurz mit ${p.payeeName} — du kannst die Zahlung danach erneut melden.`
+        ? `Der Anteil ist damit wieder offen. Falls die Ablehnung ein Versehen war, sprich kurz mit ${p.payeeName} — du kannst die Einzahlung danach erneut melden.`
         : "Der Anteil ist damit wieder offen."
-      : `Falls etwas nicht stimmt, sprich kurz mit ${isPayer ? p.payeeName : p.actorName} — Zahlungen lassen sich in der App korrigieren.`;
+      : `Falls etwas nicht stimmt, sprich kurz mit ${isPayer ? p.payeeName : p.actorName} — Einzahlungen lassen sich in der App korrigieren.`;
 
-  const detailHtml = `${escapeHtml(p.payerName)} · ${eTitle} · ${amount}`;
-  const detailText = `${p.payerName} · ${title} · ${amount}`;
+  const facts: Fact[] = [
+    { label: "Was", html: eTitle, text: title },
+    { label: "Von", html: `<strong>${escapeHtml(p.payerName)}</strong>`, text: p.payerName },
+    { label: "An wen", html: `<strong>${escapeHtml(p.payeeName)}</strong>`, text: p.payeeName },
+    { label: "Betrag", html: amount, text: amount, strong: true, color: "#114884" },
+    { label: "Status", html: escapeHtml(EVENT_WORD[event]), text: EVENT_WORD[event] },
+  ];
   const hint = isPayer
-    ? `Du bekommst diese Mail, weil ${p.actorName} eine Aktion zu deiner Zahlung für diesen Posten ausgelöst hat.`
-    : `Du bekommst diese Mail, weil das Geld für diesen Posten an dich geht und ${p.actorName} eine Aktion dazu ausgelöst hat.`;
+    ? `Du bekommst diese Mail, weil ${p.actorName} eine Aktion zu deiner Einzahlung ausgelöst hat.`
+    : `Du bekommst diese Mail, weil du hier vorstreckst und ${p.actorName} eine Aktion dazu ausgelöst hat.`;
 
-  const body = `
-            <tr>
-              <td style="padding:32px 32px 8px 32px;">
-                <h2 style="margin:0 0 12px 0;font-size:18px;font-weight:600;color:#1D4281;">
-                  ${escapeHtml(headline)}
-                </h2>
-                <p style="margin:0 0 12px 0;font-size:15px;line-height:1.55;color:#1A2533;">
-                  Hi ${escapeHtml(p.recipientName)},
-                </p>
-                <p style="margin:0 0 16px 0;font-size:15px;line-height:1.55;color:#1A2533;">
-                  ${introHtml}
-                </p>
-              </td>
-            </tr>
-
-            <tr>
-              <td style="padding:0 32px 8px 32px;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                  <tr>
-                    <td style="padding:12px 16px;background-color:#F4F2EC;border-left:3px solid ${pill};border-radius:6px;font-size:14px;color:#1A2533;">
-                      ${detailHtml}
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-
-            <tr>
-              <td style="padding:16px 32px 8px 32px;">
-                <p style="margin:0;font-size:14px;line-height:1.55;color:#1A2533;">
-                  ${escapeHtml(followup)}
-                </p>
-              </td>
-            </tr>
-${renderActionButton(p.appUrl, `In der ${vocab.kitty} ansehen`)}
-${renderHintBlock(hint)}`;
-
-  const html = renderMailShell({
-    title: subject,
-    preheader: `${p.actorName}: ${detailText}`,
-    subtitle: p.tripName,
-    body,
+  return renderPaymentMail({
+    subject: eventSubject({ what: p.item.label, kind: event, who: p.payerName, amount: p.amount }),
+    headline,
+    recipientName: p.recipientName,
+    tripName: p.tripName,
+    introHtml,
+    introText,
+    preheader: `${p.actorName}: ${p.payerName} · ${title} · ${amount}`,
+    appUrl: p.appUrl,
+    facts,
+    accent,
+    how: howToBlock(followup),
+    hint,
   });
-
-  const text = `${headline}
-${p.tripName}
-
-Hi ${p.recipientName},
-
-${introText}
-
-  ${detailText}
-
-${followup}
-
-In der App: ${p.appUrl}
-
-${FOOTER}`;
-
-  return { html, text, subject };
 }

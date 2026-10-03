@@ -9,6 +9,7 @@ import { useTripVocab } from "@/components/trip-vocab-provider";
 import { formatEuro, formatAmount, todayIso } from "@/lib/utils";
 import { submitSelfPayment } from "@/lib/actions/prepayments";
 import { toCrewDueDate, formatDeDate } from "@/lib/prepayments/dates";
+import { ACTION_REPORT, PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
 import type {
   PrepaymentPlan,
   Tranche,
@@ -87,8 +88,8 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
                 ? "◐"
                 : "";
           const ariaLabel = pending
-            ? `Tranche ${t.label}: ${formatEuro(pending.amount)} gemeldet, wartet auf Bestätigung`
-            : `Tranche ${t.label}: ${labelFor(status, isOverdue)}, offen ${formatEuro(Math.max(0, open))}`;
+            ? `${t.label}: ${formatEuro(pending.amount)} ${PAYMENT_STATUS.pending}`
+            : `${t.label}: ${labelFor(status, isOverdue)}, offen ${formatEuro(Math.max(0, open))}`;
           // Offene (auch teilbezahlte) Tranche ohne laufende Meldung → die Crew
           // kann eine Zahlung melden. Gleiche Bedingung wie der „Ich habe
           // gezahlt"-Button; Box UND Button lösen denselben Dialog aus.
@@ -104,7 +105,7 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
                     Fällig {formatDeDate(crewDue)}
                     <InfoTooltip
                       label="Warum dieses Datum?"
-                      text="3 Tage vor der echten Charterfrist — so kommt deine Zahlung rechtzeitig bei der vorstreckenden Person an, die das Geld an die Charteragentur weiterleitet."
+                      text="3 Tage vor der echten Frist beim Anbieter — so kommt deine Einzahlung rechtzeitig bei der vorstreckenden Person an, die das Geld an den Anbieter weiterleitet."
                     />{" "}
                     &middot; {t.percent.toFixed(0)} %
                   </p>
@@ -113,8 +114,8 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
                   <button
                     type="button"
                     onClick={reportPayment}
-                    aria-label={`Zahlung melden für ${t.label}, offen ${formatEuro(Math.max(0, open))}`}
-                    title="Zahlung melden"
+                    aria-label={`Ich habe gezahlt: ${t.label}, offen ${formatEuro(Math.max(0, open))}`}
+                    title={ACTION_REPORT}
                     className="inline-flex min-h-[44px] items-center gap-2 rounded-md px-1.5 text-sm font-medium hover:bg-navy-light/20 focus:outline-none focus:ring-2 focus:ring-primary/20"
                   >
                     <span
@@ -141,7 +142,7 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
               {pending && (
                 <p className="mt-2 rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
                   <span aria-hidden="true">⏳</span>{" "}
-                  Du hast <strong>{formatEuro(pending.amount)}</strong> am {formatDeDate(pending.date)} gemeldet, wartet auf Bestätigung durch {vocab.skipper === "Skipper" ? "deinen Skipper" : "deine Reiseleitung"}.
+                  Du hast <strong>{formatEuro(pending.amount)}</strong> am {formatDeDate(pending.date)} gemeldet — wartet auf Bestätigung durch die vorstreckende Person.
                 </p>
               )}
 
@@ -153,7 +154,7 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
                     className="inline-flex min-h-[44px] items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-paper hover:bg-navy-dark"
                   >
                     <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                    Ich habe gezahlt
+                    {ACTION_REPORT}
                   </button>
                 )}
               </div>
@@ -189,7 +190,6 @@ function SelfPaymentModal({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const vocab = useTripVocab();
   const [amount, setAmount] = useState(formatAmount(defaultAmount));
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState("");
@@ -222,10 +222,10 @@ function SelfPaymentModal({
       backdropClassName="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center"
     >
         <h2 id="self-payment-title" className="text-base font-semibold text-primary">
-          Zahlung melden
+          Einzahlung melden
         </h2>
         <p className="mt-1 text-sm text-ink-soft">
-          {trancheLabel}: {vocab.skipper === "Skipper" ? "Dein Skipper" : "Deine Reiseleitung"} bestätigt deine Meldung.
+          {trancheLabel}: Die vorstreckende Person bestätigt deine Meldung.
         </p>
 
         <div className="mt-4 space-y-3">

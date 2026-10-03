@@ -77,11 +77,16 @@ describe("payloads", () => {
 
   it("prepayment-/charter-/pending-/confirm-/reject-Payloads zeigen sinnvolle URLs", () => {
     expect(prepaymentReminderPush({ trancheLabel: "1. Anzahlung", amount: 180, tripName: "T", tripId: "t", trancheId: "x" }).url).toBe("/trips/t/prepayments");
-    expect(prepaymentReminderPush({ trancheLabel: "1. Anzahlung", amount: 180, tripName: "T", tripId: "t", trancheId: "x" }).body).toContain("180,00");
+    // Titel nennt die Sache + Betrag, Body die Frist (PR7).
+    const reminder = prepaymentReminderPush({ trancheLabel: "1. Anzahlung", amount: 180, tripName: "T", tripId: "t", trancheId: "x", due: "12.10.2026" });
+    expect(reminder.title).toContain("1. Anzahlung: dein Anteil 180,00");
+    expect(reminder.body).toContain("Bis 12.10.2026");
+    // Ohne Frist → „Frist folgt“.
+    expect(prepaymentReminderPush({ trancheLabel: "1. Anzahlung", amount: 180, tripName: "T", tripId: "t", trancheId: "x" }).body).toContain("Frist folgt");
     expect(charterReminderPush({ tripName: "T", tripId: "t", trancheId: "x" }).tag).toBe("charter-x");
-    expect(paymentPendingPush({ payerName: "Mara", amount: 90, tripId: "t", trancheId: "tr1", payerPersonId: "pA" }).body).toContain("Mara");
-    expect(paymentConfirmedPush({ amount: 90, tripId: "t" }).title).toBe("Zahlung bestätigt");
-    expect(paymentRejectedPush({ amount: 90, tripId: "t" }).title).toBe("Zahlung abgelehnt");
+    expect(paymentPendingPush({ payerName: "Mara", amount: 90, tripId: "t", trancheId: "tr1", payerPersonId: "pA" }).title).toContain("Mara");
+    expect(paymentConfirmedPush({ amount: 90, tripId: "t" }).title).toBe("Einzahlung bestätigt");
+    expect(paymentRejectedPush({ amount: 90, tripId: "t" }).title).toBe("Einzahlung abgelehnt");
   });
 
   it("settlement-Pushes setzen alwaysShow (kein Realtime-Toast für `trips`)", () => {
