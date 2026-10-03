@@ -176,7 +176,7 @@ describe("removeMember mit Posten", () => {
     setupFake(t);
     const res = await removeMember("bbbbbbbb-0000-4000-8000-0000000000a3", TRIP);
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.message).toContain("Empfänger");
+    if (!res.ok) expect(res.message).toContain("weitere Zahlung");
     expect(fake.rows("trip_members").some((m) => m.person_id === PAYEE)).toBe(true);
   });
 
@@ -408,7 +408,7 @@ describe("replaceMember mit Posten", () => {
     setupFake(tables({ payee: A }));
     const res = await replaceMember({ status: "idle" }, fdReplace());
     expect(res.status).toBe("error");
-    if (res.status === "error") expect(res.message).toContain("Posten");
+    if (res.status === "error") expect(res.message).toContain("weitere Zahlung");
     expect(fake.writes.filter((w) => w.table !== "audit_log")).toHaveLength(0);
   });
 
@@ -442,7 +442,7 @@ describe("replaceMember mit Posten", () => {
     setupFake(t);
     const res = await replaceMember({ status: "idle" }, fdReplace());
     expect(res.status).toBe("error");
-    if (res.status === "error") expect(res.message).toContain("Selbstmeldung");
+    if (res.status === "error") expect(res.message).toContain("auf Bestätigung");
     expect(fake.writes.filter((w) => w.table !== "audit_log")).toHaveLength(0);
   });
 
@@ -491,7 +491,7 @@ describe("replaceMember mit Posten", () => {
     setupFake(t);
     const res = await replaceMember({ status: "idle" }, fdReplace({ new_email: "bea@example.test" }));
     expect(res.status).toBe("error");
-    if (res.status === "error") expect(res.message).toContain("Posten");
+    if (res.status === "error") expect(res.message).toContain("weiteren Zahlung");
     expect(fake.writes.filter((w) => w.table !== "audit_log")).toHaveLength(0);
   });
 

@@ -500,7 +500,7 @@ describe("deleteItem — Löschschutz", () => {
     setupFake(withItem({ transactions: [{ id: "c1", trip_id: TRIP, type: "credit", item_id: ITEM, amount: 100, confirmed_at: null, deleted_at: null }] }));
     const res = await del();
     expect(res.status).toBe("error");
-    if (res.status === "error") expect(res.message).toContain("unbestätigte");
+    if (res.status === "error") expect(res.message).toContain("auf Bestätigung");
     expect(fake.rows("prepayment_items").some((r) => r.id === ITEM)).toBe(true);
   });
 

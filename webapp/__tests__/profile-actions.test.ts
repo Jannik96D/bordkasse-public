@@ -96,7 +96,7 @@ describe("deleteMyAccount", () => {
 
     expect(result.status).toBe("error");
     if (result.status !== "error") throw new Error("unreachable");
-    expect(result.message).toMatch(/Empfänger eines Postens/);
+    expect(result.message).toMatch(/weitere Zahlung/);
     expect(result.message).not.toMatch(/Unerwartete Antwort/);
     expect(admin.auth.admin.deleteUser).not.toHaveBeenCalled();
     expect(mockedRedirect).not.toHaveBeenCalled();

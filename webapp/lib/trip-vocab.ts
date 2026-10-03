@@ -70,12 +70,12 @@ export interface TripVocab {
   prepayment: string;
   /** Das gecharterte Objekt bzw. die Reise: „Yachtcharter" / „die Reise" */
   charterObject: string;
-  /** Anbieter, an den vorab gezahlt wird: „Vercharterer" / „Anbieter" */
+  /**
+   * Anbieter, an den vorab gezahlt wird. In Nutzertexten heißt er einheitlich
+   * „Anbieter" (nie „Vercharterer"/„Charteragentur"/„Fluggesellschaft") — gilt
+   * für Anzahlungsplan UND weitere Zahlungen, für beide Reise-Typen.
+   */
   provider: string;
-  /** Variante „Charteragentur" / „Anbieter" */
-  agency: string;
-  /** Offene Posten an den Anbieter: „Offene Charteranzahlungen" / „Offene Anzahlungen" */
-  openPrepayments: string;
 }
 
 const SAILING: TripVocab = {
@@ -102,9 +102,7 @@ const SAILING: TripVocab = {
 
   prepayment: "Yachtanzahlung",
   charterObject: "Yachtcharter",
-  provider: "Vercharterer",
-  agency: "Charteragentur",
-  openPrepayments: "Offene Charteranzahlungen",
+  provider: "Anbieter",
 };
 
 const OTHER: TripVocab = {
@@ -132,8 +130,6 @@ const OTHER: TripVocab = {
   prepayment: "Urlaubsanzahlung",
   charterObject: "die Reise",
   provider: "Anbieter",
-  agency: "Anbieter",
-  openPrepayments: "Offene Anzahlungen",
 };
 
 /** Liefert das Vokabular für den Reise-Typ. Unbekannt/leer ⇒ Segeltörn. */

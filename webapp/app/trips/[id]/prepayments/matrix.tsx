@@ -2,9 +2,21 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, MessageCircle, RefreshCw, Check, X } from "lucide-react";
+import { Bell, MessageCircle, RefreshCw, Check, X, Sailboat, Wallet } from "lucide-react";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { Modal } from "@/components/modal";
+import { NotifyCrewButton } from "./notify-crew-button";
+import {
+  EditButton,
+  PaymentActionBar,
+  PaymentCardHeader,
+  PaymentProgress,
+  ProviderOpenBlock,
+  RecordPaymentButton,
+  RecordPickerModal,
+} from "./payment-card-parts";
+import { providerDueInfo, type ItemOverall } from "@/lib/prepayments/item-ui";
+import { LABEL_PROVIDER_PAID, PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
 import { formatEuro, formatAmount, todayIso, round2 } from "@/lib/utils";
 import {
   recordPayment,
@@ -41,8 +53,14 @@ interface Props {
   obligations: Obligation[];
   payments: PaymentAggregate[];
   pending: PendingPayment[];
-  /** Pro Tranche: was hat der Vorstrecker schon an die Charteragentur überwiesen? */
+  /** Pro Tranche: was hat die vorstreckende Person schon an den Anbieter überwiesen? */
   charterPaidByTranche: Record<string, number>;
+  /** Skipper/Admin: „Crew informieren" + „Bearbeiten" in der Aktionsleiste. */
+  canEditPlan?: boolean;
+  /** Archivierte Törns sind schreibgeschützt — keine Aktionsleisten-Schreibaktionen. */
+  readOnly?: boolean;
+  /** Server-seitig formatiertes „zuletzt informiert" (null = noch nie). */
+  lastNotifiedLabel?: string | null;
 }
 
 type CellStatus = "open" | "partial" | "paid";
@@ -58,10 +76,11 @@ interface MatrixCell {
   pending: PendingPayment | null;
 }
 
-export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan, tranches, cabins, members, obligations, payments, pending, charterPaidByTranche }: Props) {
+export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan, tranches, cabins, members, obligations, payments, pending, charterPaidByTranche, canEditPlan = false, readOnly = false, lastNotifiedLabel = null }: Props) {
   const vocab = tripVocab(tripType);
   const [paymentModal, setPaymentModal] = useState<{ cell: MatrixCell; personName: string } | null>(null);
   const [whatsAppModal, setWhatsAppModal] = useState<{ text: string; title: string } | null>(null);
+  const [picker, setPicker] = useState(false);
 
   const obligationByPerson = useMemo(
     () => new Map(obligations.map((o) => [o.person_id, o])),
@@ -104,7 +123,7 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
   function bulkWhatsApp() {
     const persons = members
       .map((m) => {
-        // Vorstrecker überspringen — er ist Empfänger, nicht Schuldner
+        // Vorstreckende Person überspringen — sie ist Empfängerin, nicht Schuldnerin
         if (plan.advancer_person_id === m.id) return null;
         const cells = tranches.map((t) => cellFor(t.id, m.id, t.percent));
         const open = cells.reduce((s, c) => s + Math.max(0, c.open), 0);
@@ -173,45 +192,74 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
   const withObligation = memberRows.filter((r) => (r.obl?.total_amount ?? 0) > 0).length;
   const fullyPaid = memberRows.filter((r) => (r.obl?.total_amount ?? 0) > 0 && r.rowOpen <= 0.005).length;
   const overdueCount = memberRows.filter((r) => r.cells.some((c) => c.overdue)).length;
-  const pct = plan.total_amount > 0
-    ? Math.min(100, Math.max(0, Math.round((collected / plan.total_amount) * 100)))
-    : 0;
 
   const cellAria = (cell: MatrixCell, name: string, label: string) =>
     cell.pending
-      ? `${name}, ${label}: ${formatEuro(cell.pending.amount)} gemeldet, wartet auf Bestätigung`
-      : `${name}, ${label}: ${statusLabel(cell)}, ${formatEuro(cell.paid)} von ${formatEuro(cell.soll)} bezahlt`;
+      ? `${name}, ${label}: ${formatEuro(cell.pending.amount)} ${PAYMENT_STATUS.pending}. Einzahlung erfassen`
+      : `${name}, ${label}: ${statusLabel(cell)}, ${formatEuro(cell.paid)} von ${formatEuro(cell.soll)} bezahlt. Einzahlung erfassen`;
+
+  // Gesamtstatus wie bei den weiteren Zahlungen (gleiche Kopfzeile).
+  const charterPaidCapped = Math.min(charterPaidTotal, plan.total_amount);
+  const nextOpenTranche = tranches.find((t) => {
+    const soll = round2((plan.total_amount * t.percent) / 100);
+    return round2(soll - (charterPaidByTranche[t.id] ?? 0)) > 0.005;
+  });
+  const overall: ItemOverall =
+    withObligation > 0 && fullyPaid === withObligation && pending.length === 0 && charterOutstanding <= 0.005
+      ? "complete"
+      : collected < plan.total_amount - 0.005 || pending.length > 0
+        ? "crew_open"
+        : "provider_open";
+  const providerDue = providerDueInfo(
+    { due_date: nextOpenTranche?.due_date ?? null, providerOpen: charterOutstanding },
+    today,
+    formatDeDate,
+  );
+  // „Für wen?": Personen mit offenem Betrag (ohne die vorstreckende Person, die verrechnet sich selbst — aber auch ihre Zelle ist abhakbar).
+  const pickOptions = memberRows
+    .filter((r) => r.rowOpen > 0.005)
+    .map((r) => ({ key: r.m.id, label: r.m.display_name, detail: formatEuro(r.rowOpen) }));
+  function pickPerson(personId: string) {
+    setPicker(false);
+    const row = memberRows.find((r) => r.m.id === personId);
+    const cell = row?.cells.find((c) => c.open > 0.005);
+    if (row && cell) openPayment(cell, row.m.display_name);
+  }
+  const showActions = canEditPlan && !readOnly;
+  const crewPaidLabel = `Von der ${vocab.crew} bezahlt`;
 
   return (
     <>
-      {advancerName && (
-        <p className="mb-3 text-xs text-ink-soft">
-          Vorgestreckt von <strong className="text-ink">{advancerName}</strong>
-          <InfoTooltip
-            label="Wer streckt vor?"
-            text="Alle Anzahlungen werden an diese Person verbucht. Den eigenen Anteil per Klick auf die Zelle als eigene Zahlung abhaken (ändert die Bilanz nicht, kein Mail-/WhatsApp-Versand)."
-          />
-        </p>
-      )}
+      <article aria-labelledby="plan-card-h" className="rounded-lg border border-rule bg-paper p-4">
+        <PaymentCardHeader
+          icon={
+            tripType === "other" ? (
+              <Wallet className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+            ) : (
+              <Sailboat className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+            )
+          }
+          title={vocab.prepayment}
+          titleId="plan-card-h"
+          amount={plan.total_amount}
+          meta={
+            <span>
+              {tranches.length === 1 ? "Frist" : "Fristen"}:{" "}
+              {tranches.map((t) => `${t.label} ${formatDeDate(t.due_date)}`).join(" · ")}
+            </span>
+          }
+          advancerName={advancerName}
+          overall={overall}
+        />
 
-      {/* Fortschritts-Header (#1): Poolüberblick auf einen Blick */}
-      <section className="mb-3 rounded-md border border-rule bg-paper p-3" aria-label="Anzahlungsfortschritt">
-        <div className="flex items-baseline justify-between gap-2">
-          <p className="text-sm">
-            <strong className="tabular-nums text-primary">{formatEuro(collected)}</strong>
-            <span className="text-ink-soft"> von {formatEuro(plan.total_amount)} eingegangen</span>
-          </p>
-          <span className="text-xs tabular-nums text-ink-soft">{pct} %</span>
-        </div>
-        <div
-          className="mt-2 h-2 w-full overflow-hidden rounded-full bg-navy-light/40"
-          role="progressbar"
-          aria-valuenow={pct}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label="Anteil eingegangener Anzahlungen"
-        >
-          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+        <div className="mt-3 space-y-3">
+          <PaymentProgress label={crewPaidLabel} done={Math.min(collected, plan.total_amount)} total={plan.total_amount} />
+          <PaymentProgress
+            label={LABEL_PROVIDER_PAID}
+            done={charterPaidCapped}
+            total={plan.total_amount}
+            tone={charterPaidTotal > plan.total_amount + 0.005 ? "warn" : undefined}
+          />
         </div>
         <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-soft">
           <span><strong className="text-ink">{fullyPaid}</strong> von {withObligation} vollständig</span>
@@ -221,24 +269,35 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
           {overdueCount > 0 && (
             <span className="text-danger">{overdueCount} überfällig</span>
           )}
+          {advancerName && (
+            <InfoTooltip
+              label="Wer streckt vor?"
+              text="Alle Anzahlungen werden an diese Person verbucht. Den eigenen Anteil per Klick auf die Zelle als eigene Einzahlung abhaken (ändert die Bilanz nicht, kein Mail-/WhatsApp-Versand)."
+            />
+          )}
         </p>
-      </section>
 
-      {/* Statusbereich (#5): Selbstmeldungen zuerst (sofort aktionierbar),
-          Charterübersicht eingeklappt darunter (#2). */}
-      {pending.length > 0 && (
-        <PendingBanner pending={pending} members={members} tranches={tranches} vocab={vocab} />
-      )}
-      <CharterReminderBanner
-        tripId={tripId}
-        tranches={tranches}
-        totalAmount={plan.total_amount}
-        charterPaidByTranche={charterPaidByTranche}
-        vocab={vocab}
-      />
+        <ProviderOpenBlock
+          open={charterOutstanding}
+          due={providerDue}
+          action={charterOutstanding > 0.005 ? { href: `/trips/${tripId}/transactions/new` } : null}
+        >
+          {tranches.length > 0 && plan.total_amount > 0 && (
+            <ProviderTrancheDetails
+              tranches={tranches}
+              totalAmount={plan.total_amount}
+              charterPaidByTranche={charterPaidByTranche}
+            />
+          )}
+        </ProviderOpenBlock>
+
+        {/* Gemeldete Einzahlungen zuerst (sofort aktionierbar). */}
+        {pending.length > 0 && (
+          <PendingBanner pending={pending} members={members} tranches={tranches} vocab={vocab} />
+        )}
 
       {/* Mobile: eine Karte pro Person — kein Seitwärts-Wischen (#4) */}
-      <div className="space-y-2 sm:hidden">
+      <div className="mt-3 space-y-2 sm:hidden">
         {memberRows.map(({ m, obl, cabin, cells, rowOpen, isAdvancerRow, advancerNothingOpen }) => (
           <article key={m.id} className="rounded-lg border border-rule bg-paper p-3">
             <div className="flex items-start justify-between gap-2">
@@ -304,7 +363,7 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
       </div>
 
       {/* Tablet/Desktop: Tabelle für den Quervergleich (dichtere Zellen #3) */}
-      <div className="hidden overflow-x-auto rounded-md border border-rule bg-paper sm:block">
+      <div className="mt-3 hidden overflow-x-auto rounded-md border border-rule bg-paper sm:block">
         <table className="w-full text-sm">
           <thead className="bg-paper-soft text-xs text-ink-soft">
             <tr>
@@ -413,7 +472,7 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
           </li>
           <li className="flex items-center gap-2">
             <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-amber-500 text-amber-600" aria-hidden="true">⏳</span>
-            gemeldet: wartet auf Bestätigung
+            {PAYMENT_STATUS.pending}
           </li>
           <li className="flex items-center gap-2">
             <Bell className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
@@ -426,6 +485,27 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
         </ul>
       </details>
 
+      {/* Aktionsleiste — gleiche Reihenfolge wie bei den weiteren Zahlungen:
+          Einzahlung erfassen · Crew informieren · Bearbeiten */}
+      <PaymentActionBar
+        record={pickOptions.length > 0 && !readOnly ? <RecordPaymentButton onClick={() => setPicker(true)} /> : null}
+        notify={
+          showActions ? (
+            <NotifyCrewButton tripId={tripId} subject="den Anzahlungsplan" lastNotifiedLabel={lastNotifiedLabel} />
+          ) : null
+        }
+        edit={showActions ? <EditButton href={`/trips/${tripId}/prepayments/setup`} /> : null}
+      />
+      </article>
+
+      {picker && (
+        <RecordPickerModal
+          title={`Einzahlung erfassen: ${vocab.prepayment}`}
+          options={pickOptions}
+          onClose={() => setPicker(false)}
+          onPick={pickPerson}
+        />
+      )}
       {paymentModal && (
         <PaymentModal
           tripId={tripId}
@@ -443,7 +523,7 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
 }
 
 function statusLabel(c: MatrixCell): string {
-  if (c.pending) return "gemeldet, wartet auf Bestätigung";
+  if (c.pending) return PAYMENT_STATUS.pending;
   if (c.status === "paid") return "bezahlt";
   if (c.overdue) return "überfällig";
   if (c.status === "partial") return "teilweise bezahlt";
@@ -453,7 +533,7 @@ function statusLabel(c: MatrixCell): string {
 /**
  * Checkbox-artige Statusbox für eine Matrix-Zelle. Visuell deutlich als
  * „abhakbar" erkennbar (analog zur Schuldenseite), statt einer reinen
- * Symbol-Anzeige. Klick öffnet weiterhin das Zahlungs-Modal — bei
+ * Symbol-Anzeige. Klick öffnet weiterhin das Einzahlungs-Modal — bei
  * Teilzahlungen / Überzahlung / Storno reicht eine binäre Checkbox nicht.
  */
 function StatusBox({ cell }: { cell: MatrixCell }) {
@@ -536,8 +616,8 @@ function RowActions({
     ? !member.email
       ? "Für die vorstreckende Person ist keine E-Mail hinterlegt"
       : advancerNothingOpen
-        ? `Alles an ${vocab.provider === "Vercharterer" ? "den Vercharterer" : "den Anbieter"} überwiesen, keine Erinnerung nötig`
-        : `Charterübersicht an dich selbst schicken (Σ Eingänge der ${vocab.crew} / Soll ${vocab.provider} / noch zu überweisen)`
+        ? "Alles an den Anbieter überwiesen, keine Erinnerung nötig"
+        : `Übersicht an dich selbst schicken (Σ Eingänge der ${vocab.crew} / Soll Anbieter / noch zu überweisen)`
     : !member.email
       ? "E-Mail fehlt"
       : rowOpen <= 0.005
@@ -613,7 +693,7 @@ function PaymentModal({
 
   return (
     <Modal onClose={onClose} labelledBy="payment-modal-title">
-        <h2 id="payment-modal-title" className="text-base font-semibold text-primary">Zahlung von {personName}</h2>
+        <h2 id="payment-modal-title" className="text-base font-semibold text-primary">Einzahlung von {personName}</h2>
         <p className="mt-1 text-sm text-ink-soft">{tranche.label} · fällig {formatDeDate(tranche.due_date)}</p>
 
         <dl className="mt-4 grid grid-cols-3 gap-2 rounded-md bg-paper-soft p-3 text-sm">
@@ -788,29 +868,23 @@ function WhatsAppModal({ title, text, onClose }: { title: string; text: string; 
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// CharterReminderBanner — Erinnert den Vorstrecker an seine eigenen
-// Überweisungen an die Charteragentur.
+// ProviderTrancheDetails — Raten-Aufschlüsselung im Hinweisblock „Noch an
+// Anbieter zu überweisen" (früher eigener Banner CharterReminderBanner).
 //
-// Eine Tranche braucht buchhalterisch eine `transactions.expense` mit
-// `tranche_id` = diese Tranche (laut Spec). Wir aggregieren diese pro
-// Tranche und vergleichen mit dem Soll (total_amount × percent / 100).
+// Eine Rate braucht buchhalterisch eine `transactions.expense` mit
+// `tranche_id` = diese Rate (laut Spec). Wir aggregieren diese pro Rate und
+// vergleichen mit dem Soll (total_amount × percent / 100).
 // ────────────────────────────────────────────────────────────────────────
 
-function CharterReminderBanner({
-  tripId,
+function ProviderTrancheDetails({
   tranches,
   totalAmount,
   charterPaidByTranche,
-  vocab,
 }: {
-  tripId: string;
   tranches: Tranche[];
   totalAmount: number;
   charterPaidByTranche: Record<string, number>;
-  vocab: TripVocab;
 }) {
-  if (tranches.length === 0 || totalAmount <= 0) return null;
-
   const today = todayIso();
   const inDays = (iso: string) => {
     const t = new Date(`${iso}T00:00:00Z`).getTime();
@@ -828,43 +902,15 @@ function CharterReminderBanner({
     return { tranche: t, soll, paid, remaining, daysLeft, overdue, soon };
   });
 
-  // Gesamt-basiert statt pro Tranche: der Charter gilt als beglichen, sobald die
-  // Summe der Überweisungen die Plansumme deckt (Überzahlung einer Tranche deckt
-  // eine andere). Die per-Tranche-`rows` bleiben nur für die Detail-Anzeige.
-  const totalSoll = rows.reduce((s, r) => s + r.soll, 0);
-  const totalPaid = rows.reduce((s, r) => s + r.paid, 0);
-  const anythingOutstanding = round2(totalSoll - totalPaid) > 0.005;
-  if (!anythingOutstanding) {
-    return (
-      <p className="mb-3 rounded-md border border-success/30 bg-success/5 px-3 py-2 text-xs text-success">
-        <span aria-hidden="true">✓</span> Alle Anzahlungen sind vollständig überwiesen.
-      </p>
-    );
-  }
-
-  // Einzeiler-Zusammenfassung für den eingeklappten Zustand: nächste noch
-  // offene Tranche (rows sind in Tranchen-Reihenfolge).
-  const nextOpen = rows.find((r) => r.remaining > 0.005);
-  const summaryTone = nextOpen?.overdue ? "text-danger" : nextOpen?.soon ? "text-amber-700" : "text-ink-soft";
-
   return (
-    <details
-      className="group mb-3 rounded-md border border-rule bg-paper [&_summary::-webkit-details-marker]:hidden"
-    >
+    <details className="group mt-2 [&_summary::-webkit-details-marker]:hidden">
       <summary
-        className="flex cursor-pointer flex-wrap items-center justify-between gap-2 p-3 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
-        aria-label="Eigene Überweisungen — aufklappen"
+        className="inline-flex min-h-[44px] cursor-pointer items-center text-xs text-primary underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+        aria-label="Aufschlüsselung nach Raten — aufklappen"
       >
-        <span className="text-xs font-semibold uppercase tracking-wide text-primary">
-          {vocab.openPrepayments}
-        </span>
-        {nextOpen && (
-          <span className={`tabular-nums ${summaryTone}`}>
-            nächste: {nextOpen.tranche.label} · noch <strong>{formatEuro(nextOpen.remaining)}</strong>
-          </span>
-        )}
+        Aufschlüsselung nach Raten
       </summary>
-      <ul className="space-y-1.5 px-3 text-sm">
+      <ul className="space-y-1.5 text-sm">
         {rows.map((r) => {
           const dot = r.overdue ? "⏰" : r.soon ? "⚠" : r.remaining <= 0.005 ? "✓" : "○";
           const tone = r.overdue
@@ -899,19 +945,9 @@ function CharterReminderBanner({
           );
         })}
       </ul>
-      <p className="px-3 pb-3 pt-2 text-xs text-ink-soft">
-        Überweisung als{" "}
-        <a
-          href={`/trips/${tripId}/transactions/new`}
-          className="text-primary underline hover:no-underline"
-        >
-          neue Ausgabe
-        </a>
-        {" "}erfassen und der Tranche zuordnen.
-        <InfoTooltip
-          label="Was passiert dann?"
-          text="Sobald die Ausgabe der passenden Tranche zugeordnet ist, taucht sie hier mit angerechnet auf und reduziert den noch offenen Betrag."
-        />
+      <p className="pt-2 text-xs text-ink-soft">
+        Die Überweisung als{" "}
+        neue Ausgabe erfassen und der Rate zuordnen — sie wird dann hier angerechnet und reduziert den offenen Betrag.
       </p>
     </details>
   );
@@ -938,12 +974,12 @@ function PendingBanner({
 
   return (
     <section
-      className="mb-3 rounded-md border border-rule border-l-4 border-l-primary bg-paper p-3"
+      className="mt-3 rounded-md border border-rule border-l-4 border-l-primary bg-paper p-3"
       role="region"
-      aria-label="Selbst gemeldete Anzahlungen — warten auf Bestätigung"
+      aria-label={`Gemeldete Einzahlungen — ${PAYMENT_STATUS.pending}`}
     >
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
-        <span aria-hidden="true">⏳</span> {pending.length} Selbstmeldung{pending.length === 1 ? "" : "en"} wartet auf Bestätigung
+        <span aria-hidden="true">⏳</span> {pending.length} {pending.length === 1 ? "Meldung wartet" : "Meldungen warten"} auf Bestätigung
       </p>
       <ul className="space-y-1.5">
         {pending.map((p) => {
@@ -998,7 +1034,7 @@ function PendingActions({ transactionId }: { transactionId: string }) {
         onClick={() => run(confirmSelfPayment)}
         disabled={pending}
         className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1 rounded-md bg-success px-3 py-1.5 text-sm font-medium text-paper hover:bg-success/90 focus:outline-none focus:ring-2 focus:ring-success/40 disabled:opacity-50"
-        aria-label="Selbstmeldung bestätigen"
+        aria-label="Meldung bestätigen"
         title="Bestätigen"
       >
         {pending ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
@@ -1008,7 +1044,7 @@ function PendingActions({ transactionId }: { transactionId: string }) {
         onClick={() => run(rejectSelfPayment)}
         disabled={pending}
         className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1 rounded-md border border-rule bg-paper px-3 py-1.5 text-sm text-danger hover:border-danger/40 focus:outline-none focus:ring-2 focus:ring-danger/40 disabled:opacity-50"
-        aria-label="Selbstmeldung ablehnen"
+        aria-label="Meldung ablehnen"
         title="Ablehnen"
       >
         <X className="h-4 w-4" aria-hidden="true" />

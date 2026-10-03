@@ -107,7 +107,7 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
 
   // Die Gesamtsumme ist bei JEDER Methode Pflicht: bei „gleichmäßig"/
   // „zeitanteilig" wird das Soll daraus berechnet, bei „individuell"/„kojen"
-  // ist sie das Charter-Soll (was der Vorstrecker dem Vercharterer schuldet).
+  // ist sie das Charter-Soll (was die vorstreckende Person dem Anbieter schuldet).
   // Sie durfte dort früher leer bleiben und landete als 0 in der DB — womit
   // Tranchen-Vorbelegung (Betrag 0,00 €), Charter-Banner, Fortschritts-Prozent
   // und die Vorstrecker-Erinnerung mit 0 rechneten. Bewusst NICHT automatisch
@@ -453,7 +453,7 @@ export function PrepaymentWizard({ tripId, tripType = "sailing", members, plan, 
               Wer streckt vor?
               <InfoTooltip
                 label="Wer streckt vor?"
-                text={`Wer die ${vocab.prepayment} ${tripType === "other" ? "an den Anbieter" : "an die Charteragentur"} vorstreckt. Alle Anzahlungen der ${vocab.crew} werden an diese Person verbucht; ihren eigenen Anteil kann sie bilanzneutral als Selbstverrechnung abhaken. Default ist ${vocab.skipper === "Skipper" ? "der Törn-Skipper" : "die Reiseleitung"}.`}
+                text={`Wer die ${vocab.prepayment} an den Anbieter vorstreckt. Alle Anzahlungen der ${vocab.crew} werden an diese Person verbucht; ihren eigenen Anteil kann sie bilanzneutral als Selbstverrechnung abhaken. Default ist ${vocab.skipper === "Skipper" ? "der Törn-Skipper" : "die Reiseleitung"}.`}
               />
             </span>
             <select

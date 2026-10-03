@@ -366,7 +366,7 @@ const features: Feature[] = [
   {
     id: "anzahlung-setup",
     title: "Yachtanzahlung: Plan einrichten",
-    lead: "Wenn der Skipper Monate vor dem Törn die Charteranzahlung an den Vercharterer leistet, hilft die App, das Geld bei der Crew einzusammeln.",
+    lead: "Wenn der Skipper Monate vor dem Törn die Charteranzahlung an den Anbieter leistet, hilft die App, das Geld bei der Crew einzusammeln.",
     body: (
       <>
         <p>
@@ -400,8 +400,8 @@ const features: Feature[] = [
     body: (
       <>
         <p>
-          Ein Klick auf eine Zelle öffnet ein Modal zum Erfassen einer
-          Zahlung. Überschuss kann automatisch auf die nächste Tranche
+          Ein Klick auf eine Zelle öffnet ein Modal, in dem du eine
+          Einzahlung erfasst. Überschuss kann automatisch auf die nächste Tranche
           übertragen werden. Über die <strong>Glocke</strong>{" "}
           <TextIcon icon={Bell} /> in der Zeile schickt der Skipper eine
           persönliche Erinnerungs-Mail mit Wero-ID und Verwendungszweck;
@@ -410,36 +410,39 @@ const features: Feature[] = [
           WhatsApp-Vorschlagstext zum Kopieren.
         </p>
         <p className="mt-2">
-          Ein Fortschrittsbalken oben zeigt auf einen Blick, wie viel
-          schon eingegangen ist. Auf dem Smartphone erscheint jede Person
+          Die Karte der Yachtanzahlung zeigt oben zwei Fortschrittsbalken:
+          „Von der Crew bezahlt“ und „An Anbieter bezahlt“. Darunter stehen
+          die Aktionen in fester Reihenfolge: Einzahlung erfassen, Crew
+          informieren, Bearbeiten. Auf dem Smartphone erscheint jede Person
           als eigene Karte, ganz ohne horizontales Wischen; am größeren
           Bildschirm bleibt die Tabelle für den Quervergleich.
         </p>
         <p className="mt-2">
-          Daneben sieht die vorstreckende Person eine Übersicht, was sie noch an den
-          Vercharterer überweisen muss, basierend auf dem, was die
-          Crew schon bei ihr eingezahlt hat. 3 Tage vor jeder
-          Charterfrist verschickt die App diese Übersicht zusätzlich
-          per Mail; 3 Tage vor der Crewfrist gehen automatisch
-          Erinnerungen an alle Crewmitglieder mit offenem Betrag.
+          Im Block „Noch an Anbieter zu überweisen“ sieht die vorstreckende
+          Person, was sie noch an den Anbieter überweisen muss, basierend auf
+          dem, was die Crew schon bei ihr eingezahlt hat. 3 Tage vor jeder
+          Frist verschickt die App diese Übersicht zusätzlich per Mail;
+          3 Tage vor der Crewfrist gehen automatisch Erinnerungen an alle
+          Crewmitglieder mit offenem Betrag.
         </p>
         <p className="mt-2">
-          Unter der Matrix gibt es „Weitere Posten“: Zahlungen neben der
-          Yachtanzahlung, zum Beispiel Flüge oder Bahn für die
-          An-/Abreise. Der Skipper legt einen Posten mit Kategorie, Betrag,
-          Empfänger und Aufteilung an; die Crew meldet ihren Anteil wie bei
-          der Anzahlung selbst. Pro Posten sieht man, wie viel die Crew
-          schon eingezahlt hat und wie viel noch an Airline oder Bahn zu
-          überweisen ist. Hat ein Posten eine Fälligkeit, erinnert die App
-          wie bei der Anzahlung automatisch: die Crew 6 Tage vorher, den
-          Empfänger 3 Tage vorher.
+          Unter der Yachtanzahlung gibt es „Weitere Zahlungen“: Zahlungen
+          neben der Anzahlung, zum Beispiel Flüge oder Bahn für die
+          An-/Abreise. Jede weitere Zahlung ist eine Karte im selben Aufbau
+          wie die Yachtanzahlung. Der Skipper legt sie mit Kategorie, Betrag,
+          der Person, die vorstreckt, und Aufteilung an; die Crew meldet ihren
+          Anteil wie bei der Anzahlung selbst („Ich habe gezahlt“). Pro Karte
+          sieht man, wie viel die Crew schon eingezahlt hat und wie viel noch
+          an den Anbieter zu überweisen ist. Hat eine weitere Zahlung eine
+          Fälligkeit, erinnert die App wie bei der Anzahlung automatisch: die
+          Crew 6 Tage vorher, die vorstreckende Person 3 Tage vorher.
         </p>
         <p className="mt-2">
-          Steht der Anzahlungsplan oder ist ein Posten neu angelegt,
-          bekommt jede Person mit Anteil automatisch eine Mail: wofür, wie
-          viel, an wen und bis wann. Ändert sich später etwas, informiert
+          Steht der Anzahlungsplan oder ist eine weitere Zahlung neu angelegt,
+          bekommt jede Person mit Anteil automatisch eine Mail: dein Anteil,
+          bis wann, an wen und wie es geht. Ändert sich später etwas, informiert
           der Skipper die Crew mit einem Klick auf „Crew informieren“.
-          Meldungen, Bestätigungen und Ablehnungen von Zahlungen kommen
+          Meldungen, Bestätigungen und Ablehnungen von Einzahlungen kommen
           per Mail und, falls aktiviert, als Push aufs Handy.
         </p>
       </>

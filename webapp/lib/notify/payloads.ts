@@ -6,11 +6,15 @@
  * raus, siehe docs/push-notifications.md). Kein Browser-/DB-Zugriff → direkt
  * mit Vitest testbar.
  *
+ * Titel nennen die Sache beim Namen (Label + Betrag/Frist, z. B. „Flüge: dein
+ * Anteil 180,00 €"), nie „Posten" (intern `item` = weitere Zahlung; PR7).
+ *
  * `tag` collapst gleichartige Pushes: ein zweiter Push mit gleichem Tag
  * ersetzt den vorherigen auf dem Gerät, statt zu stapeln (z. B. „Törn
  * abgerechnet" → später „Bilanz aktualisiert").
  */
 import { fmtEuro } from "@/lib/email/mail-shell";
+import { NO_DUE_TEXT, PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
 
 export interface PushPayload {
   title: string;
@@ -81,102 +85,126 @@ export function debtSettledPush(args: {
   };
 }
 
+/** „bis 12.10. · „Ostsee“" bzw. „Frist folgt · …". */
+const dueBody = (due: string | null | undefined, tripName: string) =>
+  `${due ? `Bis ${due}` : NO_DUE_TEXT} · „${tripName}“`;
+const updatePrefix = (isUpdate: boolean) => (isUpdate ? "Geändert: " : "");
+
+/** Erinnerung an die Crew zu einer Rate des Anzahlungsplans (crew_3d). */
 export function prepaymentReminderPush(args: {
   trancheLabel: string;
   amount: number;
   tripName: string;
   tripId: string;
   trancheId: string;
+  /** Formatierte Crewfrist; ohne → „Frist folgt". */
+  due?: string | null;
 }): PushPayload {
   return {
-    title: "Anzahlung fällig",
-    body: `${args.trancheLabel}: ${fmtEuro(args.amount)} für „${args.tripName}".`,
+    title: `${args.trancheLabel}: dein Anteil ${fmtEuro(args.amount)}`,
+    body: dueBody(args.due, args.tripName),
     url: tripUrl(args.tripId, "/prepayments"),
     tag: `prepay-${args.trancheId}`,
   };
 }
 
+/** Erinnerung an die vorstreckende Person (advancer_3d). */
 export function charterReminderPush(args: {
   tripName: string;
   tripId: string;
   trancheId: string;
+  /** Noch an den Anbieter zu überweisen. */
+  amount?: number;
+  /** Anbieter-Frist (formatiert). */
+  due?: string | null;
+  /** Bezeichnung der Sache, z. B. „Yachtanzahlung". */
+  what?: string;
 }): PushPayload {
+  const what = args.what ?? "Anzahlung";
   return {
-    title: "Charteranzahlung fällig",
-    body: `Überweisung an den Vercharterer für „${args.tripName}" steht an.`,
+    title:
+      args.amount !== undefined
+        ? `${what}: noch ${fmtEuro(args.amount)} an Anbieter überweisen`
+        : `${what}: Überweisung an Anbieter steht an`,
+    body: dueBody(args.due, args.tripName),
     url: tripUrl(args.tripId, "/prepayments"),
     tag: `charter-${args.trancheId}`,
   };
 }
 
-/** Posten-Erinnerung an die Crew (item_crew_3d, PR5). */
+/** Erinnerung an die Crew zu einer weiteren Zahlung (item_crew_3d, PR5). */
 export function itemReminderPush(args: {
   itemLabel: string;
   amount: number;
   tripName: string;
   tripId: string;
   itemId: string;
+  due?: string | null;
 }): PushPayload {
   return {
-    title: "Zahlung fällig",
-    body: `${args.itemLabel}: ${fmtEuro(args.amount)} für „${args.tripName}".`,
+    title: `${args.itemLabel}: dein Anteil ${fmtEuro(args.amount)}`,
+    body: dueBody(args.due, args.tripName),
     url: tripUrl(args.tripId, "/prepayments"),
     tag: `item-${args.itemId}`,
   };
 }
 
-/** Posten-Übersicht an den Empfänger (item_payee_3d, PR5). */
+/** Übersicht an die vorstreckende Person (item_payee_3d, PR5). */
 export function itemPayeeReminderPush(args: {
   itemLabel: string;
   amount: number;
   tripName: string;
   tripId: string;
   itemId: string;
+  due?: string | null;
 }): PushPayload {
   return {
-    title: "Zahlung an den Anbieter fällig",
-    body: `${args.itemLabel}: noch ${fmtEuro(args.amount)} an den Anbieter für „${args.tripName}".`,
+    title: `${args.itemLabel}: noch ${fmtEuro(args.amount)} an Anbieter überweisen`,
+    body: dueBody(args.due, args.tripName),
     url: tripUrl(args.tripId, "/prepayments"),
     tag: `item-payee-${args.itemId}`,
   };
 }
 
+/** Meldung zu einer Rate des Anzahlungsplans → an die vorstreckende Person. */
 export function paymentPendingPush(args: {
   payerName: string;
   amount: number;
   tripId: string;
   trancheId: string;
   payerPersonId: string;
+  /** Bezeichnung der Sache (z. B. „1. Anzahlung"). */
+  what?: string;
 }): PushPayload {
   return {
-    title: "Zahlung gemeldet",
-    body: `${args.payerName} meldet ${fmtEuro(args.amount)}. Bitte bestätigen oder ablehnen.`,
+    title: `${args.what ?? "Einzahlung"}: ${fmtEuro(args.amount)} von ${args.payerName}`,
+    body: `Einzahlung ${PAYMENT_STATUS.pending}. Bitte bestätigen oder ablehnen.`,
     url: tripUrl(args.tripId, "/prepayments"),
     // Pro (Trip, Tranche, Melder) eindeutig → zwei verschiedene Selbstmeldungen
-    // kollabieren nicht zu einer; der Vorstrecker muss jede einzeln bestätigen.
+    // kollabieren nicht zu einer; die vorstreckende Person muss jede einzeln bestätigen.
     tag: `pending-${args.tripId}-${args.trancheId}-${args.payerPersonId}`,
   };
 }
 
 export function paymentConfirmedPush(args: { amount: number; tripId: string }): PushPayload {
   return {
-    title: "Zahlung bestätigt",
-    body: `Deine Anzahlung von ${fmtEuro(args.amount)} wurde bestätigt.`,
+    title: `Einzahlung ${PAYMENT_STATUS.confirmed}`,
+    body: `Deine Einzahlung von ${fmtEuro(args.amount)} wurde ${PAYMENT_STATUS.confirmed}.`,
     url: tripUrl(args.tripId, "/prepayments"),
   };
 }
 
 export function paymentRejectedPush(args: { amount: number; tripId: string }): PushPayload {
   return {
-    title: "Zahlung abgelehnt",
-    body: `Deine gemeldete Anzahlung von ${fmtEuro(args.amount)} wurde abgelehnt. Bitte prüfen.`,
+    title: `Einzahlung ${PAYMENT_STATUS.rejected}`,
+    body: `Deine gemeldete Einzahlung von ${fmtEuro(args.amount)} wurde ${PAYMENT_STATUS.rejected}. Bitte prüfen.`,
     url: tripUrl(args.tripId, "/prepayments"),
   };
 }
 
-// ── Reise-Posten & Anzahlungsplan (PR6) ────────────────────────────────────
+// ── Weitere Zahlungen & Anzahlungsplan (PR6, Wording PR7) ───────────────────
 
-/** Posten-Selbstmeldung → an den Posten-Empfänger. */
+/** Meldung zu einer weiteren Zahlung → an die vorstreckende Person. */
 export function itemPaymentPendingPush(args: {
   payerName: string;
   itemLabel: string;
@@ -186,15 +214,15 @@ export function itemPaymentPendingPush(args: {
   payerPersonId: string;
 }): PushPayload {
   return {
-    title: "Zahlung gemeldet",
-    body: `${args.payerName} meldet ${fmtEuro(args.amount)} für ${args.itemLabel}. Bitte bestätigen oder ablehnen.`,
+    title: `${args.itemLabel}: ${fmtEuro(args.amount)} von ${args.payerName}`,
+    body: `Einzahlung ${PAYMENT_STATUS.pending}. Bitte bestätigen oder ablehnen.`,
     url: tripUrl(args.tripId, "/prepayments"),
-    // Pro (Posten, Melder) eindeutig — jede Meldung wird einzeln bestätigt.
+    // Pro (Zahlung, Melder) eindeutig — jede Meldung wird einzeln bestätigt.
     tag: `item-pending-${args.itemId}-${args.payerPersonId}`,
   };
 }
 
-/** Posten-Zahlung erfasst/bestätigt/abgelehnt → an zahlende Person bzw. Empfänger. */
+/** Einzahlung erfasst/bestätigt/abgelehnt → an zahlende bzw. vorstreckende Person. */
 export function itemPaymentNoticePush(args: {
   kind: "item_payment_recorded" | "item_payment_confirmed" | "item_payment_rejected";
   role: "payer" | "payee";
@@ -203,52 +231,66 @@ export function itemPaymentNoticePush(args: {
   amount: number;
   tripId: string;
 }): PushPayload {
-  const whose = args.role === "payer" ? "Deine Zahlung" : `Die Zahlung von ${args.payerName}`;
+  const whose = args.role === "payer" ? "Deine Einzahlung" : `Die Einzahlung von ${args.payerName}`;
   const amount = fmtEuro(args.amount);
   const map = {
-    item_payment_recorded: { title: "Zahlung erfasst", body: `${whose} über ${amount} für ${args.itemLabel} wurde erfasst.` },
-    item_payment_confirmed: { title: "Zahlung bestätigt", body: `${whose} über ${amount} für ${args.itemLabel} wurde bestätigt.` },
+    item_payment_recorded: { title: `${args.itemLabel}: Einzahlung erfasst`, body: `${whose} über ${amount} wurde erfasst.` },
+    item_payment_confirmed: {
+      title: `${args.itemLabel}: Einzahlung ${PAYMENT_STATUS.confirmed}`,
+      body: `${whose} über ${amount} wurde ${PAYMENT_STATUS.confirmed}.`,
+    },
     item_payment_rejected: {
-      title: "Zahlung abgelehnt",
-      body: `${args.role === "payer" ? "Deine Meldung" : `Die Meldung von ${args.payerName}`} über ${amount} für ${args.itemLabel} wurde abgelehnt. Bitte prüfen.`,
+      title: `${args.itemLabel}: Einzahlung ${PAYMENT_STATUS.rejected}`,
+      body: `${args.role === "payer" ? "Deine Meldung" : `Die Meldung von ${args.payerName}`} über ${amount} wurde ${PAYMENT_STATUS.rejected}. Bitte prüfen.`,
     },
   } as const;
   return { ...map[args.kind], url: tripUrl(args.tripId, "/prepayments") };
 }
 
-/** „Posten angelegt" / „Posten geändert" (Crew informieren). */
+/** Weitere Zahlung angelegt / geändert (Crew informieren). */
 export function itemAnnouncedPush(args: {
   isUpdate: boolean;
   itemLabel: string;
+  /** Anteil der Person; null = Übersicht für die vorstreckende Person. */
   amount: number | null;
   tripName: string;
   tripId: string;
   itemId: string;
+  /** Formatierte Crewfrist (Anteil) bzw. Anbieter-Frist (Übersicht). */
+  due?: string | null;
 }): PushPayload {
+  const prefix = updatePrefix(args.isUpdate);
   return {
-    title: args.isUpdate ? "Posten geändert" : "Neuer Posten",
-    body:
+    title:
       args.amount !== null
-        ? `${args.itemLabel}: dein Anteil ${fmtEuro(args.amount)} für „${args.tripName}“.`
-        : `${args.itemLabel} für „${args.tripName}“ — Übersicht in der App.`,
+        ? `${prefix}${args.itemLabel}: dein Anteil ${fmtEuro(args.amount)}`
+        : `${prefix}${args.itemLabel}: du streckst vor`,
+    body: args.amount !== null ? dueBody(args.due, args.tripName) : `Übersicht für „${args.tripName}“ in der App.`,
     url: tripUrl(args.tripId, "/prepayments"),
     tag: `item-announce-${args.itemId}`,
   };
 }
 
-/** „Anzahlungsplan angelegt" / „Plan geändert" (Crew informieren). */
+/** Anzahlungsplan angelegt / geändert (Crew informieren). */
 export function planAnnouncedPush(args: {
   isUpdate: boolean;
+  /** Gesamtanteil der Person; null = Übersicht für die vorstreckende Person. */
   amount: number | null;
   tripName: string;
   tripId: string;
+  /** Bezeichnung der Sache (z. B. „Yachtanzahlung"); Default „Anzahlungsplan". */
+  what?: string;
+  /** Nächste Frist (formatiert). */
+  due?: string | null;
 }): PushPayload {
+  const prefix = updatePrefix(args.isUpdate);
+  const what = args.what ?? "Anzahlungsplan";
   return {
-    title: args.isUpdate ? "Anzahlungsplan geändert" : "Anzahlungsplan steht",
-    body:
+    title:
       args.amount !== null
-        ? `Dein Anteil für „${args.tripName}“: ${fmtEuro(args.amount)}. Raten und Fristen in der App.`
-        : `Übersicht für „${args.tripName}“ in der App.`,
+        ? `${prefix}${what}: dein Anteil ${fmtEuro(args.amount)}`
+        : `${prefix}${what}: du streckst vor`,
+    body: args.amount !== null ? dueBody(args.due, args.tripName) : `Übersicht für „${args.tripName}“ in der App.`,
     url: tripUrl(args.tripId, "/prepayments"),
     tag: `plan-announce-${args.tripId}`,
   };

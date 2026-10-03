@@ -16,7 +16,7 @@
  */
 
 import type { createAdminClient } from "@/lib/supabase/admin";
-import { addDays } from "@/lib/prepayments/dates";
+import { addDays, formatDeDate, toCrewDueDate } from "@/lib/prepayments/dates";
 import { ITEM_CREW_WINDOW_DAYS, planItemReminderJobs, type ItemReminderJob } from "@/lib/prepayments/item-reminders";
 import { sendItemReminderMail } from "@/lib/email/send-item-reminder";
 import { sendPushToPersons } from "@/lib/notify/web-push";
@@ -235,6 +235,10 @@ async function runInner(supabase: SupabaseAdmin, todayIso: string, deadline: num
         tripName: trip.name,
         tripId: job.tripId,
         itemId: job.itemId,
+        // Crew: Crewfrist (3 Tage Puffer), vorstreckende Person: Anbieter-Frist.
+        due: item.due_date
+          ? formatDeDate(job.type === "item_crew_3d" ? toCrewDueDate(item.due_date as string) : (item.due_date as string))
+          : null,
       };
       await sendPushToPersons(
         supabase,

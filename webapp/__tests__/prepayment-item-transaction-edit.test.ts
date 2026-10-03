@@ -111,7 +111,7 @@ describe("updateCredit — Posten-Gutschrift", () => {
   it("„An Alle“ wird vorab mit verständlicher Meldung abgewiesen (tx_item_credit_direct)", async () => {
     const res = await updateCredit({ status: "idle" }, creditFd({ credit_to: "ALL" }));
     expect(res).toMatchObject({ status: "error", field: "credit_to" });
-    if (res.status === "error") expect(res.message).toContain("An Alle");
+    if (res.status === "error") expect(res.message).toContain("„Alle“");
     expect(credit().credit_to).toBe(PAYEE);
   });
 
@@ -137,7 +137,7 @@ describe("updateCredit — Posten-Gutschrift", () => {
     fake.failOn({ table: "transactions", action: "update", error: { code: "P0001", message: "prepayment_item_credit_wrong_payee" } });
     const res = await updateCredit({ status: "idle" }, creditFd({ amount: "90,00" }));
     expect(res.status).toBe("error");
-    if (res.status === "error") expect(res.message).toContain("empfängt");
+    if (res.status === "error") expect(res.message).toContain("vorstreckende Person");
   });
 });
 

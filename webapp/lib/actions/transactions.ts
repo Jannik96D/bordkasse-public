@@ -72,14 +72,14 @@ const TRANCHE_AUTHZ_MSG =
 // tx_pool_exclusive / tx_item_credit_direct / tx_item_credit_payee — sonst
 // sähe die Crew nur „Speichern fehlgeschlagen" (generischer DB-Fehler).
 const POOL_EXCLUSIVE_MSG =
-  "Diese Buchung gehört zu einem Posten und kann nicht zusätzlich einer Anzahlungstranche zugeordnet werden.";
+  "Diese Buchung gehört zu einer weiteren Zahlung und kann nicht zusätzlich einer Anzahlungstranche zugeordnet werden.";
 const ITEM_CREDIT_DIRECT_MSG =
-  "Diese Gutschrift gehört zu einem Posten und braucht einen konkreten Empfänger — „An Alle“ ist nicht möglich.";
+  "Diese Gutschrift gehört zu einer weiteren Zahlung und kann nicht an „Alle“ gehen.";
 const ITEM_CREDIT_PAYEE_MSG =
-  "Diese Gutschrift gehört zu einem Posten und muss an die Person gehen, die den Posten empfängt.";
+  "Diese Gutschrift gehört zu einer weiteren Zahlung und muss an die vorstreckende Person gehen.";
 const ITEM_EXPENSE_LOCKED_MSG =
-  "Diese Ausgabe ist die Zahlung an den Anbieter eines Postens. Betrag, Zahler und Aufteilung ergeben sich aus dem Posten " +
-  "und lassen sich hier nicht ändern — lösche die Zahlung und erfasse sie im Posten neu. Beschreibung, Kategorie und Datum " +
+  "Diese Ausgabe ist die Überweisung an den Anbieter einer weiteren Zahlung. Betrag, Zahler und Aufteilung ergeben sich daraus " +
+  "und lassen sich hier nicht ändern — lösche die Überweisung und erfasse sie bei der weiteren Zahlung neu. Beschreibung, Kategorie und Datum " +
   "kannst du ändern.";
 
 /**
@@ -1135,7 +1135,7 @@ export async function updateCredit(_prev: TxState, formData: FormData): Promise<
       .eq("id", existing.item_id)
       .eq("trip_id", parsed.data.trip_id)
       .maybeSingle();
-    if (itemErr) return { status: "error", message: dbErrorMessage(itemErr, "Posten konnte nicht geladen werden.") };
+    if (itemErr) return { status: "error", message: dbErrorMessage(itemErr, "Weitere Zahlung konnte nicht geladen werden.") };
     if (itemRow && parsed.data.credit_to !== itemRow.payee_person_id) {
       return { status: "error", message: ITEM_CREDIT_PAYEE_MSG, field: "credit_to" };
     }

@@ -11,6 +11,7 @@
 
 import { safeMathEval } from "@/lib/utils/math-eval";
 import { parseAmountDe } from "@/lib/utils";
+import { PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
 import type { ItemCellStatus, ItemSplitType } from "@/lib/calc/prepayment-item-shares";
 
 /** Struktureller Ausschnitt von `PrepaymentItemView` (kein Server-Import im Client). */
@@ -49,7 +50,7 @@ export const ITEM_STATUS_META: Record<ItemCellStatus, StatusMeta> = {
   open: { glyph: "○", label: "offen", box: "border-rule bg-paper text-ink-soft", text: "text-ink-soft" },
   pending: {
     glyph: "⏳",
-    label: "gemeldet, wartet auf Bestätigung",
+    label: PAYMENT_STATUS.pending,
     box: "border-amber-400 bg-amber-50 text-base",
     text: "text-amber-700",
   },
@@ -76,7 +77,7 @@ export function itemCellAriaLabel(args: {
   if (open > 0.005) parts.push(`${fmt(open)} offen`);
   if (paid > soll + 0.005) parts.push(`${fmt(paid - soll)} zu viel`);
   if (pending > 0.005) parts.push(`${fmt(pending)} gemeldet`);
-  return parts.join(", ") + (actionable ? ". Zahlung erfassen" : "");
+  return parts.join(", ") + (actionable ? ". Einzahlung erfassen" : "");
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -197,18 +198,18 @@ export function itemLocks(item: ItemLike): ItemLocks {
   const livingCredits = confirmedCrew || pending;
 
   const distributionReason = providerPaid
-    ? "Für diesen Posten ist schon eine Zahlung an den Anbieter gebucht. Betrag und Aufteilung lassen sich danach nicht mehr ändern. Lösche zuerst die Anbieter-Zahlung in der Buchungsliste und erfasse sie nach der Änderung neu."
+    ? "Hier ist schon eine Überweisung an den Anbieter gebucht. Betrag und Aufteilung lassen sich danach nicht mehr ändern. Lösche zuerst die Überweisung in der Buchungsliste und erfasse sie nach der Änderung neu."
     : null;
   const payeeReason = providerPaid
-    ? "Der Empfänger hat schon an den Anbieter gezahlt und lässt sich deshalb nicht mehr wechseln."
+    ? "Die vorstreckende Person hat schon an den Anbieter überwiesen und lässt sich deshalb nicht mehr wechseln."
     : livingCredits
-      ? "An den Empfänger wurde schon gezahlt bzw. eine Zahlung gemeldet. Er lässt sich erst wechseln, wenn diese Zahlungen gelöscht bzw. die Meldungen abgelehnt sind."
+      ? "An die vorstreckende Person wurde schon eingezahlt bzw. eine Einzahlung gemeldet. Sie lässt sich erst wechseln, wenn diese Einzahlungen gelöscht bzw. die Meldungen abgelehnt sind."
       : null;
   const deleteReason =
     providerPaid || confirmedCrew
-      ? "Löschen nicht möglich: Es hängen bestätigte Zahlungen am Posten. Lösche sie bei Bedarf zuerst in der Buchungsliste."
+      ? "Löschen nicht möglich: Es hängen bestätigte Zahlungen daran. Lösche sie bei Bedarf zuerst in der Buchungsliste."
       : pending
-        ? "Löschen nicht möglich: Eine Selbstmeldung wartet noch auf Bestätigung. Bitte erst bestätigen oder ablehnen."
+        ? "Löschen nicht möglich: Eine Meldung wartet noch auf Bestätigung. Bitte erst bestätigen oder ablehnen."
         : null;
 
   return {

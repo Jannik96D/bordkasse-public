@@ -1,11 +1,12 @@
 "use client";
 
 /**
- * Modale der Reise-Posten (PR4b):
- *   • ItemPaymentModal         — Zahlung einer Person an den Empfänger
- *     (mode "record": Empfänger/Skipper/Admin trägt ein, sofort bestätigt;
+ * Modale der weiteren Zahlungen (intern `item`, PR4b; Wording PR7):
+ *   • ItemPaymentModal         — Einzahlung einer Person an die vorstreckende Person
+ *     (mode "record": vorstreckende Person/Skipper/Admin trägt ein, sofort bestätigt;
  *      mode "self": Crew meldet „Ich habe gezahlt", wartet auf Bestätigung)
- *   • ItemProviderPaymentModal — Empfänger zahlt den Anbieter (Airline/Bahn)
+ *   • ItemProviderPaymentModal — die vorstreckende Person überweist an den Anbieter
+ *     („Überweisung an Anbieter erfassen"; Airline/Bahn o. Ä.)
  *
  * Jede Öffnung mountet das Modal neu → der `idempotency_key` wird pro Mount
  * einmal erzeugt (Muster `useBookingSubmit`): ein Doppelklick oder Retry
@@ -19,6 +20,7 @@ import { Modal } from "@/components/modal";
 import { useToast } from "@/components/toast-provider";
 import { formatEuro, formatAmount, todayIso } from "@/lib/utils";
 import { evalItemAmount, NETWORK_ERROR_MESSAGE } from "@/lib/prepayments/item-ui";
+import { PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
 import {
   recordItemPayment,
   submitItemSelfPayment,
@@ -166,7 +168,7 @@ function Footer({
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Crew → Empfänger
+// Crew → vorstreckende Person
 // ────────────────────────────────────────────────────────────────────────
 
 export function ItemPaymentModal({
@@ -195,7 +197,7 @@ export function ItemPaymentModal({
   const [note, setNote] = useState("");
   const { error, setError, pending, run } = useItemAction(
     onClose,
-    mode === "self" ? "Zahlung gemeldet — wartet auf Bestätigung." : "Zahlung erfasst.",
+    mode === "self" ? `Einzahlung ${PAYMENT_STATUS.pending}.` : "Einzahlung erfasst.",
   );
   const titleId = `item-pay-title-${itemId}`;
   const open = Math.max(0, soll - paid);
@@ -221,10 +223,10 @@ export function ItemPaymentModal({
     <Modal onClose={onClose} labelledBy={titleId}>
       <form onSubmit={(e) => { e.preventDefault(); submit(); }}>
       <h2 id={titleId} className="text-base font-semibold text-primary">
-        {mode === "self" ? "Zahlung melden" : `Zahlung von ${personName} erfassen`}
+        {mode === "self" ? "Einzahlung melden" : `Einzahlung von ${personName} erfassen`}
       </h2>
       <p className="mt-1 text-sm text-ink-soft">
-        {itemLabel} · Zahlung an {payeeName}
+        {itemLabel} · Einzahlung an {payeeName} (streckt vor)
         {mode === "self" && ` — ${payeeName} bestätigt deine Meldung.`}
       </p>
       <dl className="mt-4 grid grid-cols-3 gap-2 rounded-md bg-paper-soft p-3 text-sm">
@@ -245,7 +247,7 @@ export function ItemPaymentModal({
       />
       {parsed !== null && parsed > open + 0.005 && (
         <p role="status" className="mt-3 rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
-          Das sind {formatEuro(parsed - open)} mehr als das Soll. Der Mehrbetrag bleibt im Posten stehen und wird als
+          Das sind {formatEuro(parsed - open)} mehr als das Soll. Der Mehrbetrag bleibt hier stehen und wird als
           „überzahlt“ angezeigt — er muss anschließend zurückgezahlt werden.
         </p>
       )}
@@ -262,7 +264,7 @@ export function ItemPaymentModal({
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Empfänger → Anbieter
+// vorstreckende Person → Anbieter
 // ────────────────────────────────────────────────────────────────────────
 
 export function ItemProviderPaymentModal({
@@ -278,7 +280,7 @@ export function ItemProviderPaymentModal({
   const [amount, setAmount] = useState(() => formatAmount(open));
   const [date, setDate] = useState(todayIso());
   const [description, setDescription] = useState("");
-  const { error, setError, pending, run } = useItemAction(onClose, "Zahlung an den Anbieter erfasst.");
+  const { error, setError, pending, run } = useItemAction(onClose, "Überweisung an den Anbieter erfasst.");
   const titleId = `item-provider-title-${itemId}`;
   const parsed = evalItemAmount(amount);
 
@@ -300,13 +302,13 @@ export function ItemProviderPaymentModal({
   return (
     <Modal onClose={onClose} labelledBy={titleId}>
       <form onSubmit={(e) => { e.preventDefault(); submit(); }}>
-      <h2 id={titleId} className="text-base font-semibold text-primary">Zahlung an den Anbieter erfassen</h2>
+      <h2 id={titleId} className="text-base font-semibold text-primary">Überweisung an Anbieter erfassen</h2>
       <p className="mt-1 text-sm text-ink-soft">
         {itemLabel} · hier trägst du ein, was du selbst an Airline, Bahn o. Ä. überwiesen hast. Teilzahlungen sind
-        möglich, die Summe darf den Posten-Betrag nicht übersteigen.
+        möglich, die Summe darf den Betrag nicht übersteigen.
       </p>
       <dl className="mt-4 grid grid-cols-3 gap-2 rounded-md bg-paper-soft p-3 text-sm">
-        <div><dt className="text-xs text-ink-soft">Posten</dt><dd className="font-medium">{formatEuro(total)}</dd></div>
+        <div><dt className="text-xs text-ink-soft">Betrag</dt><dd className="font-medium">{formatEuro(total)}</dd></div>
         <div><dt className="text-xs text-ink-soft">Gezahlt</dt><dd className="font-medium">{formatEuro(providerPaid)}</dd></div>
         <div><dt className="text-xs text-ink-soft">Noch offen</dt><dd className="font-medium">{formatEuro(open)}</dd></div>
       </dl>
@@ -323,8 +325,8 @@ export function ItemProviderPaymentModal({
       />
       {parsed !== null && parsed > open + 0.005 && (
         <p role="status" className="mt-3 rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">
-          Das ist mehr als der noch offene Betrag. Ist der Anbieter teurer geworden, erhöhe zuerst den Betrag des Postens
-          (geht, solange noch keine Zahlung an den Anbieter gebucht ist).
+          Das ist mehr als der noch offene Betrag. Ist der Anbieter teurer geworden, erhöhe zuerst den Betrag
+          (geht, solange noch keine Überweisung an den Anbieter gebucht ist).
         </p>
       )}
       <Footer

@@ -62,14 +62,14 @@ describe("ITEM_STATUS_META", () => {
 describe("itemCellAriaLabel", () => {
   it("trägt Name, Posten, Status, Beträge und die Aktion", () => {
     const l = itemCellAriaLabel({ name: "Anna", itemLabel: "Flüge", status: "underpaid", soll: 100, paid: 40, pending: 0, fmt, actionable: true });
-    expect(l).toBe("Anna, Flüge: teilweise bezahlt, 40,00 € von 100,00 € bezahlt, 60,00 € offen. Zahlung erfassen");
+    expect(l).toBe("Anna, Flüge: teilweise bezahlt, 40,00 € von 100,00 € bezahlt, 60,00 € offen. Einzahlung erfassen");
   });
   it("nennt Überzahlung und offene Meldung; ohne Aktion kein Aktionssatz", () => {
     const l = itemCellAriaLabel({ name: "Ben", itemLabel: "Bahn", status: "overpaid", soll: 50, paid: 80, pending: 10, fmt, actionable: false });
     expect(l).toContain("überzahlt");
     expect(l).toContain("30,00 € zu viel");
     expect(l).toContain("10,00 € gemeldet");
-    expect(l).not.toContain("Zahlung erfassen");
+    expect(l).not.toContain("Einzahlung erfassen");
     expect(l).not.toContain("offen");
   });
 });
@@ -143,12 +143,12 @@ describe("itemLocks", () => {
     const l = itemLocks(item({ providerPaid: 0, cells: [cell("a", 100, 30), cell("b", 100, 0)] }));
     expect(l.distributionLocked).toBe(false);
     expect(l.payeeLocked).toBe(true);
-    expect(l.payeeReason).toMatch(/Zahlungen/);
+    expect(l.payeeReason).toMatch(/Einzahlungen/);
     expect(l.deleteReason).not.toBeNull();
   });
   it("nur offene Selbstmeldung: Löschen mit eigener Begründung", () => {
     const l = itemLocks(item({ providerPaid: 0, pendingTotal: 20, cells: [cell("a", 100, 0, 20), cell("b", 100, 0)] }));
-    expect(l.deleteReason).toMatch(/Selbstmeldung/);
+    expect(l.deleteReason).toMatch(/Meldung wartet noch auf Bestätigung/);
     expect(l.payeeLocked).toBe(true);
   });
 });

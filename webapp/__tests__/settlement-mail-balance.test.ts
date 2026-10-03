@@ -24,7 +24,7 @@ describe("splitMailBalances", () => {
     });
     expect(text).toContain("Du zahlst noch 30,00");
     expect(text).toContain("Du zahlst 30,00");
-    expect(text).toContain("Laut Bilanz sind bei Anzahlung und weiteren Posten zusätzlich −100,00");
+    expect(text).toContain("Laut Bilanz sind bei Anzahlung und weiteren Zahlungen zusätzlich −100,00");
     expect(text).not.toMatch(/Posten[^\n]*du (zahlst|bekommst)/);
   });
 
@@ -33,6 +33,6 @@ describe("splitMailBalances", () => {
       recipientName: "Anna", tripName: "T", tripDates: "x", balance: 0, poolBalance: 0,
       debts: [], appUrl: "https://example.test", skipperName: "S", tripType: "sailing",
     });
-    expect(text).not.toContain("weiteren Posten");
+    expect(text).not.toContain("weiteren Zahlungen");
   });
 });

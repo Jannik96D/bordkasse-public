@@ -127,7 +127,7 @@ export function ItemFormModal({
         setError({ message: res.message, field: res.field });
         return;
       }
-      toast.show(isEdit ? "Posten gespeichert." : "Posten angelegt.", { variant: "success" });
+      toast.show(isEdit ? "Weitere Zahlung gespeichert." : "Weitere Zahlung angelegt.", { variant: "success" });
       onClose();
       router.refresh();
     });
@@ -139,11 +139,11 @@ export function ItemFormModal({
   return (
     <Modal onClose={onClose} labelledBy={titleId}>
       <h2 id={titleId} className="text-base font-semibold text-primary">
-        {isEdit ? "Posten bearbeiten" : "Weiteren Posten anlegen"}
+        {isEdit ? "Weitere Zahlung bearbeiten" : "Weitere Zahlung hinzufügen"}
       </h2>
       <p className="mt-1 text-sm text-ink-soft">
-        z. B. Flüge oder Bahn für die An-/Abreise: Eine Person zahlt vorab an den Anbieter, die {vocab.crew} erstattet
-        ihr den Anteil.
+        z. B. Flüge oder Bahn für die An-/Abreise: Eine Person streckt vor und zahlt vorab an den Anbieter, die {vocab.crew}
+        erstattet ihr den Anteil.
       </p>
 
       <form
@@ -210,7 +210,7 @@ export function ItemFormModal({
         </label>
 
         <label className="block text-sm" htmlFor="item-payee">
-          <span className="text-ink-soft">Empfänger — wer zahlt vor und bekommt das Geld der {vocab.crew}?</span>
+          <span className="text-ink-soft">Wer streckt vor und bekommt das Geld der {vocab.crew}?</span>
           <select
             id="item-payee"
             value={state.payeeId}
@@ -221,7 +221,7 @@ export function ItemFormModal({
             className={inputCls}
           >
             {!members.some((m) => m.id === state.payeeId) && state.payeeId && (
-              <option value={state.payeeId}>Bisheriger Empfänger (nicht mehr in der {vocab.crew})</option>
+              <option value={state.payeeId}>Bisherige Person (nicht mehr in der {vocab.crew})</option>
             )}
             {members.map((m) => (
               <option key={m.id} value={m.id}>{m.display_name}</option>
@@ -258,7 +258,7 @@ export function ItemFormModal({
             })}
           </div>
           <p className="mt-1 text-xs text-ink-soft">
-            „{vocab.onBoard}“ gibt es für Posten nicht — ein Posten hat kein Buchungsdatum, an dem sich die Anwesenheit
+            „{vocab.onBoard}“ gibt es hier nicht — eine weitere Zahlung hat kein Buchungsdatum, an dem sich die Anwesenheit
             prüfen ließe.
           </p>
         </fieldset>
@@ -294,8 +294,8 @@ export function ItemFormModal({
               className={`mt-3 text-xs ${diff === 0 && total ? "text-success" : "text-danger"}`}
             >
               {diff === 0 && total
-                ? "✓ Die Einzelbeträge ergeben genau den Betrag des Postens."
-                : `Die Einzelbeträge weichen um ${diff > 0 ? "+" : "−"}${formatEuro(Math.abs(diff) / 100)} vom Betrag des Postens ab. Sie müssen genau aufgehen.`}
+                ? "✓ Die Einzelbeträge ergeben genau den Betrag."
+                : `Die Einzelbeträge weichen um ${diff > 0 ? "+" : "−"}${formatEuro(Math.abs(diff) / 100)} vom Betrag ab. Sie müssen genau aufgehen.`}
             </p>
           </fieldset>
         )}

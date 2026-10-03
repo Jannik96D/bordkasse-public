@@ -20,8 +20,8 @@ describe("tripVocab", () => {
     expect(v.coSkipper).toBe("Co-Skipper");
     expect(v.shipName).toBe("Schiffsname");
     expect(v.prepayment).toBe("Yachtanzahlung");
-    expect(v.provider).toBe("Vercharterer");
-    expect(v.openPrepayments).toBe("Offene Charteranzahlungen");
+    // Einheitlich „Anbieter" (nie Vercharterer/Charteragentur) — PR7.
+    expect(v.provider).toBe("Anbieter");
   });
 
   it("liefert neutrale Begriffe für 'other'", () => {
@@ -37,7 +37,6 @@ describe("tripVocab", () => {
     expect(v.shipName).toBe("Unterkunft");
     expect(v.prepayment).toBe("Urlaubsanzahlung");
     expect(v.provider).toBe("Anbieter");
-    expect(v.openPrepayments).toBe("Offene Anzahlungen");
   });
 
   it("fällt bei unbekanntem/leerem Wert auf Segeltörn zurück", () => {

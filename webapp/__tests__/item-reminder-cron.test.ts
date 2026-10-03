@@ -128,7 +128,7 @@ describe("Posten-Erinnerungen im Cron", () => {
     const [y, m, d] = today().split("-");
     const crewDue = `${Number(d)}.${Number(m)}.${y}`;
     const anna = mockedSendMail.mock.calls.map((c) => c[0] as { to: string; html: string }).find((x) => x.to === "anna@example.test")!;
-    expect(anna.html).toContain(`bitte zahlen bis ${crewDue}`);
+    expect(anna.html).toMatch(new RegExp(`Bis wann[\\s\\S]*?<strong>${crewDue.replace(/\./g, "\\.")}</strong>`));
   });
 
   it("zweiter Lauf am selben Tag verschickt nichts (Dedup)", async () => {

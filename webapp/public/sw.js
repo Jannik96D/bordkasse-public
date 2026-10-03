@@ -36,7 +36,7 @@
 // v15: Reise-Posten-Oberfläche (PR4b) — neue Anzahlungs-/Bilanz-Seiten und
 // ein Anzahlungen-Tab, der auch ohne Plan erscheint. Der Bump verwirft die
 // gecachten RSC-Payloads/Dokumente der alten Seiten.
-const CACHE_VERSION = "bordkasse-v16";
+const CACHE_VERSION = "bordkasse-v17";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE = `${CACHE_VERSION}-pages`;
 const RSC_CACHE = `${CACHE_VERSION}-rsc`;

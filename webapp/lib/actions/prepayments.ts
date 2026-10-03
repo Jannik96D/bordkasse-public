@@ -820,14 +820,14 @@ export async function replaceMember(
       .eq("trip_id", trip_id)
       .eq("payee_person_id", old_person_id);
     if (payeeErr) {
-      return { status: "error", message: dbErr(payeeErr, "Posten konnten nicht geprüft werden.") };
+      return { status: "error", message: dbErr(payeeErr, "Weitere Zahlungen konnten nicht geprüft werden.") };
     }
     if ((payeeCount ?? 0) > 0) {
       return {
         status: "error",
         message:
-          "Diese Person empfängt die Zahlungen für einen Posten (z. B. An-/Abreise). Bitte zuerst im Posten " +
-          "eine andere Person als Empfänger eintragen, bevor du sie ersetzt.",
+          "Diese Person streckt eine weitere Zahlung vor (z. B. An-/Abreise). Bitte zuerst dort " +
+          "eine andere Person eintragen, die vorstreckt, bevor du sie ersetzt.",
       };
     }
   }
@@ -881,7 +881,7 @@ export async function replaceMember(
       return {
         status: "error",
         message:
-          "Diese Person hat noch eine unbestätigte Selbstmeldung für einen Posten. Bitte erst bestätigen " +
+          "Diese Person hat noch eine Meldung zu einer weiteren Zahlung, die auf Bestätigung wartet. Bitte erst bestätigen " +
           "oder ablehnen, bevor du sie ersetzt.",
       };
     }
@@ -1088,12 +1088,12 @@ export async function replaceMember(
           .select("item_id", { count: "exact", head: true })
           .eq("trip_id", trip_id)
           .eq("person_id", existingPriv.person_id);
-        if (bItemErr) return { status: "error", message: dbErr(bItemErr, "Posten konnten nicht geprüft werden.") };
+        if (bItemErr) return { status: "error", message: dbErr(bItemErr, "Weitere Zahlungen konnten nicht geprüft werden.") };
         if ((bItemCount ?? 0) > 0) {
           return {
             status: "error",
             message:
-              "Diese Person hat in diesem Törn schon ein Soll bei einem Posten. Bitte zuerst den Posten anpassen " +
+              "Diese Person hat in diesem Törn schon ein Soll bei einer weiteren Zahlung. Bitte zuerst diese anpassen " +
               "oder die neue Person ohne E-Mail als Ghost anlegen.",
           };
         }
@@ -1394,7 +1394,7 @@ export async function replaceMember(
       status: "error",
       message: undone
         ? message
-        : `${message} Achtung: das Zurücksetzen der Posten ist ebenfalls fehlgeschlagen — bitte Posten prüfen oder einen Admin fragen.`,
+        : `${message} Achtung: das Zurücksetzen der weiteren Zahlungen ist ebenfalls fehlgeschlagen — bitte prüfen oder einen Admin fragen.`,
     };
   };
 
@@ -1405,20 +1405,20 @@ export async function replaceMember(
       .eq("trip_id", trip_id)
       .eq("person_id", old_person_id);
     if (itemOblErr) {
-      return { status: "error", message: dbErr(itemOblErr, "Posten-Soll konnte nicht übertragen werden.") };
+      return { status: "error", message: dbErr(itemOblErr, "Das Soll der weiteren Zahlungen konnte nicht übertragen werden.") };
     }
     if ((oldItemObl ?? []).length > 0) {
       const { error: insErr } = await supabase.from("prepayment_item_obligations").insert(
         (oldItemObl ?? []).map((o) => ({ item_id: o.item_id, trip_id, person_id: newPersonId, amount: o.amount })),
       );
-      if (insErr) return { status: "error", message: dbErr(insErr, "Posten-Soll konnte nicht übertragen werden.") };
+      if (insErr) return { status: "error", message: dbErr(insErr, "Das Soll der weiteren Zahlungen konnte nicht übertragen werden.") };
       itemMoved.obligations = (oldItemObl ?? []).map((o) => ({ item_id: o.item_id as string, amount: Number(o.amount) }));
       const { error: delErr } = await supabase
         .from("prepayment_item_obligations")
         .delete()
         .eq("trip_id", trip_id)
         .eq("person_id", old_person_id);
-      if (delErr) return failWithUndo(dbErr(delErr, "Posten-Soll konnte nicht übertragen werden."));
+      if (delErr) return failWithUndo(dbErr(delErr, "Das Soll der weiteren Zahlungen konnte nicht übertragen werden."));
     }
 
     const { data: itemExpenses, error: itemExpErr } = await supabase
@@ -1428,7 +1428,7 @@ export async function replaceMember(
       .eq("type", "expense")
       .not("item_id", "is", null);
     if (itemExpErr) {
-      return failWithUndo(dbErr(itemExpErr, "Posten-Zahlungen konnten nicht geladen werden."));
+      return failWithUndo(dbErr(itemExpErr, "Überweisungen an den Anbieter konnten nicht geladen werden."));
     }
     const itemExpenseIds = (itemExpenses ?? []).map((t) => t.id as string);
     if (itemExpenseIds.length > 0) {
@@ -1438,7 +1438,7 @@ export async function replaceMember(
         .eq("person_id", old_person_id)
         .in("transaction_id", itemExpenseIds);
       if (partErr) {
-        return failWithUndo(dbErr(partErr, "Anteile an Posten-Zahlungen konnten nicht übertragen werden."));
+        return failWithUndo(dbErr(partErr, "Anteile an Überweisungen an den Anbieter konnten nicht übertragen werden."));
       }
       itemMoved.participantTxIds = itemExpenseIds;
     }
@@ -1453,7 +1453,7 @@ export async function replaceMember(
       .eq("type", "credit")
       .not("item_id", "is", null);
     if (itemCreditSelErr) {
-      return failWithUndo(dbErr(itemCreditSelErr, "Posten-Gutschriften konnten nicht geladen werden."));
+      return failWithUndo(dbErr(itemCreditSelErr, "Einzahlungen konnten nicht geladen werden."));
     }
     const itemCreditIds = (itemCredits ?? []).filter((c) => c.credit_to !== old_person_id).map((c) => c.id as string);
     if (itemCreditIds.length > 0) {
@@ -1463,7 +1463,7 @@ export async function replaceMember(
         .eq("trip_id", trip_id)
         .in("id", itemCreditIds);
       if (itemCreditErr) {
-        return failWithUndo(dbErr(itemCreditErr, "Posten-Gutschriften konnten nicht übertragen werden."));
+        return failWithUndo(dbErr(itemCreditErr, "Einzahlungen konnten nicht übertragen werden."));
       }
       itemMoved.creditIds = itemCreditIds;
     }
@@ -1754,6 +1754,7 @@ export async function submitSelfPayment(
       tripId: trip_id,
       trancheId: tranche_id,
       payerPersonId: auth.personId,
+      what: trancheRow.label as string,
     }),
   );
 

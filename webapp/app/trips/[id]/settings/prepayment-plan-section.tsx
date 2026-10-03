@@ -57,7 +57,7 @@ export function PrepaymentPlanSection({
         Anzahlungsplan
         <InfoTooltip
           label="Was ist ein Anzahlungsplan?"
-          text={`Für ${vocab.prepayment}en, die die vorstreckende Person Monate vor dem Törn ${tripType === "other" ? "an den Anbieter" : "an die Charteragentur"} leistet und sich von der ${vocab.crew} in Tranchen zurückerstatten lässt.`}
+          text={`Für ${vocab.prepayment}en, die die vorstreckende Person Monate vor dem Törn an den Anbieter leistet und sich von der ${vocab.crew} in Tranchen zurückerstatten lässt.`}
         />
       </h2>
 
@@ -99,7 +99,7 @@ export function PrepaymentPlanSection({
             href={`/trips/${tripId}/prepayments`}
             className="inline-flex min-h-[44px] items-center font-medium text-primary underline hover:no-underline"
           >
-            Weitere Posten verwalten
+            Weitere Zahlungen verwalten
           </Link>
         </p>
       </div>

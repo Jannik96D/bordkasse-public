@@ -274,13 +274,13 @@ export async function removeMember(
     ]);
     if (payeeRes.error || itemOblRes.error) {
       console.error("[bordkasse:db] removeMember item check:", payeeRes.error?.message ?? itemOblRes.error?.message);
-      return { ok: false, message: "Posten konnten nicht geprüft werden. Bitte erneut versuchen." };
+      return { ok: false, message: "Weitere Zahlungen konnten nicht geprüft werden. Bitte erneut versuchen." };
     }
     if ((payeeRes.count ?? 0) > 0) {
       return {
         ok: false,
         message:
-          "Diese Person empfängt die Zahlungen für einen Posten (z. B. An-/Abreise). Bitte zuerst im Posten eine andere Person als Empfänger eintragen.",
+          "Diese Person streckt eine weitere Zahlung vor (z. B. An-/Abreise). Bitte zuerst dort eine andere Person eintragen, die vorstreckt.",
       };
     }
     const openItemIds = (itemOblRes.data ?? []).filter((o) => Number(o.amount) > 0).map((o) => o.item_id as string);
@@ -356,7 +356,7 @@ export async function removeMember(
     const restored = await restoreRedistributions();
     return {
       ok: false,
-      message: restored ? message : `${message} Achtung: das Zurücksetzen ist ebenfalls fehlgeschlagen — bitte den Posten prüfen.`,
+      message: restored ? message : `${message} Achtung: das Zurücksetzen ist ebenfalls fehlgeschlagen — bitte die weitere Zahlung prüfen.`,
     };
   };
   for (const r of itemRedistributions) {
@@ -367,7 +367,7 @@ export async function removeMember(
     redistributed.push(r);
     if (upErr) {
       console.error("[bordkasse:db] removeMember item redistribution/upsert:", upErr.message);
-      return failRestoring("Posten-Soll konnte nicht neu verteilt werden. Bitte erneut versuchen.");
+      return failRestoring("Das Soll einer weiteren Zahlung konnte nicht neu verteilt werden. Bitte erneut versuchen.");
     }
     const { error: delErr } = await supabase
       .from("prepayment_item_obligations")
@@ -377,7 +377,7 @@ export async function removeMember(
       .eq("person_id", personId);
     if (delErr) {
       console.error("[bordkasse:db] removeMember item redistribution/delete:", delErr.message);
-      return failRestoring("Posten-Soll konnte nicht neu verteilt werden. Bitte erneut versuchen.");
+      return failRestoring("Das Soll einer weiteren Zahlung konnte nicht neu verteilt werden. Bitte erneut versuchen.");
     }
   }
   if (redistributed.length > 0) {
@@ -390,7 +390,7 @@ export async function removeMember(
       .eq("type", "expense")
       .in("item_id", redistributed.map((r) => r.itemId))
       .is("deleted_at", null);
-    if (error) return failRestoring("Posten konnten nicht geprüft werden. Bitte erneut versuchen.");
+    if (error) return failRestoring("Weitere Zahlungen konnten nicht geprüft werden. Bitte erneut versuchen.");
     if ((count ?? 0) > 0) {
       return failRestoring(
         "Während des Entfernens wurde eine Zahlung an den Anbieter gebucht. Bitte Seite neu laden und erneut versuchen.",
@@ -407,7 +407,7 @@ export async function removeMember(
       .eq("person_id", personId);
     if (error) {
       console.error("[bordkasse:db] removeMember item obligations cleanup:", error.message);
-      return failRestoring("Posten-Soll konnte nicht aufgeräumt werden. Bitte erneut versuchen.");
+      return failRestoring("Das Soll einer weiteren Zahlung konnte nicht aufgeräumt werden. Bitte erneut versuchen.");
     }
   }
 
@@ -875,13 +875,13 @@ async function mergeGhostIntoExistingPerson(
     .eq("payee_person_id", ghostId);
   if (ghostPayeeErr) {
     console.error("[bordkasse:db] mergeGhostIntoExistingPerson payee check:", ghostPayeeErr.message);
-    return { ok: false, message: "Posten konnten nicht geprüft werden. Bitte erneut versuchen." };
+    return { ok: false, message: "Weitere Zahlungen konnten nicht geprüft werden. Bitte erneut versuchen." };
   }
   if ((ghostPayeeAll ?? []).some((it) => it.trip_id !== tripId)) {
     return {
       ok: false,
       message:
-        "Diese Person empfängt Zahlungen für einen Posten in einem anderen Törn. Eine automatische Verschmelzung ist " +
+        "Diese Person streckt in einem anderen Törn eine weitere Zahlung vor. Eine automatische Verschmelzung ist " +
         "deshalb gesperrt — bitte einen Admin einbeziehen.",
     };
   }
@@ -913,7 +913,7 @@ async function mergeGhostIntoExistingPerson(
     .eq("person_id", ghostId);
   if (ghostItemOblErr) {
     console.error("[bordkasse:db] mergeGhostIntoExistingPerson item obligations:", ghostItemOblErr.message);
-    return { ok: false, message: "Posten-Soll konnte nicht geprüft werden. Bitte erneut versuchen." };
+    return { ok: false, message: "Das Soll einer weiteren Zahlung konnte nicht geprüft werden. Bitte erneut versuchen." };
   }
 
   // Generischer Fehler-Text für alle Zwischenschritte unten — Fund 3
@@ -1202,7 +1202,7 @@ async function planItemRedistribution(
 > {
   const fail = (err: { message: string }) => {
     console.error("[bordkasse:db] planItemRedistribution:", err.message);
-    return { ok: false as const, message: "Posten konnten nicht geprüft werden. Bitte erneut versuchen." };
+    return { ok: false as const, message: "Weitere Zahlungen konnten nicht geprüft werden. Bitte erneut versuchen." };
   };
   const [itemsRes, txRes, tripRes, membersRes, oblRes] = await Promise.all([
     supabase.from("prepayment_items").select("id, label, total_amount, split_type").eq("trip_id", tripId).in("id", itemIds),
@@ -1235,24 +1235,24 @@ async function planItemRedistribution(
       return {
         ok: false,
         message:
-          `Diese Person hat ein offenes Soll beim Posten „${item.label}“, für den schon an den Anbieter gezahlt wurde. ` +
-          "Das Soll lässt sich nicht automatisch neu verteilen — bitte zuerst die Anbieter-Zahlung löschen oder das Soll im Posten anpassen.",
+          `Diese Person hat ein offenes Soll bei „${item.label}“, wofür schon an den Anbieter überwiesen wurde. ` +
+          "Das Soll lässt sich nicht automatisch neu verteilen — bitte zuerst die Überweisung löschen oder das Soll dort anpassen.",
       };
     }
     if (txs.some((t) => t.type === "credit" && t.credit_from === personId)) {
       return {
         ok: false,
         message:
-          `Diese Person hat für den Posten „${item.label}“ schon gezahlt oder eine Zahlung gemeldet. ` +
-          "Bitte zuerst die Zahlung löschen bzw. die Meldung ablehnen, bevor du sie entfernst.",
+          `Diese Person hat für „${item.label}“ schon eingezahlt oder eine Einzahlung gemeldet. ` +
+          "Bitte zuerst die Einzahlung löschen bzw. die Meldung ablehnen, bevor du sie entfernst.",
       };
     }
     if (item.split_type !== "gleichmaessig" && item.split_type !== "zeitanteilig") {
       return {
         ok: false,
         message:
-          `Diese Person hat noch ein Soll beim Posten „${item.label}“ (Einzelbeträge). ` +
-          "Bitte zuerst im Posten ihren Betrag auf andere verteilen, bevor du sie entfernst.",
+          `Diese Person hat noch ein Soll bei „${item.label}“ (Einzelbeträge). ` +
+          "Bitte zuerst dort ihren Betrag auf andere verteilen, bevor du sie entfernst.",
       };
     }
     // Delta-Review 2: NUR auf Personen verteilen, die für DIESEN Posten schon
@@ -1265,7 +1265,7 @@ async function planItemRedistribution(
     if (base.length === 0) {
       return {
         ok: false,
-        message: `Beim Posten „${item.label}“ hat sonst niemand ein Soll. Bitte zuerst den Posten anpassen oder löschen.`,
+        message: `Bei „${item.label}“ hat sonst niemand ein Soll. Bitte zuerst anpassen oder löschen.`,
       };
     }
     const calc = calculateItemObligations(

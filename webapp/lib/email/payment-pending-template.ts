@@ -1,16 +1,26 @@
 /**
- * Mail an Skipper/Vorstrecker, wenn ein Crewmitglied eine Anzahlung selbst
- * meldet.
+ * Mail an die vorstreckende Person, wenn ein Crewmitglied eine Einzahlung
+ * zum Anzahlungsplan selbst meldet.
  *
  * Spec: docs/prepayments.md §Phase 2.
- * Layout über `mail-shell.ts` — identisch zu allen anderen Bordkasse-Mails.
+ * Layout über das gemeinsame Gerüst `payment-mail.ts` (identisch zu den
+ * Mails für weitere Zahlungen).
  */
 
-import { renderMailShell, renderActionButton, renderHintBlock, escapeHtml, fmtEuro } from "./mail-shell";
+import { escapeHtml, fmtEuro } from "./mail-shell";
 import { tripVocab } from "@/lib/trip-vocab";
+import {
+  PAYMENT_STATUS,
+  eventSubject,
+  howToBlock,
+  noteCard,
+  renderPaymentMail,
+  type Block,
+  type Fact,
+} from "./payment-mail";
 
 export type PaymentPendingParams = {
-  /** Empfänger der Mail — typischerweise der Vorstrecker (Default = Skipper). */
+  /** Empfänger der Mail — typischerweise die vorstreckende Person (Default = Skipper). */
   skipperName: string;
   reporterName: string;
   tripName: string;
@@ -29,74 +39,30 @@ export function renderPaymentPendingMail(p: PaymentPendingParams): {
   subject: string;
 } {
   const vocab = tripVocab(p.tripType);
-  const subject = `${vocab.kitty}-Anzahlung gemeldet: ${p.reporterName} (${fmtEuro(p.amount)})`;
-  const noteBlock = p.note
-    ? `
-            <tr>
-              <td style="padding:8px 32px 0 32px;">
-                <p style="margin:0;padding:10px 14px;background-color:#FDF6DC;border-left:3px solid #C8A51E;font-size:13px;color:#1A2533;border-radius:4px;">
-                  <strong>Notiz von ${escapeHtml(p.reporterName)}:</strong> ${escapeHtml(p.note)}
-                </p>
-              </td>
-            </tr>`
-    : "";
-
-  const body = `
-            <tr>
-              <td style="padding:32px 32px 8px 32px;">
-                <h2 style="margin:0 0 12px 0;font-size:18px;font-weight:600;color:#1D4281;">
-                  Anzahlung gemeldet
-                </h2>
-                <p style="margin:0 0 12px 0;font-size:15px;line-height:1.55;color:#1A2533;">
-                  Hi ${escapeHtml(p.skipperName)},
-                </p>
-                <p style="margin:0;font-size:15px;line-height:1.55;color:#1A2533;">
-                  <strong>${escapeHtml(p.reporterName)}</strong> hat eine Anzahlung gemeldet:
-                </p>
-              </td>
-            </tr>
-
-            <tr>
-              <td style="padding:14px 32px 0 32px;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F4F2EC;border-radius:6px;">
-                  <tr>
-                    <td style="padding:14px;font-size:14px;color:#1A2533;">
-                      <strong>Tranche:</strong> ${escapeHtml(p.trancheLabel)}<br/>
-                      <strong>Fällig:</strong> ${escapeHtml(p.trancheDueDate)}<br/>
-                      <strong>Betrag:</strong> <strong style="color:#114884;">${fmtEuro(p.amount)}</strong>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-${noteBlock}
-${renderActionButton(p.appUrl, `In der ${vocab.kitty} bestätigen`)}
-${renderHintBlock(
-  `Du bekommst diese Mail, weil du für ${p.tripType === "other" ? "diese Reise" : "diesen Törn"} vorstreckst. Bestätige die Zahlung in der App, sobald sie auf deinem Konto angekommen ist, sonst zählt sie nicht zur ${p.tripType === "other" ? "Bilanz der Reisegruppe" : "Crewbilanz"}.`,
-)}`;
-
-  const html = renderMailShell({
-    title: subject,
+  const what = `${vocab.prepayment} (${p.trancheLabel})`;
+  const facts: Fact[] = [
+    { label: "Was", html: escapeHtml(what), text: what },
+    { label: "Von", html: `<strong>${escapeHtml(p.reporterName)}</strong>`, text: p.reporterName },
+    { label: "Betrag", html: fmtEuro(p.amount), text: fmtEuro(p.amount), strong: true, color: "#114884" },
+    { label: "Fällig", html: escapeHtml(p.trancheDueDate), text: p.trancheDueDate },
+    { label: "Status", html: escapeHtml(PAYMENT_STATUS.pending), text: PAYMENT_STATUS.pending },
+  ];
+  const extra: Block[] = [];
+  if (p.note) {
+    extra.push(noteCard(`<strong>Notiz von ${escapeHtml(p.reporterName)}:</strong> ${escapeHtml(p.note)}`, `Notiz von ${p.reporterName}: ${p.note}`));
+  }
+  return renderPaymentMail({
+    subject: eventSubject({ what, kind: "pending", who: p.reporterName, amount: p.amount }),
+    headline: "Einzahlung gemeldet",
+    recipientName: p.skipperName,
+    tripName: p.tripName,
+    introHtml: `<strong>${escapeHtml(p.reporterName)}</strong> hat eine Einzahlung zur ${escapeHtml(vocab.prepayment)} gemeldet.`,
+    introText: `${p.reporterName} hat eine Einzahlung zur ${vocab.prepayment} gemeldet.`,
     preheader: `${p.reporterName} hat ${fmtEuro(p.amount)} gemeldet — bitte bestätigen.`,
-    subtitle: p.tripName,
-    body,
+    appUrl: p.appUrl,
+    facts,
+    extra,
+    how: howToBlock("Bestätige die Meldung in der App, sobald das Geld auf deinem Konto angekommen ist — oder lehne sie ab. Vorher zählt sie nicht."),
+    hint: `Du bekommst diese Mail, weil du für ${p.tripType === "other" ? "diese Reise" : "diesen Törn"} vorstreckst. Ohne Bestätigung zählt die Einzahlung nicht zur ${p.tripType === "other" ? "Bilanz der Reisegruppe" : "Crewbilanz"}.`,
   });
-
-  const text = `Anzahlung gemeldet
-${p.tripName}
-
-Hi ${p.skipperName},
-
-${p.reporterName} hat eine Anzahlung gemeldet:
-
-  Tranche: ${p.trancheLabel} (fällig ${p.trancheDueDate})
-  Betrag:  ${fmtEuro(p.amount)}
-${p.note ? `  Notiz:   ${p.note}\n` : ""}
-Bitte in der App bestätigen oder ablehnen: ${p.appUrl}
-
-—
-Bordkasse · Faire Kostenaufteilung auf Segeltörns
-`;
-
-  return { html, text, subject };
 }
