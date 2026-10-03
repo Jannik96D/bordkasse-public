@@ -16,16 +16,21 @@
  * Wort „Posten" nicht mehr.
  */
 
-import { useId, type ReactNode } from "react";
+import { useId, useState, useTransition, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, Pencil } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Pencil, RefreshCw, X } from "lucide-react";
+import { useToast } from "@/components/toast-provider";
 import { Modal } from "@/components/modal";
 import { formatEuro } from "@/lib/utils";
-import { ITEM_OVERALL_LABEL, progressPercent, type ItemOverall, type ProviderDueInfo } from "@/lib/prepayments/item-ui";
+import { formatDeDate } from "@/lib/prepayments/dates";
+import type { RowsSummary } from "@/lib/prepayments/person-rows";
+import { ITEM_OVERALL_LABEL, NETWORK_ERROR_MESSAGE, progressPercent, type ItemOverall, type ProviderDueInfo } from "@/lib/prepayments/item-ui";
 import {
   ACTION_PROVIDER,
   ACTION_RECORD,
   LABEL_PROVIDER_OPEN,
+  PAYMENT_STATUS,
 } from "@/lib/prepayments/payment-words";
 
 // ── Kopf ──────────────────────────────────────────────────────────────────
@@ -318,5 +323,154 @@ export function RecordPickerModal({
         </button>
       </div>
     </Modal>
+  );
+}
+
+// ── Kennzahlen + Überzahlungs-Hinweis (beide Karten identisch) ────────────
+
+export function PaymentSummaryLine({ summary, pendingCount, tooltip }: { summary: RowsSummary; pendingCount: number; tooltip?: ReactNode }) {
+  return (
+    <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-soft">
+      <span><strong className="text-ink">{summary.fullyPaid}</strong> von {summary.withSoll} vollständig</span>
+      {pendingCount > 0 && <span className="text-amber-700">{pendingCount} wartet auf Bestätigung</span>}
+      {summary.overdue > 0 && <span className="text-danger">{summary.overdue} überfällig</span>}
+      {tooltip}
+    </p>
+  );
+}
+
+export function OverpaidNote({ amount }: { amount: number }) {
+  if (amount <= 0.005) return null;
+  return (
+    <p role="note" className="mt-3 flex items-start gap-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+      <span>
+        <strong>{formatEuro(amount)} zu viel bezahlt.</strong> Der Mehrbetrag muss zurück an die betroffenen Personen —
+        die App bucht das nicht automatisch.
+      </span>
+    </p>
+  );
+}
+
+// ── Gemeldete Einzahlungen (Bestätigen/Ablehnen) ──────────────────────────
+
+export interface PendingEntry {
+  id: string;
+  who: string;
+  amount: number;
+  /** „1. Anzahlung“ — leer bei weiteren Zahlungen. */
+  what?: string;
+  date: string;
+}
+
+type ActionResult = { status: string; message?: string };
+
+function PendingReportActions({
+  who,
+  amount,
+  onConfirm,
+  onReject,
+}: {
+  who: string;
+  amount: string;
+  onConfirm: () => Promise<ActionResult>;
+  onReject: () => Promise<ActionResult>;
+}) {
+  const router = useRouter();
+  const toast = useToast();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function run(action: () => Promise<ActionResult>, okMessage: string) {
+    setError(null);
+    startTransition(async () => {
+      let res: ActionResult;
+      try {
+        res = await action();
+      } catch {
+        setError(NETWORK_ERROR_MESSAGE);
+        return;
+      }
+      if (res.status === "error") {
+        setError(res.message ?? "Fehler");
+        return;
+      }
+      toast.show(okMessage, { variant: "success" });
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div className="inline-flex gap-1">
+        <button
+          type="button"
+          onClick={() => run(onConfirm, "Einzahlung bestätigt.")}
+          disabled={pending}
+          aria-label={`Meldung von ${who} über ${amount} bestätigen`}
+          title="Bestätigen"
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md bg-success px-3 py-1.5 text-paper hover:bg-success/90 focus:outline-none focus:ring-2 focus:ring-success/40 disabled:opacity-50"
+        >
+          {pending ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => run(onReject, "Meldung abgelehnt.")}
+          disabled={pending}
+          aria-label={`Meldung von ${who} über ${amount} ablehnen`}
+          title="Ablehnen"
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-rule bg-paper px-3 py-1.5 text-danger hover:border-danger/40 focus:outline-none focus:ring-2 focus:ring-danger/40 disabled:opacity-50"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+      {error && <p role="alert" className="max-w-xs text-right text-xs text-danger">{error}</p>}
+    </div>
+  );
+}
+
+export function PendingReportsBanner({
+  entries,
+  ariaSubject,
+  confirm,
+  reject,
+}: {
+  entries: PendingEntry[];
+  /** Wofür (Screenreader-Beschriftung), z. B. Titel der Karte. */
+  ariaSubject: string;
+  /** Ohne Funktionen (Crew) nur Anzeige. */
+  confirm?: (id: string) => Promise<ActionResult>;
+  reject?: (id: string) => Promise<ActionResult>;
+}) {
+  if (entries.length === 0) return null;
+  return (
+    <section
+      role="region"
+      aria-label={`Gemeldete Einzahlungen für ${ariaSubject} — ${PAYMENT_STATUS.pending}`}
+      className="mt-3 rounded-md border border-rule border-l-4 border-l-primary bg-paper p-3"
+    >
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
+        <span aria-hidden="true">⏳</span> {entries.length} {entries.length === 1 ? "Meldung wartet" : "Meldungen warten"} auf Bestätigung
+      </p>
+      <ul className="space-y-1.5">
+        {entries.map((p) => (
+          <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-paper-soft px-3 py-2 text-sm">
+            <div className="min-w-0 flex-1">
+              <strong>{p.who}</strong> hat <strong className="text-primary">{formatEuro(p.amount)}</strong>
+              {p.what && <> für <strong>{p.what}</strong></>} gemeldet
+              <span className="block text-xs text-ink-soft">{formatDeDate(p.date)}</span>
+            </div>
+            {confirm && reject && (
+              <PendingReportActions
+                who={p.who}
+                amount={formatEuro(p.amount)}
+                onConfirm={() => confirm(p.id)}
+                onReject={() => reject(p.id)}
+              />
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

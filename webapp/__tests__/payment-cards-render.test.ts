@@ -181,3 +181,36 @@ describe("Plan-Karte: Rundungsrand bei „Noch an Anbieter zu überweisen“", (
     expect(html).not.toContain("vollständig an den Anbieter überwiesen");
   });
 });
+
+describe("Plan-Karte und weitere Zahlung teilen dieselben Elemente (PR8b)", () => {
+  const plan1 = renderPlan({ payments: [{ trip_id: "t", tranche_id: "tr1", person_id: ANNA, paid_amount: 200 }] });
+  const item1 = renderItems();
+  const pendingPlan = renderPlan({ pending: [{ transaction_id: "x", tranche_id: "tr1", person_id: ANNA, amount: 200, date: "2099-01-02", description: null, created_at: "" }] });
+  const pendingItem = renderItems({
+    items: [{ ...item, pendingPayments: [{ transaction_id: "y", person_id: ANNA, amount: 180, date: "2099-01-02" }] }],
+  });
+
+  it("gleiche Kennzahlenzeile und gleiche Personenliste", () => {
+    expect(plan1).toMatch(/von 2 vollständig/);
+    expect(item1).toMatch(/von 2 vollständig/);
+    expect(plan1).toContain('aria-label="Zahlungsstatus pro Person');
+    expect(item1).toContain('aria-label="Zahlungsstatus pro Person');
+  });
+  it("keine Matrix-Tabelle, kein Ansichts-Umschalter", () => {
+    expect(plan1).not.toContain("<table");
+    expect(plan1).not.toMatch(/Matrix-Ansicht|Listenansicht/);
+  });
+  it("gleicher Banner für gemeldete Einzahlungen mit Bestätigen/Ablehnen", () => {
+    for (const html of [pendingPlan, pendingItem]) {
+      expect(html).toContain("1 Meldung wartet auf Bestätigung");
+      expect(html).toMatch(/Meldung von Anna über [\d,.]+\s?€ bestätigen/);
+      expect(html).toMatch(/Meldung von Anna über [\d,.]+\s?€ ablehnen/);
+    }
+  });
+  it("gleicher Überzahlungs-Hinweis", () => {
+    const over = renderPlan({ payments: [{ trip_id: "t", tranche_id: "tr1", person_id: ANNA, paid_amount: 250 }] });
+    expect(over).toContain("zu viel bezahlt");
+    const overItem = renderItems({ items: [{ ...item, cells: [{ person_id: JAN, soll: 180, paid: 200, pending: 0, status: "overpaid" }, item.cells[1]] }] });
+    expect(overItem).toContain("zu viel bezahlt");
+  });
+});

@@ -134,17 +134,11 @@ describe("Anzahlungsplan: Personenliste", () => {
     expect(byLabel(/^Einzahlung erfassen: Anna/)).toBeUndefined();
   });
 
-  it("Matrix-Ansicht umschaltbar: Tabelle mit Zellen-Knöpfen, wieder zurück zur Liste", () => {
+  it("es gibt nur EINE Ansicht: keine Matrix-Tabelle, kein Umschalter", () => {
     mount(plant({ payments: [] }));
     expect(q("table")).toBeNull();
-    click(buttons().find((b) => b.textContent?.includes("Matrix-Ansicht")));
-    expect(q("table")).toBeTruthy();
-    expect(q('ul[aria-label^="Zahlungsstatus pro Person"]')).toBeNull();
-    click(byLabel(/Anna, 1\. Anzahlung: offen.*Einzahlung erfassen/));
-    expect(document.body.textContent).toContain("Einzahlung von Anna");
-    click(buttons().find((b) => b.textContent?.trim() === "Abbrechen"));
-    click(buttons().find((b) => b.textContent?.includes("Listenansicht")));
-    expect(q('ul[aria-label^="Zahlungsstatus pro Person"]')).toBeTruthy();
+    expect(document.body.textContent).not.toContain("Matrix-Ansicht");
+    expect(document.body.textContent).not.toContain("Listenansicht");
   });
 });
 

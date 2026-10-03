@@ -1,24 +1,26 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { Bell, MessageCircle, RefreshCw, Check, X, Sailboat, Wallet, Table2, List } from "lucide-react";
+import { Bell, MessageCircle, RefreshCw, Sailboat, Wallet } from "lucide-react";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { Modal } from "@/components/modal";
 import { NotifyCrewButton } from "./notify-crew-button";
 import { PersonStatusList } from "./person-status-list";
-import { buildPersonRow, visiblePersonRows } from "@/lib/prepayments/person-rows";
+import { buildPersonRow, summarizeRows, visiblePersonRows } from "@/lib/prepayments/person-rows";
 import {
   EditButton,
   PaymentActionBar,
   PaymentCardHeader,
+  OverpaidNote,
   PaymentProgress,
+  PaymentSummaryLine,
+  PendingReportsBanner,
   ProviderOpenBlock,
   RecordPaymentButton,
   RecordPickerModal,
 } from "./payment-card-parts";
 import { planProviderRemaining, providerDueInfo, type ItemOverall } from "@/lib/prepayments/item-ui";
-import { ACTION_RECORD, LABEL_PROVIDER_PAID, PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
+import { ACTION_RECORD, LABEL_PROVIDER_PAID } from "@/lib/prepayments/payment-words";
 import { formatEuro, formatAmount, todayIso, round2 } from "@/lib/utils";
 import {
   recordPayment,
@@ -83,8 +85,6 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
   const [paymentModal, setPaymentModal] = useState<{ cell: MatrixCell; personName: string } | null>(null);
   const [whatsAppModal, setWhatsAppModal] = useState<{ text: string; title: string } | null>(null);
   const [picker, setPicker] = useState(false);
-  // Standard: Personenliste (wie bei weiteren Zahlungen); die Matrix Person × Rate bleibt als Überblick.
-  const [view, setView] = useState<"list" | "matrix">("list");
   // Zweiter Schritt „Welche Rate?" — nur wenn die Person in mehreren Raten offen ist.
   const [ratePicker, setRatePicker] = useState<string | null>(null);
 
@@ -198,12 +198,6 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
   const collected = memberRows.reduce((s, r) => s + r.cells.reduce((a, c) => a + c.paid, 0), 0);
   const withObligation = memberRows.filter((r) => (r.obl?.total_amount ?? 0) > 0).length;
   const fullyPaid = memberRows.filter((r) => (r.obl?.total_amount ?? 0) > 0 && r.rowOpen <= 0.005).length;
-  const overdueCount = memberRows.filter((r) => r.cells.some((c) => c.overdue)).length;
-
-  const cellAria = (cell: MatrixCell, name: string, label: string) =>
-    cell.pending
-      ? `${name}, ${label}: ${formatEuro(cell.pending.amount)} ${PAYMENT_STATUS.pending}. Einzahlung erfassen`
-      : `${name}, ${label}: ${statusLabel(cell)}, ${formatEuro(cell.paid)} von ${formatEuro(cell.soll)} bezahlt. Einzahlung erfassen`;
 
   // Gesamtstatus wie bei den weiteren Zahlungen (gleiche Kopfzeile).
   const charterPaidCapped = Math.min(charterPaidTotal, plan.total_amount);
@@ -264,6 +258,12 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
     const cell = row?.cells.find((c) => c.trancheId === trancheId);
     if (row && cell) openPayment(cell, row.m.display_name);
   }
+  const summary = summarizeRows(personRows);
+  const runPending = (action: typeof confirmSelfPayment | typeof rejectSelfPayment, id: string) => {
+    const fd = new FormData();
+    fd.set("transaction_id", id);
+    return action({ status: "idle" }, fd);
+  };
   const showActions = canEditPlan && !readOnly;
   const crewPaidLabel = `Von der ${vocab.crew} bezahlt`;
 
@@ -300,21 +300,19 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
             tone={charterPaidTotal > plan.total_amount + 0.005 ? "warn" : undefined}
           />
         </div>
-        <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-soft">
-          <span><strong className="text-ink">{fullyPaid}</strong> von {withObligation} vollständig</span>
-          {pending.length > 0 && (
-            <span className="text-amber-700">{pending.length} wartet auf Bestätigung</span>
-          )}
-          {overdueCount > 0 && (
-            <span className="text-danger">{overdueCount} überfällig</span>
-          )}
-          {advancerName && (
-            <InfoTooltip
-              label="Wer streckt vor?"
-              text="Alle Anzahlungen werden an diese Person verbucht. Den eigenen Anteil per Klick auf die Zelle als eigene Einzahlung abhaken (ändert die Bilanz nicht, kein Mail-/WhatsApp-Versand)."
-            />
-          )}
-        </p>
+        <PaymentSummaryLine
+          summary={summary}
+          pendingCount={pending.length}
+          tooltip={
+            advancerName ? (
+              <InfoTooltip
+                label="Wer streckt vor?"
+                text="Alle Anzahlungen werden an diese Person verbucht. Den eigenen Anteil in der eigenen Zeile als Einzahlung abhaken (ändert die Bilanz nicht, kein Mail-/WhatsApp-Versand)."
+              />
+            ) : undefined
+          }
+        />
+        <OverpaidNote amount={summary.overpaidTotal} />
 
         <ProviderOpenBlock
           open={charterOutstanding}
@@ -331,195 +329,44 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
         </ProviderOpenBlock>
 
         {/* Gemeldete Einzahlungen zuerst (sofort aktionierbar). */}
-        {pending.length > 0 && (
-          <PendingBanner pending={pending} members={members} tranches={tranches} vocab={vocab} />
-        )}
+        <PendingReportsBanner
+          entries={pending.map((p) => ({
+            id: p.transaction_id,
+            who: members.find((m) => m.id === p.person_id)?.display_name ?? vocab.member,
+            amount: p.amount,
+            what: tranches.find((t) => t.id === p.tranche_id)?.label ?? "Tranche",
+            date: p.date,
+          }))}
+          ariaSubject={vocab.prepayment}
+          confirm={(id) => runPending(confirmSelfPayment, id)}
+          reject={(id) => runPending(rejectSelfPayment, id)}
+        />
 
-      {/* Ansicht umschalten: Personenliste (Standard) ↔ Matrix Person × Rate */}
-      <div className="mt-3 flex justify-end">
-        <button
-          type="button"
-          onClick={() => setView(view === "list" ? "matrix" : "list")}
-          aria-pressed={view === "matrix"}
-          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-rule bg-paper px-3 py-2 text-sm hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20"
-        >
-          {view === "list" ? <Table2 className="h-4 w-4" aria-hidden="true" /> : <List className="h-4 w-4" aria-hidden="true" />}
-          {view === "list" ? "Matrix-Ansicht" : "Listenansicht"}
-        </button>
-      </div>
-
-      {view === "list" ? (
-        <div className="mt-3">
-          <PersonStatusList
-            rows={personRows}
-            ariaLabel={`Zahlungsstatus pro Person für ${vocab.prepayment}`}
-            actionLabel={ACTION_RECORD}
-            contextLabel={vocab.prepayment}
-            onAct={readOnly ? undefined : actFromList}
-            renderExtras={(row) => {
-              const r = memberRows.find((x) => x.m.id === row.key);
-              if (!r) return null;
-              return (
-                <RowActions
-                  tripId={tripId}
-                  member={r.m}
-                  isAdvancerRow={r.isAdvancerRow}
-                  advancerNothingOpen={r.advancerNothingOpen}
-                  rowOpen={r.rowOpen}
-                  onWhatsApp={personWhatsApp}
-                  vocab={vocab}
-                />
-              );
-            }}
-          />
-        </div>
-      ) : (
-        <>
-      {/* Mobile: eine Karte pro Person — kein Seitwärts-Wischen (#4) */}
-      <div className="mt-3 space-y-2 sm:hidden">
-        {memberRows.map(({ m, obl, cabin, cells, rowOpen, isAdvancerRow, advancerNothingOpen }) => (
-          <article key={m.id} className="rounded-lg border border-rule bg-paper p-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="flex flex-wrap items-center gap-1 font-medium">
-                  {m.display_name}
-                  {isAdvancerRow && (
-                    <span
-                      className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
-                      title="Streckt vor — verrechnet sich selbst"
-                    >
-                      Streckt vor
-                    </span>
-                  )}
-                  {!m.email && (
-                    <span className="text-amber-700" title="E-Mail fehlt" aria-label="E-Mail fehlt">⚠</span>
-                  )}
-                </p>
-                <p className="text-xs text-ink-soft">
-                  {cabin ? `${cabin.label} · ` : ""}Soll {formatEuro(obl?.total_amount ?? 0)}
-                </p>
-              </div>
+      {/* Personenliste — dieselbe Komponente wie bei weiteren Zahlungen */}
+      <div className="mt-3">
+        <PersonStatusList
+          rows={personRows}
+          ariaLabel={`Zahlungsstatus pro Person für ${vocab.prepayment}`}
+          actionLabel={ACTION_RECORD}
+          contextLabel={vocab.prepayment}
+          onAct={readOnly ? undefined : actFromList}
+          renderExtras={(row) => {
+            const r = memberRows.find((x) => x.m.id === row.key);
+            if (!r) return null;
+            return (
               <RowActions
                 tripId={tripId}
-                member={m}
-                isAdvancerRow={isAdvancerRow}
-                advancerNothingOpen={advancerNothingOpen}
-                rowOpen={rowOpen}
+                member={r.m}
+                isAdvancerRow={r.isAdvancerRow}
+                advancerNothingOpen={r.advancerNothingOpen}
+                rowOpen={r.rowOpen}
                 onWhatsApp={personWhatsApp}
                 vocab={vocab}
               />
-            </div>
-            <ul className="mt-3 space-y-1.5">
-              {tranches.map((t, i) => {
-                const cell = cells[i];
-                return (
-                  <li key={t.id}>
-                    <button
-                      type="button"
-                      onClick={() => openPayment(cell, m.display_name)}
-                      aria-label={cellAria(cell, m.display_name, t.label)}
-                      className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-md border border-rule px-3 py-2 text-left hover:bg-navy-light/30 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    >
-                      <span className="flex min-w-0 items-center gap-2">
-                        <StatusBox cell={cell} />
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium">{t.label}</span>
-                          <span className="block text-xs text-ink-soft">
-                            {vocab.crew} bis {formatDeDate(toCrewDueDate(t.due_date))} · {t.percent.toFixed(0)} %
-                          </span>
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-right text-sm tabular-nums">
-                        <CellValue cell={cell} />
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </article>
-        ))}
+            );
+          }}
+        />
       </div>
-
-      {/* Tablet/Desktop: Tabelle für den Quervergleich (dichtere Zellen #3) */}
-      <div className="mt-3 hidden overflow-x-auto rounded-md border border-rule bg-paper sm:block">
-        <table className="w-full text-sm">
-          <thead className="bg-paper-soft text-xs text-ink-soft">
-            <tr>
-              <th scope="col" className="sticky left-0 z-10 bg-paper-soft px-2 py-2 text-left font-medium sm:px-3">Person</th>
-              {tranches.map((t) => (
-                <th key={t.id} scope="col" className="px-1 py-2 text-center font-medium sm:px-3">
-                  <div>{t.label}</div>
-                  <div className="font-normal text-ink-soft">
-                    {vocab.crew} bis {formatDeDate(toCrewDueDate(t.due_date))} · {t.percent.toFixed(0)}%
-                  </div>
-                </th>
-              ))}
-              <th scope="col" className="px-2 py-2 text-right font-medium sm:px-3">Aktion</th>
-            </tr>
-          </thead>
-          <tbody>
-            {memberRows.map(({ m, obl, cabin, cells, rowOpen, isAdvancerRow, advancerNothingOpen }) => (
-              <tr key={m.id} className="border-t border-rule">
-                <th scope="row" className="sticky left-0 z-10 bg-paper px-2 py-2 text-left font-medium sm:px-3">
-                  <div className="flex items-center gap-1">
-                    <span className="max-w-[12ch] truncate" title={m.display_name}>
-                      {m.display_name}
-                    </span>
-                    {isAdvancerRow && (
-                      <span
-                        className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
-                        title="Streckt vor — verrechnet sich selbst"
-                      >
-                        Streckt vor
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs font-normal text-ink-soft">
-                    {cabin ? `${cabin.label} · ` : ""}
-                    Soll {formatEuro(obl?.total_amount ?? 0)}
-                    {!m.email && <span className="ml-1 text-amber-700" title="E-Mail fehlt">⚠</span>}
-                  </div>
-                </th>
-                {tranches.map((t, i) => {
-                  const cell = cells[i];
-                  return (
-                    <td key={t.id} className="px-1 py-2 text-center sm:px-3">
-                      <button
-                        type="button"
-                        onClick={() => openPayment(cell, m.display_name)}
-                        className="inline-flex min-h-[44px] min-w-[44px] flex-col items-center justify-center gap-1 rounded px-2 py-1 hover:bg-navy-light/30 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        aria-label={cellAria(cell, m.display_name, t.label)}
-                      >
-                        <StatusBox cell={cell} />
-                        {cell.status !== "paid" && (
-                          <span className="whitespace-nowrap text-xs tabular-nums text-ink-soft">
-                            {formatEuro(Math.max(0, cell.open))}
-                          </span>
-                        )}
-                      </button>
-                    </td>
-                  );
-                })}
-                <td className="px-2 py-2 text-right sm:px-3">
-                  <RowActions
-                    tripId={tripId}
-                    member={m}
-                    isAdvancerRow={isAdvancerRow}
-                    advancerNothingOpen={advancerNothingOpen}
-                    rowOpen={rowOpen}
-                    onWhatsApp={personWhatsApp}
-                    vocab={vocab}
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-        </>
-      )}
 
       {/* Sammelnachricht — unter Tabelle/Kacheln, sobald der Überblick steht */}
       <div className="mt-3">
@@ -531,41 +378,6 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
           Sammelnachricht für alle Offenen
         </button>
       </div>
-
-      {/* Statuslegende (#E1): unter Tabelle/Kacheln — erklärt Symbole + Aktions-Icons. */}
-      <details className="mt-3 rounded-md border border-rule bg-paper-soft px-3 py-2 text-sm">
-        <summary className="cursor-pointer text-ink-soft">Was bedeuten die Symbole?</summary>
-        <ul className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-2">
-          <li className="flex items-center gap-2">
-            <span className="inline-block h-4 w-4 shrink-0 rounded border border-rule bg-paper" aria-hidden="true" />
-            offen: noch nichts gezahlt
-          </li>
-          <li className="flex items-center gap-2">
-            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-primary text-primary" aria-hidden="true">◐</span>
-            teilweise bezahlt
-          </li>
-          <li className="flex items-center gap-2">
-            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-success bg-success/10 text-success" aria-hidden="true">✓</span>
-            vollständig bezahlt
-          </li>
-          <li className="flex items-center gap-2">
-            <span className="inline-block h-4 w-4 shrink-0 rounded border-2 border-danger bg-paper" aria-hidden="true" />
-            überfällig: Frist überschritten
-          </li>
-          <li className="flex items-center gap-2">
-            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-amber-500 text-amber-600" aria-hidden="true">⏳</span>
-            {PAYMENT_STATUS.pending}
-          </li>
-          <li className="flex items-center gap-2">
-            <Bell className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-            Glocke: Erinnerungs-Mail an diese Person senden
-          </li>
-          <li className="flex items-center gap-2">
-            <MessageCircle className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-            Sprechblase: WhatsApp-Text zum Kopieren erzeugen
-          </li>
-        </ul>
-      </details>
 
       {/* Aktionsleiste — gleiche Reihenfolge wie bei den weiteren Zahlungen:
           Einzahlung erfassen · Crew informieren · Bearbeiten */}
@@ -621,77 +433,6 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
         <WhatsAppModal title={whatsAppModal.title} text={whatsAppModal.text} onClose={() => setWhatsAppModal(null)} />
       )}
     </>
-  );
-}
-
-function statusLabel(c: MatrixCell): string {
-  if (c.pending) return PAYMENT_STATUS.pending;
-  if (c.status === "paid") return "bezahlt";
-  if (c.overdue) return "überfällig";
-  if (c.status === "partial") return "teilweise bezahlt";
-  return "offen";
-}
-
-/**
- * Checkbox-artige Statusbox für eine Matrix-Zelle. Visuell deutlich als
- * „abhakbar" erkennbar (analog zur Schuldenseite), statt einer reinen
- * Symbol-Anzeige. Klick öffnet weiterhin das Einzahlungs-Modal — bei
- * Teilzahlungen / Überzahlung / Storno reicht eine binäre Checkbox nicht.
- */
-function StatusBox({ cell }: { cell: MatrixCell }) {
-  if (cell.pending) {
-    return (
-      <span
-        className="inline-flex h-6 w-6 items-center justify-center rounded border-2 border-amber-400 bg-amber-50 text-base leading-none"
-        aria-hidden="true"
-      >
-        ⏳
-      </span>
-    );
-  }
-  if (cell.status === "paid") {
-    return (
-      <span
-        className="inline-flex h-6 w-6 items-center justify-center rounded border-2 border-success bg-success text-paper"
-        aria-hidden="true"
-      >
-        <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="3,8 7,12 13,4" />
-        </svg>
-      </span>
-    );
-  }
-  if (cell.status === "partial") {
-    return (
-      <span
-        className={`inline-flex h-6 w-6 items-center justify-center rounded border-2 ${cell.overdue ? "border-danger" : "border-primary"} bg-paper text-sm font-bold ${cell.overdue ? "text-danger" : "text-primary"}`}
-        aria-hidden="true"
-      >
-        ◐
-      </span>
-    );
-  }
-  // offen
-  return (
-    <span
-      className={`inline-block h-6 w-6 rounded border-2 ${cell.overdue ? "border-danger bg-danger/5" : "border-rule bg-paper"}`}
-      aria-hidden="true"
-    />
-  );
-}
-
-/** Einzelwert rechts in der Mobile-Karte — Restbetrag, „bezahlt" oder Pending. */
-function CellValue({ cell }: { cell: MatrixCell }) {
-  if (cell.pending) {
-    return <span className="text-amber-700">{formatEuro(cell.pending.amount)} gemeldet</span>;
-  }
-  if (cell.status === "paid") {
-    return <span className="text-success">bezahlt</span>;
-  }
-  return (
-    <span className={cell.overdue ? "text-danger" : "text-ink-soft"}>
-      {formatEuro(Math.max(0, cell.open))} offen
-    </span>
   );
 }
 
@@ -1052,106 +793,5 @@ function ProviderTrancheDetails({
         neue Ausgabe erfassen und der Rate zuordnen — sie wird dann hier angerechnet und reduziert den offenen Betrag.
       </p>
     </details>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────────
-// PendingBanner — Liste der noch-nicht-bestätigten Selbstmeldungen.
-// Skipper kann hier mit zwei Klicks bestätigen oder ablehnen.
-// ────────────────────────────────────────────────────────────────────────
-
-function PendingBanner({
-  pending,
-  members,
-  tranches,
-  vocab,
-}: {
-  pending: PendingPayment[];
-  members: Member[];
-  tranches: Tranche[];
-  vocab: TripVocab;
-}) {
-  const memberById = new Map(members.map((m) => [m.id, m]));
-  const trancheById = new Map(tranches.map((t) => [t.id, t]));
-
-  return (
-    <section
-      className="mt-3 rounded-md border border-rule border-l-4 border-l-primary bg-paper p-3"
-      role="region"
-      aria-label={`Gemeldete Einzahlungen — ${PAYMENT_STATUS.pending}`}
-    >
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
-        <span aria-hidden="true">⏳</span> {pending.length} {pending.length === 1 ? "Meldung wartet" : "Meldungen warten"} auf Bestätigung
-      </p>
-      <ul className="space-y-1.5">
-        {pending.map((p) => {
-          const name = memberById.get(p.person_id)?.display_name ?? vocab.member;
-          const tranche = trancheById.get(p.tranche_id);
-          return (
-            <li
-              key={p.transaction_id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-paper-soft px-3 py-2 text-sm"
-            >
-              <div className="min-w-0 flex-1">
-                <strong>{name}</strong> hat{" "}
-                <strong className="text-primary">{formatEuro(p.amount)}</strong> für{" "}
-                <strong>{tranche?.label ?? "Tranche"}</strong> gemeldet
-                {/* Buchungsbeschreibung bewusst NICHT anzeigen — sie ist
-                    redundant zur Zeile darüber („X hat Y € für N. Anzahlung
-                    gemeldet") und enthält teils irreführende Seed-/Default-Texte. */}
-                <span className="block text-xs text-ink-soft">{formatDeDate(p.date)}</span>
-              </div>
-              <PendingActions transactionId={p.transaction_id} />
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
-}
-
-function PendingActions({ transactionId }: { transactionId: string }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-
-  function run(action: typeof confirmSelfPayment | typeof rejectSelfPayment) {
-    setError(null);
-    const fd = new FormData();
-    fd.set("transaction_id", transactionId);
-    startTransition(async () => {
-      const res = await action({ status: "idle" }, fd);
-      if (res.status === "error") {
-        setError(res.message);
-      } else {
-        router.refresh();
-      }
-    });
-  }
-
-  return (
-    <div className="inline-flex gap-1">
-      <button
-        type="button"
-        onClick={() => run(confirmSelfPayment)}
-        disabled={pending}
-        className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1 rounded-md bg-success px-3 py-1.5 text-sm font-medium text-paper hover:bg-success/90 focus:outline-none focus:ring-2 focus:ring-success/40 disabled:opacity-50"
-        aria-label="Meldung bestätigen"
-        title="Bestätigen"
-      >
-        {pending ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
-      </button>
-      <button
-        type="button"
-        onClick={() => run(rejectSelfPayment)}
-        disabled={pending}
-        className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1 rounded-md border border-rule bg-paper px-3 py-1.5 text-sm text-danger hover:border-danger/40 focus:outline-none focus:ring-2 focus:ring-danger/40 disabled:opacity-50"
-        aria-label="Meldung ablehnen"
-        title="Ablehnen"
-      >
-        <X className="h-4 w-4" aria-hidden="true" />
-      </button>
-      {error && <span role="alert" className="sr-only">{error}</span>}
-    </div>
   );
 }

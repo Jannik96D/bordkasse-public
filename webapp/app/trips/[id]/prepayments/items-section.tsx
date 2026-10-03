@@ -25,7 +25,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, AlertTriangle, Plus, RefreshCw, Trash2, X, Info } from "lucide-react";
+import { Plus, RefreshCw, Trash2, Info } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
 import { useConfirm } from "@/components/confirm-dialog";
 import { useToast } from "@/components/toast-provider";
@@ -40,7 +40,7 @@ import {
   NETWORK_ERROR_MESSAGE,
   providerDueInfo,
 } from "@/lib/prepayments/item-ui";
-import { ACTION_RECORD, ACTION_REPORT, LABEL_PROVIDER_PAID, NOUN_ITEM, NOUN_ITEMS, PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
+import { ACTION_RECORD, ACTION_REPORT, LABEL_PROVIDER_PAID, NOUN_ITEM, NOUN_ITEMS } from "@/lib/prepayments/payment-words";
 import {
   confirmItemSelfPayment,
   deleteItem,
@@ -49,13 +49,16 @@ import {
 } from "@/lib/actions/prepayment-items";
 import type { PrepaymentItemView } from "@/lib/queries/prepayment-items";
 import { PersonStatusList } from "./person-status-list";
-import { buildPersonRow, visiblePersonRows } from "@/lib/prepayments/person-rows";
+import { buildPersonRow, summarizeRows, visiblePersonRows } from "@/lib/prepayments/person-rows";
 import { ItemFormModal } from "./item-form-modal";
 import { ItemPaymentModal, ItemProviderPaymentModal } from "./item-payment-modals";
 import { NotifyCrewButton } from "./notify-crew-button";
 import {
   EditButton,
+  OverpaidNote,
   PaymentActionBar,
+  PaymentSummaryLine,
+  PendingReportsBanner,
   PaymentCardHeader,
   PaymentProgress,
   ProviderOpenBlock,
@@ -293,6 +296,12 @@ function ItemCard({
       }),
     ),
   );
+  const summary = summarizeRows(personRows);
+  const runPending = (action: typeof confirmItemSelfPayment | typeof rejectItemSelfPayment, id: string) => {
+    const fd = new FormData();
+    fd.set("transaction_id", id);
+    return action({ status: "idle" }, fd);
+  };
   const [picker, setPicker] = useState(false);
   // „Für wen?": Personen mit noch offenem Betrag (ohne laufende Meldung wäre zu streng — der Dialog erlaubt auch Teilbeträge).
   const pickOptions = personRows
@@ -326,47 +335,17 @@ function ItemCard({
         />
       </div>
 
-      {item.overpaidTotal > 0.005 && (
-        <p role="note" className="mt-3 flex items-start gap-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>
-            <strong>{formatEuro(item.overpaidTotal)} zu viel bezahlt.</strong> Der Mehrbetrag muss zurück an die
-            betroffenen Personen — die App bucht das nicht automatisch.
-          </span>
-        </p>
-      )}
-      {item.underpaidTotal > 0.005 && (
-        <p className="mt-3 text-xs text-ink-soft">
-          Noch offen bei der {vocab.crew}: <strong className="text-ink">{formatEuro(item.underpaidTotal)}</strong>
-          {item.pendingTotal > 0.005 && <> (davon {formatEuro(item.pendingTotal)} gemeldet, noch nicht bestätigt)</>}.
-        </p>
-      )}
+      <PaymentSummaryLine summary={summary} pendingCount={item.pendingPayments.length} />
+      <OverpaidNote amount={summary.overpaidTotal} />
 
       <ProviderOpenBlock open={item.providerOpen} due={due} action={canRecord ? { onClick: onProvider } : null} />
 
-      {item.pendingPayments.length > 0 && (
-        <section
-          role="region"
-          aria-label={`Gemeldete Einzahlungen für ${item.label} — ${PAYMENT_STATUS.pending}`}
-          className="mt-3 rounded-md border border-rule border-l-4 border-l-primary bg-paper p-3"
-        >
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
-            <span aria-hidden="true">⏳</span> {item.pendingPayments.length}{" "}
-            {item.pendingPayments.length === 1 ? "Meldung wartet" : "Meldungen warten"} auf Bestätigung
-          </p>
-          <ul className="space-y-1.5">
-            {item.pendingPayments.map((p) => (
-              <li key={p.transaction_id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-paper-soft px-3 py-2 text-sm">
-                <div className="min-w-0 flex-1">
-                  <strong>{nameOf(p.person_id)}</strong> hat <strong className="text-primary">{formatEuro(p.amount)}</strong> gemeldet
-                  <span className="block text-xs text-ink-soft">{formatDeDate(p.date)}</span>
-                </div>
-                {canRecord && <PendingActions transactionId={p.transaction_id} who={nameOf(p.person_id)} amount={formatEuro(p.amount)} />}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <PendingReportsBanner
+        entries={item.pendingPayments.map((p) => ({ id: p.transaction_id, who: nameOf(p.person_id), amount: p.amount, date: p.date }))}
+        ariaSubject={item.label}
+        confirm={canRecord ? (id) => runPending(confirmItemSelfPayment, id) : undefined}
+        reject={canRecord ? (id) => runPending(rejectItemSelfPayment, id) : undefined}
+      />
 
       {/* Personenliste: je Person eine Zeile, Knopf „Einzahlung erfassen“ daneben */}
       <div className="mt-3">
@@ -494,62 +473,6 @@ function ItemActions({
       )}
       {confirmDialog}
     </PaymentActionBar>
-  );
-}
-
-function PendingActions({ transactionId, who, amount }: { transactionId: string; who: string; amount: string }) {
-  const router = useRouter();
-  const toast = useToast();
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-
-  function run(action: typeof confirmItemSelfPayment, okMessage: string) {
-    setError(null);
-    const fd = new FormData();
-    fd.set("transaction_id", transactionId);
-    startTransition(async () => {
-      let res: ItemActionState;
-      try {
-        res = await action({ status: "idle" }, fd);
-      } catch {
-        setError(NETWORK_ERROR_MESSAGE);
-        return;
-      }
-      if (res.status === "error") {
-        setError(res.message);
-        return;
-      }
-      toast.show(okMessage, { variant: "success" });
-      router.refresh();
-    });
-  }
-
-  return (
-    <div className="flex flex-col items-end gap-1">
-      <div className="inline-flex gap-1">
-        <button
-          type="button"
-          onClick={() => run(confirmItemSelfPayment, "Einzahlung bestätigt.")}
-          disabled={pending}
-          aria-label={`Meldung von ${who} über ${amount} bestätigen`}
-          title="Bestätigen"
-          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md bg-success px-3 py-1.5 text-paper hover:bg-success/90 focus:outline-none focus:ring-2 focus:ring-success/40 disabled:opacity-50"
-        >
-          {pending ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
-        </button>
-        <button
-          type="button"
-          onClick={() => run(rejectItemSelfPayment, "Meldung abgelehnt.")}
-          disabled={pending}
-          aria-label={`Meldung von ${who} über ${amount} ablehnen`}
-          title="Ablehnen"
-          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-rule bg-paper px-3 py-1.5 text-danger hover:border-danger/40 focus:outline-none focus:ring-2 focus:ring-danger/40 disabled:opacity-50"
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </button>
-      </div>
-      {error && <p role="alert" className="max-w-xs text-right text-xs text-danger">{error}</p>}
-    </div>
   );
 }
 
