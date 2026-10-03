@@ -25,7 +25,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, CheckCircle2, AlertTriangle, Plus, RefreshCw, Trash2, X, Info } from "lucide-react";
+import { Check, AlertTriangle, Plus, RefreshCw, Trash2, X, Info } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
 import { useConfirm } from "@/components/confirm-dialog";
 import { useToast } from "@/components/toast-provider";
@@ -33,8 +33,6 @@ import { useTripVocab } from "@/components/trip-vocab-provider";
 import { formatEuro } from "@/lib/utils";
 import { formatDeDate, toCrewDueDate } from "@/lib/prepayments/dates";
 import {
-  ITEM_STATUS_META,
-  itemCellAriaLabel,
   itemLocks,
   groupPaidCapped,
   itemOverallStatus,
@@ -50,6 +48,8 @@ import {
   type ItemActionState,
 } from "@/lib/actions/prepayment-items";
 import type { PrepaymentItemView } from "@/lib/queries/prepayment-items";
+import { PersonStatusList } from "./person-status-list";
+import { buildPersonRow, visiblePersonRows } from "@/lib/prepayments/person-rows";
 import { ItemFormModal } from "./item-form-modal";
 import { ItemPaymentModal, ItemProviderPaymentModal } from "./item-payment-modals";
 import { NotifyCrewButton } from "./notify-crew-button";
@@ -249,21 +249,6 @@ export function ItemsSection({
 // Bausteine
 // ────────────────────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: keyof typeof ITEM_STATUS_META }) {
-  const m = ITEM_STATUS_META[status];
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${m.text}`}>
-      <span
-        className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border-2 text-sm font-bold leading-none ${m.box}`}
-        aria-hidden="true"
-      >
-        {m.glyph}
-      </span>
-      {m.label}
-    </span>
-  );
-}
-
 // ────────────────────────────────────────────────────────────────────────
 // Vollansicht (Skipper/Admin/vorstreckende Person)
 // ────────────────────────────────────────────────────────────────────────
@@ -297,15 +282,22 @@ function ItemCard({
   const overall = itemOverallStatus(item);
   const locks = itemLocks(item);
   const due = providerDueInfo(item, today, formatDeDate);
-  const rows = item.cells
-    .filter((c) => c.soll > 0.005 || c.paid > 0.005 || c.pending > 0.005)
-    .map((c) => ({ ...c, name: nameOf(c.person_id) }))
-    .sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const personRows = visiblePersonRows(
+    item.cells.map((c) =>
+      buildPersonRow({
+        key: c.person_id,
+        name: nameOf(c.person_id),
+        badge: c.person_id === item.payee_person_id ? "Streckt vor" : null,
+        allowWhilePending: true,
+        rates: [{ key: item.id, label: item.label, detail: "", soll: c.soll, paid: c.paid, pending: c.pending, overdue: false }],
+      }),
+    ),
+  );
   const [picker, setPicker] = useState(false);
   // „Für wen?": Personen mit noch offenem Betrag (ohne laufende Meldung wäre zu streng — der Dialog erlaubt auch Teilbeträge).
-  const pickOptions = rows
-    .filter((c) => c.soll - c.paid > 0.005)
-    .map((c) => ({ key: c.person_id, label: c.name, detail: formatEuro(Math.max(0, c.soll - c.paid)) }));
+  const pickOptions = personRows
+    .filter((r) => r.open > 0.005)
+    .map((r) => ({ key: r.key, label: r.name, detail: formatEuro(r.open) }));
 
   return (
     <article aria-labelledby={`item-${item.id}-h`} className="rounded-lg border border-rule bg-paper p-4">
@@ -376,53 +368,16 @@ function ItemCard({
         </section>
       )}
 
-      {/* Personenliste: je Person eine Zeile */}
-      <ul className="mt-3 divide-y divide-rule rounded-md border border-rule text-sm" aria-label={`Zahlungsstatus pro Person für ${item.label}`}>
-        {rows.map((c) => {
-          const actionable = canRecord && c.soll > 0.005;
-          const content = (
-            <>
-              <span className="min-w-0 flex-1 truncate text-left font-medium">
-                {c.name}
-                {c.person_id === item.payee_person_id && <span className="ml-1 text-xs font-normal text-ink-soft">(streckt vor)</span>}
-              </span>
-              <StatusBadge status={c.status} />
-              <span className="w-32 shrink-0 text-right tabular-nums text-ink-soft">
-                {formatEuro(c.paid)} / <span className="text-ink">{formatEuro(c.soll)}</span>
-              </span>
-            </>
-          );
-          const ariaLabel = itemCellAriaLabel({
-            name: c.name,
-            itemLabel: item.label,
-            status: c.status,
-            soll: c.soll,
-            paid: c.paid,
-            pending: c.pending,
-            fmt: formatEuro,
-            actionable,
-          });
-          return (
-            <li key={c.person_id}>
-              {actionable ? (
-                <button
-                  type="button"
-                  onClick={() => onRecord(c)}
-                  aria-label={ariaLabel}
-                  className="flex min-h-[44px] w-full flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 hover:bg-navy-light/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/30"
-                >
-                  {content}
-                </button>
-              ) : (
-                <div role="group" aria-label={ariaLabel} className="flex min-h-[44px] flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
-                  {content}
-                </div>
-              )}
-            </li>
-          );
-        })}
-        {rows.length === 0 && <li className="px-3 py-3 text-ink-soft">Noch keine Sollbeträge hinterlegt.</li>}
-      </ul>
+      {/* Personenliste: je Person eine Zeile, Knopf „Einzahlung erfassen“ daneben */}
+      <div className="mt-3">
+        <PersonStatusList
+          rows={personRows}
+          ariaLabel={`Zahlungsstatus pro Person für ${item.label}`}
+          actionLabel={ACTION_RECORD}
+          contextLabel={item.label}
+          onAct={canRecord ? (personId) => { const c = item.cells.find((x) => x.person_id === personId); if (c) onRecord(c); } : undefined}
+        />
+      </div>
 
       <ItemActions
         tripId={tripId}
@@ -623,6 +578,14 @@ function ItemSelfCard({
   // bezahlt, nicht gemeldet, nicht archiviert) — sonst „wandert" die
   // geclampte Crewfrist täglich mit, obwohl nichts mehr zu tun ist.
   const showDue = canReport && !!item.due_date;
+  const selfRows = visiblePersonRows([
+    buildPersonRow({
+      key: mine.person_id,
+      name: "Du",
+      allowWhilePending: false,
+      rates: [{ key: item.id, label: item.label, detail: "", soll: mine.soll, paid: mine.paid, pending: mine.pending, overdue: false }],
+    }),
+  ]);
 
   return (
     <article aria-labelledby={`item-${item.id}-h`} className="rounded-lg border border-rule bg-paper p-4">
@@ -631,17 +594,20 @@ function ItemSelfCard({
           <CategoryIcon icon={item.category_icon} name={item.category_name} className="h-5 w-5 shrink-0 text-primary" />
           <h3 id={`item-${item.id}-h`} className="min-w-0 truncate text-base font-semibold text-ink">{item.label}</h3>
         </div>
-        <StatusBadge status={mine.status} />
       </div>
       <p className="mt-1 text-xs text-ink-soft">
         Einzahlung an <strong className="text-ink">{payeeName}</strong> (streckt vor)
         {showDue && <> · bitte zahlen bis {formatDeDate(toCrewDueDate(item.due_date!))}</>}
       </p>
-      <dl className="mt-3 grid grid-cols-3 gap-2 rounded-md bg-paper-soft p-3 text-sm">
-        <div><dt className="text-xs text-ink-soft">Dein Soll</dt><dd className="font-medium tabular-nums">{formatEuro(mine.soll)}</dd></div>
-        <div><dt className="text-xs text-ink-soft">Bezahlt</dt><dd className="font-medium tabular-nums">{formatEuro(mine.paid)}</dd></div>
-        <div><dt className="text-xs text-ink-soft">Offen</dt><dd className="font-medium tabular-nums">{formatEuro(open)}</dd></div>
-      </dl>
+      <div className="mt-3">
+        <PersonStatusList
+          rows={selfRows}
+          ariaLabel={`Dein Zahlungsstatus für ${item.label}`}
+          actionLabel={ACTION_REPORT}
+          contextLabel={item.label}
+          onAct={canReport ? () => onReport(mine) : undefined}
+        />
+      </div>
       {mine.pending > 0.005 && (
         <p role="status" className="mt-2 rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
           <span aria-hidden="true">⏳</span> Du hast <strong>{formatEuro(mine.pending)}</strong> gemeldet — wartet auf Bestätigung durch {payeeName}.
@@ -651,18 +617,6 @@ function ItemSelfCard({
         <p role="note" className="mt-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
           Du hast {formatEuro(mine.paid - mine.soll)} zu viel bezahlt. Sprich bitte mit {payeeName} über die Rückzahlung.
         </p>
-      )}
-      {canReport && (
-        <div className="mt-3">
-          <button
-            type="button"
-            onClick={() => onReport(mine)}
-            className="inline-flex min-h-[44px] items-center gap-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-paper hover:bg-navy-dark focus:outline-none focus:ring-2 focus:ring-primary/40"
-          >
-            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-            {ACTION_REPORT}
-          </button>
-        </div>
       )}
       {canReport && (
         <p className="mt-3 text-xs text-ink-soft">
