@@ -939,6 +939,16 @@ kein nachträgliches Zuordnen einer bestehenden Buchung (kein Server-Support,
 `item_id` ist im Edit unveränderlich); kein eigener Wizard-Schritt — Posten
 werden direkt auf der Anzahlungs-Seite gepflegt.
 
+## Personenliste (PR8)
+
+Anzahlungsplan und weitere Zahlungen zeigen dieselbe **Personenliste**: eine Zeile pro Person mit Status (Symbol + Text), „bezahlt / Soll" und dem Knopf **„Einzahlung erfassen"** (Skipper/vorstreckende Person) bzw. **„Ich habe gezahlt"** (Crew, nur die eigene Zeile). Komponente `app/trips/[id]/prepayments/person-status-list.tsx`, reine Logik `lib/prepayments/person-rows.ts` (Vitest `person-rows.test.ts`, Klick-Test `person-list-interaction.test.tsx` mit happy-dom).
+
+- **Raten (nur Anzahlungsplan):** hat eine Person mehrere Raten, klappt die Zeile auf (`aria-expanded`); jede Rate trägt eigenen Status, Betrag und Knopf. Crew-Sicht startet aufgeklappt. Eine weitere Zahlung hat je Person genau eine Rate → keine Aufklapp-Ebene.
+- **Zeilen-Knopf:** genau eine offene Rate → deren Dialog direkt; mehrere offene → „Welche Rate?" (`RecordPickerModal`). Rate-Knopf → Dialog dieser Person + Rate. Es sind dieselben Dialoge/Actions wie zuvor (`recordPayment`, `submitSelfPayment`, Posten-Actions) — nur der Einstieg wechselt von der Matrix-Zelle zur Liste.
+- **Personenstatus** aus den Raten: Überzahlung EINER Rate gilt als „überzahlt" und wird nicht gegen eine offene andere verrechnet (Skipper entscheidet über „Überschuss umbuchen"); sonst `itemCellStatus` über Σ Soll / Σ gedeckelt bezahlt / Σ Meldung. „überfällig" nur, solange etwas offen ist.
+- **Laufende Selbstmeldung:** Skipper/vorstreckende Person dürfen weiter erfassen (Banner bestätigt/lehnt ab); die Crew sieht für die Rate keinen „Ich habe gezahlt"-Knopf mehr (kein Doppelmelden).
+- **Matrix-Ansicht:** die bisherige Matrix Person × Rate bleibt als Umschalter „Matrix-Ansicht" / „Listenansicht" (`aria-pressed`, Standard = Liste) erhalten. Erinnerungs-/WhatsApp-Knöpfe je Person sitzen in der Liste als Zusatzknöpfe in der Zeile; Archiv: keine Erfassen-Knöpfe in der Liste (Server bleibt Autorität).
+
 ## Weitere Posten — Erinnerungen (PR5, Migration 0061)
 
 Derselbe tägliche Cron wie die Tranchen (`/api/cron/prepayment-reminders`,

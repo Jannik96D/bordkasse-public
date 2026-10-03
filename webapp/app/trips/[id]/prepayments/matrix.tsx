@@ -2,10 +2,12 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, MessageCircle, RefreshCw, Check, X, Sailboat, Wallet } from "lucide-react";
+import { Bell, MessageCircle, RefreshCw, Check, X, Sailboat, Wallet, Table2, List } from "lucide-react";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { Modal } from "@/components/modal";
 import { NotifyCrewButton } from "./notify-crew-button";
+import { PersonStatusList } from "./person-status-list";
+import { buildPersonRow, visiblePersonRows } from "@/lib/prepayments/person-rows";
 import {
   EditButton,
   PaymentActionBar,
@@ -16,7 +18,7 @@ import {
   RecordPickerModal,
 } from "./payment-card-parts";
 import { planProviderRemaining, providerDueInfo, type ItemOverall } from "@/lib/prepayments/item-ui";
-import { LABEL_PROVIDER_PAID, PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
+import { ACTION_RECORD, LABEL_PROVIDER_PAID, PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
 import { formatEuro, formatAmount, todayIso, round2 } from "@/lib/utils";
 import {
   recordPayment,
@@ -81,6 +83,8 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
   const [paymentModal, setPaymentModal] = useState<{ cell: MatrixCell; personName: string } | null>(null);
   const [whatsAppModal, setWhatsAppModal] = useState<{ text: string; title: string } | null>(null);
   const [picker, setPicker] = useState(false);
+  // Standard: Personenliste (wie bei weiteren Zahlungen); die Matrix Person × Rate bleibt als Überblick.
+  const [view, setView] = useState<"list" | "matrix">("list");
   // Zweiter Schritt „Welche Rate?" — nur wenn die Person in mehreren Raten offen ist.
   const [ratePicker, setRatePicker] = useState<string | null>(null);
 
@@ -230,6 +234,36 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
     }
     if (openCells[0]) openPayment(openCells[0], row.m.display_name);
   }
+  const personRows = visiblePersonRows(
+    memberRows.map(({ m, cells, isAdvancerRow }) =>
+      buildPersonRow({
+        key: m.id,
+        name: m.display_name,
+        badge: isAdvancerRow ? "Streckt vor" : null,
+        // Skipper/vorstreckende Person dürfen auch bei laufender Selbstmeldung erfassen (Banner bestätigt/lehnt ab).
+        allowWhilePending: true,
+        rates: cells.map((c, i) => ({
+          key: c.trancheId,
+          label: tranches[i].label,
+          detail: `${vocab.crew} bis ${formatDeDate(toCrewDueDate(tranches[i].due_date))} · ${tranches[i].percent.toFixed(0)} %`,
+          soll: c.soll,
+          paid: c.paid,
+          pending: c.pending?.amount ?? 0,
+          overdue: c.overdue,
+        })),
+      }),
+    ),
+  );
+  // Knopf der Personenzeile → wie „Einzahlung erfassen" in der Aktionsleiste (ggf. „Welche Rate?"); Knopf einer Rate → direkt deren Dialog.
+  function actFromList(personId: string, trancheId?: string) {
+    if (!trancheId) {
+      pickPerson(personId);
+      return;
+    }
+    const row = memberRows.find((r) => r.m.id === personId);
+    const cell = row?.cells.find((c) => c.trancheId === trancheId);
+    if (row && cell) openPayment(cell, row.m.display_name);
+  }
   const showActions = canEditPlan && !readOnly;
   const crewPaidLabel = `Von der ${vocab.crew} bezahlt`;
 
@@ -301,6 +335,46 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
           <PendingBanner pending={pending} members={members} tranches={tranches} vocab={vocab} />
         )}
 
+      {/* Ansicht umschalten: Personenliste (Standard) ↔ Matrix Person × Rate */}
+      <div className="mt-3 flex justify-end">
+        <button
+          type="button"
+          onClick={() => setView(view === "list" ? "matrix" : "list")}
+          aria-pressed={view === "matrix"}
+          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-rule bg-paper px-3 py-2 text-sm hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20"
+        >
+          {view === "list" ? <Table2 className="h-4 w-4" aria-hidden="true" /> : <List className="h-4 w-4" aria-hidden="true" />}
+          {view === "list" ? "Matrix-Ansicht" : "Listenansicht"}
+        </button>
+      </div>
+
+      {view === "list" ? (
+        <div className="mt-3">
+          <PersonStatusList
+            rows={personRows}
+            ariaLabel={`Zahlungsstatus pro Person für ${vocab.prepayment}`}
+            actionLabel={ACTION_RECORD}
+            contextLabel={vocab.prepayment}
+            onAct={readOnly ? undefined : actFromList}
+            renderExtras={(row) => {
+              const r = memberRows.find((x) => x.m.id === row.key);
+              if (!r) return null;
+              return (
+                <RowActions
+                  tripId={tripId}
+                  member={r.m}
+                  isAdvancerRow={r.isAdvancerRow}
+                  advancerNothingOpen={r.advancerNothingOpen}
+                  rowOpen={r.rowOpen}
+                  onWhatsApp={personWhatsApp}
+                  vocab={vocab}
+                />
+              );
+            }}
+          />
+        </div>
+      ) : (
+        <>
       {/* Mobile: eine Karte pro Person — kein Seitwärts-Wischen (#4) */}
       <div className="mt-3 space-y-2 sm:hidden">
         {memberRows.map(({ m, obl, cabin, cells, rowOpen, isAdvancerRow, advancerNothingOpen }) => (
@@ -443,6 +517,9 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
           </tbody>
         </table>
       </div>
+
+        </>
+      )}
 
       {/* Sammelnachricht — unter Tabelle/Kacheln, sobald der Überblick steht */}
       <div className="mt-3">

@@ -38,7 +38,7 @@
 // gecachten RSC-Payloads/Dokumente der alten Seiten.
 // v17: Wording + einheitliche Zahlungs-Karten (PR7) — Anzahlungs-Seite, Mails
 // und Texte geändert, alte gecachte Seiten müssen raus.
-const CACHE_VERSION = "bordkasse-v17";
+const CACHE_VERSION = "bordkasse-v18";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE = `${CACHE_VERSION}-pages`;
 const RSC_CACHE = `${CACHE_VERSION}-rsc`;

@@ -2,14 +2,17 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { useTripVocab } from "@/components/trip-vocab-provider";
-import { formatEuro, formatAmount, todayIso } from "@/lib/utils";
+import { formatEuro, formatAmount, todayIso, round2 } from "@/lib/utils";
 import { submitSelfPayment } from "@/lib/actions/prepayments";
+import { PersonStatusList } from "./person-status-list";
+import { RecordPickerModal } from "./payment-card-parts";
+import { actionableRates, buildPersonRow } from "@/lib/prepayments/person-rows";
 import { toCrewDueDate, formatDeDate } from "@/lib/prepayments/dates";
-import { ACTION_REPORT, PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
+import { ACTION_REPORT } from "@/lib/prepayments/payment-words";
 import type {
   PrepaymentPlan,
   Tranche,
@@ -29,6 +32,7 @@ interface Props {
 
 export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pendingByTranche }: Props) {
   const vocab = useTripVocab();
+  const [picker, setPicker] = useState(false);
   const [modal, setModal] = useState<{
     trancheId: string;
     trancheLabel: string;
@@ -51,6 +55,34 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
   const totalSoll = obligation.total_amount;
   const totalPaid = [...paidByTranche.values()].reduce((a, b) => a + b, 0);
 
+  const rowData = tranches.map((t) => {
+    const crewDue = toCrewDueDate(t.due_date);
+    const soll = round2((totalSoll * t.percent) / 100);
+    const paid = round2(paidByTranche.get(t.id) ?? 0);
+    return {
+      t,
+      pending: pendingByTranche[t.id],
+      rate: {
+        key: t.id,
+        label: t.label,
+        detail: `Fällig ${formatDeDate(crewDue)} · ${t.percent.toFixed(0)} %`,
+        soll,
+        paid,
+        pending: pendingByTranche[t.id]?.amount ?? 0,
+        overdue: new Date(crewDue) < new Date(),
+      },
+    };
+  });
+  // Eine Zeile (nur ich) — Crew meldet pro Rate, nie doppelt bei laufender Meldung (allowWhilePending=false).
+  const rows = [
+    buildPersonRow({ key: "me", name: "Du", allowWhilePending: false, rates: rowData.map((r) => r.rate) }),
+  ];
+  const pendingList = rowData.filter((r) => r.pending).map((r) => ({ id: r.t.id, label: r.t.label, pending: r.pending }));
+  const reportRate = (trancheId: string) => {
+    const r = rowData.find((x) => x.t.id === trancheId);
+    if (r) setModal({ trancheId, trancheLabel: r.t.label, open: Math.max(0, r.rate.soll - r.rate.paid) });
+  };
+
   return (
     <section className="space-y-4">
       <div className="rounded-lg border border-rule bg-paper p-5">
@@ -61,107 +93,46 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
         </p>
       </div>
 
-      <ul className="space-y-2">
-        {tranches.map((t) => {
-          const trancheSoll = (totalSoll * t.percent) / 100;
-          const paid = paidByTranche.get(t.id) ?? 0;
-          const open = trancheSoll - paid;
-          const pending = pendingByTranche[t.id];
-          const status: "open" | "partial" | "paid" =
-            paid <= 0.005 ? "open" : open <= 0.005 ? "paid" : "partial";
-          const crewDue = toCrewDueDate(t.due_date);
-          const isOverdue = new Date(crewDue) < new Date() && status !== "paid";
-          const boxClass = pending
-            ? "border-amber-400 bg-amber-50 text-base"
-            : status === "paid"
-              ? "border-success bg-success text-paper"
-              : status === "partial"
-                ? `${isOverdue ? "border-danger text-danger" : "border-primary text-primary"} bg-paper`
-                : isOverdue
-                  ? "border-danger bg-danger/5"
-                  : "border-rule bg-paper";
-          const boxContent = pending
-            ? "⏳"
-            : status === "paid"
-              ? "✓"
-              : status === "partial"
-                ? "◐"
-                : "";
-          const ariaLabel = pending
-            ? `${t.label}: ${formatEuro(pending.amount)} ${PAYMENT_STATUS.pending}`
-            : `${t.label}: ${labelFor(status, isOverdue)}, offen ${formatEuro(Math.max(0, open))}`;
-          // Offene (auch teilbezahlte) Tranche ohne laufende Meldung → die Crew
-          // kann eine Zahlung melden. Gleiche Bedingung wie der „Ich habe
-          // gezahlt"-Button; Box UND Button lösen denselben Dialog aus.
-          const actionable = open > 0.005 && !pending;
-          const reportPayment = () =>
-            setModal({ trancheId: t.id, trancheLabel: t.label, open: Math.max(0, open) });
-          return (
-            <li key={t.id} className="rounded-lg border border-rule bg-paper p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium">{t.label}</p>
-                  <p className="text-xs text-ink-soft">
-                    Fällig {formatDeDate(crewDue)}
-                    <InfoTooltip
-                      label="Warum dieses Datum?"
-                      text="3 Tage vor der echten Frist beim Anbieter — so kommt deine Einzahlung rechtzeitig bei der vorstreckenden Person an, die das Geld an den Anbieter weiterleitet."
-                    />{" "}
-                    &middot; {t.percent.toFixed(0)} %
-                  </p>
-                </div>
-                {actionable ? (
-                  <button
-                    type="button"
-                    onClick={reportPayment}
-                    aria-label={`Ich habe gezahlt: ${t.label}, offen ${formatEuro(Math.max(0, open))}`}
-                    title={ACTION_REPORT}
-                    className="inline-flex min-h-[44px] items-center gap-2 rounded-md px-1.5 text-sm font-medium hover:bg-navy-light/20 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  >
-                    <span
-                      className={`inline-flex h-6 w-6 items-center justify-center rounded border-2 text-sm font-bold ${boxClass}`}
-                      aria-hidden="true"
-                    >
-                      {boxContent}
-                    </span>
-                    <span className="tabular-nums">{formatEuro(Math.max(0, open))}</span>
-                  </button>
-                ) : (
-                  <span className="inline-flex items-center gap-2 text-sm font-medium" role="status" aria-label={ariaLabel}>
-                    <span
-                      className={`inline-flex h-6 w-6 items-center justify-center rounded border-2 text-sm font-bold ${boxClass}`}
-                      aria-hidden="true"
-                    >
-                      {boxContent}
-                    </span>
-                    <span className="tabular-nums">{formatEuro(Math.max(0, open))}</span>
-                  </span>
-                )}
-              </div>
+      <PersonStatusList
+        rows={rows}
+        ariaLabel="Dein Zahlungsstatus pro Rate"
+        actionLabel={ACTION_REPORT}
+        contextLabel={vocab.prepayment}
+        defaultExpanded
+        onAct={(_personKey, rateKey) => {
+          if (rateKey) return reportRate(rateKey);
+          const openRates = actionableRates(rows[0]);
+          if (openRates.length === 1) reportRate(openRates[0].key);
+          else setPicker(true);
+        }}
+      />
+      <p className="flex items-center text-xs text-ink-soft">
+        Die Fristen liegen 3 Tage vor der echten Frist beim Anbieter
+        <InfoTooltip
+          label="Warum dieses Datum?"
+          text="So kommt deine Einzahlung rechtzeitig bei der vorstreckenden Person an, die das Geld an den Anbieter weiterleitet."
+        />
+      </p>
 
-              {pending && (
-                <p className="mt-2 rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
-                  <span aria-hidden="true">⏳</span>{" "}
-                  Du hast <strong>{formatEuro(pending.amount)}</strong> am {formatDeDate(pending.date)} gemeldet — wartet auf Bestätigung durch die vorstreckende Person.
-                </p>
-              )}
+      {pendingList.map((t) => (
+        <p key={t.id} role="status" className="rounded-md bg-paper-soft px-3 py-2 text-xs text-ink-soft">
+          <span aria-hidden="true">⏳</span> {t.label}: Du hast <strong>{formatEuro(t.pending!.amount)}</strong> am{" "}
+          {formatDeDate(t.pending!.date)} gemeldet — wartet auf Bestätigung durch die vorstreckende Person.
+        </p>
+      ))}
 
-              <div className="mt-3 flex flex-wrap gap-2">
-                {actionable && (
-                  <button
-                    type="button"
-                    onClick={reportPayment}
-                    className="inline-flex min-h-[44px] items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-paper hover:bg-navy-dark"
-                  >
-                    <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                    {ACTION_REPORT}
-                  </button>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+      {picker && (
+        <RecordPickerModal
+          title={`${ACTION_REPORT}: ${vocab.prepayment}`}
+          subtitle="Für welche Rate möchtest du eine Einzahlung melden?"
+          options={actionableRates(rows[0]).map((r) => ({ key: r.key, label: r.label, detail: formatEuro(r.open) }))}
+          onClose={() => setPicker(false)}
+          onPick={(key) => {
+            setPicker(false);
+            reportRate(key);
+          }}
+        />
+      )}
 
       {modal && (
         <SelfPaymentModal
@@ -285,11 +256,3 @@ function SelfPaymentModal({
     </Modal>
   );
 }
-
-function labelFor(s: "open" | "partial" | "paid", overdue: boolean): string {
-  if (s === "paid") return "bezahlt";
-  if (overdue) return "überfällig";
-  if (s === "partial") return "teilweise bezahlt";
-  return "offen";
-}
-
