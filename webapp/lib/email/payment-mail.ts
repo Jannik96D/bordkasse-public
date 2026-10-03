@@ -41,7 +41,8 @@ export const tripPhrase = (t: TripType) => (t === "other" ? "die Reise" : "den T
 
 // ── Betreffzeilen ──────────────────────────────────────────────────────────
 
-function dueTail(due: string | null | undefined): string {
+function dueTail(due: string | null | undefined, overdueSince?: string): string {
+  if (overdueSince) return ` – überfällig seit ${cleanLine(overdueSince, 20)}`;
   return due ? ` bis ${cleanLine(due, 20)}` : ` – ${NO_DUE_TEXT}`;
 }
 
@@ -58,8 +59,10 @@ export function shareSubject(args: {
   due: string | null | undefined;
   isUpdate?: boolean;
   isReminder?: boolean;
+  /** Frist beim Anbieter schon verstrichen (nur manuelle Erinnerung) — ersetzt „bis {Datum}". */
+  overdueSince?: string;
 }): string {
-  return `${subjectPrefix(args)}${cleanLine(args.what)}: dein Anteil ${fmtEuro(args.amount)}${dueTail(args.due)}`;
+  return `${subjectPrefix(args)}${cleanLine(args.what)}: dein Anteil ${fmtEuro(args.amount)}${dueTail(args.due, args.overdueSince)}`;
 }
 
 /** „{Was}: du streckst {Betrag} vor – bis {Datum}" (vorstreckende Person). */
@@ -69,8 +72,9 @@ export function advanceSubject(args: {
   due: string | null | undefined;
   isUpdate?: boolean;
   isReminder?: boolean;
+  overdueSince?: string;
 }): string {
-  const tail = args.due ? ` – bis ${cleanLine(args.due, 20)}` : ` – ${NO_DUE_TEXT}`;
+  const tail = args.overdueSince ? ` – überfällig seit ${cleanLine(args.overdueSince, 20)}` : args.due ? ` – bis ${cleanLine(args.due, 20)}` : ` – ${NO_DUE_TEXT}`;
   return `${subjectPrefix(args)}${cleanLine(args.what)}: du streckst ${fmtEuro(args.amount)} vor${tail}`;
 }
 

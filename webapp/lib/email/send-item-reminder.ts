@@ -63,6 +63,9 @@ export async function sendItemReminderMail(
   if (!email) return { ok: false, message: "Diese Person hat keine E-Mail-Adresse hinterlegt." };
 
   const appUrl = `${appOrigin()}/trips/${job.tripId}/prepayments`;
+  // Nur die manuelle Erinnerung kann nach der Frist rausgehen (der Cron plant nie verstrichene Fristen):
+  // dann „überfällig seit …“ statt einer auf „heute“ geklemmten Crewfrist.
+  const overdueSince = ctx.item.dueDate < ctx.todayIso ? formatDeDate(ctx.item.dueDate) : undefined;
   const itemInfo = { label: ctx.item.label, categoryName: ctx.item.categoryName };
 
   const mail = isCrew
@@ -73,6 +76,7 @@ export async function sendItemReminderMail(
         tripType: ctx.tripType,
         item: itemInfo,
         crewDueDate: formatDeDate(toCrewDueDate(ctx.item.dueDate, ctx.todayIso)),
+        overdueSince,
         amountOpen: job.amount,
         amountSoll: job.soll ?? job.amount,
         appUrl,
@@ -83,6 +87,7 @@ export async function sendItemReminderMail(
         tripType: ctx.tripType,
         item: itemInfo,
         providerDueDate: formatDeDate(ctx.item.dueDate),
+        overdueSince,
         providerSoll: job.overview?.providerSoll ?? 0,
         crewPaid: job.overview?.crewPaid ?? 0,
         crewSoll: job.overview?.crewSoll ?? 0,
