@@ -48,6 +48,7 @@ import {
   type ItemActionState,
 } from "@/lib/actions/prepayment-items";
 import type { PrepaymentItemView } from "@/lib/queries/prepayment-items";
+import { sendItemReminder } from "@/lib/actions/prepayment-item-reminder";
 import { PersonStatusList } from "./person-status-list";
 import { buildPersonRow, summarizeRows, visiblePersonRows } from "@/lib/prepayments/person-rows";
 import { ItemFormModal } from "./item-form-modal";
@@ -59,6 +60,8 @@ import {
   PaymentActionBar,
   PaymentSummaryLine,
   PendingReportsBanner,
+  ReminderBell,
+  StatusLegend,
   PaymentCardHeader,
   PaymentProgress,
   ProviderOpenBlock,
@@ -69,6 +72,8 @@ import {
 interface Member {
   id: string;
   display_name: string;
+  /** Für die Erinnerungs-Glocke: ohne E-Mail keine Mail. */
+  hasEmail?: boolean;
 }
 interface Category {
   id: string;
@@ -186,6 +191,7 @@ export function ItemsSection({
                     item={it}
                     payeeName={nameOf(it.payee_person_id)}
                     nameOf={nameOf}
+                    hasEmail={(id) => members.find((m) => m.id === id)?.hasEmail !== false}
                     canEdit={canManageItems && !readOnly}
                     canRecord={!readOnly}
                     today={today}
@@ -261,6 +267,7 @@ function ItemCard({
   item,
   payeeName,
   nameOf,
+  hasEmail,
   canEdit,
   canRecord,
   today,
@@ -273,6 +280,7 @@ function ItemCard({
   item: PrepaymentItemView;
   payeeName: string;
   nameOf: (id: string) => string;
+  hasEmail: (id: string) => boolean;
   canEdit: boolean;
   canRecord: boolean;
   today: string;
@@ -355,7 +363,32 @@ function ItemCard({
           actionLabel={ACTION_RECORD}
           contextLabel={item.label}
           onAct={canRecord ? (personId) => { const c = item.cells.find((x) => x.person_id === personId); if (c) onRecord(c); } : undefined}
+          renderExtras={canRecord ? (row) => {
+            const isPayee = row.key === item.payee_person_id;
+            const nothingOpen = isPayee ? item.providerOpen <= 0.005 : row.open <= 0.005;
+            const title = !hasEmail(row.key)
+              ? "E-Mail fehlt"
+              : !item.due_date
+                ? "Ohne Frist keine Erinnerung — bitte zuerst eine Frist eintragen"
+                : nothingOpen
+                  ? isPayee ? "Alles an den Anbieter überwiesen, keine Erinnerung nötig" : "Nichts offen"
+                  : isPayee ? `Übersicht an ${row.name} schicken (noch an den Anbieter zu überweisen)` : `Erinnerungsmail an ${row.name}`;
+            return (
+              <ReminderBell
+                onSend={() => {
+                  const fd = new FormData();
+                  fd.set("trip_id", tripId);
+                  fd.set("item_id", item.id);
+                  fd.set("person_id", row.key);
+                  return sendItemReminder({ status: "idle" }, fd);
+                }}
+                disabled={!hasEmail(row.key) || !item.due_date || nothingOpen}
+                title={title}
+              />
+            );
+          } : undefined}
         />
+        {canRecord && <StatusLegend bell />}
       </div>
 
       <ItemActions

@@ -19,13 +19,13 @@
 import { useId, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AlertTriangle, Check, CheckCircle2, Pencil, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, Bell, Check, CheckCircle2, MessageCircle, Pencil, RefreshCw, X } from "lucide-react";
 import { useToast } from "@/components/toast-provider";
 import { Modal } from "@/components/modal";
 import { formatEuro } from "@/lib/utils";
 import { formatDeDate } from "@/lib/prepayments/dates";
 import type { RowsSummary } from "@/lib/prepayments/person-rows";
-import { ITEM_OVERALL_LABEL, NETWORK_ERROR_MESSAGE, progressPercent, type ItemOverall, type ProviderDueInfo } from "@/lib/prepayments/item-ui";
+import { ITEM_OVERALL_LABEL, ITEM_STATUS_META, NETWORK_ERROR_MESSAGE, progressPercent, type ItemOverall, type ProviderDueInfo } from "@/lib/prepayments/item-ui";
 import {
   ACTION_PROVIDER,
   ACTION_RECORD,
@@ -472,5 +472,95 @@ export function PendingReportsBanner({
         ))}
       </ul>
     </section>
+  );
+}
+
+// ── Erinnerungs-Glocke (🔔) je Person ─────────────────────────────────────
+
+export function ReminderBell({
+  onSend,
+  disabled,
+  title,
+}: {
+  onSend: () => Promise<ActionResult>;
+  disabled: boolean;
+  title: string;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [done, setDone] = useState<"ok" | "err" | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  function send() {
+    setMsg(null);
+    setDone(null);
+    startTransition(async () => {
+      try {
+        const res = await onSend();
+        if (res.status === "error") {
+          setDone("err");
+          setMsg(res.message ?? "Fehler");
+        } else {
+          setDone("ok");
+        }
+      } catch {
+        setDone("err");
+        setMsg(NETWORK_ERROR_MESSAGE);
+      }
+      setTimeout(() => setDone(null), 3000);
+    });
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={send}
+      disabled={disabled || pending}
+      title={msg || title}
+      aria-label={title}
+      className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-rule p-1.5 text-primary hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-40"
+    >
+      {pending ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Bell className="h-4 w-4" aria-hidden="true" />}
+      {done === "ok" && <span role="status" className="sr-only">Mail gesendet</span>}
+      {done === "err" && <span className="sr-only" role="alert">Fehler: {msg}</span>}
+    </button>
+  );
+}
+
+// ── Statuslegende (kurz, in beiden Karten gleich) ─────────────────────────
+
+export function StatusLegend({ bell = false, whatsapp = false }: { bell?: boolean; whatsapp?: boolean }) {
+  const states = ["open", "pending", "underpaid", "paid", "overpaid"] as const;
+  return (
+    <details className="mt-3 rounded-md border border-rule bg-paper-soft px-3 py-2 text-sm">
+      <summary className="inline-flex min-h-[44px] cursor-pointer items-center text-ink-soft">Was bedeuten die Symbole?</summary>
+      <ul className="mb-1 grid grid-cols-1 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-2">
+        {states.map((st) => {
+          const m = ITEM_STATUS_META[st];
+          return (
+            <li key={st} className="flex items-center gap-2">
+              <span
+                className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-bold leading-none ${m.box.replace("text-base", "")}`}
+                aria-hidden="true"
+              >
+                {m.glyph}
+              </span>
+              {m.label}
+            </li>
+          );
+        })}
+        {bell && (
+          <li className="flex items-center gap-2">
+            <Bell className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+            Erinnerung per Mail
+          </li>
+        )}
+        {whatsapp && (
+          <li className="flex items-center gap-2">
+            <MessageCircle className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+            WhatsApp-Text
+          </li>
+        )}
+      </ul>
+    </details>
   );
 }

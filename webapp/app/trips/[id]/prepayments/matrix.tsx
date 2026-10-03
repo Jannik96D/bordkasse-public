@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Bell, MessageCircle, RefreshCw, Sailboat, Wallet } from "lucide-react";
+import { MessageCircle, RefreshCw, Sailboat, Wallet } from "lucide-react";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { Modal } from "@/components/modal";
 import { NotifyCrewButton } from "./notify-crew-button";
@@ -15,6 +15,8 @@ import {
   PaymentProgress,
   PaymentSummaryLine,
   PendingReportsBanner,
+  ReminderBell,
+  StatusLegend,
   ProviderOpenBlock,
   RecordPaymentButton,
   RecordPickerModal,
@@ -379,6 +381,8 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
         </button>
       </div>
 
+      <StatusLegend bell whatsapp />
+
       {/* Aktionsleiste — gleiche Reihenfolge wie bei den weiteren Zahlungen:
           Einzahlung erfassen · Crew informieren · Bearbeiten */}
       <PaymentActionBar
@@ -468,7 +472,16 @@ function RowActions({
         : "Erinnerungsmail";
   return (
     <div className="inline-flex shrink-0 gap-1">
-      <ReminderButton tripId={tripId} personId={member.id} disabled={reminderDisabled} title={reminderTitle} />
+      <ReminderBell
+        onSend={() => {
+          const fd = new FormData();
+          fd.set("trip_id", tripId);
+          fd.set("person_id", member.id);
+          return sendPrepaymentReminder({ status: "idle" }, fd);
+        }}
+        disabled={reminderDisabled}
+        title={reminderTitle}
+      />
       <button
         type="button"
         onClick={() => onWhatsApp(member)}
@@ -619,48 +632,6 @@ function PaymentModal({
 // Reminder + WhatsApp
 // ────────────────────────────────────────────────────────────────────────
 
-function ReminderButton({ tripId, personId, disabled, title }: { tripId: string; personId: string; disabled: boolean; title: string }) {
-  const [pending, startTransition] = useTransition();
-  const [done, setDone] = useState<"ok" | "err" | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  function send() {
-    setMsg(null);
-    setDone(null);
-    const fd = new FormData();
-    fd.set("trip_id", tripId);
-    fd.set("person_id", personId);
-    startTransition(async () => {
-      const res = await sendPrepaymentReminder({ status: "idle" }, fd);
-      if (res.status === "ok") {
-        setDone("ok");
-      } else if (res.status === "error") {
-        setDone("err");
-        setMsg(res.message);
-      }
-      setTimeout(() => setDone(null), 3000);
-    });
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={send}
-      disabled={disabled || pending}
-      title={msg || title}
-      aria-label={title}
-      className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-rule p-1.5 text-primary hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-40"
-    >
-      {pending ? (
-        <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
-      ) : (
-        <Bell className="h-4 w-4" aria-hidden="true" />
-      )}
-      {done === "ok" && <span className="sr-only">Mail gesendet</span>}
-      {done === "err" && <span className="sr-only" role="alert">Fehler: {msg}</span>}
-    </button>
-  );
-}
 
 function WhatsAppModal({ title, text, onClose }: { title: string; text: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);

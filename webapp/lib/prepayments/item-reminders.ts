@@ -216,3 +216,68 @@ export function planItemReminderJobs(input: ItemReminderInput): ItemReminderJob[
 
   return jobs;
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// Manuelle Erinnerung (🔔 in der Personenliste)
+// ────────────────────────────────────────────────────────────────────────
+
+/** Struktureller Ausschnitt von `PrepaymentItemView` (kein Server-Import). */
+export interface ManualReminderItem {
+  id: string;
+  trip_id: string;
+  total_amount: number;
+  payee_person_id: string;
+  providerPaid: number;
+  cells: { person_id: string; soll: number; paid: number }[];
+}
+
+export type ManualReminderPlan =
+  | { ok: true; job: ItemReminderJob }
+  | { ok: false; message: string };
+
+/**
+ * Job für den Klick auf die Glocke — gleiche Mails wie der Cron, aber ohne
+ * Fenster und ohne Dedup-Log (der Skipper entscheidet, wann erinnert wird).
+ * Crew-Person: Restbetrag ihres Anteils; Empfänger: Übersicht „noch an den
+ * Anbieter zu überweisen" (Pendant zur Vorstrecker-Mail des Anzahlungsplans).
+ */
+export function planManualItemReminder(item: ManualReminderItem, personId: string): ManualReminderPlan {
+  const cell = item.cells.find((c) => c.person_id === personId);
+  if (personId === item.payee_person_id) {
+    const providerOpen = round2(Number(item.total_amount) - Number(item.providerPaid));
+    if (providerOpen <= TOL) return { ok: false, message: "Alles an den Anbieter überwiesen — keine Erinnerung nötig." };
+    let crewPaid = 0;
+    let crewSoll = 0;
+    for (const c of item.cells) {
+      if (c.person_id === item.payee_person_id) continue;
+      crewPaid += c.paid;
+      crewSoll += c.soll;
+    }
+    const own = item.cells.find((c) => c.person_id === item.payee_person_id);
+    return {
+      ok: true,
+      job: {
+        type: "item_payee_3d",
+        itemId: item.id,
+        tripId: item.trip_id,
+        personId,
+        amount: providerOpen,
+        overview: {
+          providerSoll: round2(Number(item.total_amount)),
+          crewPaid: round2(crewPaid),
+          crewSoll: round2(crewSoll),
+          providerPaid: round2(Number(item.providerPaid)),
+          providerOpen,
+          ownOpen: round2(Math.max(0, (own?.soll ?? 0) - (own?.paid ?? 0))),
+        },
+      },
+    };
+  }
+  if (!cell || cell.soll <= TOL) return { ok: false, message: "Diese Person hat hier keinen Anteil." };
+  const open = round2(cell.soll - cell.paid);
+  if (open <= TOL) return { ok: false, message: "Nichts offen — keine Erinnerung nötig." };
+  return {
+    ok: true,
+    job: { type: "item_crew_3d", itemId: item.id, tripId: item.trip_id, personId, amount: open, soll: round2(cell.soll) },
+  };
+}
