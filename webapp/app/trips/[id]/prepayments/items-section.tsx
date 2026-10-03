@@ -26,6 +26,7 @@
 import { useState } from "react";
 import { Plus, Info } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
+import { InfoTooltip } from "@/components/info-tooltip";
 import { useTripVocab } from "@/components/trip-vocab-provider";
 import { formatEuro } from "@/lib/utils";
 import { formatDeDate, toCrewDueDate } from "@/lib/prepayments/dates";
@@ -456,6 +457,16 @@ function ItemSelfCard({
       <p className="mt-1 text-xs text-ink-soft">
         Einzahlung an <strong className="text-ink">{payeeName}</strong> (streckt vor)
         {showDue && <> · bitte zahlen bis {formatDeDate(toCrewDueDate(item.due_date!))}</>}
+        {canReport && (
+          <InfoTooltip
+            label="Erinnerung per Mail"
+            text={
+              item.due_date
+                ? "Ist dein Anteil 3 Tage vor dieser Frist noch offen, bekommst du eine Erinnerung per Mail."
+                : "Hier ist keine Fälligkeit hinterlegt, daher gibt es keine automatische Erinnerung."
+            }
+          />
+        )}
       </p>
       <div className="mt-3">
         <PersonStatusList
@@ -474,13 +485,6 @@ function ItemSelfCard({
       {mine.status === "overpaid" && (
         <p role="note" className="mt-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
           Du hast {formatEuro(mine.paid - mine.soll)} zu viel bezahlt. Sprich bitte mit {payeeName} über die Rückzahlung.
-        </p>
-      )}
-      {canReport && (
-        <p className="mt-3 text-xs text-ink-soft">
-          {item.due_date
-            ? "Ist dein Anteil 3 Tage vor dieser Frist noch offen, bekommst du eine Erinnerung per Mail."
-            : "Hier ist keine Fälligkeit hinterlegt, daher gibt es keine automatische Erinnerung."}
         </p>
       )}
     </article>

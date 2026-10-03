@@ -113,6 +113,9 @@ describe("weitere Zahlung (Karte)", () => {
   it("Crew sieht nur die eigene Zeile: „Ich habe gezahlt“, keine Skipper-Aktionsleiste", () => {
     const crew = renderItems({ viewerId: ANNA, canManageItems: false });
     expect(crew).toContain("Ich habe gezahlt");
+    // Erinnerungshinweis nur über das ⓘ, nicht als Fließtext (Tooltip rendert den Text erst beim Öffnen)
+    expect(crew).toContain('aria-label="Erinnerung per Mail"');
+    expect(crew).not.toContain("Ist dein Anteil 3 Tage vor dieser Frist");
     expect(crew).toContain("Einzahlung an");
     expect(crew).not.toContain("Crew informieren");
     expect(crew).not.toMatch(/Posten|Empfängt|Empfänger/);
