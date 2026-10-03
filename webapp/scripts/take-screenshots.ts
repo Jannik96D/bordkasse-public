@@ -49,7 +49,7 @@
  *     Anna (skipper@) + Clara (clara@) via Admin-API an und verknüpft
  *     persons.auth_user_id (direkte auth.users-INSERTs sind unzuverlässig).
  *   - `public/about/00-about-preview.webp` ist gitignored (Meta-Vorschau).
- *   - 19 WebP-Dateien werden geschrieben; rc=0 + „Alle Screenshots … abgelegt".
+ *   - 20 WebP-Dateien werden geschrieben; rc=0 + „Alle Screenshots … abgelegt".
  */
 import { chromium, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
@@ -202,7 +202,8 @@ async function main() {
   // --lang=de-DE ist nötig, damit native <input type="date"> im deutschen
   // DD.MM.YYYY-Format rendern. Die `locale`-Option in newContext steuert nur
   // navigator.language + Accept-Language, nicht den Date-Picker-Formatter.
-  const browser = await chromium.launch({ args: ["--lang=de-DE"] });
+  // PW_CHROMIUM_PATH: optional, falls die von Playwright erwartete Browser-Version nicht installiert ist (vorhandenen Chromium nutzen).
+  const browser = await chromium.launch({ args: ["--lang=de-DE"], executablePath: process.env.PW_CHROMIUM_PATH || undefined });
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     deviceScaleFactor: 2,
@@ -407,7 +408,8 @@ async function main() {
   // ────────────────────────────────────────────────────────────────────
   // Anzahlungs-Modul (Korsika {Folgejahr} — zukünftiger Charter)
   //   15-anzahlung-setup    Wizard Step 2 (Tranchen-Editor)
-  //   16-anzahlung-matrix   Matrix mit Charter-Banner + Vorstrecker-Zeile
+  //   16-anzahlung-matrix   Personenliste mit Charter-Block + Meldung + Vorstrecker-Zeile
+  //   20-weitere-zahlungen  Karte „Flüge“ (weitere Zahlung) mit Personenliste
   //   17-anzahlung-crew-self  Crew-Self-View (als Clara, nicht-Skipper)
   // ────────────────────────────────────────────────────────────────────
 
@@ -430,14 +432,31 @@ async function main() {
   await page.waitForTimeout(400);
   await shot(page, "15-anzahlung-setup");
 
-  console.log("→ Anzahlungs-Matrix (Charter-Banner + Pending + Vorstrecker)");
+  console.log("→ Anzahlungsplan (Personenliste: Meldung + Status je Person)");
   await page.goto(`${BASE_URL}/trips/${tripCharterId}/prepayments`);
   await waitForLoad(page);
-  // Etwas nach unten scrollen, damit der Charter-Reminder-Banner + ein
-  // Stück Matrix sichtbar sind (volle Matrix passt nicht ins Mobile-Viewport).
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.waitForTimeout(300);
+  // Die Karte beginnt mit Kopf + Fortschritt; spannend ist die Personenliste.
+  // Wir scrollen so, dass „Noch an Anbieter zu überweisen" bzw. der Banner
+  // „Meldung wartet" oben steht und die ersten Personenzeilen darunter folgen.
+  await page.evaluate(() => {
+    const el =
+      Array.from(document.querySelectorAll("p")).find((p) => /Noch an Anbieter zu überweisen/i.test(p.textContent ?? ""))
+        ?.parentElement ?? null;
+    el?.scrollIntoView({ block: "start" });
+    window.scrollBy(0, -70); // Platz für den Header
+  });
+  await page.waitForTimeout(400);
   await shot(page, "16-anzahlung-matrix");
+
+  console.log("→ Weitere Zahlungen (Karte „Flüge“, Skipper-Sicht)");
+  await page.evaluate(() => {
+    // Karte „Flüge“ (nicht die Sektions-Überschrift) nach oben: Kopf, Fortschritt, Personenliste.
+    const card = Array.from(document.querySelectorAll("article h3")).find((h) => /Flüge/.test(h.textContent ?? ""))?.closest("article");
+    card?.scrollIntoView({ block: "start" });
+    window.scrollBy(0, -70);
+  });
+  await page.waitForTimeout(400);
+  await shot(page, "20-weitere-zahlungen");
 
   console.log("→ Crew-Self-View — Re-Login als Clara");
   await logout(page, context);

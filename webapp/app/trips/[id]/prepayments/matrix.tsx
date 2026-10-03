@@ -16,7 +16,6 @@ import {
   PaymentSummaryLine,
   PendingReportsBanner,
   ReminderBell,
-  StatusLegend,
   ProviderOpenBlock,
   RecordPickerModal,
 } from "./payment-card-parts";
@@ -373,8 +372,6 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
           Sammelnachricht für alle Offenen
         </button>
       </div>
-
-      <StatusLegend bell whatsapp />
 
       {/* Aktionsleiste — wie bei den weiteren Zahlungen: Crew informieren · Bearbeiten
           (Einzahlungen werden direkt in der Personenliste erfasst) */}

@@ -396,13 +396,18 @@ const features: Feature[] = [
   {
     id: "anzahlung-matrix",
     title: "Wer hat welche Anzahlung gezahlt?",
-    lead: "Eine Person-mal-Tranche-Tabelle mit Statussymbolen: offen, teilweise, bezahlt, überfällig, gemeldet aber unbestätigt.",
+    lead: "Eine Zeile pro Person mit Status und Betrag, daneben der Knopf zum Erfassen. Bei mehreren Raten klappt die Zeile auf.",
     body: (
       <>
         <p>
-          Ein Klick auf eine Zelle öffnet ein Modal, in dem du eine
-          Einzahlung erfasst. Überschuss kann automatisch auf die nächste Tranche
-          übertragen werden. Über die <strong>Glocke</strong>{" "}
+          Jede Person hat eine Zeile mit ihrem Status (offen, teilweise,
+          bezahlt, überfällig oder gemeldet, aber unbestätigt) und dem Betrag.
+          „Einzahlung erfassen“ öffnet ein Fenster, in dem du die
+          Einzahlung einträgst; sind mehrere Raten offen, fragt die App
+          zuerst, für welche. Überschuss kann automatisch auf die nächste
+          Rate übertragen werden. Ein Tipp auf den Namen klappt die Zeile zu
+          den Raten auf (1. Anzahlung, Endzahlung …), jede mit eigenem
+          Status und eigenem Knopf. Über die <strong>Glocke</strong>{" "}
           <TextIcon icon={Bell} /> in der Zeile schickt der Skipper eine
           persönliche Erinnerungs-Mail mit Wero-ID und Verwendungszweck;
           über die <strong>Sprechblase</strong>{" "}
@@ -411,11 +416,12 @@ const features: Feature[] = [
         </p>
         <p className="mt-2">
           Die Karte der Yachtanzahlung zeigt oben zwei Fortschrittsbalken:
-          „Von der Crew bezahlt“ und „An Anbieter bezahlt“. Darunter stehen
-          die Aktionen in fester Reihenfolge: Einzahlung erfassen, Crew
-          informieren, Bearbeiten. Auf dem Smartphone erscheint jede Person
-          als eigene Karte, ganz ohne horizontales Wischen; am größeren
-          Bildschirm bleibt die Tabelle für den Quervergleich.
+          „Von der Crew bezahlt“ und „An Anbieter bezahlt“, darunter
+          „x von y vollständig“. Unter der Personenliste stehen die
+          Aktionen in fester Reihenfolge: Crew informieren, Bearbeiten. Die
+          Liste ist auch auf dem Smartphone ohne horizontales Wischen
+          lesbar. Was die Symbole bedeuten, erklärt ein einklappbarer
+          Hinweis ganz unten auf der Seite.
         </p>
         <p className="mt-2">
           Im Block „Noch an Anbieter zu überweisen“ sieht die vorstreckende
@@ -424,18 +430,6 @@ const features: Feature[] = [
           Frist verschickt die App diese Übersicht zusätzlich per Mail;
           3 Tage vor der Crewfrist gehen automatisch Erinnerungen an alle
           Crewmitglieder mit offenem Betrag.
-        </p>
-        <p className="mt-2">
-          Unter der Yachtanzahlung gibt es „Weitere Zahlungen“: Zahlungen
-          neben der Anzahlung, zum Beispiel Flüge oder Bahn für die
-          An-/Abreise. Jede weitere Zahlung ist eine Karte im selben Aufbau
-          wie die Yachtanzahlung. Der Skipper legt sie mit Kategorie, Betrag,
-          der Person, die vorstreckt, und Aufteilung an; die Crew meldet ihren
-          Anteil wie bei der Anzahlung selbst („Ich habe gezahlt“). Pro Karte
-          sieht man, wie viel die Crew schon eingezahlt hat und wie viel noch
-          an den Anbieter zu überweisen ist. Hat eine weitere Zahlung eine
-          Fälligkeit, erinnert die App wie bei der Anzahlung automatisch: die
-          Crew 6 Tage vorher, die vorstreckende Person 3 Tage vorher.
         </p>
         <p className="mt-2">
           Steht der Anzahlungsplan oder ist eine weitere Zahlung neu angelegt,
@@ -448,7 +442,41 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/16-anzahlung-matrix.webp",
-    alt: "Anzahlungsmatrix als Karten-Ansicht mit Fortschrittsbalken, Charterhinweis und Pending-Bestätigung",
+    alt: "Karte der Yachtanzahlung mit Fortschrittsbalken, Hinweis „Noch an Anbieter zu überweisen“, Meldung zur Bestätigung und Personenliste mit Status und Knopf „Einzahlung erfassen“",
+  },
+  {
+    id: "weitere-zahlungen",
+    title: "Weitere Zahlungen: Flüge, Bahn und mehr",
+    lead: "Zahlungen neben der Yachtanzahlung bekommen eine eigene Karte im selben Aufbau.",
+    body: (
+      <>
+        <p>
+          Zum Beispiel Flüge oder Bahn für die An-/Abreise: Eine Person
+          streckt vor, zahlt vorab an den Anbieter und bekommt das Geld von
+          der Crew zurück. Der Skipper legt die Karte mit Kategorie, Betrag,
+          der vorstreckenden Person, Aufteilung (gleichmäßig, zeitanteilig
+          oder individuell) und optional einer Fälligkeit an. Die Personenliste
+          ist dieselbe wie bei der Anzahlung: je Person Status, Betrag und
+          der Knopf „Einzahlung erfassen“.
+        </p>
+        <p className="mt-2">
+          Die Crew sieht nur ihre eigene Karte und meldet ihren Anteil wie bei
+          der Anzahlung selbst („Ich habe gezahlt“); die vorstreckende Person
+          bestätigt oder lehnt ab. Pro Karte zeigen zwei Balken, wie viel die
+          Crew schon eingezahlt hat und wie viel an den Anbieter überwiesen
+          ist. Hat die Zahlung eine Fälligkeit, erinnert die App automatisch:
+          die Crew 6 Tage vorher, die vorstreckende Person 3 Tage vorher. Über
+          die <strong>Glocke</strong> <TextIcon icon={Bell} /> lässt sich
+          jederzeit eine persönliche Erinnerung schicken.
+        </p>
+        <p className="mt-2">
+          Löschen lässt sich eine weitere Zahlung im Dialog „Bearbeiten“, und
+          nur, solange noch keine Zahlung daran hängt.
+        </p>
+      </>
+    ),
+    screenshot: "/about/20-weitere-zahlungen.webp",
+    alt: "Karte „Flüge Hamburg–Bastia“ mit Fortschrittsbalken, wartender Meldung und Personenliste",
   },
   {
     id: "anzahlung-crew-self",
@@ -459,11 +487,16 @@ const features: Feature[] = [
         <p>
           Statt dass der Skipper jeden Eingang manuell abhaken muss, kann
           die Crew selbst „Ich habe gezahlt“ drücken. Die vorstreckende
-          Person bekommt eine Mail und sieht in der Matrix ein gelbes
-          ⏳-Symbol. Sie bestätigt mit <TextIcon icon={Check} />, sobald das
+          Person bekommt eine Mail und sieht die Meldung in einem Banner
+          „Meldung wartet auf Bestätigung“ sowie als gelbes ⏳-Symbol in
+          der Personenzeile. Sie bestätigt mit <TextIcon icon={Check} />, sobald das
           Geld auf ihrem Konto ist, oder lehnt mit <TextIcon icon={X} /> ab.
           Erst nach Bestätigung zählt die
           Zahlung in der Bilanz.
+        </p>
+        <p className="mt-2">
+          Die Crew sieht nur die eigene Zeile: alle Raten auf einen Blick,
+          mit einem „Ich habe gezahlt“ bei jeder offenen Rate.
         </p>
         <p className="mt-2">
           Sobald die vorstreckende Person bestätigt oder ablehnt, bekommt das
@@ -480,7 +513,7 @@ const features: Feature[] = [
       </>
     ),
     screenshot: "/about/17-anzahlung-crew-self.webp",
-    alt: "Crew-Self-View mit „Ich habe gezahlt“-Button pro offener Tranche",
+    alt: "Eigene Zeile „Dein Anteil“ mit allen Raten und „Ich habe gezahlt“ pro offener Rate",
   },
   {
     id: "offline",
@@ -551,8 +584,8 @@ const PHASES: Phase[] = [
     id: "vor-dem-toern",
     Icon: Anchor,
     title: "Vor dem Törn",
-    lead: "Crew einladen, Kategorien festlegen, optional Yachtanzahlung mit Tranchen.",
-    featureIds: ["crew", "kategorien", "anzahlung-setup", "anzahlung-matrix", "anzahlung-crew-self"],
+    lead: "Crew einladen, Kategorien festlegen, optional Yachtanzahlung mit Tranchen und weitere Zahlungen wie Flüge oder Bahn.",
+    featureIds: ["crew", "kategorien", "anzahlung-setup", "anzahlung-matrix", "weitere-zahlungen", "anzahlung-crew-self"],
   },
   {
     id: "waehrend-des-toerns",

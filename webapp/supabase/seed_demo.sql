@@ -423,6 +423,24 @@ BEGIN
   INSERT INTO transactions (id, trip_id, type, date, description, amount, credit_from, credit_to, tranche_id, created_by, confirmed_at)
     VALUES (tx, trip_korsika, 'credit', today - 3, 'Anzahlung Reservierung (Teilbetrag)', 80.00, p_eva, p_anna, tranche_1, p_anna, now());
 
+  -- ── Weitere Zahlung: Flüge (Anna streckt vor) ────────────────────────
+  -- Zeigt die Karte „Weitere Zahlungen" auf /about: Ben hat gezahlt
+  -- (bestätigt), David hat gemeldet (wartet auf Bestätigung), Rest offen.
+  INSERT INTO trip_categories (id, trip_id, name, icon, sort_order)
+    VALUES ('cccccccc-0000-4000-8000-000000000106', trip_korsika, 'An-/Abreise', 'Plane', 6);
+  INSERT INTO prepayment_items (id, trip_id, category_id, label, total_amount, due_date, payee_person_id, split_type, sort_order)
+    VALUES ('dddddddd-0000-4000-8000-000000000201', trip_korsika, 'cccccccc-0000-4000-8000-000000000106',
+            'Flüge Hamburg–Bastia', 1250.00, today + 40, p_anna, 'gleichmaessig', 0);
+  INSERT INTO prepayment_item_obligations (item_id, trip_id, person_id, amount)
+    SELECT 'dddddddd-0000-4000-8000-000000000201', trip_korsika, person_id, 250.00
+      FROM trip_members WHERE trip_id = trip_korsika;
+  tx := gen_random_uuid();
+  INSERT INTO transactions (id, trip_id, type, date, description, amount, credit_from, credit_to, item_id, created_by, confirmed_at)
+    VALUES (tx, trip_korsika, 'credit', today - 2, 'Flüge Hamburg–Bastia', 250.00, p_ben, p_anna, 'dddddddd-0000-4000-8000-000000000201', p_anna, now());
+  tx := gen_random_uuid();
+  INSERT INTO transactions (id, trip_id, type, date, description, amount, credit_from, credit_to, item_id, created_by, confirmed_at)
+    VALUES (tx, trip_korsika, 'credit', today - 1, 'Flüge Hamburg–Bastia (selbst gemeldet)', 250.00, p_david, p_anna, 'dddddddd-0000-4000-8000-000000000201', p_david, NULL);
+
   -- ── Anna an die Charteragentur ───────────────────────────────────────
   -- Expense mit tranche_id = Tranche 1, paid_by = Anna. Bedeutet:
   -- Anna hat 600€ aus dem Anzahlungs-Pool an die Charteragentur überwiesen.
