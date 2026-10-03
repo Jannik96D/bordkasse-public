@@ -107,8 +107,8 @@ describe("weitere Zahlung (Karte)", () => {
     expect(html).toContain("Noch an Anbieter zu überweisen");
     expect(html).toContain("Überweisung an Anbieter erfassen");
   });
-  it("Aktionsleiste (gerendertes HTML) wie beim Plan: Einzahlung erfassen · Crew informieren · Bearbeiten (Löschen sitzt im Bearbeiten-Dialog)", () => {
-    expect(actionLabels(html)).toEqual(["Einzahlung erfassen", "Crew informieren", "Bearbeiten"]);
+  it("Aktionsleiste wie beim Plan: Crew informieren · Bearbeiten (Einzahlungen in der Personenliste, Löschen im Bearbeiten-Dialog)", () => {
+    expect(actionLabels(html)).toEqual(["Crew informieren", "Bearbeiten"]);
   });
   it("Crew sieht nur die eigene Zeile: „Ich habe gezahlt“, keine Skipper-Aktionsleiste", () => {
     const crew = renderItems({ viewerId: ANNA, canManageItems: false });
@@ -137,8 +137,8 @@ describe("Anzahlungsplan (Karte) hat dieselbe Anatomie", () => {
     expect(html).toContain("Überweisung an Anbieter erfassen");
     expect(html).not.toMatch(/Vercharterer|Charteragentur/);
   });
-  it("Aktionsleiste (gerendertes HTML): Einzahlung erfassen · Crew informieren · Bearbeiten (Plan bearbeiten wandert hierher)", () => {
-    expect(actionLabels(html)).toEqual(["Einzahlung erfassen", "Crew informieren", "Bearbeiten"]);
+  it("Aktionsleiste (gerendertes HTML): Crew informieren · Bearbeiten (Plan bearbeiten wandert hierher)", () => {
+    expect(actionLabels(html)).toEqual(["Crew informieren", "Bearbeiten"]);
     expect(html).not.toContain("Plan bearbeiten");
     expect(html).toContain("/trips/t/prepayments/setup");
   });

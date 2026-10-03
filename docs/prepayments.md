@@ -952,6 +952,8 @@ Anzahlungsplan und weitere Zahlungen zeigen dieselbe **Personenliste**: eine Zei
 - **Statuslegende** (`StatusLegend`, einklappbar „Was bedeuten die Symbole?", Kurztexte aus `ITEM_STATUS_META`) steht unter der Liste beider Karten (nur Verwalter-Sicht); WhatsApp-Eintrag nur im Plan.
 - **Raten:** in der Verwalter-Liste des Plans aufklappbar (A); in der Crew-Ansicht (nur die eigene Zeile) sind die Raten immer sichtbar, ohne Auf-/Zuklappen (`alwaysExpanded`). Weitere Zahlungen haben keine Raten.
 - **Löschen:** beide Aktionsleisten sind gleich (Einzahlung erfassen · Crew informieren · Bearbeiten). „Löschen" einer weiteren Zahlung sitzt im Bearbeiten-Dialog (`item-form-modal.tsx`) mit eingebauter Rückfrage („Ja, löschen"); gesperrt (bestätigte Zahlungen/offene Meldung) → Begründung statt Rückfrage. Der Plan hat kein Löschen.
+- **Aktionsleiste ohne „Einzahlung erfassen":** der Sammel-Knopf ist entfallen (er stand unter einer Liste voller identischer Knöpfe); erfasst wird nur je Zeile bzw. je Rate. Leiste = „Crew informieren · Bearbeiten". Sitzt eine Zeile aufgeklappt, entfällt ihr Zeilen-Knopf (die Raten tragen ihre eigenen).
+- **Layout (mobil-zuerst):** Zeile 1 = Name (+Badge) · Betrag, Zeile 2 = Status · Aktionen (Einzahlung erfassen, 🔔, WhatsApp); ab `sm` eine einzeilige Tabellenzeile (Name · Status · Betrag · Aktionen). Namen brechen um statt abgeschnitten zu werden — eine frühere `flex-1 min-w-0 truncate`-Konstruktion quetschte sie auf 375 px auf Breite 0. Rate-Detail nutzt ein geschütztes Leerzeichen („40 %"). Crew-Ansicht: Zeile heißt „Dein Anteil", die frühere Soll-Karte darüber entfällt (steht in der Zeile).
 
 ## Weitere Posten — Erinnerungen (PR5, Migration 0061)
 

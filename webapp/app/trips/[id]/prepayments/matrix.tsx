@@ -18,7 +18,6 @@ import {
   ReminderBell,
   StatusLegend,
   ProviderOpenBlock,
-  RecordPaymentButton,
   RecordPickerModal,
 } from "./payment-card-parts";
 import { planProviderRemaining, providerDueInfo, type ItemOverall } from "@/lib/prepayments/item-ui";
@@ -86,7 +85,6 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
   const vocab = tripVocab(tripType);
   const [paymentModal, setPaymentModal] = useState<{ cell: MatrixCell; personName: string } | null>(null);
   const [whatsAppModal, setWhatsAppModal] = useState<{ text: string; title: string } | null>(null);
-  const [picker, setPicker] = useState(false);
   // Zweiter Schritt „Welche Rate?" — nur wenn die Person in mehreren Raten offen ist.
   const [ratePicker, setRatePicker] = useState<string | null>(null);
 
@@ -215,12 +213,7 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
     today,
     formatDeDate,
   );
-  // „Für wen?": Personen mit offenem Betrag (ohne die vorstreckende Person, die verrechnet sich selbst — aber auch ihre Zelle ist abhakbar).
-  const pickOptions = memberRows
-    .filter((r) => r.rowOpen > 0.005)
-    .map((r) => ({ key: r.m.id, label: r.m.display_name, detail: formatEuro(r.rowOpen) }));
   function pickPerson(personId: string) {
-    setPicker(false);
     const row = memberRows.find((r) => r.m.id === personId);
     if (!row) return;
     const openCells = row.cells.filter((c) => c.open > 0.005);
@@ -241,7 +234,7 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
         rates: cells.map((c, i) => ({
           key: c.trancheId,
           label: tranches[i].label,
-          detail: `${vocab.crew} bis ${formatDeDate(toCrewDueDate(tranches[i].due_date))} · ${tranches[i].percent.toFixed(0)} %`,
+          detail: `${vocab.crew} bis ${formatDeDate(toCrewDueDate(tranches[i].due_date))} · ${tranches[i].percent.toFixed(0)}\u00a0%`,
           soll: c.soll,
           paid: c.paid,
           pending: c.pending?.amount ?? 0,
@@ -383,10 +376,9 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
 
       <StatusLegend bell whatsapp />
 
-      {/* Aktionsleiste — gleiche Reihenfolge wie bei den weiteren Zahlungen:
-          Einzahlung erfassen · Crew informieren · Bearbeiten */}
+      {/* Aktionsleiste — wie bei den weiteren Zahlungen: Crew informieren · Bearbeiten
+          (Einzahlungen werden direkt in der Personenliste erfasst) */}
       <PaymentActionBar
-        record={pickOptions.length > 0 && !readOnly ? <RecordPaymentButton onClick={() => setPicker(true)} /> : null}
         notify={
           showActions ? (
             <NotifyCrewButton tripId={tripId} subject="den Anzahlungsplan" lastNotifiedLabel={lastNotifiedLabel} />
@@ -396,14 +388,6 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
       />
       </article>
 
-      {picker && (
-        <RecordPickerModal
-          title={`Einzahlung erfassen: ${vocab.prepayment}`}
-          options={pickOptions}
-          onClose={() => setPicker(false)}
-          onPick={pickPerson}
-        />
-      )}
       {ratePicker && (() => {
         const row = memberRows.find((r) => r.m.id === ratePicker);
         if (!row) return null;
