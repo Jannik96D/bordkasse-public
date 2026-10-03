@@ -113,3 +113,24 @@ export function isExpandable(row: PersonRow): boolean {
 export function actionableRates(row: PersonRow): RateRow[] {
   return row.rates.filter((r) => r.actionable);
 }
+
+/** Kennzahlen für die Zeile unter dem Fortschritt — beide Karten zeigen dieselben. */
+export interface RowsSummary {
+  withSoll: number;
+  fullyPaid: number;
+  overdue: number;
+  /** Σ Überzahlung je Rate (Geld muss zurück). */
+  overpaidTotal: number;
+}
+
+export function summarizeRows(rows: PersonRow[]): RowsSummary {
+  const withSoll = rows.filter((r) => r.soll > EPS);
+  return {
+    withSoll: withSoll.length,
+    fullyPaid: withSoll.filter((r) => r.open <= EPS).length,
+    overdue: rows.filter((r) => r.overdue).length,
+    overpaidTotal: round2(
+      rows.reduce((s, r) => s + r.rates.reduce((a, x) => a + Math.max(0, x.paid - x.soll), 0), 0),
+    ),
+  };
+}

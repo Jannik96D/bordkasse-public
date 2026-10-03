@@ -22,10 +22,18 @@ vi.mock("@/lib/actions/prepayments", () => ({
   confirmSelfPayment: vi.fn(),
   rejectSelfPayment: vi.fn(),
 }));
+const deleteItem = vi.fn(async () => ({ status: "ok" as const }));
+vi.mock("@/lib/actions/prepayment-items", () => ({
+  saveItem: vi.fn(),
+  deleteItem: (...a: unknown[]) => (deleteItem as (...x: unknown[]) => unknown)(...a),
+  confirmItemSelfPayment: vi.fn(),
+  rejectItemSelfPayment: vi.fn(),
+}));
 vi.mock("@/lib/actions/prepayment-notify", () => ({ notifyItemCrew: vi.fn(), notifyPlanCrew: vi.fn() }));
 
 import { PrepaymentMatrix } from "@/app/trips/[id]/prepayments/matrix";
 import { CrewSelfView } from "@/app/trips/[id]/prepayments/crew-self-view";
+import { ItemFormModal } from "@/app/trips/[id]/prepayments/item-form-modal";
 import { TripVocabProvider } from "@/components/trip-vocab-provider";
 
 const JAN = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -45,6 +53,7 @@ let host: HTMLElement;
 beforeEach(() => {
   recordPayment.mockClear();
   submitSelfPayment.mockClear();
+  deleteItem.mockClear();
   document.body.innerHTML = "";
   host = document.createElement("div");
   document.body.appendChild(host);
@@ -134,17 +143,11 @@ describe("Anzahlungsplan: Personenliste", () => {
     expect(byLabel(/^Einzahlung erfassen: Anna/)).toBeUndefined();
   });
 
-  it("Matrix-Ansicht umschaltbar: Tabelle mit Zellen-Knöpfen, wieder zurück zur Liste", () => {
+  it("es gibt nur EINE Ansicht: keine Matrix-Tabelle, kein Umschalter", () => {
     mount(plant({ payments: [] }));
     expect(q("table")).toBeNull();
-    click(buttons().find((b) => b.textContent?.includes("Matrix-Ansicht")));
-    expect(q("table")).toBeTruthy();
-    expect(q('ul[aria-label^="Zahlungsstatus pro Person"]')).toBeNull();
-    click(byLabel(/Anna, 1\. Anzahlung: offen.*Einzahlung erfassen/));
-    expect(document.body.textContent).toContain("Einzahlung von Anna");
-    click(buttons().find((b) => b.textContent?.trim() === "Abbrechen"));
-    click(buttons().find((b) => b.textContent?.includes("Listenansicht")));
-    expect(q('ul[aria-label^="Zahlungsstatus pro Person"]')).toBeTruthy();
+    expect(document.body.textContent).not.toContain("Matrix-Ansicht");
+    expect(document.body.textContent).not.toContain("Listenansicht");
   });
 });
 
@@ -171,5 +174,60 @@ describe("Crew-Ansicht Anzahlungsplan", () => {
     expect(byLabel(/Ich habe gezahlt: Du, 1\. Anzahlung/)).toBeUndefined();
     expect(byLabel(/Ich habe gezahlt: Du, Endzahlung/)).toBeTruthy();
     expect(document.body.textContent).toContain("wartet auf Bestätigung durch die vorstreckende Person");
+  });
+});
+
+describe("Crew-Ansicht: Raten immer sichtbar (ohne Aufklappen)", () => {
+  it("keine Auf-/Zuklapp-Knöpfe, alle Raten stehen in der Liste", () => {
+    mount(h(CrewSelfView, { tripId: "t", plan, tranches, obligation: obligations[1], payments: [], pendingByTranche: {} } as never));
+    expect(byLabel(/Raten (an|aus)zeigen|Raten ausblenden/)).toBeUndefined();
+    expect(q('ul[aria-label="Dein Zahlungsstatus pro Rate"] button[aria-expanded]')).toBeNull();
+    const rates = q('ul[aria-label="Raten von Du"]');
+    expect(rates?.textContent).toContain("1. Anzahlung");
+    expect(rates?.textContent).toContain("Endzahlung");
+  });
+  it("Skipper-Liste bleibt aufklappbar (zu, bis geöffnet)", () => {
+    mount(plant());
+    expect(document.body.textContent).not.toContain("Raten von Anna");
+    expect(byLabel(/Anna.*Raten anzeigen/)).toBeTruthy();
+  });
+});
+
+describe("Löschen sitzt im Bearbeiten-Dialog der weiteren Zahlung", () => {
+  const item = {
+    id: "item-1", trip_id: "t", category_id: null, category_name: null, category_icon: null, label: "Flüge",
+    total_amount: 360, due_date: null, payee_person_id: JAN, split_type: "gleichmaessig", sort_order: 0,
+    cells: [{ person_id: JAN, soll: 180, paid: 0, pending: 0, status: "open" }, { person_id: ANNA, soll: 180, paid: 0, pending: 0, status: "open" }],
+    sollTotal: 360, paidTotal: 0, pendingTotal: 0, overpaidTotal: 0, underpaidTotal: 360,
+    pendingPayments: [], providerPaid: 0, providerOpen: 360, providerOverdue: false, complete: false,
+  };
+  const modal = (it: unknown) => h(ItemFormModal, { tripId: "t", item: it as never, members: [{ id: JAN, display_name: "Jannik" }, { id: ANNA, display_name: "Anna" }], categories: [], defaultPayeeId: JAN, nextSortOrder: 0, onClose: () => {} });
+  const textBtn = (t: string) => buttons().find((b) => b.textContent?.trim() === t);
+
+  it("Löschen → Rückfrage → „Ja, löschen“ ruft deleteItem mit Törn + Posten", async () => {
+    mount(modal(item));
+    click(textBtn("Löschen"));
+    expect(q('[role="alertdialog"]')?.textContent).toContain("„Flüge“ löschen?");
+    expect(deleteItem).not.toHaveBeenCalled();
+    await act(async () => { textBtn("Ja, löschen")!.click(); });
+    const fd = (deleteItem.mock.calls[0] as unknown as [unknown, FormData])[1];
+    expect([fd.get("trip_id"), fd.get("item_id")]).toEqual(["t", "item-1"]);
+  });
+  it("Rückfrage „Abbrechen“ löscht nichts", () => {
+    mount(modal(item));
+    click(textBtn("Löschen"));
+    click(q('[role="alertdialog"]')!.querySelector("button"));
+    expect(q('[role="alertdialog"]')).toBeNull();
+    expect(deleteItem).not.toHaveBeenCalled();
+  });
+  it("gesperrt (bestätigte Zahlung): Begründung sichtbar, keine Rückfrage", () => {
+    mount(modal({ ...item, cells: [{ ...item.cells[0], paid: 50 }, item.cells[1]] }));
+    click(textBtn("Löschen"));
+    expect(q('[role="alertdialog"]')).toBeNull();
+    expect(document.body.textContent).toContain("Löschen nicht möglich");
+  });
+  it("neue Zahlung: kein Löschen-Knopf", () => {
+    mount(modal(null));
+    expect(textBtn("Löschen")).toBeUndefined();
   });
 });

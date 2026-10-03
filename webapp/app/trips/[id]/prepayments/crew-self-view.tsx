@@ -98,7 +98,7 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
         ariaLabel="Dein Zahlungsstatus pro Rate"
         actionLabel={ACTION_REPORT}
         contextLabel={vocab.prepayment}
-        defaultExpanded
+        alwaysExpanded
         onAct={(_personKey, rateKey) => {
           if (rateKey) return reportRate(rateKey);
           const openRates = actionableRates(rows[0]);

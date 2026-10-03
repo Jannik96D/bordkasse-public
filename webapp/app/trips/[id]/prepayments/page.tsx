@@ -63,7 +63,7 @@ export default async function PrepaymentsPage({
   // Zahlung sieht ihre Karte in der Vollansicht, unabhängig davon, ob sie die
   // Matrix des Anzahlungsplans verwalten darf.
   const canManageItems = admin || isMyTripSkipper;
-  const itemMembers = members.map((m) => ({ id: m.person_id, display_name: m.display_name }));
+  const itemMembers = members.map((m) => ({ id: m.person_id, display_name: m.display_name, hasEmail: !!m.email }));
   const itemsSection = (
     <ItemsSection
       tripId={id}

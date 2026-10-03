@@ -7,9 +7,9 @@
  * erklärenden Hinweis, statt Felder stumm wegzulassen.
  */
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Info, RefreshCw } from "lucide-react";
+import { Info, RefreshCw, Trash2 } from "lucide-react";
 import { Modal } from "@/components/modal";
 import { CategorySelect } from "@/components/category-select";
 import { useToast } from "@/components/toast-provider";
@@ -24,8 +24,9 @@ import {
   NETWORK_ERROR_MESSAGE,
   type ItemFormState,
 } from "@/lib/prepayments/item-ui";
+import { NOUN_ITEM } from "@/lib/prepayments/payment-words";
 import type { ItemSplitType } from "@/lib/calc/prepayment-item-shares";
-import { saveItem } from "@/lib/actions/prepayment-items";
+import { deleteItem, saveItem } from "@/lib/actions/prepayment-items";
 import type { PrepaymentItemView } from "@/lib/queries/prepayment-items";
 
 interface Member {
@@ -128,6 +129,35 @@ export function ItemFormModal({
         return;
       }
       toast.show(isEdit ? "Weitere Zahlung gespeichert." : "Weitere Zahlung angelegt.", { variant: "success" });
+      onClose();
+      router.refresh();
+    });
+  }
+
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteBtnRef = useRef<HTMLButtonElement>(null);
+  const deleteReason = locks?.deleteReason ?? null;
+
+  function remove() {
+    if (!item) return;
+    setError(null);
+    const fd = new FormData();
+    fd.set("trip_id", tripId);
+    fd.set("item_id", item.id);
+    startTransition(async () => {
+      let res: Awaited<ReturnType<typeof deleteItem>>;
+      try {
+        res = await deleteItem({ status: "idle" }, fd);
+      } catch {
+        setError({ message: NETWORK_ERROR_MESSAGE });
+        return;
+      }
+      if (res.status === "error") {
+        setConfirmDelete(false);
+        setError({ message: res.message });
+        return;
+      }
+      toast.show(`${NOUN_ITEM} gelöscht.`, { variant: "success" });
       onClose();
       router.refresh();
     });
@@ -339,23 +369,81 @@ export function ItemFormModal({
           </p>
         )}
 
-        <div className="flex justify-end gap-2 pt-1">
-          <button
-            type="button"
-            onClick={onClose}
-            className="min-h-[44px] rounded-md border border-rule px-4 py-2 text-sm hover:bg-navy-light/30 focus:outline-none focus:ring-2 focus:ring-primary/20"
-          >
-            Abbrechen
-          </button>
-          <button
-            type="submit"
-            disabled={pending}
-            className="inline-flex min-h-[44px] items-center gap-1 rounded-md bg-primary px-4 py-2 text-sm font-medium text-paper hover:bg-navy-dark focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
-          >
-            {pending && <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />}
-            Speichern
-          </button>
-        </div>
+        {isEdit && confirmDelete && (
+          <div role="alertdialog" aria-labelledby="item-del-q" aria-describedby="item-del-q" className="rounded-md border border-danger/30 bg-danger/5 p-3">
+            <p id="item-del-q" className="text-sm text-danger">
+              <strong>„{item?.label}“ löschen?</strong> Die Karte und ihr Soll werden entfernt. Das lässt sich nicht rückgängig machen.
+            </p>
+            <div className="mt-2 flex justify-end gap-2">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => {
+                  setConfirmDelete(false);
+                  // Fokus zurück auf „Löschen“ (sonst fällt er auf <body>).
+                  setTimeout(() => deleteBtnRef.current?.focus(), 0);
+                }}
+                className="min-h-[44px] rounded-md border border-rule px-4 py-2 text-sm hover:bg-navy-light/30 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={remove}
+                disabled={pending}
+                className="inline-flex min-h-[44px] items-center gap-1 rounded-md bg-danger px-4 py-2 text-sm font-medium text-paper hover:bg-danger/90 focus:outline-none focus:ring-2 focus:ring-danger/40 disabled:opacity-50"
+              >
+                {pending && <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                Ja, löschen
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!confirmDelete && (
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+            {isEdit ? (
+              <button
+                type="button"
+                ref={deleteBtnRef}
+                onClick={() => {
+                  if (deleteReason === null) setConfirmDelete(true);
+                }}
+                // aria-disabled statt disabled: bleibt fokussierbar, die Begründung wird vorgelesen.
+                aria-disabled={deleteReason !== null}
+                aria-describedby={deleteReason ? "item-del-reason" : undefined}
+                className={`inline-flex min-h-[44px] items-center gap-1 rounded-md border border-rule px-3 py-2 text-sm text-danger hover:border-danger/40 focus:outline-none focus:ring-2 focus:ring-danger/30 ${
+                  deleteReason !== null ? "cursor-not-allowed opacity-50" : ""
+                }`}
+              >
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+                Löschen
+              </button>
+            ) : (
+              <span />
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="min-h-[44px] rounded-md border border-rule px-4 py-2 text-sm hover:bg-navy-light/30 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="submit"
+                disabled={pending}
+                className="inline-flex min-h-[44px] items-center gap-1 rounded-md bg-primary px-4 py-2 text-sm font-medium text-paper hover:bg-navy-dark focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
+              >
+                {pending && <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                Speichern
+              </button>
+            </div>
+          </div>
+        )}
+        {isEdit && deleteReason && (
+          <p id="item-del-reason" className="text-xs text-ink-soft">{deleteReason}</p>
+        )}
       </form>
     </Modal>
   );

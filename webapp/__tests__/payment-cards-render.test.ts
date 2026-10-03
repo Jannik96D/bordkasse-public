@@ -26,6 +26,7 @@ vi.mock("@/lib/actions/prepayments", () => ({
   rejectSelfPayment: vi.fn(),
   submitSelfPayment: vi.fn(),
 }));
+vi.mock("@/lib/actions/prepayment-item-reminder", () => ({ sendItemReminder: vi.fn() }));
 vi.mock("@/lib/actions/prepayment-notify", () => ({ notifyItemCrew: vi.fn(), notifyPlanCrew: vi.fn() }));
 
 import { ItemsSection } from "@/app/trips/[id]/prepayments/items-section";
@@ -106,8 +107,8 @@ describe("weitere Zahlung (Karte)", () => {
     expect(html).toContain("Noch an Anbieter zu überweisen");
     expect(html).toContain("Überweisung an Anbieter erfassen");
   });
-  it("Aktionsleiste (gerendertes HTML) in fester Reihenfolge: Einzahlung erfassen · Crew informieren · Bearbeiten · Löschen", () => {
-    expect(actionLabels(html)).toEqual(["Einzahlung erfassen", "Crew informieren", "Bearbeiten", "Löschen"]);
+  it("Aktionsleiste (gerendertes HTML) wie beim Plan: Einzahlung erfassen · Crew informieren · Bearbeiten (Löschen sitzt im Bearbeiten-Dialog)", () => {
+    expect(actionLabels(html)).toEqual(["Einzahlung erfassen", "Crew informieren", "Bearbeiten"]);
   });
   it("Crew sieht nur die eigene Zeile: „Ich habe gezahlt“, keine Skipper-Aktionsleiste", () => {
     const crew = renderItems({ viewerId: ANNA, canManageItems: false });
@@ -179,5 +180,64 @@ describe("Plan-Karte: Rundungsrand bei „Noch an Anbieter zu überweisen“", (
     const html = renderPlan({ plan: hundred, tranches: third, charterPaidByTranche: { a: 33.33, b: 33.33, c: 33.31 } });
     expect(html).toContain("Überweisung an Anbieter erfassen");
     expect(html).not.toContain("vollständig an den Anbieter überwiesen");
+  });
+});
+
+describe("Plan-Karte und weitere Zahlung teilen dieselben Elemente (PR8b)", () => {
+  const plan1 = renderPlan({ payments: [{ trip_id: "t", tranche_id: "tr1", person_id: ANNA, paid_amount: 200 }] });
+  const item1 = renderItems();
+  const pendingPlan = renderPlan({ pending: [{ transaction_id: "x", tranche_id: "tr1", person_id: ANNA, amount: 200, date: "2099-01-02", description: null, created_at: "" }] });
+  const pendingItem = renderItems({
+    items: [{ ...item, pendingPayments: [{ transaction_id: "y", person_id: ANNA, amount: 180, date: "2099-01-02", created_at: "" }] }],
+  });
+
+  it("gleiche Kennzahlenzeile und gleiche Personenliste", () => {
+    expect(plan1).toMatch(/von 2 vollständig/);
+    expect(item1).toMatch(/von 2 vollständig/);
+    expect(plan1).toContain('aria-label="Zahlungsstatus pro Person');
+    expect(item1).toContain('aria-label="Zahlungsstatus pro Person');
+  });
+  it("keine Matrix-Tabelle, kein Ansichts-Umschalter", () => {
+    expect(plan1).not.toContain("<table");
+    expect(plan1).not.toMatch(/Matrix-Ansicht|Listenansicht/);
+  });
+  it("gleicher Banner für gemeldete Einzahlungen mit Bestätigen/Ablehnen", () => {
+    for (const html of [pendingPlan, pendingItem]) {
+      expect(html).toContain("1 Meldung wartet auf Bestätigung");
+      expect(html).toMatch(/Meldung von Anna über [\d,.]+\s?€ bestätigen/);
+      expect(html).toMatch(/Meldung von Anna über [\d,.]+\s?€ ablehnen/);
+    }
+  });
+  it("gleicher Überzahlungs-Hinweis", () => {
+    const over = renderPlan({ payments: [{ trip_id: "t", tranche_id: "tr1", person_id: ANNA, paid_amount: 250 }] });
+    expect(over).toContain("zu viel bezahlt");
+    const overItem = renderItems({ items: [{ ...item, cells: [{ person_id: JAN, soll: 180, paid: 200, pending: 0, status: "overpaid" }, item.cells[1]] }] });
+    expect(overItem).toContain("zu viel bezahlt");
+  });
+});
+
+describe("Erinnerungs-Glocke + Legende in beiden Karten (PR8c)", () => {
+  it("weitere Zahlung: Glocke je Person + Legende; ohne E-Mail deaktiviert, Crew-Karte ohne", () => {
+    const html = renderItems({ members: [{ id: JAN, display_name: "Jannik" }, { id: ANNA, display_name: "Anna", hasEmail: false } as never] });
+    expect(html).toContain('aria-label="E-Mail fehlt"');
+    expect(html).toContain("Übersicht an Jannik schicken");
+    expect(html).toContain("Was bedeuten die Symbole?");
+    expect(html).toContain("Erinnerung per Mail");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*aria-label="E-Mail fehlt"/);
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*aria-label="Übersicht an Jannik/);
+    const noDue = renderItems({ items: [{ ...item, due_date: null }] });
+    expect(noDue).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Ohne Frist keine Erinnerung/);
+    const crew = renderItems({ viewerId: ANNA, canManageItems: false });
+    expect(crew).not.toContain("Was bedeuten die Symbole?");
+  });
+  it("Plan: Glocke + Legende, gleiche Wörter", () => {
+    const html = renderPlan();
+    expect(html).toContain("Was bedeuten die Symbole?");
+    expect(html).toContain("Erinnerung per Mail");
+  });
+  it("archiviert: keine Glocke bei weiteren Zahlungen", () => {
+    const html = renderItems({ readOnly: true });
+    expect(html).not.toContain("Übersicht an Jannik schicken");
+    expect(html).not.toContain("Was bedeuten die Symbole?");
   });
 });
