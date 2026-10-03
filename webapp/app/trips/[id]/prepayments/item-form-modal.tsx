@@ -7,7 +7,7 @@
  * erklärenden Hinweis, statt Felder stumm wegzulassen.
  */
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Info, RefreshCw, Trash2 } from "lucide-react";
 import { Modal } from "@/components/modal";
@@ -135,6 +135,7 @@ export function ItemFormModal({
   }
 
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteBtnRef = useRef<HTMLButtonElement>(null);
   const deleteReason = locks?.deleteReason ?? null;
 
   function remove() {
@@ -369,7 +370,7 @@ export function ItemFormModal({
         )}
 
         {isEdit && confirmDelete && (
-          <div role="alertdialog" aria-labelledby="item-del-q" className="rounded-md border border-danger/30 bg-danger/5 p-3">
+          <div role="alertdialog" aria-labelledby="item-del-q" aria-describedby="item-del-q" className="rounded-md border border-danger/30 bg-danger/5 p-3">
             <p id="item-del-q" className="text-sm text-danger">
               <strong>„{item?.label}“ löschen?</strong> Die Karte und ihr Soll werden entfernt. Das lässt sich nicht rückgängig machen.
             </p>
@@ -377,7 +378,11 @@ export function ItemFormModal({
               <button
                 type="button"
                 autoFocus
-                onClick={() => setConfirmDelete(false)}
+                onClick={() => {
+                  setConfirmDelete(false);
+                  // Fokus zurück auf „Löschen“ (sonst fällt er auf <body>).
+                  setTimeout(() => deleteBtnRef.current?.focus(), 0);
+                }}
                 className="min-h-[44px] rounded-md border border-rule px-4 py-2 text-sm hover:bg-navy-light/30 focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
                 Abbrechen
@@ -400,6 +405,7 @@ export function ItemFormModal({
             {isEdit ? (
               <button
                 type="button"
+                ref={deleteBtnRef}
                 onClick={() => {
                   if (deleteReason === null) setConfirmDelete(true);
                 }}

@@ -486,27 +486,19 @@ export function ReminderBell({
   disabled: boolean;
   title: string;
 }) {
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
-  const [done, setDone] = useState<"ok" | "err" | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
 
+  // Sichtbares Feedback (Toast) statt nur sr-only/Tooltip — auf Touch gibt es keinen Tooltip.
   function send() {
-    setMsg(null);
-    setDone(null);
     startTransition(async () => {
       try {
         const res = await onSend();
-        if (res.status === "error") {
-          setDone("err");
-          setMsg(res.message ?? "Fehler");
-        } else {
-          setDone("ok");
-        }
+        if (res.status === "error") toast.show(res.message ?? "Fehler", { variant: "error" });
+        else toast.show("Erinnerung verschickt.", { variant: "success" });
       } catch {
-        setDone("err");
-        setMsg(NETWORK_ERROR_MESSAGE);
+        toast.show(NETWORK_ERROR_MESSAGE, { variant: "error" });
       }
-      setTimeout(() => setDone(null), 3000);
     });
   }
 
@@ -515,13 +507,11 @@ export function ReminderBell({
       type="button"
       onClick={send}
       disabled={disabled || pending}
-      title={msg || title}
+      title={title}
       aria-label={title}
       className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-rule p-1.5 text-primary hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-40"
     >
       {pending ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Bell className="h-4 w-4" aria-hidden="true" />}
-      {done === "ok" && <span role="status" className="sr-only">Mail gesendet</span>}
-      {done === "err" && <span className="sr-only" role="alert">Fehler: {msg}</span>}
     </button>
   );
 }

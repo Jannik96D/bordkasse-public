@@ -66,6 +66,12 @@ export async function sendItemReminder(_prev: ItemReminderState, formData: FormD
     item: { label: item.label, categoryName: item.category_name, dueDate: item.due_date, payeePersonId: item.payee_person_id },
     todayIso: todayIso(),
   });
-  if (!result.ok) return { status: "error", message: result.message };
+  if (!result.ok) {
+    // Keine Roh-SMTP-/DB-Texte an den Client (wie im Cron).
+    return {
+      status: "error",
+      message: result.reason === "send_failed" ? "Die Mail konnte nicht zugestellt werden. Bitte später erneut versuchen." : result.message,
+    };
+  }
   return { status: "ok" };
 }

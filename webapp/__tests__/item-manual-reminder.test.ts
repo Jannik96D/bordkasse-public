@@ -88,7 +88,14 @@ describe("sendItemReminder (Action)", () => {
     expect(r.status === "error" && r.message).toContain("Frist");
     expect(sendItemReminderMail).not.toHaveBeenCalled();
   });
-  it("Zustellfehler wird gemeldet", async () => {
+  it("Zustellfehler: generische Meldung ohne Roh-SMTP-Text", async () => {
+    sendItemReminderMail.mockResolvedValueOnce({ ok: false, message: "535 auth failed smtp.secret.host", reason: "send_failed" } as never);
+    const { sendItemReminder } = await import("@/lib/actions/prepayment-item-reminder");
+    const r = await sendItemReminder({ status: "idle" }, fd(base));
+    expect(r.status === "error" && r.message).not.toContain("smtp.secret.host");
+    expect(r).toMatchObject({ status: "error" });
+  });
+  it("Datenfehler (keine E-Mail) wird im Klartext gemeldet", async () => {
     sendItemReminderMail.mockResolvedValueOnce({ ok: false, message: "Diese Person hat keine E-Mail-Adresse hinterlegt." } as never);
     const { sendItemReminder } = await import("@/lib/actions/prepayment-item-reminder");
     expect(await sendItemReminder({ status: "idle" }, fd(base))).toEqual({ status: "error", message: "Diese Person hat keine E-Mail-Adresse hinterlegt." });
