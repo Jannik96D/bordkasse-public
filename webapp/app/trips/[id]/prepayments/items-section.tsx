@@ -26,6 +26,7 @@
 import { useState } from "react";
 import { Plus, Info } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
+import { InfoTooltip } from "@/components/info-tooltip";
 import { useTripVocab } from "@/components/trip-vocab-provider";
 import { formatEuro } from "@/lib/utils";
 import { formatDeDate, toCrewDueDate } from "@/lib/prepayments/dates";
@@ -58,8 +59,6 @@ import {
   PaymentCardHeader,
   PaymentProgress,
   ProviderOpenBlock,
-  RecordPaymentButton,
-  RecordPickerModal,
 } from "./payment-card-parts";
 
 interface Member {
@@ -302,11 +301,6 @@ function ItemCard({
     fd.set("transaction_id", id);
     return action({ status: "idle" }, fd);
   };
-  const [picker, setPicker] = useState(false);
-  // „Für wen?": Personen mit noch offenem Betrag (ohne laufende Meldung wäre zu streng — der Dialog erlaubt auch Teilbeträge).
-  const pickOptions = personRows
-    .filter((r) => r.open > 0.005)
-    .map((r) => ({ key: r.key, label: r.name, detail: formatEuro(r.open) }));
 
   return (
     <article aria-labelledby={`item-${item.id}-h`} className="rounded-lg border border-rule bg-paper p-4">
@@ -387,23 +381,9 @@ function ItemCard({
         tripId={tripId}
         item={item}
         canEdit={canEdit}
-        canRecord={canRecord && pickOptions.length > 0}
-        onRecordClick={() => setPicker(true)}
         onEdit={onEdit}
         lastNotifiedLabel={lastNotifiedLabel}
       />
-      {picker && (
-        <RecordPickerModal
-          title={`${ACTION_RECORD}: ${item.label}`}
-          options={pickOptions}
-          onClose={() => setPicker(false)}
-          onPick={(personId) => {
-            setPicker(false);
-            const cell = item.cells.find((c) => c.person_id === personId);
-            if (cell) onRecord(cell);
-          }}
-        />
-      )}
     </article>
   );
 }
@@ -413,23 +393,18 @@ function ItemActions({
   tripId,
   item,
   canEdit,
-  canRecord,
-  onRecordClick,
   onEdit,
   lastNotifiedLabel,
 }: {
   tripId: string;
   item: PrepaymentItemView;
   canEdit: boolean;
-  canRecord: boolean;
-  onRecordClick: () => void;
   onEdit: () => void;
   lastNotifiedLabel: string | null;
 }) {
   // Gleiche Leiste wie beim Anzahlungsplan; Löschen sitzt im Bearbeiten-Dialog.
   return (
     <PaymentActionBar
-      record={canRecord ? <RecordPaymentButton onClick={onRecordClick} /> : null}
       // Update-Mail nach Änderungen (PR6); beim Anlegen geht die Mail automatisch raus.
       notify={canEdit ? <NotifyCrewButton tripId={tripId} itemId={item.id} subject={`„${item.label}“`} lastNotifiedLabel={lastNotifiedLabel} /> : null}
       edit={canEdit ? <EditButton onClick={onEdit} /> : null}
@@ -465,7 +440,7 @@ function ItemSelfCard({
   const selfRows = visiblePersonRows([
     buildPersonRow({
       key: mine.person_id,
-      name: "Du",
+      name: "Dein Anteil",
       allowWhilePending: false,
       rates: [{ key: item.id, label: item.label, detail: "", soll: mine.soll, paid: mine.paid, pending: mine.pending, overdue: false }],
     }),
@@ -482,6 +457,16 @@ function ItemSelfCard({
       <p className="mt-1 text-xs text-ink-soft">
         Einzahlung an <strong className="text-ink">{payeeName}</strong> (streckt vor)
         {showDue && <> · bitte zahlen bis {formatDeDate(toCrewDueDate(item.due_date!))}</>}
+        {canReport && (
+          <InfoTooltip
+            label="Erinnerung per Mail"
+            text={
+              item.due_date
+                ? "Ist dein Anteil 3 Tage vor dieser Frist noch offen, bekommst du eine Erinnerung per Mail."
+                : "Hier ist keine Fälligkeit hinterlegt, daher gibt es keine automatische Erinnerung."
+            }
+          />
+        )}
       </p>
       <div className="mt-3">
         <PersonStatusList
@@ -500,13 +485,6 @@ function ItemSelfCard({
       {mine.status === "overpaid" && (
         <p role="note" className="mt-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
           Du hast {formatEuro(mine.paid - mine.soll)} zu viel bezahlt. Sprich bitte mit {payeeName} über die Rückzahlung.
-        </p>
-      )}
-      {canReport && (
-        <p className="mt-3 text-xs text-ink-soft">
-          {item.due_date
-            ? "Ist dein Anteil 3 Tage vor dieser Frist noch offen, bekommst du eine Erinnerung per Mail."
-            : "Hier ist keine Fälligkeit hinterlegt, daher gibt es keine automatische Erinnerung."}
         </p>
       )}
     </article>

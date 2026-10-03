@@ -39,7 +39,7 @@ export function StatusBadge({ status, overdue = false }: { status: ItemCellStatu
 
 function Amounts({ paid, soll }: { paid: number; soll: number }) {
   return (
-    <span className="w-32 shrink-0 text-right text-sm tabular-nums text-ink-soft">
+    <span className="shrink-0 whitespace-nowrap text-right text-sm tabular-nums text-ink-soft">
       {formatEuro(paid)} / <span className="text-ink">{formatEuro(soll)}</span>
     </span>
   );
@@ -92,7 +92,7 @@ export function PersonStatusList({
         const panelId = `${baseId}-${row.key}`;
         const nameNode = (
           <>
-            <span className="min-w-0 truncate font-medium">{row.name}</span>
+            <span className="min-w-0 break-words font-medium">{row.name}</span>
             {row.badge && (
               <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
                 {row.badge}
@@ -102,39 +102,48 @@ export function PersonStatusList({
         );
         return (
           <li key={row.key}>
-            <div className="flex min-h-[44px] flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
-              {expandable ? (
-                <button
-                  type="button"
-                  onClick={() => toggle(row.key)}
-                  aria-expanded={isOpen}
-                  aria-controls={isOpen ? panelId : undefined}
-                  className="flex min-h-[44px] min-w-0 flex-1 items-center gap-1.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-                >
-                  {isOpen ? (
-                    <ChevronDown className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+            {/* Zeile 1: Name · Betrag; Zeile 2: Status · Aktionen — bleibt auf 375 px lesbar */}
+            <div className="px-3 py-2 sm:flex sm:items-center sm:gap-3">
+              <div className="flex items-start justify-between gap-3 sm:contents">
+                {expandable ? (
+                  <button
+                    type="button"
+                    onClick={() => toggle(row.key)}
+                    aria-expanded={isOpen}
+                    aria-controls={isOpen ? panelId : undefined}
+                    className="-my-1 flex min-h-[44px] min-w-0 flex-1 items-center gap-1.5 text-left sm:order-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                  >
+                    {isOpen ? (
+                      <ChevronDown className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                    )}
+                    {nameNode}
+                    <span className="sr-only">{isOpen ? " — Raten ausblenden" : " — Raten anzeigen"}</span>
+                  </button>
+                ) : (
+                  <span className="flex min-h-[44px] min-w-0 flex-1 items-center gap-1.5 py-1 sm:order-1">{nameNode}</span>
+                )}
+                <span className="flex min-h-[44px] items-center sm:order-3">
+                  <Amounts paid={row.paid} soll={row.soll} />
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 pb-1 sm:contents">
+                <span className="sm:order-2 sm:w-60 sm:shrink-0"><StatusBadge status={row.status} overdue={row.overdue} /></span>
+                <div className="flex flex-wrap items-center gap-2 sm:order-4 sm:justify-end">
+                  {onAct && row.actionable && !isOpen && (
+                    <button
+                      type="button"
+                      onClick={() => onAct(row.key)}
+                      aria-label={`${actionLabel}: ${row.name}${ctx}, offen ${formatEuro(row.open)}`}
+                      className={ACT_BTN}
+                    >
+                      {actionLabel}
+                    </button>
                   )}
-                  {nameNode}
-                  <span className="sr-only">{isOpen ? " — Raten ausblenden" : " — Raten anzeigen"}</span>
-                </button>
-              ) : (
-                <span className="flex min-w-0 flex-1 items-center gap-1.5">{nameNode}</span>
-              )}
-              <StatusBadge status={row.status} overdue={row.overdue} />
-              <Amounts paid={row.paid} soll={row.soll} />
-              {onAct && row.actionable && (
-                <button
-                  type="button"
-                  onClick={() => onAct(row.key)}
-                  aria-label={`${actionLabel}: ${row.name}${ctx}, offen ${formatEuro(row.open)}`}
-                  className={ACT_BTN}
-                >
-                  {actionLabel}
-                </button>
-              )}
-              {renderExtras?.(row)}
+                  {renderExtras?.(row)}
+                </div>
+              </div>
             </div>
             {isOpen && (
               <ul id={panelId} className="divide-y divide-rule border-t border-rule bg-paper-soft/60" aria-label={`Raten von ${row.name}`}>
@@ -172,23 +181,31 @@ function RateLine({
   onAct?: () => void;
 }) {
   return (
-    <li className="flex min-h-[44px] flex-wrap items-center gap-x-3 gap-y-1 py-2 pl-9 pr-3">
-      <span className="min-w-0 flex-1">
-        <span className="block truncate font-medium">{rate.label}</span>
-        <span className="block text-xs text-ink-soft">{rate.detail}</span>
-      </span>
-      <StatusBadge status={rate.status} overdue={rate.overdue} />
-      <Amounts paid={rate.paid} soll={rate.soll} />
-      {onAct && rate.actionable && (
-        <button
-          type="button"
-          onClick={onAct}
-          aria-label={`${actionLabel}: ${personName}, ${rate.label}${ctx}, offen ${formatEuro(rate.open)}`}
-          className={ACT_BTN}
-        >
-          {actionLabel}
-        </button>
-      )}
+    <li className="py-2 pl-9 pr-3 sm:flex sm:items-center sm:gap-3">
+      <div className="flex items-start justify-between gap-3 sm:contents">
+        <span className="min-w-0 flex-1 sm:order-1">
+          <span className="block break-words font-medium">{rate.label}</span>
+          <span className="block text-xs text-ink-soft">{rate.detail}</span>
+        </span>
+        <span className="sm:order-3">
+          <Amounts paid={rate.paid} soll={rate.soll} />
+        </span>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 sm:contents">
+        <span className="sm:order-2 sm:w-60 sm:shrink-0"><StatusBadge status={rate.status} overdue={rate.overdue} /></span>
+        <span className="sm:order-4 sm:flex sm:justify-end">
+          {onAct && rate.actionable && (
+            <button
+              type="button"
+              onClick={onAct}
+              aria-label={`${actionLabel}: ${personName}, ${rate.label}${ctx}, offen ${formatEuro(rate.open)}`}
+              className={ACT_BTN}
+            >
+              {actionLabel}
+            </button>
+          )}
+        </span>
+      </div>
     </li>
   );
 }

@@ -172,7 +172,7 @@ export function ItemFormModal({
         {isEdit ? "Weitere Zahlung bearbeiten" : "Weitere Zahlung hinzufügen"}
       </h2>
       <p className="mt-1 text-sm text-ink-soft">
-        z. B. Flüge oder Bahn für die An-/Abreise: Eine Person streckt vor und zahlt vorab an den Anbieter, die {vocab.crew}
+        z. B. Flüge oder Bahn für die An-/Abreise: Eine Person streckt vor und zahlt vorab an den Anbieter, die {vocab.crew}{" "}
         erstattet ihr den Anteil.
       </p>
 
@@ -401,7 +401,7 @@ export function ItemFormModal({
         )}
 
         {!confirmDelete && (
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+          <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between">
             {isEdit ? (
               <button
                 type="button"
@@ -412,7 +412,7 @@ export function ItemFormModal({
                 // aria-disabled statt disabled: bleibt fokussierbar, die Begründung wird vorgelesen.
                 aria-disabled={deleteReason !== null}
                 aria-describedby={deleteReason ? "item-del-reason" : undefined}
-                className={`inline-flex min-h-[44px] items-center gap-1 rounded-md border border-rule px-3 py-2 text-sm text-danger hover:border-danger/40 focus:outline-none focus:ring-2 focus:ring-danger/30 ${
+                className={`order-2 inline-flex min-h-[44px] items-center justify-center gap-1 rounded-md border border-rule px-3 py-2 text-sm text-danger hover:border-danger/40 focus:outline-none focus:ring-2 focus:ring-danger/30 sm:order-1 sm:justify-start ${
                   deleteReason !== null ? "cursor-not-allowed opacity-50" : ""
                 }`}
               >
@@ -422,7 +422,7 @@ export function ItemFormModal({
             ) : (
               <span />
             )}
-            <div className="flex justify-end gap-2">
+            <div className="order-1 flex justify-end gap-2 sm:order-2">
               <button
                 type="button"
                 onClick={onClose}

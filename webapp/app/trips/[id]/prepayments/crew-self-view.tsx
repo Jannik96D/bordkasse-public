@@ -53,7 +53,6 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
     payments.map((p) => [p.tranche_id, p.paid_amount]),
   );
   const totalSoll = obligation.total_amount;
-  const totalPaid = [...paidByTranche.values()].reduce((a, b) => a + b, 0);
 
   const rowData = tranches.map((t) => {
     const crewDue = toCrewDueDate(t.due_date);
@@ -75,7 +74,7 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
   });
   // Eine Zeile (nur ich) — Crew meldet pro Rate, nie doppelt bei laufender Meldung (allowWhilePending=false).
   const rows = [
-    buildPersonRow({ key: "me", name: "Du", allowWhilePending: false, rates: rowData.map((r) => r.rate) }),
+    buildPersonRow({ key: "me", name: "Dein Anteil", allowWhilePending: false, rates: rowData.map((r) => r.rate) }),
   ];
   const pendingList = rowData.filter((r) => r.pending).map((r) => ({ id: r.t.id, label: r.t.label, pending: r.pending }));
   const reportRate = (trancheId: string) => {
@@ -85,14 +84,6 @@ export function CrewSelfView({ tripId, plan, tranches, obligation, payments, pen
 
   return (
     <section className="space-y-4">
-      <div className="rounded-lg border border-rule bg-paper p-5">
-        <p className="text-sm text-ink-soft">Dein Soll insgesamt</p>
-        <p className="mt-1 text-2xl font-semibold">{formatEuro(totalSoll)}</p>
-        <p className="mt-2 text-sm">
-          Bezahlt: <strong>{formatEuro(totalPaid)}</strong> &middot; Offen: <strong>{formatEuro(Math.max(0, totalSoll - totalPaid))}</strong>
-        </p>
-      </div>
-
       <PersonStatusList
         rows={rows}
         ariaLabel="Dein Zahlungsstatus pro Rate"

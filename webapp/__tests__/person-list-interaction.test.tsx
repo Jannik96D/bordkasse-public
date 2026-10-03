@@ -143,6 +143,28 @@ describe("Anzahlungsplan: Personenliste", () => {
     expect(byLabel(/^Einzahlung erfassen: Anna/)).toBeUndefined();
   });
 
+  it("kein zusätzlicher Sammel-Knopf „Einzahlung erfassen“ in der Aktionsleiste (Erfassen nur je Zeile)", () => {
+    mount(plant({ payments: [] }));
+    const bar = q('[role="group"][aria-label="Aktionen"]');
+    expect(bar?.textContent).not.toContain("Einzahlung erfassen");
+    expect(bar?.textContent).toContain("Crew informieren");
+  });
+
+  it("aufgeklappt: der Zeilen-Knopf entfällt, die Raten tragen ihre eigenen", () => {
+    mount(plant({ payments: [] }));
+    expect(byLabel(/^Einzahlung erfassen: Anna, Yachtanzahlung/)).toBeTruthy();
+    click(byLabel(/Anna.*Raten anzeigen/));
+    expect(byLabel(/^Einzahlung erfassen: Anna, Yachtanzahlung/)).toBeUndefined();
+    expect(byLabel(/^Einzahlung erfassen: Anna, 1\. Anzahlung/)).toBeTruthy();
+    expect(byLabel(/^Einzahlung erfassen: Anna, Endzahlung/)).toBeTruthy();
+  });
+
+  it("Rate-Detail bricht „40 %“ nicht auseinander (geschütztes Leerzeichen)", () => {
+    mount(plant());
+    click(byLabel(/Anna.*Raten anzeigen/));
+    expect(q('ul[aria-label="Raten von Anna"]')?.textContent).toContain("40\u00a0%");
+  });
+
   it("es gibt nur EINE Ansicht: keine Matrix-Tabelle, kein Umschalter", () => {
     mount(plant({ payments: [] }));
     expect(q("table")).toBeNull();
@@ -161,7 +183,7 @@ describe("Crew-Ansicht Anzahlungsplan", () => {
   it("meldet pro Rate: „Ich habe gezahlt“ ruft submitSelfPayment mit der Rate", async () => {
     mount(crew());
     // eigene Zeile ist aufgeklappt (defaultExpanded)
-    click(byLabel(/Ich habe gezahlt: Du, Endzahlung/));
+    click(byLabel(/Ich habe gezahlt: Dein Anteil, Endzahlung/));
     expect(document.body.textContent).toContain("Einzahlung melden");
     await act(async () => { buttons().find((b) => b.textContent?.trim() === "Melden")!.click(); });
     const fd = (submitSelfPayment.mock.calls[0] as unknown as [unknown, FormData])[1];
@@ -171,8 +193,8 @@ describe("Crew-Ansicht Anzahlungsplan", () => {
 
   it("laufende Meldung: Knopf der Rate entfällt, Hinweis bleibt", () => {
     mount(crew({ pendingByTranche: { tr1: { amount: 200, date: "2099-01-02", tranche_id: "tr1", person_id: ANNA } } }));
-    expect(byLabel(/Ich habe gezahlt: Du, 1\. Anzahlung/)).toBeUndefined();
-    expect(byLabel(/Ich habe gezahlt: Du, Endzahlung/)).toBeTruthy();
+    expect(byLabel(/Ich habe gezahlt: Dein Anteil, 1\. Anzahlung/)).toBeUndefined();
+    expect(byLabel(/Ich habe gezahlt: Dein Anteil, Endzahlung/)).toBeTruthy();
     expect(document.body.textContent).toContain("wartet auf Bestätigung durch die vorstreckende Person");
   });
 });
@@ -182,7 +204,7 @@ describe("Crew-Ansicht: Raten immer sichtbar (ohne Aufklappen)", () => {
     mount(h(CrewSelfView, { tripId: "t", plan, tranches, obligation: obligations[1], payments: [], pendingByTranche: {} } as never));
     expect(byLabel(/Raten (an|aus)zeigen|Raten ausblenden/)).toBeUndefined();
     expect(q('ul[aria-label="Dein Zahlungsstatus pro Rate"] button[aria-expanded]')).toBeNull();
-    const rates = q('ul[aria-label="Raten von Du"]');
+    const rates = q('ul[aria-label="Raten von Dein Anteil"]');
     expect(rates?.textContent).toContain("1. Anzahlung");
     expect(rates?.textContent).toContain("Endzahlung");
   });
@@ -212,6 +234,10 @@ describe("Löschen sitzt im Bearbeiten-Dialog der weiteren Zahlung", () => {
     await act(async () => { textBtn("Ja, löschen")!.click(); });
     const fd = (deleteItem.mock.calls[0] as unknown as [unknown, FormData])[1];
     expect([fd.get("trip_id"), fd.get("item_id")]).toEqual(["t", "item-1"]);
+  });
+  it("Einleitungstext: Leerzeichen zwischen „Crew“ und „erstattet“", () => {
+    mount(modal(item));
+    expect(document.body.textContent).toContain("die Crew erstattet ihr den Anteil");
   });
   it("Rückfrage „Abbrechen“ löscht nichts", () => {
     mount(modal(item));
