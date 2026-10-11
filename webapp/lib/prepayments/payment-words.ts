@@ -24,6 +24,8 @@ export const PAYMENT_STATUS = {
 export const NO_DUE_TEXT = "Frist folgt";
 
 export const ACTION_RECORD = "Einzahlung erfassen";
+/** Bezahlte/überzahlte Zeile: Dialog öffnen, um Einzahlungen anzusehen oder zu entfernen. */
+export const ACTION_REVIEW = "Einzahlungen";
 export const ACTION_PROVIDER = "Überweisung an Anbieter erfassen";
 export const ACTION_REPORT = "Ich habe gezahlt";
 /** Hauptwort — nur für Überschriften/Navigation/Dialogtitel. */

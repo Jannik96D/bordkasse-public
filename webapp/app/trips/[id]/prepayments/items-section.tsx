@@ -36,7 +36,7 @@ import {
   itemsVisibleTo,
   providerDueInfo,
 } from "@/lib/prepayments/item-ui";
-import { ACTION_RECORD, ACTION_REPORT, LABEL_PROVIDER_PAID, NOUN_ITEM, NOUN_ITEMS } from "@/lib/prepayments/payment-words";
+import { ACTION_RECORD, ACTION_REVIEW, ACTION_REPORT, LABEL_PROVIDER_PAID, NOUN_ITEM, NOUN_ITEMS } from "@/lib/prepayments/payment-words";
 import {
   confirmItemSelfPayment,
   rejectItemSelfPayment,
@@ -228,6 +228,9 @@ export function ItemsSection({
           payeeName={nameOf(paymentItem.payee_person_id)}
           soll={paymentCell.soll}
           paid={paymentCell.paid}
+          pendingReports={paymentItem.pendingPayments.filter((p) => p.person_id === payment.personId)}
+          entries={paymentItem.paymentEntries.filter((e) => e.person_id === payment.personId)}
+          canRemove={!readOnly}
           onClose={() => setPayment(null)}
         />
       )}
@@ -346,6 +349,7 @@ function ItemCard({
           rows={personRows}
           ariaLabel={`Zahlungsstatus pro Person für ${item.label}`}
           actionLabel={ACTION_RECORD}
+          reviewLabel={ACTION_REVIEW}
           contextLabel={item.label}
           onAct={canRecord ? (personId) => { const c = item.cells.find((x) => x.person_id === personId); if (c) onRecord(c); } : undefined}
           renderExtras={canRecord ? (row) => {

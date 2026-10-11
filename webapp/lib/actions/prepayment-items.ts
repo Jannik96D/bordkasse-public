@@ -39,6 +39,7 @@
  */
 
 import { revalidatePath } from "next/cache";
+import { ResolvePendingIds, readResolvePendingIds, resolvePendingReports } from "@/lib/prepayments/resolve-pending";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireMember, requireSkipperOrAdmin, requireSkipperAdminOrItemPayee } from "@/lib/auth/authz";
@@ -783,6 +784,8 @@ export async function recordItemPayment(_prev: ItemActionState, formData: FormDa
   });
   if (!parsed.success) return { status: "error", ...zodMessage(parsed.error) };
   const { trip_id: tripId, item_id: itemId, person_id: payerId, amount, date, note, idempotency_key } = parsed.data;
+  const resolveIds = ResolvePendingIds.safeParse(readResolvePendingIds(formData));
+  if (!resolveIds.success) return { status: "error", message: "Ungültige Auswahl." };
 
   const auth = await requireSkipperAdminOrItemPayee(itemId);
   if (!auth.ok) return { status: "error", message: auth.message };
@@ -818,7 +821,10 @@ export async function recordItemPayment(_prev: ItemActionState, formData: FormDa
     if (!(await isSameItemBooking(supabase, tripId, idempotency_key, { itemId, type: "credit" }))) {
       return { status: "error", message: "Diese Zahlung wurde schon unter einer anderen Buchung gespeichert. Bitte Seite neu laden." };
     }
+    // Retry nach gescheitertem Erledigen der Meldung → hier nachholen.
+    const retryResolve = await resolveShownPending(supabase, tripId, itemId, payerId, resolveIds.data, person.id);
     revalidateItemPaths(tripId, { balance: true });
+    if (!retryResolve.ok) return { status: "error", message: retryResolve.message };
     return { status: "ok", itemId, duplicate: true };
   }
   if (error || !tx) return { status: "error", message: itemDbErrorMessage(error, "Zahlung konnte nicht erfasst werden.") };
@@ -833,6 +839,10 @@ export async function recordItemPayment(_prev: ItemActionState, formData: FormDa
     payload: { kind: "item-payment", item_id: itemId, person_id: payerId, amount },
   });
 
+  // Offene Selbstmeldung(en), die der Dialog angezeigt hat, durch diese
+  // Erfassung erledigen (Bugfix Doppelzahlung, siehe resolve-pending.ts).
+  const resolve = await resolveShownPending(supabase, tripId, itemId, payerId, resolveIds.data, person.id);
+
   await markPostSettlementChange(supabase, tripId);
   await notifySafely("item-payment-recorded", () =>
     sendItemPaymentNotices(supabase, {
@@ -844,6 +854,115 @@ export async function recordItemPayment(_prev: ItemActionState, formData: FormDa
       amount,
     }),
   );
+  revalidateItemPaths(tripId, { balance: true });
+  if (!resolve.ok) return { status: "error", message: resolve.message };
+  return { status: "ok", itemId };
+}
+
+/** Erledigt die im Erfassen-Dialog angezeigten Selbstmeldungen; Fehler → Hinweis, die Zahlung bleibt gebucht. */
+async function resolveShownPending(
+  supabase: AdminClient,
+  tripId: string,
+  itemId: string,
+  payerId: string,
+  ids: string[],
+  actorId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const res = await resolvePendingReports(supabase, { tripId, personId: payerId, pool: { itemId }, ids });
+  if (res.error) {
+    console.error("[bordkasse:db] resolve item pending:", res.error);
+    return {
+      ok: false,
+      message: "Zahlung erfasst, aber die gemeldete Zahlung ist noch offen. Bitte erneut speichern oder die Meldung ablehnen.",
+    };
+  }
+  for (const id of res.resolved) {
+    await logAudit(supabase, {
+      table_name: "transactions",
+      operation: "DELETE",
+      record_id: id,
+      trip_id: tripId,
+      actor_person_id: actorId,
+      payload: { kind: "item-self-payment-resolved-by-record", item_id: itemId, person_id: payerId },
+    });
+  }
+  return { ok: true };
+}
+
+/**
+ * Erfasste Einzahlung einer weiteren Zahlung wieder entfernen (Bugfix: eine
+ * Doppel-/Überzahlung ließ sich auf der Zahlungen-Seite nicht zurücknehmen).
+ * Gleiche Rolle wie `recordItemPayment` (vorstreckende Person, Skipper,
+ * Admin). Nur bestätigte Crew-Gutschriften dieses Postens — offene Meldungen
+ * laufen über „Ablehnen", Anbieter-Zahlungen über die Buchungsliste.
+ */
+export async function deleteItemPayment(_prev: ItemActionState, formData: FormData): Promise<ItemActionState> {
+  const person = await getCurrentPerson();
+  if (!person) return { status: "error", message: "Nicht angemeldet." };
+
+  const parsed = z
+    .object({ trip_id: z.string().uuid(), item_id: z.string().uuid(), transaction_id: z.string().uuid() })
+    .safeParse({
+      trip_id: formData.get("trip_id"),
+      item_id: formData.get("item_id"),
+      transaction_id: formData.get("transaction_id"),
+    });
+  if (!parsed.success) return { status: "error", message: "Ungültige Buchungs-ID." };
+  const { trip_id: tripId, item_id: itemId, transaction_id: txId } = parsed.data;
+
+  const auth = await requireSkipperAdminOrItemPayee(itemId);
+  if (!auth.ok) return { status: "error", message: auth.message };
+  if (auth.tripId !== tripId) return { status: "error", message: ITEM_FOREIGN_MSG };
+
+  const supabase = createAdminClient();
+  const archivedCheck = await assertTripNotArchived(supabase, tripId);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
+  const { data: tx, error: readErr } = await supabase
+    .from("transactions")
+    .select("type, item_id, credit_from, amount, confirmed_at, deleted_at")
+    .eq("id", txId)
+    .eq("trip_id", tripId)
+    .eq("item_id", itemId)
+    .maybeSingle();
+  if (readErr) return { status: "error", message: itemDbErrorMessage(readErr, "Einzahlung konnte nicht geladen werden.") };
+  if (!tx || tx.deleted_at || tx.type !== "credit" || !tx.confirmed_at) {
+    return { status: "error", message: "Einzahlung nicht gefunden." };
+  }
+
+  const { data: gone, error } = await supabase
+    .from("transactions")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", txId)
+    .eq("trip_id", tripId)
+    .eq("item_id", itemId)
+    .is("deleted_at", null)
+    .select("id");
+  if (error) return { status: "error", message: itemDbErrorMessage(error, "Entfernen fehlgeschlagen.") };
+  if (!gone || gone.length === 0) return { status: "error", message: "Einzahlung wurde schon entfernt." };
+
+  await logAudit(supabase, {
+    table_name: "transactions",
+    operation: "DELETE",
+    record_id: txId,
+    trip_id: tripId,
+    actor_person_id: person.id,
+    payload: { kind: "item-payment-removed", item_id: itemId, person_id: tx.credit_from, amount: Number(tx.amount) },
+  });
+
+  // Anteil ist wieder offen → Dedup-Log räumen, damit der Cron erneut erinnert.
+  if (tx.credit_from) {
+    const { error: logErr } = await supabase
+      .from("prepayment_item_reminder_log")
+      .delete()
+      .eq("trip_id", tripId)
+      .eq("item_id", itemId)
+      .eq("person_id", tx.credit_from)
+      .eq("reminder_type", "item_crew_3d");
+    if (logErr) console.error("[bordkasse:db] item reminder_log cleanup:", logErr.message);
+  }
+
+  await markPostSettlementChange(supabase, tripId);
   revalidateItemPaths(tripId, { balance: true });
   return { status: "ok", itemId };
 }

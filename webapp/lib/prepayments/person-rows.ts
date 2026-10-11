@@ -32,6 +32,12 @@ export interface RateRow extends RateInput {
   open: number;
   status: ItemCellStatus;
   actionable: boolean;
+  /**
+   * Nichts mehr offen, aber schon etwas bezahlt (bezahlt/überzahlt): der Dialog
+   * lässt sich trotzdem öffnen, um Einzahlungen anzusehen und eine
+   * versehentliche Überzahlung zu entfernen (Bugfix Doppelzahlung).
+   */
+  reviewable: boolean;
 }
 
 export interface PersonRow {
@@ -47,6 +53,8 @@ export interface PersonRow {
   status: ItemCellStatus;
   overdue: boolean;
   actionable: boolean;
+  /** Keine erfassbare Rate, aber mindestens eine mit Einzahlungen (siehe RateRow.reviewable). */
+  reviewable: boolean;
   rates: RateRow[];
 }
 
@@ -57,11 +65,13 @@ export interface PersonRow {
  */
 export function buildRateRow(r: RateInput, allowWhilePending: boolean): RateRow {
   const open = round2(Math.max(0, r.soll - r.paid));
+  const actionable = open > EPS && (allowWhilePending || r.pending <= EPS);
   return {
     ...r,
     open,
     status: itemCellStatus(r.soll, r.paid, r.pending),
-    actionable: open > EPS && (allowWhilePending || r.pending <= EPS),
+    actionable,
+    reviewable: !actionable && r.paid > EPS,
   };
 }
 
@@ -93,6 +103,7 @@ export function buildPersonRow(args: {
     status,
     overdue: rates.some((r) => r.overdue && r.open > EPS),
     actionable: rates.some((r) => r.actionable),
+    reviewable: !rates.some((r) => r.actionable) && rates.some((r) => r.reviewable),
     rates,
   };
 }
