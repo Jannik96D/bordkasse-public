@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { createAdminClient } from "@/lib/supabase/admin";
 
@@ -56,4 +57,19 @@ export async function resolvePendingReports(
   const { data, error } = await q.select("id");
   if (error) return { resolved: [], error: error.message };
   return { resolved: (data ?? []).map((r) => r.id as string), error: null };
+}
+
+/**
+ * Abgeleiteter, DETERMINISTISCHER Idempotenz-Schlüssel für den Überschuss-Teil
+ * einer Zahlung. `transactions.idempotency_key` ist vom Typ UUID — der frühere
+ * Schlüssel `${key}:overflow` wurde von Postgres als ungültig abgelehnt (jede
+ * Überschuss-Umbuchung wäre gescheitert, sobald der Dialog einen Schlüssel
+ * mitschickt). Gleicher Basis-Key → gleicher Überschuss-Key, damit ein Retry
+ * den Teil dedupliziert.
+ */
+export function overflowKeyFor(key: string): string {
+  const h = createHash("sha256").update(`${key}:overflow`).digest("hex");
+  // UUID-Form mit Version 4 + Variant 8–b (Zod/Postgres-valide).
+  const variant = ((parseInt(h[16], 16) & 0x3) | 0x8).toString(16);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }

@@ -26,6 +26,19 @@ import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireSkipperAdminOrAdvancer } from "@/lib/auth/authz";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createFakeSupabase, type Row } from "./helpers/fake-supabase";
+import { overflowKeyFor } from "@/lib/prepayments/resolve-pending";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+describe("overflowKeyFor", () => {
+  it("liefert eine gültige UUID (idempotency_key ist uuid-typisiert), deterministisch und verschieden vom Basis-Key", () => {
+    const k = overflowKeyFor(KEY);
+    expect(k).toMatch(UUID_RE);
+    expect(k).toBe(overflowKeyFor(KEY));
+    expect(k).not.toBe(KEY);
+    expect(overflowKeyFor("aaaaaaaa-0000-4000-8000-0000000000e2")).not.toBe(k);
+  });
+});
 
 const mockedPerson = vi.mocked(getCurrentPerson);
 const mockedAdvancer = vi.mocked(requireSkipperAdminOrAdvancer);

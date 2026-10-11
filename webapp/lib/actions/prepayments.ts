@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { ResolvePendingIds, readResolvePendingIds, resolvePendingReports } from "@/lib/prepayments/resolve-pending";
+import { ResolvePendingIds, readResolvePendingIds, resolvePendingReports, overflowKeyFor } from "@/lib/prepayments/resolve-pending";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireSkipperOrAdmin, requireMember, requireSkipperAdminOrAdvancer } from "@/lib/auth/authz";
@@ -569,7 +569,7 @@ export async function recordPayment(
       .from("transactions")
       .select("id, credit_from, type")
       .eq("trip_id", trip_id)
-      .in("idempotency_key", [idempotency_key, `${idempotency_key}:overflow`]);
+      .in("idempotency_key", [idempotency_key, overflowKeyFor(idempotency_key)]);
     if (priorErr) return { status: "error", message: dbErr(priorErr, "Zahlung konnte nicht erfasst werden.") };
     if ((prior ?? []).length > 0) {
       if (prior!.some((r) => r.type !== "credit" || r.credit_from !== person_id)) {
@@ -622,7 +622,7 @@ export async function recordPayment(
         // schluckt ein Retry zwar part1 (Unique-Violation), fügt part2 aber
         // erneut ein → doppelter Overflow-Betrag auf der zweiten Tranche.
         // Aus dem Basis-Key abgeleitet, damit derselbe Retry auch part2 dedupt.
-        const part2Key = idempotency_key ? `${idempotency_key}:overflow` : undefined;
+        const part2Key = idempotency_key ? overflowKeyFor(idempotency_key) : undefined;
         await insertCredit(overflow_tranche_id!, part2, part2Key);
         bookedCredits.push({ trancheId: overflow_tranche_id!, amount: part2 });
       }
