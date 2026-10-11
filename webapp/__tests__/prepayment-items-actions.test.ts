@@ -26,6 +26,7 @@ import {
   confirmItemSelfPayment,
   rejectItemSelfPayment,
   recordItemProviderPayment,
+  deleteItemPayment,
 } from "@/lib/actions/prepayment-items";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireMember, requireSkipperOrAdmin, requireSkipperAdminOrItemPayee } from "@/lib/auth/authz";
@@ -894,5 +895,122 @@ describe("recordItemProviderPayment — Empfänger → Anbieter", () => {
     setupFake(withItem({ prepayment_item_obligations: [] }));
     expect((await pay("100")).status).toBe("error");
     expect(fake.rows("transactions")).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Bugfix Doppelzahlung: „Einzahlung erfassen" bei offener Selbstmeldung
+// erledigt die angezeigte Meldung; erfasste Einzahlungen sind entfernbar.
+describe("recordItemPayment — offene Selbstmeldung erledigen", () => {
+  const PEND = "aaaaaaaa-0000-4000-8000-0000000000f1";
+  const PEND_LATE = "aaaaaaaa-0000-4000-8000-0000000000f2";
+  const pendingRow = (id: string, person = ANNA, extra: Row = {}) => ({
+    id, trip_id: TRIP, type: "credit", item_id: ITEM, credit_from: person, credit_to: SKIPPER,
+    amount: 100, date: "2027-01-30", confirmed_at: null, deleted_at: null, idempotency_key: null, ...extra,
+  });
+  const rec = (resolveIds: string[], extra: Record<string, string> = {}) => {
+    const f = fd({ trip_id: TRIP, item_id: ITEM, person_id: ANNA, amount: "100,00", date: "2027-02-01", idempotency_key: KEY1, ...extra });
+    for (const id of resolveIds) f.append("resolve_pending_ids", id);
+    return recordItemPayment({ status: "idle" }, f);
+  };
+  const live = () => fake.rows("transactions").filter((t) => !t.deleted_at);
+
+  it("mit Haken: Meldung verschwindet, nur die Erfassung zählt — kein Doppel nach späterem Bestätigen", async () => {
+    setupFake(withItem({ transactions: [pendingRow(PEND)] }));
+    expect((await rec([PEND])).status).toBe("ok");
+    expect(fake.rows("transactions").find((t) => t.id === PEND)!.deleted_at).toBeTruthy();
+    expect(live()).toHaveLength(1);
+    // Ein veralteter Banner-Klick „Bestätigen" findet nichts mehr.
+    const conf = await confirmItemSelfPayment({ status: "idle" }, fd({ transaction_id: PEND }));
+    expect(conf.status).toBe("error");
+    expect(totalBalance({ transactions: fake.rows("transactions") }, ANNA)).toBe(100);
+  });
+
+  it("ohne Haken: Meldung bleibt offen (zusätzliche, andere Zahlung)", async () => {
+    setupFake(withItem({ transactions: [pendingRow(PEND)] }));
+    expect((await rec([])).status).toBe("ok");
+    expect(fake.rows("transactions").find((t) => t.id === PEND)!.deleted_at).toBeFalsy();
+  });
+
+  it("erledigt nur die angezeigten IDs — eine später eingegangene Meldung bleibt", async () => {
+    setupFake(withItem({ transactions: [pendingRow(PEND), pendingRow(PEND_LATE)] }));
+    await rec([PEND]);
+    expect(fake.rows("transactions").find((t) => t.id === PEND_LATE)!.deleted_at).toBeFalsy();
+  });
+
+  it("eine untergeschobene ID einer BESTÄTIGTEN Zahlung oder einer anderen Person wird nicht gelöscht", async () => {
+    const CONFIRMED = "aaaaaaaa-0000-4000-8000-0000000000f3";
+    setupFake(withItem({
+      transactions: [
+        pendingRow(CONFIRMED, ANNA, { confirmed_at: "2027-01-31T00:00:00Z" }),
+        pendingRow(PEND, BEN),
+      ],
+    }));
+    expect((await rec([CONFIRMED, PEND])).status).toBe("ok");
+    expect(fake.rows("transactions").find((t) => t.id === CONFIRMED)!.deleted_at).toBeFalsy();
+    expect(fake.rows("transactions").find((t) => t.id === PEND)!.deleted_at).toBeFalsy();
+  });
+
+  it("scheitert das Erledigen, meldet die Action einen Fehler; der Retry holt es ohne Doppelbuchung nach", async () => {
+    setupFake(withItem({ transactions: [pendingRow(PEND)] }));
+    fake.failOn({ table: "transactions", action: "update" });
+    const first = await rec([PEND]);
+    expect(first.status).toBe("error");
+    expect(fake.rows("transactions").find((t) => t.id === PEND)!.deleted_at).toBeFalsy();
+    const retry = await rec([PEND]);
+    expect(retry).toMatchObject({ status: "ok", duplicate: true });
+    expect(fake.rows("transactions").find((t) => t.id === PEND)!.deleted_at).toBeTruthy();
+    expect(live()).toHaveLength(1);
+  });
+});
+
+describe("deleteItemPayment — erfasste Einzahlung entfernen", () => {
+  const PAY = "aaaaaaaa-0000-4000-8000-0000000000f4";
+  const payRow = (extra: Row = {}) => ({
+    id: PAY, trip_id: TRIP, type: "credit", item_id: ITEM, credit_from: ANNA, credit_to: SKIPPER,
+    amount: 100, date: "2027-02-01", confirmed_at: "2027-02-01T00:00:00Z", deleted_at: null, ...extra,
+  });
+  const del = (extra: Record<string, string> = {}) =>
+    deleteItemPayment({ status: "idle" }, fd({ trip_id: TRIP, item_id: ITEM, transaction_id: PAY, ...extra }));
+
+  it("soft-löscht die bestätigte Einzahlung, räumt den Erinnerungs-Log und markiert die Abrechnung", async () => {
+    setupFake(withItem({
+      transactions: [payRow()],
+      prepayment_item_reminder_log: [{ trip_id: TRIP, item_id: ITEM, person_id: ANNA, reminder_type: "item_crew_3d" }],
+    }));
+    expect((await del()).status).toBe("ok");
+    expect(fake.rows("transactions")[0].deleted_at).toBeTruthy();
+    expect(fake.rows("prepayment_item_reminder_log")).toHaveLength(0);
+    expect(fake.rpcCalls.some((c) => c.name === "mark_post_settlement_change")).toBe(true);
+  });
+
+  it("verweigert ohne Rolle", async () => {
+    setupFake(withItem({ transactions: [payRow()] }));
+    mockedPayee.mockResolvedValue({ ok: false, message: "Keine Berechtigung." } as never);
+    expect((await del()).status).toBe("error");
+    expect(fake.rows("transactions")[0].deleted_at).toBeFalsy();
+  });
+
+  it("entfernt keine offene Selbstmeldung (dafür gibt es „Ablehnen“) und keine Anbieter-Zahlung", async () => {
+    setupFake(withItem({ transactions: [payRow({ confirmed_at: null })] }));
+    expect((await del()).status).toBe("error");
+    expect(fake.rows("transactions")[0].deleted_at).toBeFalsy();
+    setupFake(withItem({ transactions: [payRow({ type: "expense" })] }));
+    expect((await del()).status).toBe("error");
+    expect(fake.rows("transactions")[0].deleted_at).toBeFalsy();
+  });
+
+  it("IDOR: Buchung eines anderen Postens/Törns bleibt unangetastet", async () => {
+    setupFake(withItem({ transactions: [payRow({ item_id: FOREIGN_ITEM, trip_id: OTHER_TRIP })] }));
+    expect((await del()).status).toBe("error");
+    expect(fake.rows("transactions")[0].deleted_at).toBeFalsy();
+  });
+
+  it("archivierter Törn → kein Entfernen", async () => {
+    const t = withItem({ transactions: [payRow()] });
+    t.trips = t.trips.map((r) => (r.id === TRIP ? { ...r, archived: true } : r));
+    setupFake(t);
+    expect((await del()).status).toBe("error");
+    expect(fake.rows("transactions")[0].deleted_at).toBeFalsy();
   });
 });

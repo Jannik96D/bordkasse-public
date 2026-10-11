@@ -50,7 +50,7 @@ const item: PrepaymentItemView = {
     { person_id: ANNA, soll: 180, paid: 0, pending: 0, status: "open" },
   ],
   sollTotal: 360, paidTotal: 180, pendingTotal: 0, overpaidTotal: 0, underpaidTotal: 180,
-  pendingPayments: [], providerPaid: 0, providerOpen: 360, providerOverdue: false, complete: false,
+  pendingPayments: [], paymentEntries: [], providerPaid: 0, providerOpen: 360, providerOverdue: false, complete: false,
 };
 
 function renderItems(over: Partial<Parameters<typeof ItemsSection>[0]> = {}, tripType = "sailing") {

@@ -64,3 +64,31 @@ describe("visiblePersonRows", () => {
     expect(visiblePersonRows([mk("Zora", 10), mk("Ben", 0), mk("Äpfel", 5)]).map((r) => r.name)).toEqual(["Äpfel", "Zora"]);
   });
 });
+
+describe("reviewable (Bugfix Doppelzahlung: Überzahlung muss erreichbar sein)", () => {
+  it("bezahlte und überzahlte Raten sind ansehbar, offene nicht (die sind erfassbar)", () => {
+    const r = buildPersonRow({
+      key: "a",
+      name: "A",
+      allowWhilePending: true,
+      rates: [rate({ key: "paid", soll: 100, paid: 100 }), rate({ key: "over", soll: 100, paid: 200 })],
+    });
+    expect(r.rates.map((x) => x.reviewable)).toEqual([true, true]);
+    expect(r.actionable).toBe(false);
+    expect(r.reviewable).toBe(true);
+  });
+
+  it("ohne Einzahlung nichts anzusehen; mit offener Rate gilt der Erfassen-Knopf", () => {
+    const none = buildPersonRow({ key: "a", name: "A", allowWhilePending: true, rates: [rate({ key: "r", soll: 0 })] });
+    expect(none.reviewable).toBe(false);
+    const mixed = buildPersonRow({
+      key: "a",
+      name: "A",
+      allowWhilePending: true,
+      rates: [rate({ key: "over", soll: 100, paid: 200 }), rate({ key: "open", soll: 100 })],
+    });
+    expect(mixed.actionable).toBe(true);
+    expect(mixed.reviewable).toBe(false);
+    expect(mixed.rates.find((x) => x.key === "over")!.reviewable).toBe(true);
+  });
+});

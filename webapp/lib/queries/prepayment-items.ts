@@ -35,6 +35,15 @@ export interface ItemPendingPayment {
   created_at: string;
 }
 
+/** Einzelne bestätigte Crew-Einzahlung — für die Liste im Erfassen-Dialog (entfernen). */
+export interface ItemPaymentEntry {
+  transaction_id: string;
+  person_id: string;
+  amount: number;
+  date: string;
+  description: string | null;
+}
+
 export interface PrepaymentItemView {
   id: string;
   trip_id: string;
@@ -57,6 +66,8 @@ export interface PrepaymentItemView {
   /** Σ offene Restbeträge (soll − paid > 0). */
   underpaidTotal: number;
   pendingPayments: ItemPendingPayment[];
+  /** Bestätigte Crew-Einzahlungen einzeln, neueste zuerst. */
+  paymentEntries: ItemPaymentEntry[];
   /** Σ Anbieter-Zahlungen (Ausgaben mit item_id) — Pendant getCharterPaidTotal. */
   providerPaid: number;
   /** Noch an den Anbieter zu zahlen (≥ 0). */
@@ -98,7 +109,7 @@ export const getItemProviderPaymentsPerItem = cache(async (tripId: string): Prom
  */
 export const getItems = cache(async (tripId: string): Promise<PrepaymentItemView[]> => {
   const supabase = await readClient();
-  const [itemsRes, oblRes, paidRes, pendingRes, catRes, providerMap] = await Promise.all([
+  const [itemsRes, oblRes, paidRes, pendingRes, catRes, providerMap, entriesRes] = await Promise.all([
     supabase
       .from("prepayment_items")
       .select("id, trip_id, category_id, label, total_amount, due_date, payee_person_id, split_type, sort_order")
@@ -114,12 +125,23 @@ export const getItems = cache(async (tripId: string): Promise<PrepaymentItemView
       .order("created_at", { ascending: false }),
     supabase.from("trip_categories").select("id, name, icon").eq("trip_id", tripId),
     getItemProviderPaymentsPerItem(tripId),
+    supabase
+      .from("transactions")
+      .select("id, item_id, credit_from, amount, date, description")
+      .eq("trip_id", tripId)
+      .eq("type", "credit")
+      .not("item_id", "is", null)
+      .not("confirmed_at", "is", null)
+      .is("deleted_at", null)
+      .order("date", { ascending: false })
+      .order("created_at", { ascending: false }),
   ]);
   if (itemsRes.error) fail("Weitere Zahlungen", itemsRes.error.message);
   if (oblRes.error) fail("Sollbeträge der weiteren Zahlungen", oblRes.error.message);
   if (paidRes.error) fail("Einzahlungen der weiteren Zahlungen", paidRes.error.message);
   if (pendingRes.error) fail("Meldungen der weiteren Zahlungen", pendingRes.error.message);
   if (catRes.error) fail("Kategorien", catRes.error.message);
+  if (entriesRes.error) fail("Einzahlungen der weiteren Zahlungen", entriesRes.error.message);
 
   const catById = new Map((catRes.data ?? []).map((c) => [c.id as string, c]));
   const today = todayIso();
@@ -175,6 +197,15 @@ export const getItems = cache(async (tripId: string): Promise<PrepaymentItemView
       overpaidTotal: cells.reduce((s, c) => s + Math.max(0, c.paid - c.soll), 0),
       underpaidTotal: cells.reduce((s, c) => s + Math.max(0, c.soll - c.paid), 0),
       pendingPayments,
+      paymentEntries: (entriesRes.data ?? [])
+        .filter((r) => r.item_id === id && r.credit_from)
+        .map((r) => ({
+          transaction_id: r.id as string,
+          person_id: r.credit_from as string,
+          amount: Number(r.amount),
+          date: r.date as string,
+          description: (r.description as string | null) ?? null,
+        })),
       providerPaid,
       providerOpen,
       providerOverdue: !!it.due_date && (it.due_date as string) < today && providerOpen > 0.005,

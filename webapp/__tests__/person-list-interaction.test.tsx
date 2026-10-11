@@ -221,7 +221,7 @@ describe("Löschen sitzt im Bearbeiten-Dialog der weiteren Zahlung", () => {
     total_amount: 360, due_date: null, payee_person_id: JAN, split_type: "gleichmaessig", sort_order: 0,
     cells: [{ person_id: JAN, soll: 180, paid: 0, pending: 0, status: "open" }, { person_id: ANNA, soll: 180, paid: 0, pending: 0, status: "open" }],
     sollTotal: 360, paidTotal: 0, pendingTotal: 0, overpaidTotal: 0, underpaidTotal: 360,
-    pendingPayments: [], providerPaid: 0, providerOpen: 360, providerOverdue: false, complete: false,
+    pendingPayments: [], paymentEntries: [], providerPaid: 0, providerOpen: 360, providerOverdue: false, complete: false,
   };
   const modal = (it: unknown) => h(ItemFormModal, { tripId: "t", item: it as never, members: [{ id: JAN, display_name: "Jannik" }, { id: ANNA, display_name: "Anna" }], categories: [], defaultPayeeId: JAN, nextSortOrder: 0, onClose: () => {} });
   const textBtn = (t: string) => buttons().find((b) => b.textContent?.trim() === t);

@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
+import { ResolvePendingIds, readResolvePendingIds, resolvePendingReports } from "@/lib/prepayments/resolve-pending";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireSkipperOrAdmin, requireMember, requireSkipperAdminOrAdvancer } from "@/lib/auth/authz";
@@ -474,6 +475,8 @@ export async function recordPayment(
     return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
   const { trip_id, tranche_id, person_id, amount, date, note, overflow_tranche_id, idempotency_key } = parsed.data;
+  const resolveIds = ResolvePendingIds.safeParse(readResolvePendingIds(formData));
+  if (!resolveIds.success) return { status: "error", message: "Ungültige Auswahl." };
 
   // Vorstrecker darf auch Zahlungen ankreuzen — er ist Empfänger,
   // weiß also wer ihm Geld überwiesen hat.
@@ -555,6 +558,31 @@ export async function recordPayment(
 
   const actorPersonId = person.id;
 
+  // Retry desselben Submits (Grill-Fund): `open` oben enthält dann schon die
+  // eigene erste Buchung. Ein zweiter Durchlauf würde den Überschuss neu
+  // berechnen und unter `${key}:overflow` — einem NEUEN Schlüssel — ein
+  // zweites Mal buchen. Deshalb: ist zu diesem Key schon etwas gebucht, keine
+  // Inserts/Mails/Audit, nur das (evtl. gescheiterte) Erledigen der Meldung
+  // nachholen.
+  if (idempotency_key) {
+    const { data: prior, error: priorErr } = await supabase
+      .from("transactions")
+      .select("id, credit_from, type")
+      .eq("trip_id", trip_id)
+      .in("idempotency_key", [idempotency_key, `${idempotency_key}:overflow`]);
+    if (priorErr) return { status: "error", message: dbErr(priorErr, "Zahlung konnte nicht erfasst werden.") };
+    if ((prior ?? []).length > 0) {
+      if (prior!.some((r) => r.type !== "credit" || r.credit_from !== person_id)) {
+        return { status: "error", message: "Diese Zahlung wurde schon unter einer anderen Buchung gespeichert. Bitte Seite neu laden." };
+      }
+      const retry = await resolveShownPendingPlan(supabase, trip_id, person_id, resolveIds.data, person.id);
+      revalidatePath(`/trips/${trip_id}/prepayments`);
+      revalidatePath(`/trips/${trip_id}/balance`);
+      revalidatePath(`/trips/${trip_id}/transactions`);
+      return retry;
+    }
+  }
+
   async function insertCredit(targetTranche: string, targetAmount: number, idemKey?: string) {
     const { error } = await supabase
       .from("transactions")
@@ -616,6 +644,18 @@ export async function recordPayment(
     payload: { kind: "prepayment", tranche_id, person_id, amount, overflow_tranche_id, note },
   });
 
+  // Offene Selbstmeldung(en), die der Dialog angezeigt hat, durch diese
+  // Erfassung erledigen — sonst bucht ein späteres „Bestätigen" im Banner
+  // dasselbe Geld ein zweites Mal (Bugfix Doppelzahlung). Läuft NACH dem
+  // Insert: scheitert es, ist die Zahlung gebucht, und ein erneutes Speichern
+  // mit demselben idempotency_key bucht nichts doppelt (Retry-Zweig oben),
+  // holt aber das Erledigen nach.
+  const resolved = await resolveShownPendingPlan(supabase, trip_id, person_id, resolveIds.data, person.id);
+  if (resolved.status === "error") {
+    revalidatePath(`/trips/${trip_id}/prepayments`);
+    return resolved;
+  }
+
   // Info-Mails (Crewperson + Vorstrecker, falls Actor ≠ beide). Selbst-
   // verrechnung des Vorstreckers (person_id == advancerId == actorPersonId)
   // schickt keine Mail — das ist bilanzneutral. Bei Overflow eine Mail
@@ -649,6 +689,35 @@ export async function recordPayment(
   revalidatePath(`/trips/${trip_id}/prepayments`);
   revalidatePath(`/trips/${trip_id}/balance`);
   revalidatePath(`/trips/${trip_id}/transactions`);
+  return { status: "ok" };
+}
+
+/** Erledigt die im Erfassen-Dialog angezeigten Selbstmeldungen (beliebige Rate des Plans). */
+async function resolveShownPendingPlan(
+  supabase: ReturnType<typeof createAdminClient>,
+  tripId: string,
+  personId: string,
+  ids: string[],
+  actorId: string,
+): Promise<PrepaymentState> {
+  const res = await resolvePendingReports(supabase, { tripId, personId, pool: { plan: true }, ids });
+  if (res.error) {
+    console.error("[bordkasse:db] resolve pending:", res.error);
+    return {
+      status: "error",
+      message: "Zahlung erfasst, aber die gemeldete Zahlung ist noch offen. Bitte erneut speichern oder die Meldung ablehnen.",
+    };
+  }
+  for (const id of res.resolved) {
+    await logAudit(supabase, {
+      table_name: "transactions",
+      operation: "DELETE",
+      record_id: id,
+      trip_id: tripId,
+      actor_person_id: actorId,
+      payload: { kind: "self-payment-resolved-by-record", person_id: personId },
+    });
+  }
   return { status: "ok" };
 }
 
@@ -1919,6 +1988,88 @@ export async function rejectSelfPayment(
   );
 
   revalidatePath(`/trips/${tx.trip_id}/prepayments`);
+  return { status: "ok" };
+}
+
+/**
+ * Erfasste Einzahlung wieder entfernen — direkt auf der Anzahlungs-Seite
+ * (Bugfix: eine versehentliche Doppel-/Überzahlung ließ sich dort nicht
+ * zurücknehmen, nur über die Buchungsliste, die die vorstreckende Person ohne
+ * Skipper-Rolle gar nicht löschen darf). Gleiche Rolle wie `recordPayment`:
+ * wer eine Einzahlung erfassen darf, darf sie auch zurücknehmen.
+ *
+ * Nur bestätigte, tranche-getaggte Gutschriften. Offene Selbstmeldungen laufen
+ * über „Ablehnen" (mit Mail an die Person), Charter-Überweisungen an den
+ * Anbieter (Ausgaben) über die Buchungsliste. Soft-Delete wie überall.
+ */
+export async function deletePrepaymentPayment(
+  _prev: PrepaymentState,
+  formData: FormData,
+): Promise<PrepaymentState> {
+  const person = await getCurrentPerson();
+  if (!person) return { status: "error", message: "Nicht angemeldet." };
+
+  const parsed = z
+    .object({ trip_id: z.string().uuid(), transaction_id: z.string().uuid() })
+    .safeParse({ trip_id: formData.get("trip_id"), transaction_id: formData.get("transaction_id") });
+  if (!parsed.success) return { status: "error", message: "Ungültige Buchungs-ID." };
+  const { trip_id, transaction_id } = parsed.data;
+
+  const auth = await requireSkipperAdminOrAdvancer(trip_id);
+  if (!auth.ok) return { status: "error", message: auth.message };
+
+  const supabase = createAdminClient();
+  const archivedCheck = await assertTripNotArchived(supabase, trip_id);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
+  const { data: tx, error: readErr } = await supabase
+    .from("transactions")
+    .select("trip_id, type, tranche_id, credit_from, amount, confirmed_at, deleted_at")
+    .eq("id", transaction_id)
+    .eq("trip_id", trip_id) // IDOR: Rolle gilt nur für diesen Törn
+    .maybeSingle();
+  if (readErr) return { status: "error", message: dbErr(readErr, "Einzahlung konnte nicht geladen werden.") };
+  if (!tx || tx.deleted_at || tx.type !== "credit" || !tx.tranche_id || !tx.confirmed_at) {
+    return { status: "error", message: "Einzahlung nicht gefunden." };
+  }
+
+  const { data: gone, error } = await supabase
+    .from("transactions")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", transaction_id)
+    .eq("trip_id", trip_id)
+    .is("deleted_at", null)
+    .select("id");
+  if (error) return { status: "error", message: dbErr(error, "Entfernen fehlgeschlagen.") };
+  if (!gone || gone.length === 0) return { status: "error", message: "Einzahlung wurde schon entfernt." };
+
+  await logAudit(supabase, {
+    table_name: "transactions",
+    operation: "DELETE",
+    record_id: transaction_id,
+    trip_id,
+    actor_person_id: auth.personId,
+    payload: { kind: "prepayment-payment-removed", tranche_id: tx.tranche_id, person_id: tx.credit_from, amount: Number(tx.amount) },
+  });
+
+  // Anteil ist wieder offen → Dedup-Log räumen, damit der Cron erneut erinnern kann.
+  if (tx.credit_from) {
+    const { error: logErr } = await supabase
+      .from("prepayment_reminder_log")
+      .delete()
+      .eq("tranche_id", tx.tranche_id)
+      .eq("person_id", tx.credit_from)
+      .eq("reminder_type", "crew_3d");
+    if (logErr) console.error("[bordkasse:db] reminder_log cleanup:", logErr.message);
+  }
+
+  // Gesamtbilanz ändert sich → nach verschickter Abrechnung Update-Banner zeigen.
+  const { error: markErr } = await supabase.rpc("mark_post_settlement_change", { p_trip_id: trip_id });
+  if (markErr) console.error("[bordkasse:db] mark_post_settlement_change:", markErr.message);
+
+  revalidatePath(`/trips/${trip_id}/prepayments`);
+  revalidatePath(`/trips/${trip_id}/balance`);
+  revalidatePath(`/trips/${trip_id}/transactions`);
   return { status: "ok" };
 }
 

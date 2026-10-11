@@ -20,10 +20,11 @@ import {
   RecordPickerModal,
 } from "./payment-card-parts";
 import { planProviderRemaining, providerDueInfo, type ItemOverall } from "@/lib/prepayments/item-ui";
-import { ACTION_RECORD, LABEL_PROVIDER_PAID } from "@/lib/prepayments/payment-words";
+import { ACTION_RECORD, ACTION_REVIEW, LABEL_PROVIDER_PAID } from "@/lib/prepayments/payment-words";
 import { formatEuro, formatAmount, todayIso, round2 } from "@/lib/utils";
 import {
   recordPayment,
+  deletePrepaymentPayment,
   sendPrepaymentReminder,
   confirmSelfPayment,
   rejectSelfPayment,
@@ -38,7 +39,9 @@ import type {
   Obligation,
   PaymentAggregate,
   PendingPayment,
+  PaymentEntry,
 } from "@/lib/queries/prepayments";
+import { PaymentEntryList, PendingResolveField, pendingSum } from "./payment-entries";
 
 interface Member {
   id: string;
@@ -57,6 +60,8 @@ interface Props {
   obligations: Obligation[];
   payments: PaymentAggregate[];
   pending: PendingPayment[];
+  /** Bestätigte Einzahlungen einzeln — Liste + „Entfernen" im Erfassen-Dialog. */
+  paymentEntries?: PaymentEntry[];
   /** Pro Tranche: was hat die vorstreckende Person schon an den Anbieter überwiesen? */
   charterPaidByTranche: Record<string, number>;
   /** Skipper/Admin: „Crew informieren" + „Bearbeiten" in der Aktionsleiste. */
@@ -80,9 +85,11 @@ interface MatrixCell {
   pending: PendingPayment | null;
 }
 
-export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan, tranches, cabins, members, obligations, payments, pending, charterPaidByTranche, canEditPlan = false, readOnly = false, lastNotifiedLabel = null }: Props) {
+export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan, tranches, cabins, members, obligations, payments, pending, paymentEntries = [], charterPaidByTranche, canEditPlan = false, readOnly = false, lastNotifiedLabel = null }: Props) {
   const vocab = tripVocab(tripType);
-  const [paymentModal, setPaymentModal] = useState<{ cell: MatrixCell; personName: string } | null>(null);
+  // Nur die Schlüssel merken, die Zelle bei jedem Render frisch berechnen: nach
+  // „Entfernen" im Dialog (router.refresh) zeigt er so sofort den neuen Stand.
+  const [paymentModal, setPaymentModal] = useState<{ trancheId: string; personId: string; personName: string } | null>(null);
   const [whatsAppModal, setWhatsAppModal] = useState<{ text: string; title: string } | null>(null);
   // Zweiter Schritt „Welche Rate?" — nur wenn die Person in mehreren Raten offen ist.
   const [ratePicker, setRatePicker] = useState<string | null>(null);
@@ -121,8 +128,8 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
   };
 
   function openPayment(cell: MatrixCell, personName: string) {
-    if (cell.soll <= 0) return;
-    setPaymentModal({ cell, personName });
+    if (cell.soll <= 0 && cell.paid <= 0.005) return;
+    setPaymentModal({ trancheId: cell.trancheId, personId: cell.personId, personName });
   }
 
   function bulkWhatsApp() {
@@ -220,7 +227,10 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
       setRatePicker(personId);
       return;
     }
-    if (openCells[0]) openPayment(openCells[0], row.m.display_name);
+    // Nichts mehr offen (bezahlt/überzahlt) → Dialog der bezahlten Rate, um
+    // Einzahlungen anzusehen oder eine Überzahlung zu entfernen.
+    const target = openCells[0] ?? row.cells.find((c) => c.paid > 0.005);
+    if (target) openPayment(target, row.m.display_name);
   }
   const personRows = visiblePersonRows(
     memberRows.map(({ m, cells, isAdvancerRow }) =>
@@ -342,6 +352,7 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
           rows={personRows}
           ariaLabel={`Zahlungsstatus pro Person für ${vocab.prepayment}`}
           actionLabel={ACTION_RECORD}
+          reviewLabel={ACTION_REVIEW}
           contextLabel={vocab.prepayment}
           onAct={readOnly ? undefined : actFromList}
           renderExtras={(row) => {
@@ -405,15 +416,24 @@ export function PrepaymentMatrix({ tripId, tripName, tripType = "sailing", plan,
           />
         );
       })()}
-      {paymentModal && (
-        <PaymentModal
-          tripId={tripId}
-          tranches={tranches}
-          cell={paymentModal.cell}
-          personName={paymentModal.personName}
-          onClose={() => setPaymentModal(null)}
-        />
-      )}
+      {paymentModal && (() => {
+        const t = tranches.find((x) => x.id === paymentModal.trancheId);
+        if (!t) return null;
+        const { trancheId, personId } = paymentModal;
+        return (
+          <PaymentModal
+            tripId={tripId}
+            tranches={tranches}
+            cell={cellFor(trancheId, personId, t.percent)}
+            personName={paymentModal.personName}
+            // Alle Meldungen der Person, nicht nur dieser Rate: gemeldet auf Rate 1, erfasst auf Rate 2 → sonst wieder doppelt.
+            pendingReports={pending.filter((p) => p.person_id === personId)}
+            entries={paymentEntries.filter((e) => e.tranche_id === trancheId && e.person_id === personId)}
+            canRemove={!readOnly}
+            onClose={() => setPaymentModal(null)}
+          />
+        );
+      })()}
       {whatsAppModal && (
         <WhatsAppModal title={whatsAppModal.title} text={whatsAppModal.text} onClose={() => setWhatsAppModal(null)} />
       )}
@@ -486,15 +506,31 @@ function PaymentModal({
   tranches,
   cell,
   personName,
+  pendingReports,
+  entries,
+  canRemove,
   onClose,
 }: {
   tripId: string;
   tranches: Tranche[];
   cell: MatrixCell;
   personName: string;
+  pendingReports: PendingPayment[];
+  entries: PaymentEntry[];
+  canRemove: boolean;
   onClose: () => void;
 }) {
-  const [amount, setAmount] = useState(() => formatAmount(Math.max(0, cell.open)));
+  // Gemeldete Zahlung offen → deren Betrag vorschlagen (das wird gerade erfasst).
+  // Rate schon gedeckt (Dialog über „Einzahlungen" geöffnet) → nichts vorschlagen,
+  // sonst bucht ein versehentliches „Speichern" gleich wieder zu viel.
+  const [amount, setAmount] = useState(() =>
+    formatAmount(cell.open <= 0.005 ? 0 : pendingReports.length > 0 ? pendingSum(pendingReports) : cell.open),
+  );
+  // IDs beim Öffnen einfrieren: eine Meldung, die erst danach eingeht, hat der
+  // Skipper nicht gesehen und darf nicht mit erledigt werden.
+  const [shownPending] = useState(() => pendingReports);
+  const [resolvePending, setResolvePending] = useState(true);
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState("");
   const [overflowTrancheId, setOverflowTrancheId] = useState<string>("");
@@ -517,6 +553,8 @@ function PaymentModal({
     fd.set("date", date);
     fd.set("note", note);
     if (isOverflow && overflowTrancheId) fd.set("overflow_tranche_id", overflowTrancheId);
+    fd.set("idempotency_key", idempotencyKey);
+    if (resolvePending) for (const p of shownPending) fd.append("resolve_pending_ids", p.transaction_id);
 
     startTransition(async () => {
       const res = await recordPayment({ status: "idle" }, fd);
@@ -538,6 +576,26 @@ function PaymentModal({
           <div><dt className="text-xs text-ink-soft">Bezahlt</dt><dd className="font-medium">{formatEuro(cell.paid)}</dd></div>
           <div><dt className="text-xs text-ink-soft">Offen</dt><dd className="font-medium">{formatEuro(Math.max(0, cell.open))}</dd></div>
         </dl>
+
+        <PendingResolveField
+          personName={personName}
+          reports={shownPending}
+          checked={resolvePending}
+          onChange={setResolvePending}
+          idPrefix={`pm-${cell.trancheId}-${cell.personId}`}
+        />
+
+        <PaymentEntryList
+          entries={entries}
+          canRemove={canRemove}
+          remove={async (id) => {
+            const fd = new FormData();
+            fd.set("trip_id", tripId);
+            fd.set("transaction_id", id);
+            const res = await deletePrepaymentPayment({ status: "idle" }, fd);
+            return res.status === "error" ? res.message : null;
+          }}
+        />
 
         <div className="mt-4 space-y-3">
           <label className="block text-sm">

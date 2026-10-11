@@ -257,6 +257,46 @@ export async function getCharterPaymentsPerTranche(tripId: string): Promise<Reco
   return map;
 }
 
+/** Einzelne bestätigte Einzahlung (Gutschrift mit Tranche) — für die Liste im Erfassen-Dialog. */
+export interface PaymentEntry {
+  transaction_id: string;
+  tranche_id: string;
+  person_id: string;
+  amount: number;
+  date: string;
+  description: string | null;
+}
+
+/**
+ * Bestätigte Einzahlungen einzeln (statt aggregiert wie getPaymentAggregates):
+ * der Erfassen-Dialog listet sie, damit eine versehentliche Doppel-/Überzahlung
+ * direkt dort entfernt werden kann. Gleiche Menge wie v_prepayment_payments.
+ */
+export async function getPaymentEntries(tripId: string): Promise<PaymentEntry[]> {
+  const supabase = await readClient();
+  const { data, error } = await supabase
+    .from("transactions")
+    .select("id, tranche_id, credit_from, amount, date, description")
+    .eq("trip_id", tripId)
+    .eq("type", "credit")
+    .not("tranche_id", "is", null)
+    .not("confirmed_at", "is", null)
+    .is("deleted_at", null)
+    .order("date", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(`Einzahlungen konnten nicht geladen werden: ${error.message}`);
+  return (data ?? [])
+    .filter((r) => r.tranche_id && r.credit_from)
+    .map((r) => ({
+      transaction_id: r.id as string,
+      tranche_id: r.tranche_id as string,
+      person_id: r.credit_from as string,
+      amount: Number(r.amount),
+      date: r.date as string,
+      description: (r.description as string | null) ?? null,
+    }));
+}
+
 /**
  * Selbst-Meldungen (Phase 2): noch nicht vom Skipper bestätigte
  * Anzahlungs-Gutschriften. Wird im Matrix-UI für ⏳-Indikatoren benutzt.

@@ -7,6 +7,7 @@ import {
   getObligations,
   getPaymentAggregates,
   getPendingPayments,
+  getPaymentEntries,
   getCharterPaymentsPerTranche,
 } from "@/lib/queries/prepayments";
 import { getItems } from "@/lib/queries/prepayment-items";
@@ -29,7 +30,7 @@ export default async function PrepaymentsPage({
 }) {
   const { id } = await params;
 
-  const [trip, members, person, admin, plan, tranches, cabins, obligations, payments, pending, charterPaid, items, categories, notifyState] =
+  const [trip, members, person, admin, plan, tranches, cabins, obligations, payments, pending, charterPaid, items, categories, notifyState, paymentEntries] =
     await Promise.all([
       getTrip(id),
       getTripMembers(id),
@@ -45,6 +46,7 @@ export default async function PrepaymentsPage({
       getItems(id),
       getCategories(id),
       getCrewNotifyState(id),
+      getPaymentEntries(id),
     ]);
 
   if (!trip) return null;
@@ -153,6 +155,7 @@ export default async function PrepaymentsPage({
         obligations={obligations}
         payments={payments}
         pending={pending}
+        paymentEntries={paymentEntries}
         charterPaidByTranche={charterPaid}
         canEditPlan={admin || isMyTripSkipper}
         readOnly={!!trip.archived}

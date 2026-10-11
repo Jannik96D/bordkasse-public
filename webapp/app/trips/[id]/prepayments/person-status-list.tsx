@@ -52,6 +52,7 @@ export function PersonStatusList({
   rows,
   ariaLabel,
   actionLabel,
+  reviewLabel,
   onAct,
   renderExtras,
   alwaysExpanded = false,
@@ -62,6 +63,12 @@ export function PersonStatusList({
   ariaLabel: string;
   /** „Einzahlung erfassen" oder „Ich habe gezahlt". */
   actionLabel: string;
+  /**
+   * Knopf für bezahlte/überzahlte Zeilen (z. B. „Einzahlungen"): öffnet denselben
+   * Dialog über `onAct`, um Einzahlungen anzusehen/zu entfernen. Ohne Prop kein Knopf
+   * (Crew-Sicht).
+   */
+  reviewLabel?: string;
   /** `rateKey` gesetzt = Knopf einer einzelnen Rate; sonst Knopf der Personenzeile. Ohne `onAct` keine Knöpfe. */
   onAct?: (personKey: string, rateKey?: string) => void;
   /** Zusatzknöpfe je Person (Erinnerung, WhatsApp). */
@@ -141,6 +148,17 @@ export function PersonStatusList({
                       {actionLabel}
                     </button>
                   )}
+                  {onAct && reviewLabel && row.reviewable && !isOpen && (
+                    <button
+                      type="button"
+                      // Mehrere Raten: erst aufklappen, die Rate wählt man dort.
+                      onClick={() => (expandable ? toggle(row.key) : onAct(row.key))}
+                      aria-label={`${reviewLabel} ansehen: ${row.name}${ctx}`}
+                      className={ACT_BTN}
+                    >
+                      {reviewLabel}
+                    </button>
+                  )}
                   {renderExtras?.(row)}
                 </div>
               </div>
@@ -153,6 +171,7 @@ export function PersonStatusList({
                     rate={rate}
                     personName={row.name}
                     actionLabel={actionLabel}
+                    reviewLabel={reviewLabel}
                     ctx={ctx}
                     onAct={onAct ? () => onAct(row.key, rate.key) : undefined}
                   />
@@ -171,12 +190,14 @@ function RateLine({
   rate,
   personName,
   actionLabel,
+  reviewLabel,
   ctx,
   onAct,
 }: {
   rate: RateRow;
   personName: string;
   actionLabel: string;
+  reviewLabel?: string;
   ctx: string;
   onAct?: () => void;
 }) {
@@ -202,6 +223,16 @@ function RateLine({
               className={ACT_BTN}
             >
               {actionLabel}
+            </button>
+          )}
+          {onAct && reviewLabel && rate.reviewable && (
+            <button
+              type="button"
+              onClick={onAct}
+              aria-label={`${reviewLabel} ansehen: ${personName}, ${rate.label}${ctx}`}
+              className={ACT_BTN}
+            >
+              {reviewLabel}
             </button>
           )}
         </span>

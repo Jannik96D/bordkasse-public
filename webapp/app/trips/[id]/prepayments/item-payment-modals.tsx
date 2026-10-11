@@ -23,10 +23,12 @@ import { evalItemAmount, NETWORK_ERROR_MESSAGE } from "@/lib/prepayments/item-ui
 import { PAYMENT_STATUS } from "@/lib/prepayments/payment-words";
 import {
   recordItemPayment,
+  deleteItemPayment,
   submitItemSelfPayment,
   recordItemProviderPayment,
   type ItemActionState,
 } from "@/lib/actions/prepayment-items";
+import { PaymentEntryList, PendingResolveField, pendingSum, type PaymentEntryLine, type PendingReport } from "./payment-entries";
 
 const inputCls =
   "mt-1 min-h-[44px] w-full rounded-md border border-rule px-3 py-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-paper-soft";
@@ -182,6 +184,9 @@ export function ItemPaymentModal({
   payeeName,
   soll,
   paid,
+  pendingReports = [],
+  entries = [],
+  canRemove = false,
 }: ModalBase & {
   mode: "record" | "self";
   /** Nur mode "record": wessen Zahlung erfasst wird. */
@@ -190,9 +195,21 @@ export function ItemPaymentModal({
   payeeName: string;
   soll: number;
   paid: number;
+  /** Nur mode "record": offene Selbstmeldungen dieser Person (Haken „damit erledigt"). */
+  pendingReports?: PendingReport[];
+  /** Nur mode "record": bestätigte Einzahlungen dieser Person (Liste + Entfernen). */
+  entries?: PaymentEntryLine[];
+  canRemove?: boolean;
 }) {
   const [idempotencyKey] = useState(() => crypto.randomUUID());
-  const [amount, setAmount] = useState(() => formatAmount(Math.max(0, soll - paid)));
+  // IDs beim Öffnen einfrieren — eine danach eingegangene Meldung bleibt unberührt.
+  const [shownPending] = useState(() => (mode === "record" ? pendingReports : []));
+  const [resolvePending, setResolvePending] = useState(true);
+  // Gemeldete Zahlung offen → deren Betrag vorschlagen (das wird gerade erfasst).
+  const [amount, setAmount] = useState(() =>
+    // Schon gedeckt (über „Einzahlungen" geöffnet) → 0, kein versehentliches Nachbuchen.
+    formatAmount(soll - paid <= 0.005 ? 0 : shownPending.length > 0 ? pendingSum(shownPending) : soll - paid),
+  );
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState("");
   const { error, setError, pending, run } = useItemAction(
@@ -216,6 +233,7 @@ export function ItemPaymentModal({
     fd.set("date", date);
     fd.set("note", note);
     fd.set("idempotency_key", idempotencyKey);
+    if (mode === "record" && resolvePending) for (const p of shownPending) fd.append("resolve_pending_ids", p.transaction_id);
     run(mode === "self" ? submitItemSelfPayment : recordItemPayment, fd);
   }
 
@@ -234,6 +252,29 @@ export function ItemPaymentModal({
         <div><dt className="text-xs text-ink-soft">Bezahlt</dt><dd className="font-medium">{formatEuro(paid)}</dd></div>
         <div><dt className="text-xs text-ink-soft">Offen</dt><dd className="font-medium">{formatEuro(open)}</dd></div>
       </dl>
+      {mode === "record" && (
+        <>
+          <PendingResolveField
+            personName={personName}
+            reports={shownPending}
+            checked={resolvePending}
+            onChange={setResolvePending}
+            idPrefix={`ipm-${itemId}`}
+          />
+          <PaymentEntryList
+            entries={entries}
+            canRemove={canRemove}
+            remove={async (id) => {
+              const fd = new FormData();
+              fd.set("trip_id", tripId);
+              fd.set("item_id", itemId);
+              fd.set("transaction_id", id);
+              const res = await deleteItemPayment({ status: "idle" }, fd);
+              return res.status === "error" ? res.message : null;
+            }}
+          />
+        </>
+      )}
       <AmountDateFields
         idPrefix={`ipm-${itemId}`}
         amount={amount}
