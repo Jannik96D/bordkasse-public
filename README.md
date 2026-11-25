@@ -2,9 +2,8 @@
 
 Tool zur fairen Aufteilung gemeinsamer Kosten auf Segel-Törns mit wechselnden Crews.
 
-Zwei Varianten parallel im Repo:
+Die Anwendung liegt in `webapp/` (die frühere Google-Sheets-/Apps-Script-Lösung wurde aus dem Repo entfernt und ist nur noch in der Git-Historie).
 
-- **Sheets-Lösung** (`assets/sheets-current/`) — Apps Script v11 + xlsx Layout v10. Kein Login, sofort einsetzbar auf Google Sheets. Eingefroren.
 - **Web-App** (`webapp/`) — Next.js + Supabase, selbst gehostet unter Coolify auf einem Hetzner-Server in Deutschland. Crew-fähig, Magic-Link-Auth, Realtime-Sync, PWA-Offline, Statistik-Tab, Audit-Log, automatische DSGVO-Löschung 30 Tage nach Törn-Ende.
 
 ## Web-App auf einen Blick
@@ -24,13 +23,7 @@ Zwei Varianten parallel im Repo:
 
 ## Schnellstart
 
-### Sheets-Lösung (kein Setup nötig)
-
-1. `assets/sheets-current/Bordkasse_IJsselmeer2026_v10.xlsx` in Google Sheets hochladen
-2. Apps Script-Editor öffnen, Inhalt von `Bordkasse_AppScript_v11.js` einfügen
-3. Buttons + Schutz einrichten gemäß `docs/buttons-setup.md` und `docs/protection-setup.md`
-
-### Web-App (lokales Dev-Setup)
+### Lokales Dev-Setup
 
 ```bash
 cd webapp
@@ -64,14 +57,9 @@ Vollständige Anleitung + Deploy-Schritte: [`webapp/README.md`](webapp/README.md
 ├── docs/
 │   ├── design-system.md            Marineblau-Theme, Touch-Targets, Typografie
 │   ├── calculation-rules.md        Aufteilungslogiken + Test-Szenarien S1–S7
-│   ├── apps-script-reference.md    Apps Script v11 Funktions-Mapping
-│   ├── buttons-setup.md            Speichern-Buttons in Google Sheets
-│   ├── protection-setup.md         Sheets-Schutz für Crew-tauglichen Einsatz
 │   ├── prepayments.md              Anzahlungs-Modul Spec (Tranchen, Kojen, Vorstrecker)
 │   └── web-app-spec.md             Web-App-Architektur-Spec
-├── scripts/                        openpyxl-Migrationen v8→v9, v9→v10
-├── webapp/                         Next.js Web-App (siehe webapp/README.md)
-└── assets/sheets-current/          produktive xlsx + Apps Script + alte Versionen
+└── webapp/                         Next.js Web-App (siehe webapp/README.md)
 ```
 
 ## Hinweis zur KI-Unterstützung
@@ -82,6 +70,6 @@ Teile dieses Projekts wurden mit Hilfe von KI-Werkzeugen (u. a. Claude Code) ent
 
 1. **Deutsch ist verbindlich** für UI, Domain-Begriffe, User-Texte
 2. **Mobile zuerst** — alle UI-Entscheidungen für Smartphone optimieren
-3. **Pragmatik vor Perfektion** — Sheets bleibt für kleine Test-Setups die einfachere Variante
+3. **Pragmatik vor Perfektion** — einfache, robuste Lösungen vor perfekten Systemen
 4. **Audit-Trail** — Schreib-Ops landen im `audit_log`, Buchungen werden soft-gelöscht
 5. **Bei strukturellen DB-Änderungen** alle Views/Functions/RLS-Policies mitziehen
