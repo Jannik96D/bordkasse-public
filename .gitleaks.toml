@@ -1,0 +1,19 @@
+# gitleaks-Konfiguration (Secret-Scan in .github/workflows/secret-scan.yml)
+#
+# Erbt alle Standard-Regeln von gitleaks und ergänzt nur Ausnahmen für bekannte
+# Fehlalarme. Jede Ausnahme braucht einen Kommentar, WARUM sie harmlos ist —
+# nie pauschal ganze Verzeichnisse freigeben, sondern konkrete Dateien/Muster.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Bekannte, harmlose Funde"
+paths = [
+  # Lockfile: enthält nur Paket-Prüfsummen (integrity-Hashes), keine Secrets.
+  '''webapp/pnpm-lock\.yaml$''',
+]
+
+# Für einen echten Fehlalarm hier gezielt ergänzen (nie ganze Ordner):
+#   commits = ["<sha>"]
+#   regexes = ['''<konkretes Muster>''']
