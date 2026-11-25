@@ -21,8 +21,6 @@ venv/
 .claude/
 
 # Excel/Office Lockfiles
-~$*.xlsx
-~$*.xlsm
 ~$*.docx
 
 # Vertrauliche Rechtsdokumente (z. B. unterschriebene AVVs/DPAs) — niemals

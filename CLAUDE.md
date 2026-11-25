@@ -1,8 +1,7 @@
 # Bordkasse für Segeltörns — Claude Code Projekt
 
 > Tool zur fairen Aufteilung gemeinsamer Kosten auf Segeltörns mit wechselnden Crews.
-> Zwei Implementationen parallel im Repo:
-> - **Sheets-Lösung** (Apps Script v11) — pragmatisch, kein Login, eingefroren.
+> Die Anwendung liegt in `webapp/` (die frühere Google-Sheets-/Apps-Script-Lösung wurde aus dem Repo entfernt, sie bleibt in der Git-Historie erhalten):
 > - **Web-App** (`webapp/`) — Next.js + Supabase (selbst gehostet unter Coolify), Crew-fähig, Magic-Link-Auth, Realtime, PWA-Offline, Statistik, Audit-Log, automatische DSGVO-Löschung 30 Tage nach Törnende.
 
 ## Quick Context
@@ -17,20 +16,6 @@
 
 **Zielsetzung:** Smartphone-tauglich, einfach genug für jedes Crewmitglied, kein Login-Aufwand.
 
-## Aktueller Stand
-
-Funktionierende Google-Sheets-Datei mit Apps Script. Dateien in `assets/sheets-current/`:
-- `Bordkasse_IJsselmeer2026_v10.xlsx` — produktive xlsx (Layout v10, kompatibel mit Script v10 und v11)
-- `Bordkasse_AppScript_v11.js` — produktiver Script-Code (manuell einzufügen)
-- `Bordkasse_AppScript_v10.js` — Vorgänger-Script (Referenz)
-- `Bordkasse_IJsselmeer2026_v9.xlsx` + `Bordkasse_AppScript_v9.js` — Vorgängerversion v9 (Referenz)
-- `Bordkasse_IJsselmeer2026.xlsx` + `Bordkasse_AppScript_v8.js` — Vorgängerversion v8 (Referenz)
-
-**Migrationen:** `scripts/migrate_v8_to_v9.py`, `scripts/migrate_v9_to_v10.py` — reproduzierbarer Umbau via openpyxl.
-
-**Status:** Script-Version v11 (xlsx-Layout v10). Neu vs v10:
-- Menüpunkt "🆕 Neuen Törn starten" — leert Transaktionen, Crew-Daten, Törn-Datum, Schulden, Eingabe + Gutschrift in einem Rutsch (Calc-Formeln bleiben)
-
 ## Working Language
 
 Deutsch. Alle Domain-Begriffe sind deutsch und sollen so bleiben:
@@ -44,65 +29,6 @@ Deutsch. Alle Domain-Begriffe sind deutsch und sollen so bleiben:
 - *Schulden* — wer wem wie viel zahlen muss
 - *Bilanz* — Saldo pro Person
 - *Aufteilung* — Methode, wie eine Ausgabe verteilt wird
-
-## Architektur (aktuelle Sheets-Lösung)
-
-### Tabs in der Excel-Datei (Reihenfolge wichtig)
-
-1. **Eingabe** — Mobile-optimierte Eingabemaske für **Ausgaben** (Datum/Beschreibung/Kategorie/…/Aufteilung)
-2. **Gutschrift** — eigenständige Maske für Gutschriften (seit v9)
-3. **Besatzung** — Törn-Daten + Crewliste mit Anwesenheitszeiten
-4. **Kategorien** — zentrale Pflege der Ausgabenkategorien (Single Source of Truth)
-5. **Transaktionen** — alle Eingaben als Datensätze (Ausgaben + Gutschriften)
-6. **Bilanz** — automatische Berechnung der Salden pro Person
-7. **Schulden** — vereinfachter Zahlungs-Plan (per Apps Script befüllt)
-8. **Auswertung** — Kategorien × Personen Matrix
-
-### Eingabe-Tab Zellkoordinaten (kritisch für Apps Script)
-
-```
-B6   = Datum            (Autofill = heute)
-B9   = Beschreibung
-B12  = Kategorie        (Dropdown Kategorien!B4:B23)
-B15  = Bezahlt von      (Dropdown Besatzung!B11:B22)
-B18  = Betrag (€)
-B21  = Alkohol-Anteil (€, optional)
-B25  = Aufteilung       (Dropdown Gleichmäßig/An Bord/Zeitanteilig/Individuell)
-B31–B42 = Crew-Namen (Formel-Lookup auf Besatzung!B11:B22)
-C31–C42 = Anwesenheits-Checkboxen (P1–P12) für "Individuell"
-
-Dynamische Bereiche:
-- Zeilen 28–42: Individuell-Block (sichtbar nur wenn Aufteilung = "Individuell")
-- Zeilen 31–42 einzeln: ausgeblendet wenn Besatzung!B(11+i) leer (live via onEdit)
-```
-
-### Gutschrift-Tab Zellkoordinaten
-
-```
-B6   = Datum            (Autofill = heute)
-B9   = Beschreibung     (optional — leer → "Gutschrift" als Default-Eintrag)
-B12  = Betrag (€)
-B16  = Zahlt (Von)      (Dropdown Besatzung!B11:B22)
-B19  = Empfängt (An)    (Dropdown Besatzung!K11:K23, inkl. "Alle")
-```
-
-### Besatzung-Tab Struktur
-
-```
-B5  = Törn-Start
-B6  = Törn-Ende
-B7  = Gesamttage (berechnet)
-
-Crew-Tabelle (Zeilen 11–22, max. 12 Personen):
-B = Name
-C = An Bord ab
-D = An Bord bis
-E = Tage (berechnet)
-F = Alkohol? (x für Trinker)
-G = Zeitanteil % (berechnet)
-H = Hinweis
-K = Hilfsspalte für Gutschrift-"An"-Dropdown ("Alle" + Namen)
-```
 
 ## Aufteilungs-Logiken (vier Varianten)
 
@@ -163,10 +89,10 @@ Gutschriften = Geld das außerhalb der Bordkasse fließt (z.B. Yacht-Vorauszahlu
 - Alle anderen Crewmitglieder bekommen anteilig zugerechnet: -240€/(N-1) je Person
 - Saldo-Summe muss 0 bleiben
 
-## Schulden-Algorithmus (Apps Script)
+## Schulden-Algorithmus
 
 Greedy-Matching für minimale Anzahl Überweisungen:
-1. Bilanz-Salden lesen
+1. Bilanz-Salden lesen (`simplify_debts()` in SQL, TS-Mirror in `lib/calc/debts.ts`)
 2. Schuldner (negativ) und Gläubiger (positiv) trennen, sortiert nach Höhe
 3. Größter Schuldner zahlt an größten Gläubiger so viel wie möglich
 4. Wenn einer "leer" ist, nächster Schuldner/Gläubiger
@@ -186,56 +112,11 @@ Wichtigste Farben:
 
 Schriften: Campton Bold (Display) → Arial Bold (H2) → Arial Regular (Body).
 
-## Häufige Aufgaben für Claude Code
+## Bekannte Fallen (Berechnung)
 
-### Sheets-Lösung weiterentwickeln
-
-**Neue Crewliste für nächsten Törn:**
-- Datei in `assets/sheets-current/` öffnen
-- Tab "Besatzung" Zeilen 11–22 anpassen (Name, An Bord ab/bis, Alkohol)
-- Apps Script bleibt unverändert
-- Wenn Personen gelöscht werden: ALLE Formelreferenzen prüfen (siehe "Bekannte Fallen")
-
-**Apps Script erweitern:**
-- Datei `Bordkasse_AppScript_v11.js` editieren
-- Zellkoordinaten oben in Konstanten `E` (Eingabe), `G` (Gutschrift), `TX`, `B`, `S`
-- Neue Validierungen in `transaktionSpeichern()` bzw. `gutschriftSpeichern()`
-- Neue Aufteilungslogik: in Transaktionen-Sheet Spalten V–AG (P1-P12 Calc) Formel anpassen, dann Apps Script ggf. erweitern
-
-**Neue Aufteilungsart hinzufügen:**
-1. Eingabe-Tab Dropdown B25 erweitern
-2. Calc-Formel in Transaktionen Spalten V–AG erweitern (verschachteltes IF)
-3. Apps Script `transaktionSpeichern` ggf. mit neuer Validierung
-4. Doku in `docs/calculation-rules.md` updaten
-
-**Crew-Größe ändern (mehr/weniger als 12):**
-- `B.N` im Apps Script anpassen
-- Besatzung-Tab Zeilen 11–22 erweitern (alle Berechnungs-Spalten C–H)
-- Eingabe-Tab Person-Zeilen 31–42 entsprechend erweitern (Formel + Checkbox-DV)
-- `INDIVIDUELL_LAST_ROW`, `DABEI_COUNT` updaten
-- Transaktionen Spalten V–AG (Calc) ggf. erweitern
-
-**Strukturelle Änderungen am Tab-Layout:**
-- Niemals manuell im xlsx — immer ein Migrations-Skript in `scripts/` schreiben (Vorlage: `scripts/migrate_v8_to_v9.py`)
-- Skript erzeugt parallel `_vN.xlsx` + `_vN.js`, alte Version bleibt unangetastet
-- openpyxl shiftet Merges + Data-Validations beim `delete_rows` NICHT automatisch — beide manuell behandeln (siehe Skript)
-
-### Bekannte Fallen
-
-**Beim Löschen einer Person aus Besatzung:**
-- Spalte X (Person 3 Calc) bricht mit `#REF!`
-- Eingabe-Labels in Zeilen 21–22 (alt) bzw. die mobile Liste nicht automatisch nachgezogen
-- Bilanz-Spalte A (Name-Lookup) kann auf falsche Zeile zeigen
-- **Fix:** Calc-Formel aus Nachbar-Spalte regenerieren (P2 → P3 mit `$12` → `$13`), siehe Pattern in v8
-
-**Beim Verschieben von Spalten in Besatzung:**
-- 2400+ Formeln in Transaktionen referenzieren `Besatzung!$B$11:$B$22` für Namen
-- Falsche Spalten-Referenz brechen die gesamte Datei lautlos (Bilanz zeigt "00:00:00" o.ä.)
-- **Fix:** Niemals manuell Spalten in Besatzung verschieben — immer komplett neu formatieren
-
-**MATCH-Falle bei gleichen Saldenbeträgen:**
-- `MATCH` gibt immer ersten Treffer zurück → wenn 9 Personen je -10€ schulden, bleibt nur die erste sichtbar
-- **Fix:** Im Apps Script `schuldenBerechnen_` werden alle Schuldner einzeln behandelt, kein MATCH-Lookup mehr
+**MATCH-Falle bei gleichen Saldenbeträgen** (stammt aus der früheren Sheets-Lösung, die aus dem Repo entfernt wurde):
+- Ein Lookup per Betrag liefert immer den ersten Treffer → wenn 9 Personen je -10 € schulden, wird nur die erste Person gefunden.
+- **Fix:** Schuldner/Gläubiger werden einzeln behandelt, nie über einen Betrags-Lookup; bei Gleichstand entscheidet ein deterministischer Tiebreak (Person-ID, siehe `simplify_debts()` Migration 0055 und `lib/calc/debts.ts`).
 
 ## Web-App `webapp/`
 
@@ -397,16 +278,10 @@ wget -qO- https://raw.githubusercontent.com/Jannik96D/bordkasse-public/main/weba
 ├── docs/
 │   ├── design-system.md                 # Komplettes Segel-Design
 │   ├── calculation-rules.md             # Alle Aufteilungslogiken im Detail
-│   ├── apps-script-reference.md         # Apps Script Funktionen + Zell-Mapping
-│   ├── buttons-setup.md                 # Klickbare Speichern-Buttons in Google Sheets einrichten
-│   ├── protection-setup.md              # Tabellenblätter schützen, Eingabefelder offen lassen
 │   ├── prepayments.md                   # Anzahlungs-Modul Spec (Tranchen, Wizard, Matrix, Selbstmeldung)
 │   ├── foreign-currency.md              # Fremdwährungs-Modul Spec (Kurs, EUR-Umrechnung, Bankkurs, Rechner)
 │   ├── push-notifications.md            # Web-Push Spec
 │   └── web-app-spec.md                  # Migrations-Spezifikation (historische Roadmap)
-├── scripts/
-│   ├── migrate_v8_to_v9.py              # Reproduzierbarer xlsx-Umbau v8→v9
-│   └── migrate_v9_to_v10.py             # Reproduzierbarer xlsx-Umbau v9→v10
 ├── webapp/                              # Web-App (Next.js + Supabase) — Setup in webapp/README.md
 │   ├── app/                             # App Router (Trips, Auth, Profile, Stats, Cron, About)
 │   │   ├── about/                       # Public Funktionsübersicht mit Screenshots
@@ -426,29 +301,18 @@ wget -qO- https://raw.githubusercontent.com/Jannik96D/bordkasse-public/main/weba
 │   │                                    # + _e2e_tests.sql (self-asserting Live-View-Integrationstest)
 │   ├── __tests__/                       # Vitest (calc, schema, prepayments, dates, outbox, transaction-actions; happy-dom+fake-indexeddb)
 │   └── e2e/                             # Playwright Smoke-Tests
-├── .github/workflows/webapp-ci.yml      # CI für webapp/ (lint + typecheck + test)
-└── assets/
-    ├── sheets-current/
-    │   ├── Bordkasse_IJsselmeer2026_v10.xlsx    # produktive xlsx
-    │   ├── Bordkasse_AppScript_v11.js           # produktives Script
-    │   ├── Bordkasse_AppScript_v10.js           # v10-Script-Referenz
-    │   ├── Bordkasse_IJsselmeer2026_v9.xlsx     # v9-Referenz
-    │   ├── Bordkasse_AppScript_v9.js            # v9-Referenz
-    │   ├── Bordkasse_IJsselmeer2026.xlsx        # v8-Referenz
-    │   └── Bordkasse_AppScript_v8.js            # v8-Referenz
-    └── design/
-        └── (Logo, Bilder werden ergänzt)
+└── .github/workflows/webapp-ci.yml      # CI für webapp/ (lint + typecheck + test)
 ```
 
 ## Wichtige Prinzipien
 
-**Pragmatik vor Perfektion.** Die Sheets-Lösung wurde gewählt weil sie ohne Login funktioniert und die Crew sie sofort nutzen kann. Eine Web-App wäre technisch sauberer, hätte aber höhere Einstiegshürde.
+**Pragmatik vor Perfektion.** Lieber eine einfache, robuste Lösung, die die Crew sofort nutzen kann, als ein perfektes System mit hoher Einstiegshürde.
 
 **Deutsch ist verbindlich.** Auch in Kommentaren, Variablen optional englisch.
 
 **Mobile zuerst.** Nicht-technikaffine Crew sitzt auf der Yacht mit Smartphone in der Hand, nicht am Laptop. Touch-Targets ≥ 40px Höhe, große Schrift, vertikal gestapelt.
 
-**Fail-Safe.** Lieber ein Feld zu viel ausblenden als die Crew mit ungültigen Optionen verwirren. Apps Script validiert vor dem Speichern.
+**Fail-Safe.** Lieber ein Feld zu viel ausblenden als die Crew mit ungültigen Optionen verwirren. Die Server-Action validiert vor dem Speichern.
 
 **Audit-Trail.** Transaktionen sind append-only — niemand löscht versehentlich Daten. Korrekturen über neue Gutschrift-Einträge.
 
@@ -470,8 +334,5 @@ Vor dem Mergen einer neuen Komponente kurz prüfen: kann ich nur mit Tab + Pfeil
 
 Wenn du in diesem Projekt arbeitest:
 
-1. **Lies erst die Doku in `docs/`**, bevor du Änderungen machst — besonders `apps-script-reference.md` für Zellkoordinaten.
-2. **Bei Sheets-Änderungen:** Datei in `assets/sheets-current/` direkt editieren (oder Kopie mit neuer Versionsnummer anlegen).
-3. **Bei Apps Script-Änderungen:** Versionsnummer im Header inkrementieren (`v11` → `v12`), Changelog am Anfang der Datei aktualisieren.
-4. **Bei strukturellen Änderungen** (neue Spalten, neue Tabs): IMMER alle Formel-Referenzen prüfen — siehe Pattern in den Recovery-Scripts in `docs/`.
-5. **Testen mit den Szenarien** in `docs/calculation-rules.md` — alle 7 müssen weiterhin korrekt rechnen.
+1. **Lies erst die Doku in `docs/`**, bevor du Änderungen machst — besonders `calculation-rules.md` und die jeweilige Modul-Spec.
+2. **Bei Änderungen an Berechnungslogik:** SQL-Views/Functions und TS-Mirror (`webapp/lib/calc/`) gemeinsam anpassen und gegen die Szenarien in `docs/calculation-rules.md` testen — alle 7 müssen weiterhin korrekt rechnen.

@@ -4,7 +4,7 @@ name: webapp-ci
 # Der Path-Filter ("nur bei webapp/** laufen") saß früher hier oben unter `on:`.
 # Problem: Ein PFLICHT-Status-Check, der wegen Path-Filter gar nicht erst startet,
 # bleibt für GitHub ewig "Expected — waiting for status to be reported" und
-# blockiert den Merge — auch bei reinen Doku-/Sheets-PRs.
+# blockiert den Merge — auch bei reinen Doku-PRs.
 #
 # Lösung: Der Workflow läuft jetzt bei JEDEM PR/Push auf main. Ein schlanker
 # `changes`-Job entscheidet per git-diff, ob webapp-relevante Dateien betroffen

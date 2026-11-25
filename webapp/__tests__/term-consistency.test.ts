@@ -17,7 +17,7 @@
  * Dieser Test scannt den aktiven App-Code (app/ + lib/) und schlägt fehl,
  * sobald eine alte Bindestrich-Form wieder auftaucht.
  *
- * Bewusst NICHT gescannt: supabase/migrations + docs/apps-script (eingefroren)
+ * Bewusst NICHT gescannt: supabase/migrations (eingefroren)
  * sowie __tests__ (Test-Beschreibungen dürfen die alten Begriffe als Prosa
  * nennen). Die internen Bezeichner „Törn-Fortschritt-Karte/-Checkliste"
  * bleiben in Kommentaren erlaubt (allowlist).
