@@ -1,0 +1,13 @@
+# Gezielte Freigaben bekannter Fehlalarme (je Fingerprint = Commit:Datei:Regel:Zeile).
+# gitleaks liest diese Datei automatisch. Nie ganze Dateien freigeben, und nur
+# nach Prüfung, dass der Fund KEIN echtes Secret ist (sonst rotieren!).
+
+# Öffentliche VAPID-Schlüssel (uncompressed EC-Public-Keys) in einem Test — öffentlich per Definition.
+664b9ad7c24bb9553d984731f920426dcac6ab98:webapp/__tests__/push-vapid-rotation.test.ts:generic-api-key:27
+664b9ad7c24bb9553d984731f920426dcac6ab98:webapp/__tests__/push-vapid-rotation.test.ts:generic-api-key:29
+
+# .env.example: `JWT_SECRET=` ist ein leerer Platzhalter; der Treffer entsteht, weil die Regel über den Zeilenumbruch hinweg die Folgezeile erfasst.
+89fda837db3975cd0d1cc22e173b48e8aba14990:webapp/supabase/self-host/.env.example:generic-api-key:20
+
+# Demo-Seed: UUID einer lokalen Demo-Auth-User-ID, kein Geheimnis (hohe Entropie löst die generische Regel aus).
+8b7818e99c525dcdc1187f99445171e20ef61c4e:webapp/supabase/seed_demo.sql:generic-api-key:10
