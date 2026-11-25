@@ -15,19 +15,6 @@
     "e2e:install": "playwright install chromium",
     "knip": "knip --include exports,types,files"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "sharp",
-      "unrs-resolver"
-    ],
-    "overrides": {
-      "postcss": ">=8.5.10",
-      "vite": "^8.3.5",
-      "js-yaml": "^4.3.1",
-      "sharp": "^0.35.4",
-      "minimatch@3.1.5>brace-expansion": "^1.1.16"
-    }
-  },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
