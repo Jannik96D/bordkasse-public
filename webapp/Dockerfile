@@ -38,7 +38,10 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.16.0 --activate
-COPY package.json pnpm-lock.yaml ./
+# pnpm-workspace.yaml trägt overrides + Build-Freigaben und MUSS mit ins Image:
+# ohne sie passt die Lockfile-`overrides:`-Sektion nicht zur Konfiguration und
+# `--frozen-lockfile` bricht ab.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # --frozen-lockfile: der Build scheitert, wenn package.json und Lockfile
 # auseinanderlaufen, statt stillschweigend andere Versionen zu ziehen.
 RUN pnpm install --frozen-lockfile

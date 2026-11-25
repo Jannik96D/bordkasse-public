@@ -1,8 +1,25 @@
+# pnpm-Konfiguration — kein Monorepo, nur der Ort für Einstellungen.
+#
+# Warum HIER und nicht im "pnpm"-Block der package.json: pnpm 11 liest
+# Einstellungen nur noch aus dieser Datei und ignoriert package.json#pnpm.
+# Dependabot nutzt offenbar pnpm 11 — mit den Overrides in der package.json
+# erzeugte es Lockfiles ohne `overrides:`-Sektion, und die CI scheiterte an
+# ERR_PNPM_LOCKFILE_CONFIG_MISMATCH (Dependabot-PRs #266–#291, Okt/Nov 2026).
+# pnpm 10 (CI + Dockerfile) liest die Datei ebenfalls. Das Dockerfile kopiert sie
+# deshalb mit ins Image (Stage `deps`).
+
+# Postinstall-Skripte erlauben (pnpm 11: allowBuilds, pnpm 10: onlyBuiltDependencies).
 allowBuilds:
-  sharp: set this to true or false
-  unrs-resolver: set this to true or false
-# Local workspace config — kein Monorepo, nur damit pnpm v11
-# `onlyBuiltDependencies` erkennt und postinstall-Scripts erlaubt.
+  sharp: true
+  unrs-resolver: true
 onlyBuiltDependencies:
   - sharp
   - unrs-resolver
+
+# Sicherheits-Pins für transitive Abhängigkeiten.
+overrides:
+  postcss: ">=8.5.10"
+  vite: "^8.3.5"
+  js-yaml: "^4.3.1"
+  sharp: "^0.35.4"
+  "minimatch@3.1.5>brace-expansion": "^1.1.16"
