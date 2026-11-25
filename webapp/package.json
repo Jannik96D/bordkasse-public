@@ -39,7 +39,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.5",
     "fake-indexeddb": "^6.2.6",
-    "happy-dom": "^20.12.0",
+    "happy-dom": "^21.0.4",
     "knip": "^6.44.0",
     "sharp": "^0.35.4",
     "tailwindcss": "^4",
