@@ -261,7 +261,13 @@ services:
       PGRST_ADMIN_SERVER_HOST: localhost
       PGRST_JWT_SECRET: ${JWT_SECRET}
       PGRST_DB_USE_LEGACY_GUCS: "false"
-      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      # Bewusst KEIN `PGRST_APP_SETTINGS_JWT_SECRET` (Sicherheitsrunde
+      # 2026-11, Slice 18): PostgREST setzt jedes `PGRST_APP_SETTINGS_*` in
+      # JEDER Anfrage als `app.settings.*` — per `current_setting()` für
+      # jede Rolle lesbar, auch für anon. Das JWT-Secret wäre damit für
+      # jeden lesbar, der eine Funktion mit eigenem SQL ausführen kann.
+      # Keine Funktion/View/Policy liest es (pgTAP db_hardening_test.sql),
+      # PostgREST selbst prüft Tokens über PGRST_JWT_SECRET.
       PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY}
     command: ["postgrest"]
 

@@ -1026,6 +1026,110 @@ und `grant%5Ftype=password`, ohne Fix je mit Session); Refresh 200 → 200;
 Service-Role-Pfad weiter möglich; `GET /user`, `POST /logout`, `/verify`,
 CORS-Preflights und Realtime unverändert.
 
+### DB-Härtung: anon ohne Rechte, JWT-Secret aus der Datenbank (Sicherheitsrunde 2026-11, Slice 18)
+
+Zwei unabhängige Teile, beide heute nicht ausnutzbar, aber Fallen für später:
+
+- **Migration `0066_anon_default_privileges.sql`:** `anon` verliert jedes
+  Recht auf Tabellen/Views/Sequenzen und eigene Funktionen in `public`;
+  neue Funktionen der Rolle `postgres` sind nicht mehr für PUBLIC/anon
+  ausführbar. `authenticated` und `service_role` behalten exakt ihren Stand —
+  einzige Ausnahme: `cleanup_login_rate_limit()` (SECURITY DEFINER, laut 0036
+  „nur service_role“) war über die Schema-Vorgabe auch für `authenticated`
+  offen und ist jetzt service-only. Gehört ein Nicht-Extension-Objekt in
+  `public` nicht `postgres`, bricht die Migration ab (sonst bliebe die
+  Härtung still lückenhaft).
+  Die App nutzt `anon` in `public` nirgends (Login/RPC über Service-Role,
+  Lesen/Realtime erst nach dem Login als `authenticated`).
+- **JWT-Secret:** `volumes/db/jwt.sql` hatte bei der Erstinitialisierung
+  `app.settings.jwt_secret` als Datenbankeinstellung gesetzt, PostgREST setzte
+  sie über `PGRST_APP_SETTINGS_JWT_SECRET` zusätzlich in **jeder** Anfrage.
+  Per `current_setting()` war das Secret damit für jede Rolle lesbar (auch
+  `anon`) — wer es kennt, kann sich Service-Role-Tokens signieren. Nichts in
+  der Datenbank liest die Einstellung (pgTAP `db_hardening_test.sql`).
+  Die Compose-Variable ist entfernt, `jwt.sql` setzt das Secret bei einer
+  Neuinstallation nicht mehr. Die Datenbankeinstellung bestehender
+  Installationen räumt `supabase/ops/reset-jwt-setting-2026-11.sql` ab —
+  **als `supabase_admin`**, denn `postgres` darf sie nicht zurücksetzen
+  („permission denied to set parameter“; darum kein Migrationsschritt).
+
+**Vorab lesen** (temporärer Task, Container `db`, `psql -U postgres -d postgres -Atc "…"`),
+nur Zahlen, zur Dokumentation des Ausgangsstands:
+
+```sql
+-- Nicht-Extension-Objekte in public, die NICHT postgres gehören (erwartet: 0;
+-- sonst bricht 0066 bewusst ab — erst Eigentümer klären)
+select (select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace
+         where n.nspname='public' and c.relkind in ('r','p','v','m','f','S')
+           and c.relowner<>'postgres'::regrole
+           and not exists(select 1 from pg_depend d where d.classid='pg_class'::regclass and d.objid=c.oid and d.deptype='e'))
+     + (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+         where n.nspname='public' and p.proowner<>'postgres'::regrole
+           and not exists(select 1 from pg_depend d where d.classid='pg_proc'::regclass and d.objid=p.oid and d.deptype='e'));
+-- Tabellen/Views mit irgendeinem anon-Recht (vor 0066: alle; danach 0)
+select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace
+ where n.nspname='public' and c.relkind in ('r','p','v','m','f')
+   and not exists(select 1 from pg_depend d where d.classid='pg_class'::regclass and d.objid=c.oid and d.deptype='e')
+   and has_table_privilege('anon', c.oid, 'SELECT,TRUNCATE,REFERENCES,TRIGGER');
+-- Funktionen (ohne Extensions), die anon ausführen darf (danach 0)
+select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+ where n.nspname='public'
+   and not exists(select 1 from pg_depend d where d.classid='pg_proc'::regclass and d.objid=p.oid and d.deptype='e')
+   and has_function_privilege('anon', p.oid, 'EXECUTE');
+-- JWT-Secret als Datenbankeinstellung gesetzt? (nur ja/nein, nie den Wert)
+select exists(select 1 from pg_db_role_setting s, unnest(s.setconfig) c
+ where s.setrole=0 and c like 'app.settings.jwt_secret=%');
+```
+
+**Reihenfolge Produktion:**
+
+1. **Lese-Abfragen oben** ausführen und notieren (erste muss `0` sein).
+2. **Migration 0066** per temporärem Task einspielen (wie „Neue Migration
+   einspielen“: `psql -U postgres … --single-transaction`, danach Version
+   `0066` / `anon_default_privileges` im Ledger nachtragen). Reihenfolge zur
+   App egal — die App braucht `anon` nicht.
+3. **`reset-jwt-setting-2026-11.sql`** als `supabase_admin` (Aufruf im
+   Skriptkopf). Ausgabe: vorher `t`, nachher `f`, `jwt_exp` `t`.
+   ⚠️ Hat die Supabase-Ressource Auto-Deploy auf `main`, startet der Merge
+   sie sofort mit der neuen Compose-Datei neu — dann Schritt 2 und 3 **vor**
+   dem Merge laufen lassen (in der `wget`-URL den Branch statt `main`).
+4. **Danach** die Supabase-Ressource neu deployen (zieht die neue
+   `docker-compose.yml`, PostgREST startet ohne `PGRST_APP_SETTINGS_JWT_SECRET`
+   und alle Dienste bauen ihre DB-Verbindungen neu auf). Diese Reihenfolge
+   ist Absicht: `ALTER DATABASE … RESET` wirkt nur auf NEUE Sitzungen — erst
+   zurücksetzen, dann neu starten, dann trägt keine Sitzung den Wert mehr.
+   Umgekehrt behielten Pool-Verbindungen, die zwischen Neustart und Reset
+   entstehen, den Wert bis zu ihrem Ende.
+5. **Prüfen:** die Lese-Abfragen → `0`, `0`, `0`, `f`; Login über die
+   Domain, Bilanz eines Törns lädt, Live-Update (Realtime) eines Törns
+   kommt an; `curl -s "$URL/rest/v1/trips?select=id" -H "apikey: $ANON"`
+   → `permission denied` (HTTP 401) statt `[]`.
+
+**Realtime-Nebenwirkung (bewusst):** ein anon-Abo ohne Filter nimmt
+Realtime an; nach 0066 bekommt es bei INSERT/UPDATE auf publizierte Tabellen
+nur `{schema, table, type}` + „401 Unauthorized“ (Zeitpunkt einer Änderung,
+keine Daten, keine `trip_id`). Im Gegenzug enthält ein DELETE-Event für anon
+den Primärschlüssel nicht mehr (Spalten ohne SELECT-Recht entfallen) — die in
+Slice 14 befürchtete Lücke ist für anon damit zu. Nicht per
+`GRANT SELECT (id) … TO anon` „reparieren“.
+
+**Lokal belegt** (supabase/postgres 17.6, CLI-Stack, Migration in einer
+zurückgerollten Transaktion): alle pgTAP-Dateien grün; als `anon`
+„permission denied“ auf Tabellen, Views und Policy-Helfer; als
+`authenticated` mit JWT-Claims (wie PostgREST) Törns, Bilanz, Personen und
+`simplify_debts` unverändert lesbar; das Ops-Skript läuft als
+`supabase_admin` und setzt die Einstellung zurück. **Nicht lokal belegt:**
+Neustart von PostgREST/Realtime aus dieser Compose-Datei per HTTP (Self-Host-
+Stack nicht gestartet) — Schritt 5 ist darum Pflicht.
+
+**Nicht geändert:** die Vorgaben der Rolle `supabase_admin` (volle Rechte inkl.
+`anon` für Objekte, die supabase_admin in `public` anlegt) — `postgres` darf
+sie nicht ändern („permission denied to change default privileges“). Unsere
+Migrationen laufen als `postgres`; wer je als `supabase_admin` Objekte in
+`public` anlegt, muss die Rechte von Hand setzen. `JWT_SECRET` bleibt in der
+Env des `db`-Containers (nur bei der Erstinitialisierung gelesen; Ändern
+würde den Container beim Deploy neu erzeugen, ohne Nutzen).
+
 ---
 
 ## 11. Rollback

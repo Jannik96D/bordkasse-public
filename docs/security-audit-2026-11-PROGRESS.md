@@ -28,7 +28,7 @@ Legende Status: `offen` · `in Arbeit` · `PR offen` · `gemergt` · `wartet auf
 | 15 | Backups mit Rechten und Verschlüsselung | offen | – | – | ja: Server-Betreiber, Schlüssel |
 | 16 | CI mit minimalen Rechten | gemergt | [#308](https://github.com/Jannik96D/bordkasse-public/pull/308) | – | – |
 | 17 | Abhängigkeiten | PR offen | [#309](https://github.com/Jannik96D/bordkasse-public/pull/309) | – | – |
-| 18 | DB-Härtung (Sammelslice) | offen | – | 0066 | ja |
+| 18 | DB-Härtung (Sammelslice) | PR offen | (folgt) | 0066 | ja: 0066 per Task, dann `ops/reset-jwt-setting-2026-11.sql` als `supabase_admin`, danach Supabase-Ressource neu deployen (`docs/self-hosting.md` „DB-Härtung“) |
 
 ## Entscheidungen
 
