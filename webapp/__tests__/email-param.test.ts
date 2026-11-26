@@ -15,6 +15,8 @@ describe("displayableEmail", () => {
     expect(displayableEmail("Dein Konto ist gesperrt, ruf an")).toBeNull();
     expect(displayableEmail("<b>x</b>@a.de")).toBeNull();
     expect(displayableEmail(`${"a".repeat(250)}@example.com`)).toBeNull();
+    expect(displayableEmail("a&b#c=d%zz@x.de")).toBeNull();
+    expect(displayableEmail("crew+tag@example.com")).toBe("crew+tag@example.com");
     expect(displayableEmail(undefined)).toBeNull();
     expect(displayableEmail("")).toBeNull();
   });

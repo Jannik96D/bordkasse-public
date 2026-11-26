@@ -58,6 +58,7 @@ describe("/auth/confirm", () => {
   it("typed_error zeigt den Hinweis, ohne eine Adresse zu spiegeln", async () => {
     const html = await render({ email: "angreifer@example.com", typed_error: "1" });
     expect(html).toContain("noch nicht");
+    expect(html).toContain("ignoriere ihn");
     expect(html).toContain('role="alert"');
     expect(html).not.toContain("angreifer@example.com");
   });

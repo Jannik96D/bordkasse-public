@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { normalizeEmail } from "@/lib/auth/email-param";
+import { displayableEmail, normalizeEmail } from "@/lib/auth/email-param";
 import {
   LOGIN_INTENT_PATH,
   loginIntentCookieName,
@@ -66,13 +66,20 @@ export async function POST(request: NextRequest) {
   // VERSCHIEDENE Adressen, brechen wir VOR dem Einlösen ab — der Token bleibt
   // gültig und der Nutzer kann am selben Link erneut tippen. (Der eigentliche
   // Sicherheitsvergleich mit dem Token-Inhaber nach verifyOtp bleibt davon
-  // unberührt.) Der Hinweis wird in der Meldung nicht gespiegelt.
-  if (typed && hint && normalizeEmail(typed) !== normalizeEmail(hint)) {
+  // unberührt.) Der Hinweis wird weder in der Meldung noch in der Redirect-URL
+  // gespiegelt (sonst stünde eine fremde Adresse in der Adresszeile). Nur bei
+  // einem Hinweis, der wie eine normale Adresse aussieht: exotische Werte
+  // (&, #, =, % …) dürfen den Link nicht dauerhaft unbenutzbar machen.
+  if (
+    typed &&
+    hint &&
+    displayableEmail(hint) &&
+    normalizeEmail(typed) !== normalizeEmail(hint)
+  ) {
     const back = new URL("/auth/confirm", origin);
     back.searchParams.set("token_hash", token_hash);
     back.searchParams.set("type", type);
     back.searchParams.set("next", next);
-    back.searchParams.set("email", hint);
     back.searchParams.set("typed_error", "1");
     return NextResponse.redirect(back, { status: 303 });
   }

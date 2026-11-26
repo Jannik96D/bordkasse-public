@@ -103,7 +103,8 @@ export default async function ConfirmPage({
         {params.typed_error && !oneClick && (
           <p role="alert" className="rounded-md bg-gold-soft px-3 py-2 text-sm text-primary">
             Die eingegebene Adresse passt nicht zu diesem Link. Dein Link wurde noch nicht
-            verbraucht — versuche es erneut und tippe nur deine eigene Adresse ein.
+            verbraucht — versuche es erneut und tippe nur deine eigene Adresse ein. Falls du diesen Link nicht selbst
+            angefordert hast, ignoriere ihn.
           </p>
         )}
 

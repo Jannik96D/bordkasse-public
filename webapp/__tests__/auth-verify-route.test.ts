@@ -278,6 +278,19 @@ describe("/auth/verify — Login-CSRF: Cookie-Beleg + Fallback „Adresse tippen
     expect(location.pathname).toBe("/auth/confirm");
     expect(location.searchParams.get("typed_error")).toBe("1");
     expect(location.searchParams.get("token_hash")).toBe("tokenhash123");
+    // Die (womöglich fremde) Hinweis-Adresse steht nicht in der Adresszeile.
+    expect(location.searchParams.has("email")).toBe(false);
+    expect(response.headers.get("location")).not.toContain("angreifer");
+  });
+
+  it("exotischer Hinweis (&, #, =, %) → KEIN Vorab-Abbruch, Link bleibt benutzbar", async () => {
+    const { POST } = await import("@/app/auth/verify/route");
+    const response = await POST(
+      verifyRequest(headersFor(), "a&b#c=d%zz@x.de", { typed: "crew@example.com" }),
+    );
+
+    expect(verifyOtp).toHaveBeenCalledTimes(1);
+    expect(response.cookies.get("sb-access-token")?.value).toBe("session-secret");
   });
 
   it("getippte Adresse nur mit anderer Schreibweise des Hinweises → kein Vorab-Abbruch", async () => {

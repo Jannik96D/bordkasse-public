@@ -225,8 +225,8 @@ export default function DatenschutzPage() {
         <div>
           <h2 className="text-base font-semibold">6. Cookies</h2>
           <p>
-            Wir setzen ausschließlich technisch notwendige Cookies für die Login-Session
-            (Auth-Cookie). Es werden keine Tracking-, Analyse- oder Werbecookies
+            Wir setzen ausschließlich technisch notwendige Cookies (Login-Session und
+            Login-Sicherheit). Es werden keine Tracking-, Analyse- oder Werbecookies
             verwendet.
           </p>
           <p className="mt-2">

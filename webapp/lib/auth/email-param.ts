@@ -14,7 +14,9 @@ export function normalizeEmail(value: string): string {
   return value.trim().toLowerCase().replace(/\s/g, "+");
 }
 
-const EMAIL_SHAPE = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
+// Bewusst konservativ (gewöhnliche Adressen): Zeichen wie & # = % ' bleiben
+// draußen — sie sind in URLs/Formularen heikel und gelten hier als „exotisch“.
+const EMAIL_SHAPE = /^[a-z0-9._+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/;
 
 /**
  * Liefert die Adresse nur dann zur ANZEIGE zurück, wenn sie wie eine kurze
