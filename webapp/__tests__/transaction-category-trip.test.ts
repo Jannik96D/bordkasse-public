@@ -58,10 +58,11 @@ const SINGLE_ROWS: Record<string, unknown> = {
 // Tabellengesteuerter Fake: trip_categories.maybeSingle liefert die Kategorie
 // nur, wenn sie zum Törn gehört (categoryBelongs). Alles andere ist ein
 // permissiver Erfolgs-Fake; Schreiboperationen werden protokolliert.
-function makeFake(opts: { categoryBelongs: boolean }) {
+function makeFake(opts: { categoryBelongs: boolean; categoryError?: boolean }) {
   const ops: Op[] = [];
   const from = (table: string) => {
     let counting = false;
+    const filters: Record<string, unknown> = {};
     const thenable = (onFulfilled: (v: unknown) => unknown) => {
       let value: unknown = { data: [], error: null };
       if (table === "trip_members") {
@@ -73,7 +74,10 @@ function makeFake(opts: { categoryBelongs: boolean }) {
     };
     const maybeSingle = () => {
       if (table === "trip_categories") {
-        return Promise.resolve({ data: opts.categoryBelongs ? { id: CATEGORY_ID } : null, error: null });
+        if (opts.categoryError) return Promise.resolve({ data: null, error: { message: "boom" } });
+        // Die Kategorie wird NUR geliefert, wenn nach id UND trip_id des Törns gefiltert wurde.
+        const hit = opts.categoryBelongs && filters.id === CATEGORY_ID && filters.trip_id === TRIP_ID;
+        return Promise.resolve({ data: hit ? { id: CATEGORY_ID } : null, error: null });
       }
       if (table === "transactions") return Promise.resolve({ data: EXISTING_TX, error: null });
       if (table === "trip_members") return Promise.resolve({ data: { person_id: PERSON_ID }, error: null });
@@ -82,6 +86,12 @@ function makeFake(opts: { categoryBelongs: boolean }) {
     const handler: ProxyHandler<object> = {
       get(_t, prop: string) {
         if (prop === "then") return thenable;
+        if (prop === "eq") {
+          return (col: string, val: unknown) => {
+            filters[col] = val;
+            return proxy;
+          };
+        }
         if (prop === "maybeSingle") return maybeSingle;
         if (prop === "single") return () => Promise.resolve({ data: SINGLE_ROWS[table] ?? null, error: null });
         if (prop === "select") {
@@ -117,7 +127,7 @@ function expenseFormData(extra: Record<string, string> = {}): FormData {
   return fd;
 }
 
-const CATEGORY_MSG = "Die Kategorie gehört nicht zu diesem Törn";
+const CATEGORY_MSG = "Kategorie nicht (mehr) verfügbar";
 const txWrites = (ops: Op[]) => ops.filter((o) => o.table === "transactions");
 
 beforeEach(() => {
@@ -150,6 +160,19 @@ describe("createExpense — Kategorie muss zum Törn gehören", () => {
     const res = await createExpense({ status: "idle" }, expenseFormData());
     if (res?.status === "error") expect(res.message).not.toContain(CATEGORY_MSG);
     expect(txWrites(ops).some((o) => o.op === "insert")).toBe(true);
+  });
+});
+
+describe("createExpense — Lesefehler bei der Kategorie-Prüfung (fail-closed)", () => {
+  it("lehnt ab statt durchzulassen", async () => {
+    const { client, ops } = makeFake({ categoryBelongs: true, categoryError: true });
+    vi.mocked(createAdminClient).mockReturnValue(client as never);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await createExpense({ status: "idle" }, expenseFormData({ category_id: CATEGORY_ID }));
+    errSpy.mockRestore();
+    expect(res.status).toBe("error");
+    if (res.status === "error") expect(res.message).toContain(CATEGORY_MSG);
+    expect(txWrites(ops)).toHaveLength(0);
   });
 });
 

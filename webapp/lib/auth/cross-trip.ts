@@ -76,7 +76,7 @@ export async function categoryBelongsToTrip(
 }
 
 export const CATEGORY_TRIP_MSG =
-  "Die Kategorie gehört nicht zu diesem Törn. Bitte Seite neu laden.";
+  "Kategorie nicht (mehr) verfügbar. Bitte Seite neu laden und Kategorie neu wählen.";
 
 /**
  * Cross-Trip-Schutz für Personen-Referenzen: stellt sicher, dass jede
