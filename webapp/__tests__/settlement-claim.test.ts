@@ -275,6 +275,53 @@ describe("resendSettlement — atomarer Claim", () => {
     expect(tripRow(fake).changes_pending_since).toBeNull();
   });
 
+  it("Buchung Sekunden VOR dem Klick (schon in der Mail) löst keinen neuen Banner aus", async () => {
+    const fake = setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: ANNOUNCED, changes_pending_since: PENDING });
+    const fiveSecAgo = new Date(Date.now() - 5_000).toISOString();
+    fake.rows("audit_log").push(
+      { id: "a1", trip_id: TRIP, table_name: "transactions", created_at: "2026-06-12T09:00:00.000Z" },
+      { id: "a2", trip_id: TRIP, table_name: "transactions", created_at: fiveSecAgo },
+    );
+    const res = await resendSettlement(TRIP);
+    expect(res.ok).toBe(true);
+    expect(tripRow(fake).changes_pending_since).toBeNull();
+  });
+
+  it("Buchung nach dem Referenzpunkt (während des Versands) trotz älterer Audit-Zeilen → Banner", async () => {
+    const fake = setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: ANNOUNCED, changes_pending_since: PENDING });
+    fake.rows("audit_log").push({
+      id: "a1",
+      trip_id: TRIP,
+      table_name: "transactions",
+      created_at: new Date(Date.now() - 5_000).toISOString(),
+    });
+    mockedSend.mockImplementationOnce(async (msgs) => {
+      bookDuringSend(fake);
+      return msgs.map(() => ({ ok: true })) as never;
+    });
+    await resendSettlement(TRIP);
+    expect(tripRow(fake).changes_pending_since).not.toBeNull();
+  });
+
+  it("Erstversand-Retry: Buchung Sekunden vor dem Klick ohne offenen Marker → kein Banner", async () => {
+    const fake = setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: null });
+    fake.rows("audit_log").push({
+      id: "a1",
+      trip_id: TRIP,
+      table_name: "trip_members",
+      created_at: new Date(Date.now() - 5_000).toISOString(),
+    });
+    await resendSettlement(TRIP);
+    expect(tripRow(fake).changes_pending_since).toBeNull();
+  });
+
+  it("Referenzpunkt nicht lesbar → im Zweifel Banner (fail-safe)", async () => {
+    const fake = setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: ANNOUNCED, changes_pending_since: PENDING });
+    fake.failOn({ table: "audit_log", action: "select" });
+    await resendSettlement(TRIP);
+    expect(tripRow(fake).changes_pending_since).not.toBeNull();
+  });
+
   it("Erstversand-Retry mit offenem Marker: Buchung während des Versands → Marker bleibt gesetzt", async () => {
     const fake = setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: null, changes_pending_since: PENDING });
     mockedSend.mockImplementationOnce(async (msgs) => {

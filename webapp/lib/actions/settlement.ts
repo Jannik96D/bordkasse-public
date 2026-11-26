@@ -60,21 +60,55 @@ const SETTLEMENT_MAIL_TIMEOUTS = { connectionTimeoutMs: 15_000, greetingTimeoutM
 const BALANCE_AUDIT_TABLES = ["transactions", "trip_members", "prepayment_item_obligations"];
 
 /**
- * Hat sich seit `sinceIso` (minus Uhr-Toleranz) etwas am Saldo geändert,
- * Marker erneut setzen. Fail-safe: bei einem Lesefehler ebenfalls setzen —
- * ein überflüssiger Banner ist harmlos, ein fehlender entwertet Häkchen.
+ * Referenzpunkt VOR dem Lesen der Bilanz: der jüngste saldorelevante
+ * Audit-Eintrag des Törns (DB-Uhr). Alles bis hierhin steckt sicher in der
+ * Mail. Bewusst NICHT „App-Uhr minus Toleranz" (Delta-Grill zu PR #311):
+ * eine Buchung, die der Nutzer Sekunden vor „Update-Mail verschicken"
+ * erfasst hat, zählte sonst als „während des Versands" → der Banner käme
+ * sofort wieder, ein zweiter Klick verschickte eine zweite Mail.
+ * `null` = noch kein Eintrag; `"error"` = nicht lesbar.
+ */
+async function latestBalanceAuditAt(
+  supabase: ReturnType<typeof createAdminClient>,
+  tripId: string,
+): Promise<string | null | "error"> {
+  const { data, error } = await supabase
+    .from("audit_log")
+    .select("created_at")
+    .eq("trip_id", tripId)
+    .in("table_name", BALANCE_AUDIT_TABLES)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("[bordkasse:db] resend audit reference:", error.message);
+    return "error";
+  }
+  return (data as { created_at?: string } | null)?.created_at ?? null;
+}
+
+/**
+ * Gibt es saldorelevante Audit-Einträge, die NEUER als der vor dem Lesen
+ * der Bilanz gemerkte Referenzpunkt sind, Marker erneut setzen. Fail-safe:
+ * bei einem Lesefehler (auch des Referenzpunkts) ebenfalls setzen — ein
+ * überflüssiger Banner ist harmlos, ein fehlender entwertet Häkchen.
  */
 async function remarkIfChangedDuringSend(
   supabase: ReturnType<typeof createAdminClient>,
   tripId: string,
-  sinceIso: string,
+  reference: string | null | "error",
 ): Promise<void> {
-  const { count, error } = await supabase
+  if (reference === "error") {
+    await markBalancesMayHaveChanged(supabase, tripId);
+    return;
+  }
+  let query = supabase
     .from("audit_log")
     .select("id", { count: "exact", head: true })
     .eq("trip_id", tripId)
-    .in("table_name", BALANCE_AUDIT_TABLES)
-    .gte("created_at", isoShift(sinceIso, -CLOCK_SKEW_MS));
+    .in("table_name", BALANCE_AUDIT_TABLES);
+  if (reference !== null) query = query.gt("created_at", reference);
+  const { count, error } = await query;
   if (error) console.error("[bordkasse:db] resend recheck:", error.message);
   if (error || (count ?? 0) > 0) await markBalancesMayHaveChanged(supabase, tripId);
 }
@@ -443,6 +477,9 @@ export async function resendSettlement(tripId: string): Promise<Result> {
           .eq("changes_pending_since", leaseUntil);
     if (error) console.error("[bordkasse:db] resend release:", error.message);
   };
+  // Referenzpunkt für den Nachcheck nach dem Versand (beide Pfade) — direkt
+  // nach dem Claim und VOR dem Lesen der Bilanz.
+  const auditReference = await latestBalanceAuditAt(supabase, tripId);
 
   // Diff-Hinweis aus dem Audit-Log: alle Transaktions-Änderungen seit dem
   // Marker (oder seit dem letzten Resend / der initialen Abrechnung). Ist
@@ -625,7 +662,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
     // konnte den Marker nicht setzen (Update-Pfad: Marker stand auf dem
     // Zukunftswert; Erstversand mit offenem Marker: Marker war schon
     // gesetzt) und wurde mit dem Abschluss eben mit gelöscht → nachholen.
-    await remarkIfChangedDuringSend(supabase, tripId, claimedAt);
+    await remarkIfChangedDuringSend(supabase, tripId, auditReference);
   } else {
     // Nichts zugestellt → Claim zurückgeben, damit der Versand sofort
     // erneut versucht werden kann.
