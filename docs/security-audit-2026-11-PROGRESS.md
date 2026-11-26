@@ -1,8 +1,8 @@
 # Sicherheitsrunde 2026-11 — Stand (Progress)
 
-Zustandsdokument der Runde. Plan: `docs/security-audit-2026-11-PLAN.md`, Startprompt:
-`docs/security-audit-2026-11-KICKOFF.md`. Wird in **jedem** Slice-PR fortgeschrieben (Status,
-PR-Link, Migration, Eingriff).
+Zustandsdokument der Runde. Der ursprüngliche Plan und der Startprompt liegen bewusst nicht mehr im
+Repo; sie stehen nur noch in der Git-Historie (`git show 77e489b:docs/security-audit-2026-11-PLAN.md`).
+Wird in **jedem** Slice-PR fortgeschrieben (Status, PR-Link, Migration, Eingriff).
 
 Legende Status: `offen` · `in Arbeit` · `PR offen` · `gemergt` · `wartet auf 🖐`.
 
@@ -85,8 +85,8 @@ Deutet etwas auf Missbrauch, entscheidet der Nutzer über das Sperren betroffene
 
 ## Bootstrap für Folgesessions
 
-1. `CLAUDE.md` (Repo-Root) und `docs/security-audit-2026-11-PLAN.md` lesen („Arbeitsweise",
-   der jeweilige Slice, „Reihenfolge und Modellstufen"); dieses Dokument für den Stand.
+1. `CLAUDE.md` (Repo-Root) lesen; den Plan („Arbeitsweise", der jeweilige Slice, „Reihenfolge und
+   Modellstufen") bei Bedarf aus der Git-Historie holen (siehe oben); dieses Dokument für den Stand.
 2. Nächsten `offen`-Slice laut Reihenfolge wählen (0 → 1 → 3/4 → 2 → 5 → 9 → 6 → 7 → 8 → 10 →
    11 → 12 → 13 → 14 → 15 → 16 → 17 → 18; gleiche Datei = nacheinander).
 3. Branch frisch von `origin/main` (`security/slice-<n>-<kurzname>`), implementieren, `cd webapp

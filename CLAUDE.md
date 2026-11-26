@@ -287,7 +287,7 @@ wget -qO- https://raw.githubusercontent.com/Jannik96D/bordkasse-public/main/weba
 
 ## Projekt-Dateien
 
-> Sicherheitsrunde 2026-11: Plan `docs/security-audit-2026-11-PLAN.md`, Startprompt `docs/security-audit-2026-11-KICKOFF.md`, Stand `docs/security-audit-2026-11-PROGRESS.md`.
+> Sicherheitsrunde 2026-11: Stand `docs/security-audit-2026-11-PROGRESS.md`. Plan und Startprompt liegen nicht mehr im Repo, nur noch in der Git-Historie (Commit `77e489b`).
 
 ```
 .
