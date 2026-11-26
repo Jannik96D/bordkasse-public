@@ -3,7 +3,7 @@
 import { createHmac } from "node:crypto";
 import { z } from "zod";
 import { cookies, headers } from "next/headers";
-import { createCookielessClient } from "@/lib/supabase/cookieless";
+import { createOtpMailerClient } from "@/lib/supabase/otp-mailer";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isEmailAllowedToSignIn } from "@/lib/auth/authz";
 import { ensureAuthUser } from "@/lib/auth/ensure-auth-user";
@@ -151,7 +151,7 @@ export async function signInWithMagicLink(
   }
 
   const origin = resolveOrigin(hdrs.get("origin"));
-  const supabase = createCookielessClient();
+  const supabase = createOtpMailerClient();
   if (!supabase) {
     console.error("[bordkasse:auth] Supabase-Config fehlt");
     return { status: "error", message: SEND_FAILED_MESSAGE };
@@ -167,7 +167,8 @@ export async function signInWithMagicLink(
     return { status: "error", message: SEND_FAILED_MESSAGE };
   }
 
-  // Cookieloser Client: die Session entsteht erst in /auth/verify.
+  // Cookieloser Client mit Service-Role-Key (Slice 2: Kong sperrt /otp für
+  // den anon-Key); die Session entsteht erst in /auth/verify.
   // `shouldCreateUser: false` — Konten legt ausschließlich ensureAuthUser an.
   const { error } = await supabase.auth.signInWithOtp({
     email: parsed.data.email,

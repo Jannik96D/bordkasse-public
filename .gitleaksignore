@@ -11,3 +11,9 @@
 
 # Demo-Seed: UUID einer lokalen Demo-Auth-User-ID, kein Geheimnis (hohe Entropie löst die generische Regel aus).
 8b7818e99c525dcdc1187f99445171e20ef61c4e:webapp/supabase/seed_demo.sql:generic-api-key:10
+
+# Slice 2 (PR #306): Wegwerf-Passwort im lokalen Probe-Skript probe-auth-allowlist.mjs
+# (läuft nur gegen localhost, Testkonto im lokalen Lab-Stack) — kein echtes Secret.
+# Seit dem Folge-Commit erzeugt das Skript die Passwörter zur Laufzeit; der Eintrag
+# deckt nur den Treffer in der Historie ab.
+6673f626ec2b1f67407bfbeef79675209095f9d6:webapp/supabase/self-host/probe-auth-allowlist.mjs:generic-api-key:103

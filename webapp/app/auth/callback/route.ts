@@ -13,8 +13,14 @@ export const dynamic = "force-dynamic";
  *
  * Standard-Pfad in dieser App ist inzwischen `/auth/confirm` mit
  * Token-Hash, weil PKCE bei Cross-Browser-Klick ("PKCE code verifier not
- * found in storage") bricht. `/auth/callback` bleibt für Backward-
- * Kompatibilität (alte Mails, externe Login-Provider) erhalten.
+ * found in storage") bricht. `/auth/callback` bleibt vorerst erhalten.
+ *
+ * ⚠️ Seit Sicherheitsrunde 2026-11, Slice 2 faktisch tot: der Code-Tausch
+ * (`POST /auth/v1/token?grant_type=pkce`) ist in Kong für den anon-Key
+ * gesperrt, und die Versand-Clients nutzen den impliziten Flow (es entstehen
+ * keine PKCE-Codes). Ein Aufruf endet in der Fehler-Weiterleitung auf
+ * `/login`. Entfernen ist als offener Punkt vorgemerkt
+ * (docs/security-audit-2026-11-PROGRESS.md).
  *
  * Bei Fehlern werden Fehlercode + Beschreibung als Query-Parameter an
  * `/login` weitergereicht, damit die Login-Page den Grund anzeigen kann.

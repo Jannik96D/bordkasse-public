@@ -153,9 +153,146 @@ services:
           origins:
             - $CORS_ORIGIN
 
-  ## Secure Auth routes
+  ## ── Auth für den anon-Key: ALLOWLIST (Sicherheitsrunde 2026-11, Slice 2) ──
+  #
+  # Vorher stand hier eine einzige Route `/auth/v1/` für anon UND admin. Damit
+  # war mit dem öffentlichen anon-Key (steht im Browser-Bundle) JEDER
+  # GoTrue-Endpunkt erreichbar: `signup` (Konto ohne Postfach), `PUT /user`
+  # (E-Mail/Passwort ändern — mit Autoconfirm ohne Bestätigung), Passwort-
+  # Login am Magic-Link vorbei, und `otp`/`magiclink`/`recover`/`resend` als
+  # Mail-Flut, die das GLOBALE Kontingent `GOTRUE_RATE_LIMIT_EMAIL_SENT`
+  # erschöpft (alle legitimen Logins kommen über dieselbe Server-IP).
+  #
+  # Jetzt erreicht der anon-Consumer nur noch, was App und Browser wirklich
+  # brauchen (per Grep belegt, siehe docs/self-hosting.md „Kong-Allowlist"):
+  #   - POST /token  NUR mit grant_type=refresh_token (Token-Refresh, auch im
+  #                  Browser über components/realtime-trip.tsx)
+  #   - GET  /user   (getUser in proxy.ts, getCurrentPerson, /auth/verify)
+  #   - POST /logout (signOut)
+  #   - die offenen Routen oben (verify, callback, authorize, jwks, sso/*)
+  # Alles andere landet in der Catch-all-Route weiter unten, die nur noch die
+  # ACL-Gruppe `admin` (Service-Role-Key) durchlässt → anon bekommt 403.
+  # Über den admin-Consumer laufen Kontoanlage (ensureAuthUser) und der
+  # Magic-Link-Versand (signInWithOtp mit Service-Role-Key, Login + Einladung).
+  #
+  # ⚠️ KONG_ROUTER_FLAVOR=expressions: die Routen sind `expression`s mit
+  # expliziter `priority`, damit sie sicher vor der Präfix-Route `/auth/v1/`
+  # greifen. Pfadvergleich EXAKT (`==`) — ein abweichender Pfad (Slash am
+  # Ende, Großschreibung, …) fällt in die Catch-all und damit für anon auf
+  # 403 (fail-closed). Gegen den Self-Host-Stack per curl belegt
+  # (docs/self-hosting.md).
+  #
+  # ⚠️ Warum die 403 aus der ACL kommt und nicht aus `request-termination`:
+  # Routing passiert VOR der Authentifizierung, eine Route weiß also nicht,
+  # ob anon oder admin anfragt. `request-termination` auf der Catch-all würde
+  # auch den Service-Role-Key aussperren (Kontoanlage, OTP-Versand).
+  - name: auth-v1-anon-refresh
+    _comment: 'Auth (anon): POST /auth/v1/token?grant_type=refresh_token -> http://auth:9999/token'
+    url: http://auth:9999/token
+    routes:
+      - name: auth-v1-anon-refresh
+        strip_path: true
+        priority: 1000
+        expression: 'http.path == "/auth/v1/token" && http.method == "POST" && http.queries.grant_type == "refresh_token"'
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - $CORS_ORIGIN
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: request-transformer
+        config:
+          # GoTrue liest den Grant über `r.FormValue("grant_type")` — das ist
+          # der ERSTE Wert, und ein URL-kodierter Schlüssel (`grant%5Ftype`)
+          # zählt mit. `?grant_type=password&grant_type=refresh_token` könnte
+          # sonst die Route treffen und trotzdem den Passwort-Grant auslösen
+          # (ohne Fix gemessen: Session). Deshalb alle Varianten entfernen und
+          # genau einen Wert neu setzen (Reihenfolge im Plugin: remove → add).
+          remove:
+            querystring:
+              - grant_type
+            body:
+              - grant_type
+          add:
+            querystring:
+              - "grant_type:refresh_token"
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+          replace:
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+  - name: auth-v1-anon-user
+    _comment: 'Auth (anon): GET /auth/v1/user -> http://auth:9999/user'
+    url: http://auth:9999/user
+    routes:
+      - name: auth-v1-anon-user
+        strip_path: true
+        priority: 1000
+        expression: 'http.path == "/auth/v1/user" && http.method == "GET"'
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - $CORS_ORIGIN
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: request-transformer
+        config:
+          add:
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+          replace:
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+  - name: auth-v1-anon-logout
+    _comment: 'Auth (anon): POST /auth/v1/logout -> http://auth:9999/logout'
+    url: http://auth:9999/logout
+    routes:
+      - name: auth-v1-anon-logout
+        strip_path: true
+        priority: 1000
+        expression: 'http.path == "/auth/v1/logout" && http.method == "POST"'
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - $CORS_ORIGIN
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: request-transformer
+        config:
+          add:
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+          replace:
+            headers:
+              - "Authorization: $LUA_AUTH_EXPR"
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+
+  ## Secure Auth routes — Catch-all, seit Slice 2 NUR admin (Service-Role-Key)
   - name: auth-v1
-    _comment: 'Auth: /auth/v1/* -> http://auth:9999/*'
+    _comment: 'Auth: /auth/v1/* -> http://auth:9999/* (nur admin; anon siehe Allowlist oben)'
     url: http://auth:9999/
     routes:
       - name: auth-v1-all
@@ -181,9 +318,10 @@ services:
       - name: acl
         config:
           hide_groups_header: true
+          # ⚠️ NICHT wieder `anon` ergänzen — das öffnet signup, PUT /user,
+          # Passwort-Grant und die Mail-Endpunkte erneut (siehe oben).
           allow:
             - admin
-            - anon
 
   ## OpenAPI root - admin only
   - name: rest-v1-openapi

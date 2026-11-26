@@ -12,7 +12,7 @@ Legende Status: `offen` · `in Arbeit` · `PR offen` · `gemergt` · `wartet auf
 | --- | --- | --- | --- | --- | --- |
 | 0 | Lagebild Produktion, Plan ins Repo | gemergt | [#298](https://github.com/Jannik96D/bordkasse-public/pull/298) | – | erledigt (Lagebild am 2026-11-26 gelaufen) |
 | 1 | Konten serverseitig, Anker, Schritt 3 | gemergt | [#299](https://github.com/Jannik96D/bordkasse-public/pull/299) | – | Backfill optional (A3 = 0 geprüft), vor Slice 2 sinnvoll |
-| 2 | Kong-Allowlist, Signup aus, Sitzungsdauer | offen | – | – | ja: Coolify-Variablen, Neustart Supabase-Stack |
+| 2 | Kong-Allowlist, Signup aus, Sitzungsdauer | PR offen | [#306](https://github.com/Jannik96D/bordkasse-public/pull/306) | – | ja: erst App deployen, dann `DISABLE_SIGNUP=true` + Supabase-Ressource neu deployen (Reihenfolge: `docs/self-hosting.md` „Kong-Allowlist“) |
 | 3 | Geteilte Personen: Name/E-Mail nur mit Zuständigkeit | gemergt | [#300](https://github.com/Jannik96D/bordkasse-public/pull/300) | – | – |
 | 4 | Login-CSRF in `/auth/verify` | gemergt | [#301](https://github.com/Jannik96D/bordkasse-public/pull/301) | – | – |
 | 5 | Kontolöschung ohne Verschiebung | gemergt | [#302](https://github.com/Jannik96D/bordkasse-public/pull/302) | 0063 (auf Prod eingespielt 2026-11-26) | erledigt |
@@ -65,6 +65,23 @@ Adressen oder Namen.
 
 Deutet etwas auf Missbrauch, entscheidet der Nutzer über das Sperren betroffener Konten
 (`auth.admin.updateUserById(…, { ban_duration })`); Slice 1/2 werden dann sofort gezogen.
+
+## Offene Punkte
+
+- **`/auth/callback` entfernen (aus Slice 2):** Die Route tauscht einen PKCE-Code
+  (`POST /auth/v1/token?grant_type=pkce`), das ist seit Slice 2 für den anon-Key
+  gesperrt. Es entstehen auch keine PKCE-Codes mehr (Vorlage nutzt `token_hash` →
+  `/auth/confirm`, Versand-Clients im impliziten Flow). Route, `PUBLIC_ROUTES`-Eintrag
+  in `proxy.ts`, `emailRedirectTo: …/auth/callback` und der Eintrag in
+  `ADDITIONAL_REDIRECT_URLS` können in einem eigenen Schritt weg.
+- **Rate-Limit für `POST /auth/v1/verify` (aus Slice 2):** Die Route ist bewusst offen
+  und hat kein Limit pro Adresse. Slice 2 erhöht die OTP-Länge auf 10 Stellen
+  (Brute-Force aussichtslos). Zusätzlich denkbar: Kongs `rate-limiting`-Plugin oder
+  `GOTRUE_RATE_LIMIT_VERIFY` mit verlässlichem Client-IP-Header (vorher klären,
+  welchen Header Traefik/Kong liefern).
+- **Sessions aus der offenen Zeit (aus Slice 2):** Die Kong-Sperre beendet keine
+  bestehenden Sessions. Die 2 unverknüpften Oktober-Konten mit Passwort-Session
+  (Lagebild C) prüfen und ggf. Sessions widerrufen/Konten löschen (🖐, Nutzer).
 
 ## Bootstrap für Folgesessions
 
