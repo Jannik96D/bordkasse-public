@@ -299,4 +299,131 @@ describe("ensureAuthUser — freie Adresse, aber App-Konto mit diesem Anker hat 
 
     expect(res.ok).toBe(false);
   });
+
+  it("scheitert das Löschen des Zwillings → fail-closed, Anker-Konto unangetastet", async () => {
+    listUsers.mockResolvedValue({
+      data: { users: [{ id: "u-alt", email: "woanders@example.test", app_metadata: { bordkasse_email: EMAIL } }] },
+      error: null,
+    });
+    deleteUser.mockResolvedValue({ data: null, error: { code: "unexpected_failure" } });
+
+    const res = await ensureAuthUser(EMAIL);
+
+    expect(res).toEqual({ ok: false, code: "unexpected_failure" });
+    expect(updateUserById).not.toHaveBeenCalled();
+  });
+
+  it("löscht den Zwilling VOR dem Zurücksetzen (Adresse ist UNIQUE)", async () => {
+    // Zustandsbehafteter Mock: solange der Zwilling lebt, ist die Adresse belegt.
+    let twinAlive = true;
+    deleteUser.mockImplementation(async (id: string) => {
+      if (id === "u-zwilling") twinAlive = false;
+      return { data: {}, error: null };
+    });
+    updateUserById.mockImplementation(async (_id: string, attrs: { email?: string }) =>
+      attrs.email === EMAIL && twinAlive
+        ? { data: null, error: { code: "23505" } }
+        : { data: { user: { id: _id } }, error: null },
+    );
+    listUsers.mockResolvedValue({
+      data: { users: [{ id: "u-alt", email: "woanders@example.test", app_metadata: { bordkasse_email: EMAIL } }] },
+      error: null,
+    });
+
+    const res = await ensureAuthUser(EMAIL);
+
+    expect(res).toEqual({ ok: true });
+    expect(twinAlive).toBe(false);
+    expect(updateUserById).toHaveBeenCalledWith("u-alt", { email: EMAIL, email_confirm: true });
+  });
+
+  it("findet das Anker-Konto auch auf Seite 2", async () => {
+    const filler = Array.from({ length: 1000 }, (_, i) => ({ id: `f${i}`, email: `f${i}@example.test`, app_metadata: {} }));
+    listUsers
+      .mockResolvedValueOnce({ data: { users: filler }, error: null })
+      .mockResolvedValueOnce({
+        data: { users: [{ id: "u-alt", email: "woanders@example.test", app_metadata: { bordkasse_email: EMAIL } }] },
+        error: null,
+      });
+
+    const res = await ensureAuthUser(EMAIL);
+
+    expect(res).toEqual({ ok: true });
+    expect(listUsers).toHaveBeenCalledTimes(2);
+    expect(deleteUser).toHaveBeenCalledWith("u-zwilling");
+    expect(updateUserById).toHaveBeenCalledWith("u-alt", { email: EMAIL, email_confirm: true });
+  });
+
+  it("listUsers wirft → fail-open wie bei { error }", async () => {
+    listUsers.mockRejectedValue(new Error("netz weg"));
+
+    const res = await ensureAuthUser(EMAIL);
+
+    expect(res).toEqual({ ok: true });
+    expect(deleteUser).not.toHaveBeenCalled();
+  });
+});
+
+describe("ensureAuthUser — Anker-Zwilling auch nach Löschen + Neuanlegen", () => {
+  it("unverknüpftes Konto gelöscht, neu angelegt, anderes Konto trägt den Anker → Zwilling weg, Anker-Konto zurück", async () => {
+    createUser.mockReset()
+      .mockResolvedValueOnce(EXISTS)
+      .mockResolvedValue({ data: { user: { id: "u-zwilling" } }, error: null });
+    listUsers
+      // 1. Suche nach dem Bestandskonto mit der Adresse (ohne Anker, unverknüpft)
+      .mockResolvedValueOnce({ data: { users: [existing({})] }, error: null })
+      // 2. Anker-Suche nach der Neuanlage
+      .mockResolvedValueOnce({
+        data: { users: [{ id: "u-anker", email: "woanders@example.test", app_metadata: { bordkasse_email: EMAIL } }] },
+        error: null,
+      });
+
+    const res = await ensureAuthUser(EMAIL);
+
+    expect(res).toEqual({ ok: true });
+    expect(deleteUser).toHaveBeenNthCalledWith(1, "u-alt");
+    expect(deleteUser).toHaveBeenNthCalledWith(2, "u-zwilling");
+    expect(updateUserById).toHaveBeenCalledWith("u-anker", { email: EMAIL, email_confirm: true });
+  });
+
+  it("nach Verdrängen eines besetzenden Kontos ebenfalls Anker-Suche", async () => {
+    createUser.mockReset()
+      .mockResolvedValueOnce(EXISTS)
+      .mockResolvedValue({ data: { user: { id: "u-zwilling" } }, error: null });
+    listUsers
+      .mockResolvedValueOnce({
+        data: { users: [existing({ bordkasse_email: "besetzer@example.test" })] },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { users: [{ id: "u-anker", email: "woanders@example.test", app_metadata: { bordkasse_email: EMAIL } }] },
+        error: null,
+      });
+
+    const res = await ensureAuthUser(EMAIL);
+
+    expect(res).toEqual({ ok: true });
+    expect(deleteUser).toHaveBeenCalledWith("u-zwilling");
+    expect(updateUserById).toHaveBeenCalledWith("u-anker", { email: EMAIL, email_confirm: true });
+  });
+
+  it("nach Verdrängen eines verknüpften Altkontos ebenfalls Anker-Suche", async () => {
+    createUser.mockReset()
+      .mockResolvedValueOnce(EXISTS)
+      .mockResolvedValue({ data: { user: { id: "u-zwilling" } }, error: null });
+    personsResp = { data: { id: "p-1" }, error: null };
+    privResp = { data: { email: "eigen@example.test" }, error: null };
+    listUsers
+      .mockResolvedValueOnce({ data: { users: [existing({})] }, error: null })
+      .mockResolvedValueOnce({
+        data: { users: [{ id: "u-anker", email: "woanders@example.test", app_metadata: { bordkasse_email: EMAIL } }] },
+        error: null,
+      });
+
+    const res = await ensureAuthUser(EMAIL);
+
+    expect(res).toEqual({ ok: true });
+    expect(deleteUser).toHaveBeenCalledWith("u-zwilling");
+    expect(updateUserById).toHaveBeenCalledWith("u-anker", { email: EMAIL, email_confirm: true });
+  });
 });

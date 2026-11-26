@@ -1,6 +1,6 @@
 "use server";
 
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { z } from "zod";
 import { headers } from "next/headers";
 import { createCookielessClient } from "@/lib/supabase/cookieless";
@@ -56,6 +56,20 @@ async function withinRateLimit(emailKey: string, ip: string): Promise<boolean> {
   }
 }
 
+/**
+ * Pseudonym einer E-Mail fürs Log: HMAC-SHA256 mit einem serverseitigen
+ * Secret, gekürzt auf 12 Hex-Zeichen. Ein ungesalzener Hash ließe sich für
+ * die kleine Menge bekannter Crew-Adressen per Wörterbuch zurückrechnen.
+ * Schlüssel ist der ohnehin verpflichtende SUPABASE_SERVICE_ROLE_KEY (kein
+ * neues Env; der Schlüssel selbst verlässt den Prozess nicht). Fehlt er,
+ * wird gar nichts zur Adresse geloggt.
+ */
+function emailPseudonym(email: string): string | null {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) return null;
+  return createHmac("sha256", key).update(email.trim().toLowerCase()).digest("hex").slice(0, 12);
+}
+
 const SEND_FAILED_MESSAGE =
   "Login-Link konnte nicht versandt werden. Bitte später erneut versuchen.";
 
@@ -88,12 +102,12 @@ export async function signInWithMagicLink(
   // der E-Mails durchprobiert, soll am Antwortverhalten nicht erkennen können,
   // wann er das Limit trifft. Kein Mailversand, aber intern sichtbar geloggt.
   if (!(await withinRateLimit(parsed.data.email.toLowerCase(), ip))) {
-    // E-Mail nur als gekürzter Hash (keine PII im Log, Zuordnung gleicher
+    // E-Mail nur pseudonymisiert (keine PII im Log, Zuordnung gleicher
     // Adressen bleibt möglich). Die IP bleibt im Klartext: sie ist der Wert,
     // dessen Ermittlung vor dem Prod-Deploy einen Tag lang geprüft werden
     // soll (Sanierungsplan 2026-09, PR 8).
     console.warn("[bordkasse:ratelimit] Login-Anfrage rate-limitiert", {
-      emailHash: createHash("sha256").update(parsed.data.email.toLowerCase()).digest("hex").slice(0, 12),
+      emailHash: emailPseudonym(parsed.data.email),
       ip,
     });
     return { status: "ok", email: parsed.data.email };

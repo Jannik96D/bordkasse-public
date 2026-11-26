@@ -4,6 +4,7 @@
 // Supabase-/Next-Abhängigkeiten werden gemockt, sodass die Server-Action ohne
 // echte DB/Request-Kontext getestet werden kann.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash, createHmac } from "node:crypto";
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ headers: vi.fn() }));
@@ -139,7 +140,8 @@ describe("signInWithMagicLink — Rate-Limit-Oracle-Schutz", () => {
     expect(updateUserById).not.toHaveBeenCalled();
   });
 
-  it("loggt bei Rate-Limit-Treffer die E-Mail nur als gekürzten Hash, nie im Klartext", async () => {
+  it("loggt bei Rate-Limit-Treffer die E-Mail nur als gekürzten HMAC, nie im Klartext", async () => {
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
     mockedHeaders.mockResolvedValue(makeHeaders({ "x-real-ip": "203.0.113.9" }) as never);
     mockedAdminClient.mockReturnValue(makeAdmin(false) as never);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -149,9 +151,14 @@ describe("signInWithMagicLink — Rate-Limit-Oracle-Schutz", () => {
     const logged = JSON.stringify(warn.mock.calls);
     warn.mockRestore();
     expect(logged.toLowerCase()).not.toContain("crew@example.com");
-    expect(logged).toMatch(/"emailHash":"[0-9a-f]{12}"/);
+    // HMAC mit serverseitigem Secret, nicht bloßer SHA-256 (Wörterbuch).
+    const expected = createHmac("sha256", "test-service-key").update("crew@example.com").digest("hex").slice(0, 12);
+    const plain = createHash("sha256").update("crew@example.com").digest("hex").slice(0, 12);
+    expect(logged).toContain(`"emailHash":"${expected}"`);
+    expect(logged).not.toContain(plain);
     // Die IP bleibt sichtbar (Prüfung der IP-Ermittlung, Sanierungsplan PR 8).
     expect(logged).toContain("203.0.113.9");
+    vi.unstubAllEnvs();
   });
 
   it("verschickt normal eine Mail, wenn das Rate-Limit nicht überschritten ist", async () => {

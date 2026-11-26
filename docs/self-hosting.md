@@ -936,6 +936,11 @@ passt.
 > heißt: die App kennt die rechtmäßige Adresse nicht und verweigert für die
 > Konto-Adresse den Login-Link (`linked_without_address`), bis die Zeile von
 > Hand nachgetragen ist.
+>
+> **Restrisiko bis Slice 2:** Solange Signup und `PUT /auth/v1/user` offen
+> sind, lässt sich diese Aussperrung über GoTrue gezielt auslösen, sofern es
+> verknüpfte Konten ohne `persons_private`-Zeile gibt. A3 = 0 vor dem Deploy
+> deckt das ab.
 
 ---
 

@@ -192,20 +192,28 @@ async function restoreDriftedAnchorHolder(
 ): Promise<EnsureAuthUserResult> {
   if (!newUserId) return { ok: true };
   let holder: string | null = null;
-  for (let page = 1; page <= MAX_LIST_PAGES && !holder; page++) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: PER_PAGE });
-    if (error) {
-      console.error("[bordkasse:ensure-auth-user] Anker-Suche übersprungen:", error.code ?? "unknown");
-      return { ok: true };
+  try {
+    for (let page = 1; page <= MAX_LIST_PAGES && !holder; page++) {
+      const { data, error } = await admin.auth.admin.listUsers({ page, perPage: PER_PAGE });
+      if (error) {
+        console.error("[bordkasse:ensure-auth-user] Anker-Suche übersprungen:", error.code ?? "unknown");
+        return { ok: true };
+      }
+      const users = data?.users ?? [];
+      const hit = users.find((u) => u.id !== newUserId && authAnchorOf(u.app_metadata) === email);
+      if (hit) holder = hit.id;
+      if (users.length < PER_PAGE) break;
     }
-    const users = data?.users ?? [];
-    const hit = users.find((u) => u.id !== newUserId && authAnchorOf(u.app_metadata) === email);
-    if (hit) holder = hit.id;
-    if (users.length < PER_PAGE) break;
+  } catch {
+    // Netzfehler o. Ä. → wie `{ error }` behandeln: fail-open (siehe oben).
+    console.error("[bordkasse:ensure-auth-user] Anker-Suche übersprungen: exception");
+    return { ok: true };
   }
   if (!holder) return { ok: true };
 
   console.error("[bordkasse:ensure-auth-user] Konto mit diesem Anker hatte seine Adresse geändert — wird zurückgesetzt");
+  // Reihenfolge zwingend: erst den Zwilling löschen, sonst belegt er die
+  // Adresse und das Zurücksetzen scheitert an der UNIQUE-Bedingung.
   const { error: delErr } = await admin.auth.admin.deleteUser(newUserId);
   if (delErr) return fail("twin-delete", delErr.code);
   const { error: resetErr } = await admin.auth.admin.updateUserById(holder, {
@@ -213,6 +221,13 @@ async function restoreDriftedAnchorHolder(
     email_confirm: true,
   });
   return resetErr ? fail("anchor-restore", resetErr.code) : { ok: true };
+}
+
+/** Neu anlegen (mit Anker) und danach auf einen Anker-Zwilling prüfen. */
+async function createAndRestore(admin: Admin, email: string, stage: string): Promise<EnsureAuthUserResult> {
+  const { data, error } = await createAnchored(admin, email);
+  if (error) return fail(stage, error.code);
+  return restoreDriftedAnchorHolder(admin, data?.user?.id ?? null, email);
 }
 
 export async function ensureAuthUser(rawEmail: string): Promise<EnsureAuthUserResult> {
@@ -249,8 +264,7 @@ export async function ensureAuthUser(rawEmail: string): Promise<EnsureAuthUserRe
   if (anchor) {
     const displaced = await displaceAccount(admin, existing.id, anchor);
     if (!displaced.ok) return displaced;
-    const { error: recreateErr } = await createAnchored(admin, email);
-    return recreateErr ? fail("createUser-nach-reset", recreateErr.code) : { ok: true };
+    return createAndRestore(admin, email, "createUser-nach-reset");
   }
 
   const link = await linkState(admin, existing.id);
@@ -276,13 +290,11 @@ export async function ensureAuthUser(rawEmail: string): Promise<EnsureAuthUserRe
     // Verknüpftes Altkonto (noch ohne Anker) hat die Adresse besetzt.
     const displaced = await displaceAccount(admin, existing.id, link.stored);
     if (!displaced.ok) return displaced;
-    const { error: recreateErr } = await createAnchored(admin, email);
-    return recreateErr ? fail("createUser-nach-reset", recreateErr.code) : { ok: true };
+    return createAndRestore(admin, email, "createUser-nach-reset");
   }
 
   // Kein Anker, keine Verknüpfung: löschen und frisch anlegen (siehe Kopf).
   const { error: delErr } = await admin.auth.admin.deleteUser(existing.id);
   if (delErr) return fail("deleteUser", delErr.code);
-  const { error: recreateErr } = await createAnchored(admin, email);
-  return recreateErr ? fail("createUser-nach-delete", recreateErr.code) : { ok: true };
+  return createAndRestore(admin, email, "createUser-nach-delete");
 }
