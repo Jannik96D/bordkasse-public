@@ -22,7 +22,7 @@ Legende Status: `offen` · `in Arbeit` · `PR offen` · `gemergt` · `wartet auf
 | 9 | Nachträgliche Saldo-Änderungen | PR offen | [#311](https://github.com/Jannik96D/bordkasse-public/pull/311) | – | – |
 | 10 | Mail drosseln, Auth-Konten aufräumen | offen | – | – | – |
 | 11 | Rohe Fehlertexte | offen | – | – | – |
-| 12 | Geteilte Geräte | offen | – | – | – |
+| 12 | Geteilte Geräte | PR offen | PRLINK | – | – |
 | 13 | Secure-Cookies | PR offen | [#310](https://github.com/Jannik96D/bordkasse-public/pull/310) | – | – |
 | 14 | Realtime-Publikation | offen | – | 0065 | Migration vor Merge einspielen |
 | 15 | Backups mit Rechten und Verschlüsselung | offen | – | – | ja: Server-Betreiber, Schlüssel |

@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { Trash2, AlertTriangle } from "lucide-react";
 import { deleteMyAccount, type DeleteAccountState } from "./actions";
+import { cleanupOnLogout } from "@/lib/offline/logout-cleanup";
 
 const initial: DeleteAccountState = { status: "idle" };
 
@@ -19,7 +20,16 @@ const initial: DeleteAccountState = { status: "idle" };
  * (Whitelist greift nicht mehr, persons_private ist leer).
  */
 export function DeleteAccountBlock() {
-  const [state, formAction, pending] = useActionState(deleteMyAccount, initial);
+  // Slice 12: Caches/Push-Abo VOR der Löschung räumen (braucht noch die Session
+  // für den Push-Besitz-Check). Wirft nie → blockiert die Löschung nicht. Nach
+  // dem Redirect räumt der PersonSwitchGuard (Person = null) erneut auf.
+  const [state, formAction, pending] = useActionState(
+    async (prev: DeleteAccountState, formData: FormData) => {
+      await cleanupOnLogout();
+      return deleteMyAccount(prev, formData);
+    },
+    initial,
+  );
   const [confirmed, setConfirmed] = useState(false);
 
   return (
