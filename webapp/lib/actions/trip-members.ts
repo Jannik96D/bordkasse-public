@@ -225,6 +225,25 @@ export async function removeMember(
     };
   }
 
+  // Slice 7: Vorstrecker der Anzahlung nicht entfernen — requireSkipper
+  // AdminOrAdvancer verlangt zwar jetzt eine Mitgliedschaft, aber die
+  // Rolle würde ins Leere zeigen und die Eingänge der Crew (credit_to)
+  // fielen aus v_balances.
+  {
+    const { data: planRow } = await supabase
+      .from("prepayment_plan")
+      .select("advancer_person_id")
+      .eq("trip_id", tripId)
+      .maybeSingle();
+    if (planRow?.advancer_person_id === memberRow.person_id) {
+      return {
+        ok: false,
+        message:
+          "Diese Person streckt die Anzahlung vor. Bitte zuerst im Anzahlungs-Wizard eine andere Person als Vorstrecker wählen.",
+      };
+    }
+  }
+
   // Person hat noch (nicht-soft-deleted) Buchungen → entfernen würde die
   // Bilanz inkonsistent machen (Bezahlt/Anteil-Summe ≠ 0). Skipper soll
   // erst die Buchungen umbuchen oder stornieren.
