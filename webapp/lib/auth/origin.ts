@@ -207,7 +207,7 @@ export function resolveRedirectOrigin(headers: Headers, requestUrl: string): str
  * `host[:port]` einer URL (kleingeschrieben, ohne Schema). null bei ungültig —
  * insbesondere bei `Origin: null` (Sandbox-iframe, `data:`-URL).
  */
-function hostOf(value: string): string | null {
+export function hostOf(value: string): string | null {
   try {
     const url = new URL(value);
     // Trailing-Dot der FQDN-Schreibweise (`example.com.`) abschneiden: sonst
@@ -248,7 +248,7 @@ function allowedHosts(): Set<string> {
  * Nutzer nach erfolgreichem `verifyOtp` auf einen anderen Host schickt —
  * ausgeloggt, Token verbraucht.
  */
-function allowedOriginForHost(host: string | null): string | null {
+export function allowedOriginForHost(host: string | null): string | null {
   if (!host) return null;
   for (const origin of allowedOrigins()) {
     if (hostOf(origin) === host) return origin;
