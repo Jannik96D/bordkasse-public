@@ -109,7 +109,7 @@ export function renderPrepaymentNoticeMail(p: PrepaymentNoticeParams): {
   ];
 
   return renderPaymentMail({
-    subject: eventSubject({ what, kind: event, who: p.subjectPersonName, amount: p.amount }),
+    subject: eventSubject({ what, kind: event, who: p.subjectPersonName,}),
     headline,
     recipientName: p.recipientName,
     tripName: p.tripName,

@@ -60,7 +60,7 @@ export function renderPrepaymentReminderMail(p: PrepaymentReminderParams): {
   ];
 
   return renderPaymentMail({
-    subject: shareSubject({ what: vocab.prepayment, amount: totalOpen, due: p.tranches[0]?.due_date ?? null, isReminder: true }),
+    subject: shareSubject({ what: vocab.prepayment, due: p.tranches[0]?.due_date ?? null, isReminder: true }),
     headline: `Erinnerung: ${vocab.prepayment}`,
     recipientName: p.recipientName,
     tripName: p.tripName,

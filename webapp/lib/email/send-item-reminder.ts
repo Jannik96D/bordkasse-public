@@ -18,6 +18,7 @@ import { renderItemCrewReminderMail, renderItemPayeeReminderMail } from "@/lib/e
 import { formatDeDate, toCrewDueDate } from "@/lib/prepayments/dates";
 import type { ItemReminderJob } from "@/lib/prepayments/item-reminders";
 import { appOrigin } from "@/lib/auth/origin";
+import { resolveReplyTo } from "@/lib/email/reply-to";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 
@@ -38,6 +39,8 @@ export interface ItemReminderContext {
   item: { label: string; categoryName: string | null; dueDate: string; payeePersonId: string };
   /** Heute (ISO) — für den Clamp von toCrewDueDate, überschreibbar für Tests. */
   todayIso: string;
+  /** Auslösende Person (manuelle Erinnerung); Cron: keine → Antworten an den Original-Skipper. */
+  actorPersonId?: string | null;
 }
 
 export async function sendItemReminderMail(
@@ -98,7 +101,8 @@ export async function sendItemReminderMail(
         appUrl,
       });
 
-  const result = await sendMail({ to: email, subject: mail.subject, html: mail.html, text: mail.text }, ITEM_MAIL_TIMEOUTS);
+  const replyTo = await resolveReplyTo(supabase, job.tripId, ctx.actorPersonId);
+  const result = await sendMail({ to: email, subject: mail.subject, html: mail.html, text: mail.text, replyTo }, ITEM_MAIL_TIMEOUTS);
   if (!result.ok) {
     return { ok: false, message: result.error, reason: "send_failed", code: result.code, responseCode: result.responseCode };
   }

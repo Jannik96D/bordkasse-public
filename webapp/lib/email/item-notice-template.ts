@@ -56,7 +56,7 @@ export interface ItemPendingParams {
 
 export function renderItemPendingMail(p: ItemPendingParams): { html: string; text: string; subject: string } {
   const title = itemMailTitle(p.item);
-  const subject = eventSubject({ what: p.item.label, kind: "pending", who: p.reporterName, amount: p.amount });
+  const subject = eventSubject({ what: p.item.label, kind: "pending", who: p.reporterName,});
   const facts: Fact[] = [
     { label: "Was", html: escapeHtml(title), text: title },
     { label: "Von", html: `<strong>${escapeHtml(p.reporterName)}</strong>`, text: p.reporterName },
@@ -161,7 +161,7 @@ export function renderItemNoticeMail(p: ItemNoticeParams): { html: string; text:
     : `Du bekommst diese Mail, weil du hier vorstreckst und ${p.actorName} eine Aktion dazu ausgelöst hat.`;
 
   return renderPaymentMail({
-    subject: eventSubject({ what: p.item.label, kind: event, who: p.payerName, amount: p.amount }),
+    subject: eventSubject({ what: p.item.label, kind: event, who: p.payerName,}),
     headline,
     recipientName: p.recipientName,
     tripName: p.tripName,

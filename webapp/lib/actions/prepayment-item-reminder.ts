@@ -65,6 +65,7 @@ export async function sendItemReminder(_prev: ItemReminderState, formData: FormD
     tripType: trip.trip_type === "other" ? "other" : "sailing",
     item: { label: item.label, categoryName: item.category_name, dueDate: item.due_date, payeePersonId: item.payee_person_id },
     todayIso: todayIso(),
+    actorPersonId: auth.personId,
   });
   if (!result.ok) {
     // Keine Roh-SMTP-/DB-Texte an den Client (wie im Cron).

@@ -13,6 +13,7 @@ import { pushRecipients } from "@/lib/notify/recipients";
 import { debtSettledPush } from "@/lib/notify/payloads";
 import { formatDate } from "@/lib/utils";
 import { appOrigin } from "@/lib/auth/origin";
+import { resolveReplyTo } from "@/lib/email/reply-to";
 import { withinActionLimit } from "@/lib/auth/action-rate-limit";
 
 const ToggleSchema = z.object({
@@ -316,6 +317,7 @@ async function sendDebtSettledMails(
   // auch Vorstrecker und gleichzeitig Schuldner ist → erste Rolle gewinnt).
   // Erst alle Mails aufbauen (Observer- bzw. debt-settled-Template), dann in
   // EINEM gepoolten Batch nebenläufig verschicken (Fund E-5).
+  const replyTo = await resolveReplyTo(supabase, args.tripId, args.actorPersonId);
   const seen = new Set<string>();
   const jobs: { personId: string; message: MailMessage }[] = [];
 
@@ -365,7 +367,7 @@ async function sendDebtSettledMails(
           });
     jobs.push({
       personId: r.personId,
-      message: { to: email, subject: rendered.subject, html: rendered.html, text: rendered.text },
+      message: { to: email, subject: rendered.subject, html: rendered.html, text: rendered.text, replyTo },
     });
   }
 

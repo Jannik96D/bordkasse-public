@@ -8,6 +8,7 @@ import { sendMail } from "@/lib/email/send";
 import { renderPaymentPendingMail } from "@/lib/email/payment-pending-template";
 import { formatDeDate } from "@/lib/prepayments/dates";
 import { appOrigin } from "@/lib/auth/origin";
+import { resolveReplyTo } from "@/lib/email/reply-to";
 
 const SITE_URL = appOrigin();
 
@@ -61,11 +62,14 @@ export async function sendPaymentPendingMail(params: {
     tripType: trip.trip_type === "other" ? "other" : "sailing",
   });
 
+  // Auslöser ist ein Crewmitglied → Antworten gehen an die Törn-Leitung.
+  const replyTo = await resolveReplyTo(supabase, params.tripId, tx.credit_from);
   const result = await sendMail({
     to: advancerPriv.email,
     subject: mail.subject,
     html: mail.html,
     text: mail.text,
+    replyTo,
   });
   return result.ok ? { ok: true } : { ok: false, message: result.error };
 }

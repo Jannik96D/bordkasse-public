@@ -52,7 +52,7 @@ export function renderPaymentPendingMail(p: PaymentPendingParams): {
     extra.push(noteCard(`<strong>Notiz von ${escapeHtml(p.reporterName)}:</strong> ${escapeHtml(p.note)}`, `Notiz von ${p.reporterName}: ${p.note}`));
   }
   return renderPaymentMail({
-    subject: eventSubject({ what, kind: "pending", who: p.reporterName, amount: p.amount }),
+    subject: eventSubject({ what, kind: "pending", who: p.reporterName,}),
     headline: "Einzahlung gemeldet",
     recipientName: p.skipperName,
     tripName: p.tripName,
