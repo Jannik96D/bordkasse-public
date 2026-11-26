@@ -1,6 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { displayableEmail, normalizeEmail } from "@/lib/auth/email-param";
+import {
+  LOGIN_INTENT_PATH,
+  loginIntentCookieName,
+  loginIntentMatches,
+} from "@/lib/auth/login-intent";
 import { requestMayRedeemToken, resolveRedirectOrigin, safeNextPath } from "@/lib/auth/origin";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +29,11 @@ export async function POST(request: NextRequest) {
   const token_hash = formData.get("token_hash")?.toString();
   const type = formData.get("type")?.toString() as EmailOtpType | null;
   const next = safeNextPath(formData.get("next")?.toString());
-  const email = formData.get("email")?.toString() ?? undefined;
+  // `email` = Hinweis aus der (fälschbaren) URL; `typed_email` = vom Nutzer auf
+  // /auth/confirm eingetippte Adresse (Fallback ohne Login-Intent-Cookie).
+  const hint = formData.get("email")?.toString() || undefined;
+  const typed = formData.get("typed_email")?.toString().trim() || undefined;
+  const email = typed ?? hint;
 
   // Weder `new URL(request.url).origin` (liefert hinter Traefik/Coolify
   // `0.0.0.0:3000`, der Redirect zeigt ins Leere) noch `resolveOrigin` (wirft
@@ -52,17 +62,102 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Tippfehler-Schutz im Fallback: nennen URL-Hinweis und getippte Adresse
+  // VERSCHIEDENE Adressen, brechen wir VOR dem Einlösen ab — der Token bleibt
+  // gültig und der Nutzer kann am selben Link erneut tippen. (Der eigentliche
+  // Sicherheitsvergleich mit dem Token-Inhaber nach verifyOtp bleibt davon
+  // unberührt.) Der Hinweis wird weder in der Meldung noch in der Redirect-URL
+  // gespiegelt (sonst stünde eine fremde Adresse in der Adresszeile). Nur bei
+  // einem Hinweis, der wie eine normale Adresse aussieht: exotische Werte
+  // (&, #, =, % …) dürfen den Link nicht dauerhaft unbenutzbar machen.
+  if (
+    typed &&
+    hint &&
+    displayableEmail(hint) &&
+    normalizeEmail(typed) !== normalizeEmail(hint)
+  ) {
+    const back = new URL("/auth/confirm", origin);
+    back.searchParams.set("token_hash", token_hash);
+    back.searchParams.set("type", type);
+    back.searchParams.set("next", next);
+    back.searchParams.set("typed_error", "1");
+    return NextResponse.redirect(back, { status: 303 });
+  }
+
   // Response zuerst, damit der Cookie-Adapter aus createClient(response)
   // die Set-Cookie-Header direkt auf den Redirect schreibt.
   // 303 (See Other) zwingt den Browser auf GET — sonst würde ein POST auf
   // die Home-Route weitergehen und der Server-Component-Render scheitern.
   const response = NextResponse.redirect(new URL(next, origin), { status: 303 });
   const supabase = await createClient(response);
-  const { error } = await supabase.auth.verifyOtp({ token_hash, type });
+  // Bereits eingeloggt als jemand anderes? Dann KEIN stilles Überschreiben und
+  // der Token bleibt unverbraucht. Gleiche Person (erneuter Login) ist ok.
+  const existing = await supabase.auth.getUser().catch(() => null);
+  const existingEmail = existing?.data?.user?.email;
+  if (existingEmail && (!email || normalizeEmail(existingEmail) !== normalizeEmail(email))) {
+    // Nicht über /login: der Proxy leitet Eingeloggte von dort ohne Query auf
+    // "/" um, die Meldung ginge verloren. Der globale Toast zeigt sie an.
+    const target = new URL("/", origin);
+    target.searchParams.set("toast", "login-session-exists");
+    return NextResponse.redirect(target, { status: 303 });
+  }
+
+  const { data, error } = await supabase.auth.verifyOtp({ token_hash, type });
   if (error) {
     return redirectWithError(origin, error.code ?? "verify_failed", error.message, email);
   }
 
+  // Login-CSRF-Schutz: ein untergeschobener Link (Token des Angreifers) darf
+  // das Opfer nicht ins fremde Konto einloggen. Maßgeblich ist die Adresse des
+  // Token-INHABERS (erst nach verifyOtp bekannt). Sie muss durch einen Beleg
+  // des Nutzers gedeckt sein:
+  //  - Cookie-Pfad: das Login-Intent-Cookie (HMAC, gesetzt beim Anfordern auf
+  //    /login) passt zum Inhaber (der URL-Hinweis ist dafür nicht nötig und
+  //    nicht maßgeblich);
+  //  - Fallback (Cookie fehlt/andere Adresse, z. B. Skipper-Einladung oder
+  //    anderes Gerät): der Nutzer hat die Adresse auf /auth/confirm selbst
+  //    getippt (ohne Vorbelegung) und sie entspricht dem Inhaber. Wer einen
+  //    Angreifer-Link bekommt, tippt seine EIGENE Adresse → Abweisung.
+  // Der Token ist beim Vergleich bereits verbraucht (unvermeidbar: der Inhaber
+  // ist vorher unbekannt) — im Missbrauchsfall gehörte er nicht dem Nutzer.
+  const owner = data?.user?.email ?? data?.session?.user?.email;
+  let proven = false;
+  if (owner) {
+    if (typed) {
+      proven = normalizeEmail(owner) === normalizeEmail(typed);
+    } else {
+      proven = loginIntentMatches(owner, request.cookies.get(loginIntentCookieName())?.value);
+    }
+  }
+  if (!proven) {
+    // Session widerrufen. Die bisher befüllte `response` (mit Session-Cookies)
+    // wird bewusst VERWORFEN und eine frische Redirect-Response ohne Cookies
+    // zurückgegeben — eine bereits bestehende Session des Browsers bleibt so
+    // unberührt. Die übermittelte (womöglich fremde) Adresse wird nicht an
+    // /login weitergereicht.
+    await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+    // Bei bestehender Session würde der Proxy /login ohne Query auf "/" umleiten
+    // und die Meldung ginge verloren → dort über den globalen Toast.
+    if (existingEmail) {
+      const target = new URL("/", origin);
+      target.searchParams.set("toast", "login-email-mismatch");
+      return NextResponse.redirect(target, { status: 303 });
+    }
+    return redirectWithError(
+      origin,
+      "email_mismatch",
+      "Der Login-Link gehört zu einer anderen E-Mail-Adresse.",
+    );
+  }
+
+  // Beleg ist verbraucht.
+  response.cookies.delete({
+    name: loginIntentCookieName(),
+    path: LOGIN_INTENT_PATH,
+    secure: process.env.NODE_ENV === "production",
+    httpOnly: true,
+    sameSite: "lax",
+  });
   return response;
 }
 

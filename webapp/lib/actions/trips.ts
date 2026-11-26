@@ -139,11 +139,18 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
   // Wenn der Admin sich selbst zum Skipper macht, ist skipperId === auth.personId.
   // Wenn der Trip für einen Freund angelegt wird, taucht der Admin nicht in
   // trip_members auf — er hat trotzdem Voll-Zugriff via ADMIN_EMAILS.
-  await supabase.from("trip_members").insert({
+  const { error: skipperMemberErr } = await supabase.from("trip_members").insert({
     trip_id: trip.id,
     person_id: skipperId,
     is_skipper: true,
   });
+  if (skipperMemberErr) {
+    // Kein halb angelegter Törn ohne Skipper-Mitgliedschaft: Törn wieder
+    // entfernen (noch ohne Buchungen; Audit-Eintrag bleibt als Spur).
+    console.error("[bordkasse:db]", skipperMemberErr.message);
+    await supabase.from("trips").delete().eq("id", trip.id);
+    return { status: "error", message: "Törn konnte nicht angelegt werden. Bitte erneut versuchen." };
+  }
 
   // Default-Kategorien anlegen (typabhängig: Segeltörn vs. Andere Reise).
   await supabase.from("trip_categories").insert(

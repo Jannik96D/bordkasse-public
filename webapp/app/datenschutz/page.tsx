@@ -225,9 +225,23 @@ export default function DatenschutzPage() {
         <div>
           <h2 className="text-base font-semibold">6. Cookies</h2>
           <p>
-            Wir setzen ausschließlich technisch notwendige Cookies für die Login-Session
-            (Auth-Cookie). Es werden keine Tracking-, Analyse- oder Werbecookies
+            Wir setzen ausschließlich technisch notwendige Cookies (Login-Session und
+            Login-Sicherheit). Es werden keine Tracking-, Analyse- oder Werbecookies
             verwendet.
+          </p>
+          <p className="mt-2">
+            Beim Anfordern eines Login-Links setzen wir zusätzlich ein kurzlebiges,
+            technisch notwendiges Sicherheits-Cookie (im Produktivbetrieb mit dem Namen
+            „__Host-bk_login_intent“). Es dient dazu, den Login-Link deinem Browser
+            zuzuordnen und so zu verhindern, dass dir ein fremder Login-Link
+            untergeschoben wird und du ungewollt in einem fremden Konto angemeldet
+            wirst. Das Cookie enthält keine personenbezogenen Klartextdaten, sondern nur
+            einen Prüfwert (Zeitstempel und kryptografische Signatur), ist 60 Minuten
+            gültig und wird nach dem erfolgreichen Login gelöscht. Rechtsgrundlage ist
+            unser berechtigtes Interesse an der Sicherheit des Logins (Art. 6 Abs. 1
+            lit. f DSGVO); das Speichern ist technisch unbedingt erforderlich im Sinne
+            von § 25 Abs. 2 Nr. 2 TDDDG, eine Einwilligung ist daher nicht nötig. Ein
+            Cookie-Banner brauchen wir deshalb nicht.
           </p>
         </div>
 

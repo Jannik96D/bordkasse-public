@@ -2,12 +2,17 @@
 
 import { createHmac } from "node:crypto";
 import { z } from "zod";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { createCookielessClient } from "@/lib/supabase/cookieless";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isEmailAllowedToSignIn } from "@/lib/auth/authz";
 import { ensureAuthUser } from "@/lib/auth/ensure-auth-user";
 import { resolveOrigin } from "@/lib/auth/origin";
+import {
+  loginIntentCookieName,
+  loginIntentCookieOptions,
+  loginIntentValue,
+} from "@/lib/auth/login-intent";
 import { resolveClientIp } from "@/lib/auth/client-ip";
 
 const LoginSchema = z.object({
@@ -73,6 +78,24 @@ function emailPseudonym(email: string): string | null {
 const SEND_FAILED_MESSAGE =
   "Login-Link konnte nicht versandt werden. Bitte später erneut versuchen.";
 
+/**
+ * Setzt den Login-Intent-Beleg (HMAC der Adresse, siehe lib/auth/login-intent.ts)
+ * im Browser des Anfordernden. NUR hier — Skipper-Einladungen setzen ihn nicht
+ * (der Empfänger öffnet den Link in einem Browser ohne Cookie → Fallback).
+ */
+async function setLoginIntent(email: string) {
+  const value = loginIntentValue(email);
+  if (!value) return; // ohne Secret: Fallback (Adresse eintippen)
+  try {
+    (await cookies()).set(loginIntentCookieName(), value, loginIntentCookieOptions());
+  } catch (e) {
+    console.error(
+      "[bordkasse:auth] Login-Intent-Cookie nicht gesetzt",
+      e instanceof Error ? e.message : "unbekannt",
+    );
+  }
+}
+
 export type LoginState =
   | { status: "idle" }
   | { status: "ok"; email: string }
@@ -110,6 +133,7 @@ export async function signInWithMagicLink(
       emailHash: emailPseudonym(parsed.data.email),
       ip,
     });
+    await setLoginIntent(parsed.data.email);
     return { status: "ok", email: parsed.data.email };
   }
 
@@ -159,5 +183,6 @@ export async function signInWithMagicLink(
     return { status: "error", message: SEND_FAILED_MESSAGE };
   }
 
+  await setLoginIntent(parsed.data.email);
   return { status: "ok", email: parsed.data.email };
 }
