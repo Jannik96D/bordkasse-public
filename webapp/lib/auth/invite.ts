@@ -1,5 +1,5 @@
 import "server-only";
-import { createCookielessClient } from "@/lib/supabase/cookieless";
+import { createOtpMailerClient } from "@/lib/supabase/otp-mailer";
 import { ensureAuthUser } from "@/lib/auth/ensure-auth-user";
 
 /**
@@ -14,8 +14,10 @@ import { ensureAuthUser } from "@/lib/auth/ensure-auth-user";
  * kein Konto mehr an. Damit funktioniert die Einladung auch bei
  * abgeschaltetem GoTrue-Signup (Slice 2).
  *
- * Der Versand läuft über einen cookielosen anon-Client — sonst würde die
- * Skipper-Session des Aufrufers berührt. Der Empfänger klickt →
+ * Der Versand läuft über einen cookielosen Client mit Service-Role-Key
+ * (`createOtpMailerClient`, Slice 2: Kong sperrt `/auth/v1/otp` für den
+ * anon-Key) — cookielos, sonst würde die Skipper-Session des Aufrufers
+ * berührt. Der Empfänger klickt →
  * /auth/confirm → /auth/verify → eingeloggt; `getCurrentPerson` verlinkt
  * die Ghost-Person, weil der Anker zur Adresse passt.
  *
@@ -33,7 +35,7 @@ export async function sendInvitationMagicLink(
   if (!origin) {
     return { ok: false, message: "Kein gültiger App-Origin — Mail nicht verschickt." };
   }
-  const client = createCookielessClient();
+  const client = createOtpMailerClient();
   if (!client) {
     return { ok: false, message: "Supabase-Config fehlt — Mail nicht verschickt." };
   }

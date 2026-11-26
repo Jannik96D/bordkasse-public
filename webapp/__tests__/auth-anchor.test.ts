@@ -11,17 +11,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
-vi.mock("@/lib/supabase/cookieless", () => ({ createCookielessClient: vi.fn() }));
+vi.mock("@/lib/supabase/otp-mailer", () => ({ createOtpMailerClient: vi.fn() }));
 
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { createCookielessClient } from "@/lib/supabase/cookieless";
+import { createOtpMailerClient } from "@/lib/supabase/otp-mailer";
 
 const mockedAdminClient = vi.mocked(createAdminClient);
 const mockedCookieClient = vi.mocked(createClient);
-const mockedCookieless = vi.mocked(createCookielessClient);
+const mockedOtpMailer = vi.mocked(createOtpMailerClient);
 
 const AUTH_UID = "11110000-0000-4000-8000-000000000001";
 const GHOST_ID = "aaaaaaaa-0000-4000-8000-000000000002";
@@ -122,7 +122,7 @@ const ORIGINAL_ADMIN_EMAILS = process.env.ADMIN_EMAILS;
 beforeEach(() => {
   mockedAdminClient.mockReset();
   mockedCookieClient.mockReset();
-  mockedCookieless.mockReset();
+  mockedOtpMailer.mockReset();
   process.env.ADMIN_EMAILS = ADMIN_EMAIL;
 });
 
@@ -309,7 +309,7 @@ describe("sendInvitationMagicLink — Konto vor OTP, shouldCreateUser: false", (
         return b;
       },
     } as never);
-    mockedCookieless.mockReturnValue({ auth: { signInWithOtp } } as never);
+    mockedOtpMailer.mockReturnValue({ auth: { signInWithOtp } } as never);
   });
 
   it("legt das Konto mit Anker an und verschickt danach den OTP ohne Kontoanlage", async () => {

@@ -12,7 +12,7 @@ vi.mock("next/headers", () => ({
   headers: vi.fn(),
   cookies: vi.fn(async () => ({ set: cookieSet })),
 }));
-vi.mock("@/lib/supabase/cookieless", () => ({ createCookielessClient: vi.fn() }));
+vi.mock("@/lib/supabase/otp-mailer", () => ({ createOtpMailerClient: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/auth/authz", () => ({ isEmailAllowedToSignIn: vi.fn() }));
 vi.mock("@/lib/auth/origin", () => ({ resolveOrigin: vi.fn(() => "https://bordkasse.dieter.ms") }));
@@ -20,12 +20,12 @@ vi.mock("@/lib/auth/origin", () => ({ resolveOrigin: vi.fn(() => "https://bordka
 import { signInWithMagicLink, type LoginState } from "@/app/login/actions";
 import { resolveClientIp } from "@/lib/auth/client-ip";
 import { headers } from "next/headers";
-import { createCookielessClient } from "@/lib/supabase/cookieless";
+import { createOtpMailerClient } from "@/lib/supabase/otp-mailer";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isEmailAllowedToSignIn } from "@/lib/auth/authz";
 
 const mockedHeaders = vi.mocked(headers);
-const mockedCreateClient = vi.mocked(createCookielessClient);
+const mockedCreateClient = vi.mocked(createOtpMailerClient);
 const mockedAdminClient = vi.mocked(createAdminClient);
 const mockedAllowed = vi.mocked(isEmailAllowedToSignIn);
 

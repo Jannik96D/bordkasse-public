@@ -146,7 +146,25 @@ services:
       # {{ .SiteURL }}/auth/confirm?token_hash=…
       GOTRUE_SITE_URL: ${SITE_URL}
       GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS}
-      GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP}
+      # Sicherheitsrunde 2026-11, Slice 2: MUSS "true" sein. Konten legt
+      # ausschließlich die App über die Admin-API an (lib/auth/ensure-auth-
+      # user.ts, Service-Role-Key) — das funktioniert auch bei abgeschaltetem
+      # Signup. Zusätzlich sperrt Kong /signup für den anon-Key (kong.yml).
+      # Default `true`, falls die Variable in Coolify fehlt.
+      GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP:-true}
+      # Sitzungen ohne Aktivität laufen nach dieser Zeit ab (Go-Duration,
+      # z. B. 2160h = 90 Tage). Ohne die Variable lebt ein Refresh-Token
+      # unbegrenzt — ein einmal abgegriffenes Token wäre ein Dauerzugang.
+      # 90 Tage, weil die Crew die App nur wenige Male im Jahr öffnet; wer
+      # länger weg war, holt sich einfach einen neuen Magic-Link.
+      #
+      # ⚠️ Der Default `:-2160h` ist Pflicht, nicht Kosmetik: fehlt die
+      # Variable, würde Compose sonst einen LEEREN String übergeben, und
+      # GoTrue v2.189 bricht beim Start mit `converting '' to type
+      # *time.Duration` ab (lokal belegt) — das nähme den kompletten Login
+      # offline. Mit `:-` greift der Default auch bei gesetzter, aber leerer
+      # Variable.
+      GOTRUE_SESSIONS_INACTIVITY_TIMEOUT: ${GOTRUE_SESSIONS_INACTIVITY_TIMEOUT:-2160h}
 
       GOTRUE_JWT_ADMIN_ROLES: service_role
       GOTRUE_JWT_AUD: authenticated
@@ -177,6 +195,14 @@ services:
 
       # Gültigkeit des Magic-Links: 60 Minuten (wie bisher in der Cloud)
       GOTRUE_MAILER_OTP_EXP: 3600
+      # Slice 2 (Grill-Fund): 10 statt 6 Stellen. `POST /auth/v1/verify` ist
+      # bewusst offen (der Magic-Link braucht es) und hat kein Rate-Limit pro
+      # Adresse; der token_hash im Link ist sha224(email + otp). Bei 6 Stellen
+      # (10^6) war ein ausgelöster Link lokal mit ~120 Versuchen/s in einer
+      # Stunde zu ~40 % erratbar → Session am App-Login vorbei. 10 Stellen
+      # (10^10, GoTrue-Maximum) machen das aussichtslos. Für die Crew ändert
+      # sich nichts: die Mail enthält nur den Link, keinen Code zum Abtippen.
+      GOTRUE_MAILER_OTP_LENGTH: 10
 
       # ── Rate-Limits ──────────────────────────────────────────────────
       # Der Login-Screen bietet „Neuen Link senden" nach 30 s an. GoTrues
