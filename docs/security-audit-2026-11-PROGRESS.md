@@ -23,7 +23,7 @@ Legende Status: `offen` · `in Arbeit` · `PR offen` · `gemergt` · `wartet auf
 | 10 | Mail drosseln, Auth-Konten aufräumen | offen | – | – | – |
 | 11 | Rohe Fehlertexte | offen | – | – | – |
 | 12 | Geteilte Geräte | offen | – | – | – |
-| 13 | Secure-Cookies | offen | – | – | – |
+| 13 | Secure-Cookies | PR offen | PRLINK | – | – |
 | 14 | Realtime-Publikation | offen | – | 0065 | Migration vor Merge einspielen |
 | 15 | Backups mit Rechten und Verschlüsselung | offen | – | – | ja: Server-Betreiber, Schlüssel |
 | 16 | CI mit minimalen Rechten | gemergt | [#308](https://github.com/Jannik96D/bordkasse-public/pull/308) | – | – |
