@@ -16,12 +16,14 @@
 --   4. Beendeter Törn ohne (nicht gelöschte) Buchungen → Mitgliedschaft wird
 --      entfernt; auch wenn nur soft-gelöschte Buchungen existieren.
 --   5. `delete_my_account()` existiert nicht mehr (Seiteneingang per RPC).
+--   6. (0067) Die Crew-Notiz der gelöschten Person wird in der verbleibenden
+--      Mitgliedschaft genullt, die Notizen anderer Mitglieder bleiben.
 --
 -- Lauf: cd webapp && supabase test db
 -- ═══════════════════════════════════════════════════════════════════════
 
 BEGIN;
-SELECT plan(17);
+SELECT plan(19);
 
 -- ── Setup ─────────────────────────────────────────────────────────────
 INSERT INTO auth.users(id) VALUES
@@ -77,6 +79,14 @@ INSERT INTO trip_members(trip_id, person_id, is_alcoholic) VALUES
   ('63630000-0000-4000-8000-0000000000e5', '63630000-0000-4000-8000-000000000001', NULL),
   ('63630000-0000-4000-8000-0000000000e5', '63630000-0000-4000-8000-000000000008', NULL);
 
+-- 0067: Freitext-Notizen (Mitesser M + Zahler P) im beendeten Törn.
+UPDATE trip_members SET note = 'pgTAP Notiz M'
+ WHERE trip_id = '63630000-0000-4000-8000-0000000000e1'
+   AND person_id = '63630000-0000-4000-8000-000000000002';
+UPDATE trip_members SET note = 'pgTAP Notiz P'
+ WHERE trip_id = '63630000-0000-4000-8000-0000000000e1'
+   AND person_id = '63630000-0000-4000-8000-000000000001';
+
 -- Beendeter Törn: P zahlt 120 € „Gleichmäßig", davon 30 € Alkohol (Trinker:
 -- P per Override, T per Personen-Flag); T zahlt 40 € „Gleichmäßig".
 INSERT INTO transactions(trip_id, type, date, description, amount, alcohol_amount, paid_by, split_type) VALUES
@@ -121,6 +131,19 @@ SELECT is(
 SELECT is(
   (SELECT SUM(balance) FROM v_balances WHERE trip_id = '63630000-0000-4000-8000-0000000000e1'),
   0::numeric, 'Σ v_balances = 0 nach Löschung des Mitessers');
+
+-- ── 6. (0067) Crew-Notiz ──────────────────────────────────────────────
+SELECT is(
+  (SELECT note FROM trip_members
+    WHERE trip_id = '63630000-0000-4000-8000-0000000000e1'
+      AND person_id = '63630000-0000-4000-8000-000000000002'),
+  NULL::text, 'Crew-Notiz der gelöschten Person wird in der verbleibenden Mitgliedschaft genullt');
+
+SELECT is(
+  (SELECT note FROM trip_members
+    WHERE trip_id = '63630000-0000-4000-8000-0000000000e1'
+      AND person_id = '63630000-0000-4000-8000-000000000001'),
+  'pgTAP Notiz P', 'Notiz eines anderen Mitglieds bleibt unverändert');
 
 -- ── 2. Trinker nur über das Personen-Flag ─────────────────────────────
 SELECT is(

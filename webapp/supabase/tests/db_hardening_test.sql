@@ -13,8 +13,11 @@
 --   4. JEDE eigene View in public trägt security_invoker=on (generisch, damit ein
 --      späteres `CREATE OR REPLACE VIEW` ohne WITH-Klausel auffällt — es
 --      setzt reloptions zurück).
---   5. Keine Funktion/View/Policy liest `app.settings.*` (Voraussetzung,
---      um die JWT-Secret-Einstellung zurückzusetzen).
+--   5. Keine Funktion/View/Policy in `public` liest `app.settings.*`
+--      (Voraussetzung, um die JWT-Secret-Einstellung zurückzusetzen).
+--      Bewusst nur `public`: Objekte der Supabase-Images (auth, storage,
+--      realtime, extensions …) hängen von der Image-Version ab und sind
+--      nicht Teil dieses Repos.
 --
 -- Lauf: cd webapp && supabase test db
 -- ═══════════════════════════════════════════════════════════════════════
@@ -143,12 +146,15 @@ SELECT is(
 
 -- ── 5. Niemand liest app.settings.* ──────────────────────────────────
 SELECT is(
-  (SELECT count(*)::int FROM pg_proc WHERE prosrc ILIKE '%app.settings%')
-  + (SELECT count(*)::int FROM pg_views WHERE definition ILIKE '%app.settings%')
+  (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.prosrc ILIKE '%app.settings%')
+  + (SELECT count(*)::int FROM pg_views
+      WHERE schemaname = 'public' AND definition ILIKE '%app.settings%')
   + (SELECT count(*)::int FROM pg_policies
-      WHERE COALESCE(qual, '') ILIKE '%app.settings%'
-         OR COALESCE(with_check, '') ILIKE '%app.settings%'),
-  0, 'keine Funktion/View/Policy liest app.settings.* (JWT-Secret-Einstellung entbehrlich)');
+      WHERE schemaname = 'public'
+        AND (COALESCE(qual, '') ILIKE '%app.settings%'
+             OR COALESCE(with_check, '') ILIKE '%app.settings%')),
+  0, 'keine Funktion/View/Policy in public liest app.settings.* (JWT-Secret-Einstellung entbehrlich)');
 
 SELECT * FROM finish();
 ROLLBACK;

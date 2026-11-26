@@ -330,14 +330,22 @@ describe("/auth/verify — Login-CSRF: Cookie-Beleg + Fallback „Adresse tippen
     expect(response.cookies.get("sb-access-token")?.value).toBe("session-secret");
   });
 
-  it("abgelaufener Link im Fallback reicht die getippte Adresse an /login (Resend)", async () => {
+  it("abgelaufener Link im Fallback ohne Cookie hängt KEINE Adresse an /login (die Seite nutzt sie ohne Cookie nicht)", async () => {
     verifyOtp.mockResolvedValue({ data: {}, error: { code: "otp_expired", message: "expired" } });
     const { POST } = await import("@/app/auth/verify/route");
     const response = await POST(verifyRequest(headersFor(), null, { typed: "crew@example.com" }));
 
-    expect(new URL(response.headers.get("location") ?? "").searchParams.get("email")).toBe(
-      "crew@example.com",
-    );
+    const location = new URL(response.headers.get("location") ?? "");
+    expect(location.searchParams.get("auth_error")).toBe("otp_expired");
+    expect(location.searchParams.has("email")).toBe(false);
+  });
+
+  it("abgelaufener Link mit Cookie einer ANDEREN Adresse hängt den Hinweis nicht an", async () => {
+    verifyOtp.mockResolvedValue({ data: {}, error: { code: "otp_expired", message: "expired" } });
+    const { POST } = await import("@/app/auth/verify/route");
+    const response = await POST(verifyRequest(headersFor("crew@example.com"), "angreifer@example.com"));
+
+    expect(new URL(response.headers.get("location") ?? "").searchParams.has("email")).toBe(false);
   });
 
   it("email_mismatch bei bestehender Session → Toast auf / statt verlorener /login-Meldung", async () => {

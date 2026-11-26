@@ -105,7 +105,8 @@ export function RetentionBlock({ tripId, canForce }: { tripId: string; canForce:
 
       {state.kind === "soft_blocked" && !canForce && (
         <p className="rounded-md border border-gold/30 bg-gold-soft px-3 py-2 text-sm text-ink">
-          {state.message} Sofort löschen vor Ablauf der Frist kann nur der ursprüngliche Skipper oder ein Admin.
+          {/* Der Server ergänzt den Hinweis „nur Eigentümer/Admin“ selbst. */}
+          {state.message}
         </p>
       )}
 

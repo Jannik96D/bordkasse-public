@@ -93,6 +93,33 @@ describe("purgeTripNow force", () => {
   });
 });
 
+describe("purgeTripNow ohne force: Hinweis auf vorzeitiges Löschen nur für Berechtigte", () => {
+  for (const code of ["too_young", "no_settlement"]) {
+    it(`${code}: Co-Skipper bekommt KEINEN Hinweis auf „Trotzdem jetzt löschen“`, async () => {
+      rpc.mockResolvedValue({ data: code, error: null });
+      vi.mocked(requireTripOwnerOrAdmin).mockResolvedValue({ ok: false, message: "nein" });
+      const r = await purgeTripNow(TRIP, false);
+      expect(r.ok).toBe(false);
+      expect(r.message).not.toContain("Trotzdem jetzt löschen");
+      expect(r.message).toContain("nur der ursprüngliche Skipper oder ein Admin");
+    });
+
+    it(`${code}: Eigentümer/Admin bekommt den Hinweis`, async () => {
+      rpc.mockResolvedValue({ data: code, error: null });
+      const r = await purgeTripNow(TRIP, false);
+      expect(r.ok).toBe(false);
+      expect(r.message).toContain("Trotzdem jetzt löschen");
+    });
+
+    it(`${code}: Rechteprüfung wirft → kein Hinweis (fail-safe)`, async () => {
+      rpc.mockResolvedValue({ data: code, error: null });
+      vi.mocked(requireTripOwnerOrAdmin).mockRejectedValue(new Error("db down"));
+      const r = await purgeTripNow(TRIP, false);
+      expect(r.message).not.toContain("Trotzdem jetzt löschen");
+    });
+  }
+});
+
 describe("purgeTripNow Nicht-Boolean-Umgehung", () => {
   for (const bad of [null, undefined, "true", 1, 0, "false"]) {
     it(`force=${JSON.stringify(bad)} → abgelehnt, kein RPC, nie p_force=null`, async () => {

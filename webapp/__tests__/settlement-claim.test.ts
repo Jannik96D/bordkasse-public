@@ -383,6 +383,26 @@ describe("resendSettlement — atomarer Claim", () => {
     expect(mockedSend).not.toHaveBeenCalled();
   });
 
+  it("Erstversand-Retry innerhalb der Lease nach announce-Claim wird abgelehnt", async () => {
+    // announce hat das Gate vor 5 Minuten geclaimt und versendet evtl. noch
+    // (Lease 10 min) — der Retry darf erst nach Ablauf der Lease greifen.
+    // Ein Vergleich nur mit „jetzt“ statt „jetzt − Lease“ ließe ihn durch.
+    const gate = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const fake = setup({ settlement_announced_at: gate, settlement_mail_sent_at: null });
+    const res = await resendSettlement(TRIP);
+    expect(res.ok).toBe(false);
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(tripRow(fake).settlement_announced_at).toBe(gate);
+  });
+
+  it("Erstversand-Retry nach Ablauf der Lease ist möglich", async () => {
+    const gate = new Date(Date.now() - ELEVEN_MIN).toISOString();
+    setup({ settlement_announced_at: gate, settlement_mail_sent_at: null });
+    const res = await resendSettlement(TRIP);
+    expect(res.ok).toBe(true);
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+  });
+
   it("announce und Erstversand-Retry parallel verschicken nur EINMAL", async () => {
     // Komplett fehlgeschlagener Erstversand liegt lange zurück → Retry möglich;
     // gleichzeitig zweimal gedrückt.

@@ -7,7 +7,7 @@ Next.js 16 + Supabase Web-App-Variante der Bordkasse. Spec: [`../docs/web-app-sp
 - **Auth:** Magic-Link per E-Mail (Token-Hash-Flow, Single-Use, 60 Min TTL).
   - **Whitelist-Schutz:** Magic-Link wird nur an E-Mails verschickt, die in `ADMIN_EMAILS` stehen oder bereits in `persons_private` (= per Skipper-Einladung hinterlegt) — Fremde sehen eine Fehlermeldung, es wird kein Auth-User produziert.
   - **Klick-Bestätigungsseite:** `/auth/confirm` ist eine Page mit „Jetzt einloggen"-Button → POST nach `/auth/verify` → `verifyOtp`. Gegen Login-CSRF (untergeschobener Link) belegt ein beim Anfordern gesetztes Login-Intent-Cookie die Adresse; fehlt es (Einladung, anderes Gerät), tippt der Nutzer seine Adresse ein — Details in CLAUDE.md. Schützt vor Link-Scannern (Outlook Safe Links, Gmail Spam-Filter), die GET-URLs in eingehenden Mails automatisch im Hintergrund aufrufen würden.
-  - **Auto-Resend bei abgelaufenem Link:** die Empfänger-E-Mail wird durch den Flow durchgereicht (`&email={{ .Email }}` im Magic-Link-Template). Bei `otp_expired`/`verify_failed` zeigt die Login-Page direkt einen „Neuen Link an X senden"-Button.
+  - **Auto-Resend bei abgelaufenem Link:** die Empfänger-E-Mail wird durch den Flow durchgereicht (`&email={{ .Email }}` im Magic-Link-Template). Bei `otp_expired`/`verify_failed` zeigt die Login-Page einen „Neuen Link an X senden"-Button — aber nur, wenn das (HttpOnly) Login-Intent-Cookie zu genau dieser Adresse passt (Link im selben Browser angefordert). Sonst, etwa nach einer Skipper-Einladung oder auf einem anderen Gerät, erscheint das leere Formular.
   - **Auto-Invite-Mail:** wenn ein Skipper eine neue Person zur Crew hinzufügt, geht automatisch ein Magic-Link an die E-Mail.
   - **Resend-Button** nach 30 s im normalen Login-Flow.
 - **Rollen:**
@@ -46,7 +46,7 @@ Next.js 16 + Supabase Web-App-Variante der Bordkasse. Spec: [`../docs/web-app-sp
 - **Settlement-Workflow:** Ab dem letzten Törn-Tag sieht der Skipper in der Trip-Übersicht + Schulden-Seite einen Banner „Törn vorbei — Abrechnung verschicken?". Klick auf den Button (`announceSettlement`) berechnet aktuelle Bilanz + simplified-debts, schickt jedem Crewmitglied mit hinterlegter Email eine personalisierte HTML-Mail (Saldo + konkrete Zahlungsanweisungen + Link auf die Schulden-Seite zum direkten Abhaken, via SMTP/nodemailer), setzt `trips.settlement_announced_at`. Erst danach sind die Bezahlt-Häkchen in der Schulden-Ansicht freigeschaltet — vorher sehen Crewmitglieder einen Hinweis „Skipper schließt die Bordkasse gerade ab". Bei nachträglicher Bearbeitung/Löschung einer Kaution-Buchung leitet die App den Skipper automatisch zur Trip-Übersicht mit prominentem Highlight-Banner, damit die Abrechnung nicht vergessen wird. Mail-Layout 1:1 wie das Magic-Link-Template (Logo, Card auf #FAFBFC, Bordkasse-Farben, Outlook-safe table-Layout). Env-Vars: `SMTP_HOST` / `SMTP_PORT` (587 STARTTLS oder 465 SSL) / `SMTP_USER` / `SMTP_PASS` (dieselben Credentials wie für Supabase-Auth-Mails) + `MAIL_FROM` (z. B. `"Bordkasse <bordkasse@dieter.ms>"`) + `NEXT_PUBLIC_APP_ORIGIN`.
 - **Settlement-Update-Mail:** Buchungs-Änderungen nach dem initialen Mailversand (create/update/delete von Expense/Credit) setzen den Marker `trips.changes_pending_since` über den SQL-Helper `mark_post_settlement_change()` (aufgerufen in `lib/actions/transactions.ts`). Solange der Marker gesetzt ist, sieht **jedes Crewmitglied** einen gelben Banner „Bilanz hat sich seit der Abrechnung geändert" mit Button „Update-Mail verschicken" — typischerweise löst die Person, die soeben die nachträgliche Buchung erfasst hat, die Mail direkt selbst aus, ohne den Skipper bemühen zu müssen. `resendSettlement` nutzt das gleiche Mail-Template mit `isUpdate=true` (Subject „Bordkasse-Update", Wortlaut „Bilanz aktualisiert" + optionale ChangeSummary aus dem Audit-Log, z. B. „3 neu, 1 geändert"), setzt `trips.last_settlement_resend_at` und löscht den Marker. Spam-Schutz: Resend funktioniert nur bei gesetztem Marker — nach jedem erfolgreichen Versand verschwindet der Banner bis zur nächsten Änderung.
 - **Trip-Datum nachträglich ändern:** Skipper/Co-Skipper/Admin können in den Trip-Settings unter „Törndatum" Start- und End-Datum korrigieren. Refine prüft `end_date >= start_date`. Bestehende Buchungen werden nicht automatisch verschoben — der Hinweis-Text macht das klar.
-- **Public-Funktionsübersicht** `/about`: 18 Mobile-Screenshots aus echtem Betrieb mit synthetischer Crew (Anna/Ben/Clara/David/Eva), erklärt jede Hauptfunktion in 1–2 Sätzen. Verlinkt vom Welcome-Screen + Footer der Trip-Liste. Als Phasen-Explorer mit ARIA-Tab-Leiste + Rollen-Filter organisiert. Public route in `proxy.ts` (in Next 16.2 von `middleware.ts` umbenannt). Aufnahme reproduzierbar via `scripts/take-screenshots.ts` (Playwright + Mailpit-Magic-Link); komplettes Demo-Setup über [`scripts/seed-demo.sh`](scripts/seed-demo.sh). Demo enthält drei Trips (Zeiträume + Namens-Jahre dynamisch aus dem Tagesdatum berechnet, driftfrei): „Ostseetörn {laufendes Jahr}" (aktueller, laufender Törn), „Kroatien {Vorjahr}" (vergangen, abgerechnet) + „Korsika {Folgejahr}" (zukünftiger Charter, Anzahlungs-Modul mit Kojen, Vorstrecker, gemischte Tranchen-Stati).
+- **Public-Funktionsübersicht** `/about`: 20 Mobile-Screenshots aus echtem Betrieb mit synthetischer Crew (Anna/Ben/Clara/David/Eva), erklärt jede Hauptfunktion in 1–2 Sätzen. Verlinkt vom Welcome-Screen + Footer der Trip-Liste. Als Phasen-Explorer mit ARIA-Tab-Leiste + Rollen-Filter organisiert. Public route in `proxy.ts` (in Next 16.2 von `middleware.ts` umbenannt). Aufnahme reproduzierbar via `scripts/take-screenshots.ts` (Playwright + Mailpit-Magic-Link); komplettes Demo-Setup über [`scripts/seed-demo.sh`](scripts/seed-demo.sh). Demo enthält drei Trips (Zeiträume + Namens-Jahre dynamisch aus dem Tagesdatum berechnet, driftfrei): „Ostseetörn {laufendes Jahr}" (aktueller, laufender Törn), „Kroatien {Vorjahr}" (vergangen, abgerechnet) + „Korsika {Folgejahr}" (zukünftiger Charter, Anzahlungs-Modul mit Kojen, Vorstrecker, gemischte Tranchen-Stati).
 - **Anzahlungs-Modul** (Migrationen 0023–0028, Spec [`../docs/prepayments.md`](../docs/prepayments.md)): Mechanik für Yachtanzahlungen Monate vor dem Törn. Wizard mit vier Aufteilungs-Arten (Gleichmäßig, Zeitanteilig, Individuell, **Kojen** mit Preis pro Person), Vorstrecker-Auswahl (Default Skipper), Tranchen-Editor. Matrix unter `/trips/[id]/prepayments` mit Statussymbolen (○/◐/✓/⏰/⏳), Charter-Reminder-Banner für den Vorstrecker, Pending-Banner für Crew-Selbstmeldungen, 🔔/💬-Buttons pro Zeile. Crew-Self-View für Nicht-Skipper/Nicht-Admin/Nicht-Vorstrecker. Crew-Wechsel-Workflow (`replaceMember`) erzeugt Gegen-Gutschriften.
 - **Auto-Reminder-Cron** (`/api/cron/prepayment-reminders`, täglich 7:00 als Coolify Scheduled Task): innerhalb der letzten 6 Tage vor Charterfrist Reminder an offene Crewmitglieder (= 3 Tage vor Crewfrist), innerhalb der letzten 3 Tage Charter-Übersicht an den Vorstrecker. Fenster statt exakter Tag → ein verpasster Cron-Tag verliert keinen Reminder. Pending-Awareness: Crew mit unbestätigter Selbstmeldung wird nicht erneut gemahnt. Advancer-Skip: keine Charter-Mail, wenn die Tranche bereits voll an den Vercharterer überwiesen ist. Dedup über `prepayment_reminder_log(tranche_id, person_id, reminder_type)` aus Migration 0028 — bei Reject wird der Eintrag gelöscht, damit ein korrigierter Reminder rausgehen kann.
 - **Mail-Design einheitlich:** `lib/email/mail-shell.ts` rendert Logo-PNG-Header + Card-Wrapper + Footer, Helper `renderActionButton`, `renderHintBlock`, `escapeHtml`, `fmtEuro`. Alle Templates (settlement, debt-settled, debt-observer, prepayment-reminder, charter-reminder, payment-pending, prepayment-notice) nutzen dasselbe Shell.
@@ -90,11 +90,13 @@ cp .env.local.example .env.local
 # 5. Dev-Server
 pnpm dev   # http://localhost:3000
 
-# Optional: alle About-Screenshots neu schießen (Dev-Server muss laufen)
+# Optional: alle About-Screenshots neu schießen — gegen den Production-Server
+# (pnpm build + pnpm start), nicht gegen pnpm dev. Runbook im Kopf-Kommentar
+# von scripts/take-screenshots.ts.
 ./scripts/seed-demo.sh --screenshots
 ```
 
-Login lokal: `skipper@example.com` (Anna, Admin) oder `clara@example.com` (Crew). Magic-Link landet in Mailpit.
+Login lokal: `skipper@example.com` (Anna, Admin) oder `clara@example.com` (Crew). Magic-Link landet in Mailpit und führt — wie in Production — auf `/auth/confirm` (Token-Hash-Flow, lokales Template `public/email/magic-link.html` über `supabase/config.toml`). Der Link nennt `127.0.0.1:3000`; wer über `localhost` angefordert hat, öffnet ihn am besten auf demselben Host (das Login-Intent-Cookie ist host-gebunden). Ohne passendes Cookie fragt die Seite „Für welche E-Mail-Adresse gilt dieser Link?" — die eigene Adresse eintippen.
 
 **Hilfreiche lokale Endpoints:**
 - App: <http://localhost:3000>
@@ -128,7 +130,7 @@ psql -h 127.0.0.1 -p 54322 -U postgres -d postgres \
 app/                            Next.js App Router
   /                             Trip-Liste (eigene + Admin-Sicht auf alle)
   /login                        Magic-Link-Form
-  /auth/callback                Legacy PKCE-Callback (für ältere Mails)
+  /auth/callback                Legacy PKCE-Callback (seit der Kong-Allowlist faktisch tot, Entfernen vorgemerkt)
   /auth/confirm                 Klick-Bestätigungsseite (Token-Hash-Flow)
   /auth/verify                  POST-Endpoint: verifyOtp + Session-Cookies setzen
   /profile                      User-Settings + Admin-Badge
@@ -240,16 +242,18 @@ in [`docs/self-hosting.md`](../docs/self-hosting.md), Abschnitt 10.
 
 **3. Auth konfigurieren** (Supabase Dashboard → Authentication):
 - SMTP-Provider eintragen (z.B. Resend mit eigener Sender-Domain)
-- **Sign In / Providers → Email:** „Confirm email" auf **OFF** (wir nutzen Magic-Link-Only-Auth; Confirm-Signup würde sonst eine unbranded Vorab-Mail schicken)
-- **URL Configuration:** Site URL = Production-Domain, Redirect URLs enthalten `/auth/callback`, `/auth/confirm`, `/auth/verify`
+- **Signup aus:** Konten legt nur die App serverseitig an (`ensureAuthUser`, Admin-API), `signInWithOtp` erzeugt keine Konten (`shouldCreateUser: false`)
+- **URL Configuration:** Site URL = Production-Domain, Redirect URLs enthalten `/auth/confirm`, `/auth/verify`
 - **Email Templates → Magic Link:** Inhalt aus [`public/email/magic-link.html`](public/email/magic-link.html) einsetzen. Die URL muss `&type=email&email={{ .Email }}` enthalten (kein `{{ .Type }}` — das rendert bei Magic-Links als leer). Subject z.B. `Dein Bordkasse-Login-Link`.
 - Optional: Email OTP Expiration auf 900 s (15 Min) reduzieren (Default: 3600 s)
 
-> **Selbst gehostet?** Dieser Abschnitt beschreibt das **Supabase-Cloud**-Setup.
-> Beim selbst gehosteten Stack gibt es kein Dashboard — dieselben Einstellungen
-> laufen über Env-Variablen (u. a. entspricht „Confirm email OFF" dem
-> `GOTRUE_MAILER_AUTOCONFIRM=true`), und das Template wird automatisch aus
-> `public/email/` geladen. Runbook: [`docs/self-hosting.md`](../docs/self-hosting.md).
+> **Selbst gehostet (Produktion):** Dieser Abschnitt beschreibt nur noch den
+> Rückweg über **Supabase Cloud**. Beim selbst gehosteten Stack gibt es kein
+> Dashboard — die Einstellungen laufen über Env-Variablen des Compose-Stacks
+> (`DISABLE_SIGNUP=true`, `GOTRUE_MAILER_AUTOCONFIRM=true`,
+> `GOTRUE_MAILER_OTP_LENGTH=10`, Kong-Allowlist für `/auth/v1/*`), und GoTrue
+> lädt das Template per URL aus `public/email/`. Runbook:
+> [`docs/self-hosting.md`](../docs/self-hosting.md).
 
 **4. App-Ressource in Coolify anlegen** (Build Pack `Dockerfile`, Base Directory `/webapp`, Dockerfile Location `/Dockerfile` — der Pfad ist relativ zum Base Directory —, Port 3000). Vollständiges Runbook inklusive Fallstricke: [`docs/self-hosting.md`](../docs/self-hosting.md), Abschnitt 9a.
 - **Env-Variables:** ⚠️ Coolify unterscheidet **Buildtime** und **Runtime**. Alle `NEXT_PUBLIC_*`-Werte müssen Buildtime sein (Next backt sie beim Build ein), alle Secrets dürfen es **nicht** sein — Coolify setzt den Buildtime-Haken aber standardmäßig bei jeder neuen Variable, also nachkontrollieren.

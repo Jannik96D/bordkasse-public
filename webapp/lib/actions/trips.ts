@@ -475,9 +475,22 @@ export async function purgeTripNow(tripId: string, force: boolean): Promise<Purg
     case "already_purged":
       return { ok: false, message: "Daten dieses Törns wurden bereits gelöscht." };
     case "too_young":
-      return { ok: false, message: 'Die 30-Tage-Frist nach Törnende ist noch nicht erreicht. Mit „Sofort löschen“ überspringst du die Frist.' };
-    case "no_settlement":
-      return { ok: false, message: "Bitte zuerst die Abrechnung verschicken. Danach kann gelöscht werden." };
+    case "no_settlement": {
+      // Den Hinweis auf das vorzeitige Löschen bekommt nur, wer es auch darf
+      // (Eigentümer/Admin, Slice 6) — ein Co-Skipper sähe sonst einen Weg,
+      // der ihm verwehrt ist. Im Force-Modus kommen beide Codes nicht vor.
+      const canForce = isForce || (await requireTripOwnerOrAdmin(tripId).catch(() => ({ ok: false }))).ok;
+      const base =
+        result === "too_young"
+          ? "Die 30-Tage-Frist nach Törnende ist noch nicht erreicht."
+          : "Bitte zuerst die Abrechnung verschicken. Danach kann gelöscht werden.";
+      const hint = canForce
+        ? result === "too_young"
+          ? " Mit „Trotzdem jetzt löschen“ überspringst du die Frist."
+          : " Mit „Trotzdem jetzt löschen“ geht es auch ohne Abrechnung."
+        : " Vorzeitig löschen kann nur der ursprüngliche Skipper oder ein Admin.";
+      return { ok: false, message: base + hint };
+    }
     case "debts_open":
       return { ok: false, message: "Es gibt noch offene Schulden: Alle Bezahlt-Häkchen müssen gesetzt sein, bevor gelöscht werden kann." };
     default:

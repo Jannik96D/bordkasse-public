@@ -61,6 +61,12 @@ export function DebtCheckbox({
           }
           if (next) {
             const failed = res.mailsFailed ?? 0;
+            // notified=false: keine Benachrichtigung verschickt (schon bezahlt,
+            // Limit erreicht) → neutral, nicht „… benachrichtigt" behaupten.
+            if (res.notified === false) {
+              show("Als bezahlt markiert.", { variant: "success" });
+              return;
+            }
             show(
               failed > 0
                 ? `Als bezahlt markiert. ${failed} Benachrichtigung${failed === 1 ? "" : "en"} konnte${failed === 1 ? "" : "n"} nicht zugestellt werden.`

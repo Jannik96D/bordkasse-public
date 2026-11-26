@@ -45,7 +45,12 @@
  *   (Navigation läuft komplett, übrige WebP bleiben unangetastet).
  *
  * Hinweise:
- *   - Login läuft über Mailpit (lokaler Magic-Link); seed-demo.sh legt
+ *   - Login läuft über Mailpit (lokaler Magic-Link, Template
+ *     public/email/magic-link.html → /auth/confirm, token_hash-Flow wie Prod).
+ *     Der Link aus der Mail wird auf den Host von BASE_URL umgeschrieben;
+ *     fehlt das Login-Intent-Cookie (Secure-Cookie über http), füllt das
+ *     Skript das Feld „Für welche E-Mail-Adresse gilt dieser Link?".
+ *   - seed-demo.sh legt
  *     Anna (skipper@) + Clara (clara@) via Admin-API an und verknüpft
  *     persons.auth_user_id (direkte auth.users-INSERTs sind unzuverlässig).
  *   - `public/about/00-about-preview.webp` ist gitignored (Meta-Vorschau).
@@ -77,14 +82,10 @@ async function fetchMagicLink(email: string): Promise<string> {
   const msg = (await msgRes.json()) as { Text?: string; HTML?: string };
   const body = msg.HTML ?? msg.Text ?? "";
 
-  // Link sieht aus wie: http://localhost:3000/auth/callback?code=…
-  const match = body.match(/https?:\/\/[^\s"<>]+\/auth\/callback\?[^\s"<>]+/);
-  if (!match) {
-    // Supabase rendert das manchmal als verify-URL → durchnavigieren tut der Browser
-    const v = body.match(/https?:\/\/[^\s"<>]+\/auth\/v1\/verify\?[^\s"<>]+/);
-    if (!v) throw new Error("Kein Magic-Link in Mail gefunden");
-    return decodeEntities(v[0]);
-  }
+  // Lokales Template = public/email/magic-link.html (token_hash-Flow wie Prod):
+  // http://127.0.0.1:3000/auth/confirm?token_hash=…&type=email&email=…
+  const match = body.match(/https?:\/\/[^\s"<>]+\/auth\/confirm\?[^\s"<>]+/);
+  if (!match) throw new Error("Kein /auth/confirm-Link in der Magic-Link-Mail gefunden");
   return decodeEntities(match[0]);
 }
 
@@ -157,10 +158,14 @@ async function waitForLoad(page: Page) {
 
 /**
  * Komplett-Login per Magic-Link für eine beliebige E-Mail-Adresse.
- * - klickt sich durchs /login-Formular,
- * - holt den frischen Link aus Mailpit (vorher leeren),
- * - extrahiert ggf. den ?code= und ruft /auth/callback explizit auf
- *   (Workaround: lokale site_url ist 127.0.0.1:3000/ statt /auth/callback),
+ * - klickt sich durchs /login-Formular (setzt das Login-Intent-Cookie),
+ * - holt den frischen /auth/confirm-Link aus Mailpit (vorher leeren),
+ * - schreibt ihn auf den Host von BASE_URL um (die Mail nennt 127.0.0.1,
+ *   das Intent-Cookie hängt aber am Host, über den /login lief),
+ * - auf der Bestätigungsseite: Ein-Klick-Modus („Jetzt einloggen"), sonst
+ *   (Intent-Cookie fehlt, z. B. Secure-Cookie über http nicht gespeichert)
+ *   das Feld „Für welche E-Mail-Adresse gilt dieser Link?" mit der
+ *   Login-Adresse füllen und absenden,
  * - landet final auf "/" als eingeloggter User.
  */
 async function loginAs(page: Page, email: string) {
@@ -172,16 +177,23 @@ async function loginAs(page: Page, email: string) {
   await page.getByRole("button", { name: /Magic-Link anfordern/i }).click();
   await page.waitForTimeout(2000);
 
-  const magicLink = await fetchMagicLink(email);
-  console.log(`  ↳ Magic-Link: ${magicLink.slice(0, 80)}…`);
-  await page.goto(magicLink);
+  const mailLink = new URL(await fetchMagicLink(email));
+  const confirmUrl = new URL(`${mailLink.pathname}${mailLink.search}`, BASE_URL);
+  console.log(`  ↳ Magic-Link: ${confirmUrl.pathname}`);
+  await page.goto(confirmUrl.toString());
   await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
 
-  const landed = new URL(page.url());
-  const code = landed.searchParams.get("code");
-  if (code) {
-    await page.goto(`${BASE_URL}/auth/callback?code=${code}`);
-    await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+  const typed = page.locator("#typed_email");
+  if ((await typed.count()) > 0) {
+    console.log("  ↳ Kein Login-Intent-Cookie → Adresse eintippen");
+    await typed.fill(email);
+  }
+  await Promise.all([
+    page.waitForURL((u) => !u.pathname.startsWith("/auth/"), { timeout: 20_000 }),
+    page.getByRole("button", { name: /Jetzt einloggen/i }).click(),
+  ]);
+  if (new URL(page.url()).pathname === "/login") {
+    throw new Error(`Login als ${email} fehlgeschlagen (auf /login gelandet)`);
   }
 
   await page.goto(BASE_URL);

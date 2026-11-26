@@ -85,11 +85,14 @@ describe("toggleDebtSettled — mailt nur beim Wechsel offen → bezahlt", () =>
     const fake = setup();
     const first = await toggleDebtSettled(input);
     expect(first.ok).toBe(true);
+    expect(first.notified).toBe(true);
     expect(mailsSent()).toBe(2); // Schuldner + Gläubiger
     const auditAfterFirst = fake.rows("audit_log").length;
 
     const again = await toggleDebtSettled(input);
     expect(again.ok).toBe(true);
+    // UI zeigt dann neutral „Als bezahlt markiert" statt „… benachrichtigt".
+    expect(again.notified).toBe(false);
     expect(mailsSent()).toBe(2); // unverändert
     expect(fake.rows("settled_debts")).toHaveLength(1);
     expect(fake.rows("audit_log")).toHaveLength(auditAfterFirst);
@@ -128,6 +131,7 @@ describe("toggleDebtSettled — Häkchen-Spam (Limit auf Benachrichtigungen)", (
     const fake = setup(false);
     const res = await toggleDebtSettled(input);
     expect(res.ok).toBe(true);
+    expect(res.notified).toBe(false);
     expect(fake.rows("settled_debts")).toHaveLength(1);
     expect(sendMails).not.toHaveBeenCalled();
   });
