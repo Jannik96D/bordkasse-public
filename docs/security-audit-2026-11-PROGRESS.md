@@ -21,7 +21,7 @@ Legende Status: `offen` · `in Arbeit` · `PR offen` · `gemergt` · `wartet auf
 | 8 | Kategorie an Törn binden | PR offen | [#307](https://github.com/Jannik96D/bordkasse-public/pull/307) | 0064 | Migration vor Merge einspielen |
 | 9 | Nachträgliche Saldo-Änderungen | PR offen | [#311](https://github.com/Jannik96D/bordkasse-public/pull/311) | – | – |
 | 10 | Mail drosseln, Auth-Konten aufräumen | gemergt | [#312](https://github.com/Jannik96D/bordkasse-public/pull/312) | – | – (kein Zeitlimit für Update-Mails, bewusst; beim ersten Cron-Lauf werden die 3 Altkonten gelöscht, gewollt) |
-| 11 | Rohe Fehlertexte | PR offen | PR_LINK | – | – |
+| 11 | Rohe Fehlertexte | PR offen | [#315](https://github.com/Jannik96D/bordkasse-public/pull/315) | – | – |
 | 12 | Geteilte Geräte | PR offen | [#313](https://github.com/Jannik96D/bordkasse-public/pull/313) | – | – |
 | 13 | Secure-Cookies | PR offen | [#310](https://github.com/Jannik96D/bordkasse-public/pull/310) | – | – |
 | 14 | Realtime-Publikation | offen | – | 0065 | Migration vor Merge einspielen |
