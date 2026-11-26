@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { normalizeEmail } from "@/lib/auth/email-param";
 import { requestMayRedeemToken, resolveRedirectOrigin, safeNextPath } from "@/lib/auth/origin";
 
 export const dynamic = "force-dynamic";
@@ -63,14 +64,14 @@ export async function POST(request: NextRequest) {
     return redirectWithError(origin, error.code ?? "verify_failed", error.message, email);
   }
 
-  // Login-CSRF-Schutz: der Link muss für die Adresse gelten, die der Nutzer
-  // erwartet. Ohne diesen Vergleich loggt ein untergeschobener Link (Token des
-  // Angreifers, Same-Origin-POST) das Opfer ins Konto des Angreifers ein. Der
-  // Vergleich geht erst jetzt, weil die Adresse des Token-Inhabers erst nach
-  // verifyOtp bekannt ist (der Token ist dann zwar verbraucht — er gehörte im
-  // Missbrauchsfall aber nicht diesem Nutzer). `email` kommt aus der URL und
-  // ist fälschbar; maßgeblich ist, dass es zur Mail des Link-Empfängers passt,
-  // die der echte Mail-Link immer mitbringt (public/email/magic-link.html).
+  // Konsistenzprüfung (KEIN vollständiger Login-CSRF-Schutz): der Link muss zur
+  // Adresse passen, die die Bestätigungsseite anzeigt. Das fängt Fehlbedienung
+  // und inkonsistente/vertauschte Links ab. Ein Angreifer, der den `email`-
+  // Parameter auf SEINE eigene Adresse setzt, besteht den Vergleich jedoch —
+  // ein echter Schutz braucht einen Beleg auf Opferseite (z. B. ein beim
+  // Anfordern gesetztes Login-Intent-Cookie; Entscheidung steht aus). Der
+  // Vergleich geht erst nach verifyOtp, weil die Adresse des Token-Inhabers
+  // vorher unbekannt ist.
   const sessionEmail = data?.user?.email ?? data?.session?.user?.email;
   if (!email || !sessionEmail || normalizeEmail(email) !== normalizeEmail(sessionEmail)) {
     // Session widerrufen. Die bisher befüllte `response` (mit Session-Cookies)
@@ -101,8 +102,4 @@ function redirectWithError(
   target.searchParams.set("auth_error_msg", message);
   if (email) target.searchParams.set("email", email);
   return NextResponse.redirect(target, { status: 303 });
-}
-
-function normalizeEmail(value: string): string {
-  return value.trim().toLowerCase();
 }

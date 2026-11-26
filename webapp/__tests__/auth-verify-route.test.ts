@@ -156,6 +156,28 @@ describe("/auth/verify — Login-CSRF: Link muss zur angezeigten Adresse passen"
     );
   });
 
+  it("akzeptiert eine Plus-Adresse, die als Leerzeichen ankommt", async () => {
+    verifyOtp.mockResolvedValue({ data: { user: { email: "crew+tag@example.com" } }, error: null });
+    const { POST } = await import("@/app/auth/verify/route");
+    const response = await POST(verifyRequest(okHeaders, "crew tag@example.com"));
+
+    expect(response.cookies.get("sb-access-token")?.value).toBe("session-secret");
+    expect(signOut).not.toHaveBeenCalled();
+  });
+
+  it("bricht ohne E-Mail am Session-Nutzer sauber ab (kein 500, keine Cookies)", async () => {
+    verifyOtp.mockResolvedValue({ data: { user: {} }, error: null });
+    const { POST } = await import("@/app/auth/verify/route");
+    const response = await POST(verifyRequest(okHeaders, "crew@example.com"));
+
+    expect(response.status).toBe(303);
+    expect(response.cookies.getAll()).toHaveLength(0);
+    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(new URL(response.headers.get("location") ?? "").searchParams.get("auth_error")).toBe(
+      "email_mismatch",
+    );
+  });
+
   it("lässt bei abgelaufenem Link den Resend-Pfad (email an /login) unverändert", async () => {
     verifyOtp.mockResolvedValue({ data: {}, error: { code: "otp_expired", message: "expired" } });
     const { POST } = await import("@/app/auth/verify/route");

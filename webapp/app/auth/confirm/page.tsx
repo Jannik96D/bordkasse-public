@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { displayableEmail } from "@/lib/auth/email-param";
 import { safeNextPath } from "@/lib/auth/origin";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,8 @@ export default async function ConfirmPage({
   // /login-Page einen Auto-Resend-Button für diese Adresse, ohne dass der
   // User sie erneut eintippen muss.
   const email = params.email;
+
+  const shownEmail = displayableEmail(email);
 
   // Fehlt der Token, kommt der User über einen kaputten Link — direkt zur
   // Login-Seite mit Hinweis.
@@ -75,9 +78,10 @@ export default async function ConfirmPage({
           <p className="text-sm text-ink-soft">
             Klick auf den Button, um dich bei der Bordkasse einzuloggen.
           </p>
-          {email && (
+          {/* Nur anzeigen, wenn der (fälschbare) Parameter wie eine Adresse aussieht. */}
+          {shownEmail && (
             <p className="text-sm text-ink-soft">
-              Du meldest dich an als <strong className="break-all">{email}</strong>.
+              Du meldest dich an als <strong className="break-all">{shownEmail}</strong>.
             </p>
           )}
         </div>
