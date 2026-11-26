@@ -90,9 +90,38 @@ Deutet etwas auf Missbrauch, entscheidet der Nutzer über das Sperren betroffene
   zuvor eingefroren (RAM).
 - **Slice 15 (Backups verschlüsseln)** bewusst zurückgestellt; Entscheidung steht oben
   (`openssl` hybrid, privater Schlüssel offline beim Nutzer).
-- **Hilfs-Task in Coolify:** `tmp-apply-0066` (Supabase-Ressource, Zeitplan 1. Januar) ließ sich
-  nicht löschen; harmlos/idempotent, von Hand löschen. Der Branch `security/ops-0066` bleibt, solange
-  er existiert.
+- **Aufgeräumt:** Der Hilfs-Task `tmp-apply-0066` in Coolify und der Branch `security/ops-0066`
+  sind gelöscht.
+
+## Regressions-Grill (Abschluss)
+
+Umgesetzt im PR `security/regression-fixes`: Screenshot-Login über `/auth/confirm`, neutraler
+Toast ohne Benachrichtigung (`notified`), Realtime-Abo erst nach geladener Session, Migration 0067
+(Kontolöschung nullt `trip_members.note`), Lease-Test für den Erstversand-Retry, Force-Hinweis nur
+für Eigentümer/Admin, `app.settings`-Test auf `public` beschränkt, Format-Prüfung der Origin-
+Variablen im Image-Workflow, `/auth/verify` hängt `&email=` nur noch mit passendem
+Login-Intent-Cookie an, Doku-Korrekturen.
+
+**Bewusst NICHT umgesetzt (Restpunkte):**
+
+- Push-Abo der Vorgängerperson bei Personenwechsel auf einem geteilten Gerät ist serverseitig
+  nicht löschbar (`deletePushSubscription` filtert auf die eigene `person_id`); das Abo bleibt,
+  bis der Push-Dienst 404/410 meldet.
+- `withTimeout` im `PersonSwitchGuard` (8 s) bricht nur das Warten ab, nicht die Server-Action;
+  bei totem Uplink kann sie serielle Server-Actions (z. B. Buchungs-Submit) weiter blockieren.
+- Orphan-Cleanup im Purge-Cron vs. frische Einladung: das 7-Tage-Fenster schützt den Normalfall;
+  ein Konto, das genau im Cron-Lauf seine erste Person bekommt, ist ein theoretisches Rennen.
+- Parallele `ensureAuthUser`-Aufrufe im Lösch-Zweig (unverknüpftes Bestandskonto löschen + neu
+  anlegen) sind nicht gegeneinander abgesichert und können kollidieren; erwartete Folge ist ein
+  fehlgeschlagener Versand (Nutzer fordert neu an), kein Rechtegewinn.
+- `authenticated` hat in `public` weiterhin TRUNCATE/TRIGGER/REFERENCES auf Tabellen (Folgehärtung;
+  RLS greift für TRUNCATE nicht, PostgREST bietet es aber nicht an).
+- `/auth/callback` samt `emailRedirectTo` entfernen (seit der Kong-Allowlist faktisch tot).
+- Rate-Limit für `/auth/v1/verify` (ein Token pro Adresse; 10-stelliger OTP macht Raten teuer,
+  ein Limit fehlt aber).
+- Randfall: Verschiebt ein Skipper das Enddatum eines beendeten Törns, in dem ein anonymisiertes
+  (per Kontolöschung entferntes) Mitglied geblieben ist, in die Zukunft, ist es wieder Mitglied
+  eines laufenden Törns und trägt Anteile an neuen „Gleichmäßig“-Ausgaben mit.
 
 ## Bootstrap für Folgesessions
 

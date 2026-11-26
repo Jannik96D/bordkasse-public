@@ -22,8 +22,8 @@ import { supabaseConnectSrc } from "./lib/security/csp";
  * `'unsafe-inline'` bleibt: Der Next.js App Router gibt auf JEDER Seite
  * Inline-Skripte aus (RSC-Payload `self.__next_f.push(...)`). Diese ohne
  * 'unsafe-inline' zu erlauben ginge nur per Per-Request-Nonce — die kann
- * aber NICHT in statisch vorgerenderte Seiten (/login, /about, /datenschutz,
- * /kontakt) gebacken werden; deren Skripte hätten keine Nonce und würden
+ * aber NICHT in statisch vorgerenderte Seiten (/about, /datenschutz, /kontakt;
+ * `/login` ist seit dem Login-Intent-Cookie dynamisch) gebacken werden; deren Skripte hätten keine Nonce und würden
  * von `strict-dynamic` blockiert. Ein nonce-Ansatz würde also erzwingen,
  * jede (auch künftige) öffentliche Seite dynamisch zu rendern — ein stiller
  * Breakage-Footgun. Daher bewusst beim 'unsafe-inline'-Fallback bleiben.

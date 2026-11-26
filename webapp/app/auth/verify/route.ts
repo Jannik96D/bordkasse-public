@@ -20,9 +20,11 @@ export const dynamic = "force-dynamic";
  * lib/supabase/server.ts), sonst landen die Session-Cookies nicht im
  * Browser des Users.
  *
- * Bei Fehlern (insbesondere otp_expired) wird die Empfänger-E-Mail mit
- * an /login durchgereicht, damit die Login-Page einen Auto-Resend-Button
- * für genau diese Adresse zeigen kann.
+ * Bei Fehlern (insbesondere otp_expired) wird die Empfänger-E-Mail NUR dann
+ * an /login durchgereicht, wenn das Login-Intent-Cookie zu ihr passt — nur
+ * dann nutzt die Login-Page sie für den „Neuen Link an X senden“-Knopf
+ * (app/login/page.tsx). Ohne Cookie (Einladung, anderes Gerät, getippte
+ * Adresse) bliebe sie sonst nutzlos in Adresszeile, Verlauf und Logs stehen.
  */
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
@@ -34,6 +36,12 @@ export async function POST(request: NextRequest) {
   const hint = formData.get("email")?.toString() || undefined;
   const typed = formData.get("typed_email")?.toString().trim() || undefined;
   const email = typed ?? hint;
+  // Für den Resend-Knopf auf /login: nur eine durch das Intent-Cookie gedeckte
+  // Adresse in die Redirect-URL (die Login-Page ignoriert alles andere).
+  const resendEmail =
+    email && loginIntentMatches(email, request.cookies.get(loginIntentCookieName())?.value)
+      ? email
+      : undefined;
 
   // Weder `new URL(request.url).origin` (liefert hinter Traefik/Coolify
   // `0.0.0.0:3000`, der Redirect zeigt ins Leere) noch `resolveOrigin` (wirft
@@ -46,7 +54,7 @@ export async function POST(request: NextRequest) {
       origin,
       "missing_token",
       "Der Login-Link enthält keinen gültigen Token. Fordere einen neuen an.",
-      email,
+      resendEmail,
     );
   }
 
@@ -58,7 +66,7 @@ export async function POST(request: NextRequest) {
       origin,
       "untrusted_host",
       "Der Login wurde über eine nicht freigegebene Adresse aufgerufen. Öffne die App direkt und fordere einen neuen Link an.",
-      email,
+      resendEmail,
     );
   }
 
@@ -105,7 +113,7 @@ export async function POST(request: NextRequest) {
   const { data, error } = await supabase.auth.verifyOtp({ token_hash, type });
   if (error) {
     console.error("[bordkasse:auth] verifyOtp fehlgeschlagen:", error.code ?? "unknown");
-    return redirectWithError(origin, error.code ?? "verify_failed", "Der Login-Link ist abgelaufen oder wurde bereits verwendet. Fordere einen neuen an.", email);
+    return redirectWithError(origin, error.code ?? "verify_failed", "Der Login-Link ist abgelaufen oder wurde bereits verwendet. Fordere einen neuen an.", resendEmail);
   }
 
   // Login-CSRF-Schutz: ein untergeschobener Link (Token des Angreifers) darf
