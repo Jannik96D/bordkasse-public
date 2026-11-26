@@ -70,8 +70,26 @@ function setup(trip: {
     ],
     audit_log: [],
   });
+  // Echte SQL-Semantik aus 0019: nur nach der Abrechnung, nur wenn NULL.
+  fake.onRpc("mark_post_settlement_change", (args) => {
+    const t = fake.rows("trips").find((r) => r.id === args.p_trip_id);
+    if (t && t.settlement_announced_at && !t.changes_pending_since) t.changes_pending_since = new Date().toISOString();
+    return { data: null };
+  });
   vi.mocked(createAdminClient).mockReturnValue(fake.client as never);
   return fake;
+}
+
+/** Simuliert eine Buchung, die während des Versands erfasst wird. */
+function bookDuringSend(fake: ReturnType<typeof createFakeSupabase>) {
+  fake.rows("audit_log").push({
+    id: `a-${Math.random()}`,
+    trip_id: TRIP,
+    table_name: "transactions",
+    operation: "INSERT",
+    created_at: new Date().toISOString(),
+  });
+  void fake.client.rpc("mark_post_settlement_change", { p_trip_id: TRIP });
 }
 
 const tripRow = (fake: ReturnType<typeof createFakeSupabase>) => fake.rows("trips")[0];
@@ -124,6 +142,48 @@ describe("announceSettlement — atomarer Claim", () => {
     expect(retry.ok).toBe(true);
     expect(mockedSend).toHaveBeenCalledTimes(2);
     expect(tripRow(fake).settlement_mail_sent_at).not.toBeNull();
+  });
+
+  it("übergibt knappe SMTP-Timeouts (Versand bleibt sicher unter der Sperre)", async () => {
+    setup({});
+    await announceSettlement(TRIP);
+    const opts = mockedSend.mock.calls[0][1] as Record<string, number>;
+    expect(opts.socketTimeoutMs).toBeLessThanOrEqual(60_000);
+    expect(opts.connectionTimeoutMs).toBeLessThanOrEqual(30_000);
+    expect(opts.greetingTimeoutMs).toBeLessThanOrEqual(30_000);
+  });
+
+  it("Lesefehler nach dem Claim: ein im Claim-Fenster entstandener Marker wird mit zurückgenommen", async () => {
+    const fake = setup({});
+    vi.mocked(getBalances).mockImplementationOnce(async () => {
+      // Während des Claim-Fensters erfasste Buchung → Marker gesetzt.
+      bookDuringSend(fake);
+      throw new Error("db down");
+    });
+    await announceSettlement(TRIP);
+    expect(tripRow(fake).settlement_announced_at).toBeNull();
+    expect(tripRow(fake).changes_pending_since).toBeNull();
+  });
+
+  it("Lesefehler nach dem Claim: ein inzwischen fremd gesetztes Gate wird nicht zurückgenommen", async () => {
+    const fake = setup({});
+    vi.mocked(getBalances).mockImplementationOnce(async () => {
+      tripRow(fake).settlement_announced_at = "2026-06-11T11:11:11.000Z";
+      tripRow(fake).changes_pending_since = fresh;
+      throw new Error("db down");
+    });
+    const fresh = new Date().toISOString();
+    await announceSettlement(TRIP);
+    expect(tripRow(fake).settlement_announced_at).toBe("2026-06-11T11:11:11.000Z");
+    expect(tripRow(fake).changes_pending_since).toBe(fresh);
+  });
+
+  it("Lesefehler nach dem Claim: ein Marker von VOR dem Claim bleibt stehen", async () => {
+    const fake = setup({ changes_pending_since: "2026-01-01T00:00:00.000Z" });
+    vi.mocked(getBalances).mockRejectedValueOnce(new Error("db down"));
+    await announceSettlement(TRIP);
+    expect(tripRow(fake).settlement_announced_at).toBeNull();
+    expect(tripRow(fake).changes_pending_since).toBe("2026-01-01T00:00:00.000Z");
   });
 
   it("kein Push „Abrechnung verschickt“, wenn keine Mail ankam", async () => {
@@ -194,6 +254,69 @@ describe("resendSettlement — atomarer Claim", () => {
     expect([a.ok, b.ok].sort()).toEqual([false, true]);
     expect(mockedSend).toHaveBeenCalledTimes(1);
     expect(tripRow(fake).settlement_mail_sent_at).not.toBeNull();
+  });
+
+  it("Update-Fall: Buchung WÄHREND des Versands → Marker danach wieder gesetzt", async () => {
+    const fake = setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: ANNOUNCED, changes_pending_since: PENDING });
+    mockedSend.mockImplementationOnce(async (msgs) => {
+      bookDuringSend(fake);
+      return msgs.map(() => ({ ok: true })) as never;
+    });
+    const res = await resendSettlement(TRIP);
+    expect(res.ok).toBe(true);
+    expect(tripRow(fake).changes_pending_since).not.toBeNull();
+  });
+
+  it("Update-Fall ohne Änderung während des Versands → Marker bleibt weg", async () => {
+    const fake = setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: ANNOUNCED, changes_pending_since: PENDING });
+    // Alte Audit-Zeile (vor dem Claim) zählt nicht.
+    fake.rows("audit_log").push({ id: "old", trip_id: TRIP, table_name: "transactions", created_at: "2026-06-12T09:00:00.000Z" });
+    await resendSettlement(TRIP);
+    expect(tripRow(fake).changes_pending_since).toBeNull();
+  });
+
+  it("Erstversand-Retry mit offenem Marker: Buchung während des Versands → Marker bleibt gesetzt", async () => {
+    const fake = setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: null, changes_pending_since: PENDING });
+    mockedSend.mockImplementationOnce(async (msgs) => {
+      bookDuringSend(fake);
+      return msgs.map(() => ({ ok: true })) as never;
+    });
+    await resendSettlement(TRIP);
+    expect(tripRow(fake).changes_pending_since).not.toBeNull();
+  });
+
+  it("Erstversand-Retry: ein während des Versands NEU gesetzter Marker wird beim Abschluss nicht gelöscht", async () => {
+    const fake = setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: null, changes_pending_since: PENDING });
+    mockedSend.mockImplementationOnce(async (msgs) => {
+      tripRow(fake).changes_pending_since = "2026-06-13T08:00:00.000Z";
+      return msgs.map(() => ({ ok: true })) as never;
+    });
+    await resendSettlement(TRIP);
+    expect(tripRow(fake).changes_pending_since).toBe("2026-06-13T08:00:00.000Z");
+  });
+
+  it("Update-Fall: Abschluss nullt nur den EIGENEN Sperr-Wert", async () => {
+    const fake = setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: ANNOUNCED, changes_pending_since: PENDING });
+    mockedSend.mockImplementationOnce(async (msgs) => {
+      // z. B. Sperre abgelaufen und ein anderer Request hat neu geclaimt
+      tripRow(fake).changes_pending_since = "2999-01-01T00:00:00.000Z";
+      return msgs.map(() => ({ ok: true })) as never;
+    });
+    await resendSettlement(TRIP);
+    expect(tripRow(fake).changes_pending_since).toBe("2999-01-01T00:00:00.000Z");
+  });
+
+  it("kein Update-Push, wenn keine Mail ankam", async () => {
+    setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: ANNOUNCED, changes_pending_since: PENDING });
+    mockedSend.mockImplementationOnce(async (msgs) => msgs.map(() => ({ ok: false, error: "smtp" })) as never);
+    await resendSettlement(TRIP);
+    expect(vi.mocked(sendPushToPersons)).not.toHaveBeenCalled();
+  });
+
+  it("übergibt knappe SMTP-Timeouts auch beim Resend", async () => {
+    setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: ANNOUNCED, changes_pending_since: PENDING });
+    await resendSettlement(TRIP);
+    expect((mockedSend.mock.calls[0][1] as Record<string, number>).socketTimeoutMs).toBeLessThanOrEqual(60_000);
   });
 
   it("Erstversand-Retry blockiert, solange ein announce gerade versendet (Gate frisch gesetzt)", async () => {

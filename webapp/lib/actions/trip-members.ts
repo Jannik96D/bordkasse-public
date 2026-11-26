@@ -9,7 +9,7 @@ import { logAudit } from "@/lib/db/audit";
 import { markBalancesMayHaveChanged } from "@/lib/db/settlement-marker";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
 import { resolveOrigin } from "@/lib/auth/origin";
-import { daysBetween, displayNameFromEmail } from "@/lib/utils";
+import { daysBetween, displayNameFromEmail, todayIso } from "@/lib/utils";
 import { calculateItemObligations } from "@/lib/calc/prepayment-item-shares";
 import { personHasBookingTrace } from "@/lib/auth/cross-trip";
 import { assertTripNotArchived } from "@/lib/auth/trip-state";
@@ -119,13 +119,28 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
   // Vorab prüfen ob Person schon Mitglied — entscheidet, ob die
   // Einladungs-Mail rausgeht. Bei reinem UPSERT-Update (Anwesenheits-
   // Edit etc.) wollen wir den Eingeladenen NICHT erneut anschreiben.
-  const { data: existingMember } = await supabase
+  const { data: existingMember, error: existingErr } = await supabase
     .from("trip_members")
     .select("id")
     .eq("trip_id", trip_id)
     .eq("person_id", personId)
     .maybeSingle();
-  const wasAlreadyMember = !!existingMember;
+  if (existingErr) {
+    console.error("[bordkasse:db] inviteMember member check:", existingErr.message);
+    return { status: "error", message: "Prüfung fehlgeschlagen. Bitte erneut versuchen." };
+  }
+  // Slice 9 (Grill zu PR #311): eine erneute „Einladung" einer Person, die
+  // schon Crew ist, überschrieb per Upsert Anwesenheit, Notiz und das
+  // Trinker-Flag mit den (meist leeren) Formularwerten — ein festgeschriebenes
+  // `is_alcoholic` wurde wieder NULL, und das Profil-Flag wirkte erneut
+  // rückwirkend. Eine Einladungs-Mail ging in diesem Fall ohnehin nie raus.
+  // Konservativ: abweisen, Änderungen laufen über „Bearbeiten" (updateMember).
+  if (existingMember) {
+    return {
+      status: "error",
+      message: "Diese Person ist bereits in der Crew. Änderungen bitte über „Bearbeiten“ am Creweintrag.",
+    };
+  }
 
   // Mitgliedschaft anlegen (UPSERT auf trip_id+person_id)
   const alkInput = is_alcoholic;
@@ -153,8 +168,7 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
   if (tmError) return { status: "error", message: tmError.message };
 
   // Slice 9: ein neues Mitglied verdünnt rückwirkend jede „Gleichmäßig"-/
-  // „An Alle"-Buchung; ein Upsert auf ein bestehendes Mitglied kann
-  // Anwesenheit/Trinker-Flag überschreiben → nach der Abrechnung Banner.
+  // „An Alle"-Buchung → nach der Abrechnung Banner.
   await markBalancesMayHaveChanged(supabase, trip_id);
 
   if (member) {
@@ -178,7 +192,7 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
   // (die früher die Error-Boundary auslöste und so wirkte, als sei nichts
   // passiert — obwohl das Mitglied längst angelegt war).
   let warning: string | undefined;
-  if (!wasAlreadyMember && email) {
+  if (email) {
     try {
       const hdrs = await headers();
       const origin = resolveOrigin(hdrs.get("origin"));
@@ -1095,6 +1109,44 @@ async function mergeGhostIntoExistingPerson(
     };
   };
 
+  // Slice 9: Trinker-Flag des Ghosts festschreiben? Nur nötig, wenn es sich
+  // vom Personen-Flag der Zielperson unterscheidet (sonst ändert das
+  // Umhängen nichts) UND der Törn schon Saldo haben kann — begonnen hat oder
+  // Buchungen trägt (gleiche Regel wie lib/db/alcohol-pin.ts). Davor ist das
+  // Profil-Flag nur Vorbelegung und darf mit der Person wechseln. Alles
+  // hier nur Lesen, VOR dem ersten Write; fail-closed.
+  let ghostAlcoholPin: boolean | null = null;
+  {
+    const [personsRes, tripRes] = await Promise.all([
+      supabase.from("persons").select("id, is_alcoholic").in("id", [ghostId, realId]),
+      supabase.from("trips").select("start_date").eq("id", tripId).maybeSingle(),
+    ]);
+    if (personsRes.error || tripRes.error) {
+      console.error("[bordkasse:db] merge alcohol check:", personsRes.error?.message ?? tripRes.error?.message);
+      return { ok: false, message: "Prüfung vor der Verschmelzung fehlgeschlagen. Bitte erneut versuchen." };
+    }
+    const flagOf = (id: string) =>
+      ((personsRes.data ?? []) as { id: string; is_alcoholic: boolean | null }[]).find((p) => p.id === id)?.is_alcoholic ?? false;
+    const ghostFlag = flagOf(ghostId);
+    if (ghostFlag !== flagOf(realId)) {
+      const startDate = (tripRes.data as { start_date?: string } | null)?.start_date;
+      let hasSaldo = startDate === undefined || startDate <= todayIso();
+      if (!hasSaldo) {
+        const { count, error } = await supabase
+          .from("transactions")
+          .select("id", { count: "exact", head: true })
+          .eq("trip_id", tripId)
+          .is("deleted_at", null);
+        if (error) {
+          console.error("[bordkasse:db] merge alcohol bookings:", error.message);
+          return { ok: false, message: "Prüfung vor der Verschmelzung fehlgeschlagen. Bitte erneut versuchen." };
+        }
+        hasSaldo = (count ?? 0) > 0;
+      }
+      if (hasSaldo) ghostAlcoholPin = ghostFlag;
+    }
+  }
+
   // 1. transactions: paid_by / credit_from / credit_to umhängen — keine
   //    Constraints betroffen, einfache UPDATEs. Durch den Pre-Check oben
   //    ist der Ghost NUR in diesem Törn Crew, ein globales UPDATE ist damit
@@ -1241,21 +1293,14 @@ async function mergeGhostIntoExistingPerson(
   //    hat sichergestellt, dass real noch nicht Mitglied dieses Trips ist —
   //    UNIQUE (trip_id, person_id) ist daher safe.
   //
-  //    Slice 9: VORHER das Trinker-Flag des Ghosts festschreiben, falls die
-  //    Mitgliedschaft keinen eigenen Wert hat — sonst gälte nach dem
-  //    Umhängen das Personen-Flag der ECHTEN Person (COALESCE in
-  //    v_transaction_shares) und der Alkoholanteil wanderte rückwirkend.
-  {
-    const { data: ghostRow, error: ghostErr } = await supabase
-      .from("persons")
-      .select("is_alcoholic")
-      .eq("id", ghostId)
-      .maybeSingle();
-    if (ghostErr) return mergeStepFailed("persons.ghost_alcohol_read", ghostErr.message);
-    const ghostAlcoholic = (ghostRow as { is_alcoholic?: boolean | null } | null)?.is_alcoholic ?? false;
+  //    Slice 9: VORHER ggf. das Trinker-Flag des Ghosts festschreiben (siehe
+  //    `ghostAlcoholPin` oben) — sonst gälte nach dem Umhängen das
+  //    Personen-Flag der ECHTEN Person (COALESCE in v_transaction_shares)
+  //    und der Alkoholanteil wanderte rückwirkend.
+  if (ghostAlcoholPin !== null) {
     const { error } = await supabase
       .from("trip_members")
-      .update({ is_alcoholic: ghostAlcoholic })
+      .update({ is_alcoholic: ghostAlcoholPin })
       .eq("trip_id", tripId)
       .eq("person_id", ghostId)
       .is("is_alcoholic", null);

@@ -130,9 +130,10 @@ Törn-Wert hat und deren Törn **begonnen hat** (`start_date <= heute`) **oder
 schon (nicht gelöschte) Buchungen trägt** (`lib/db/alcohol-pin.ts`,
 fail-closed: scheitert das, bleibt das Profil unverändert). Wirksam wird die
 Änderung damit nur in Törns ohne jeden Saldo. Dieselbe Regel gilt beim
-Ghost-Merge (das Flag des Ghosts wird festgeschrieben, bevor die
-Mitgliedschaft auf die echte Person wandert) und bei der Kontolöschung
-(Migration 0063).
+Ghost-Merge: unterscheidet sich das Flag des Ghosts von dem der echten
+Person und hat der Törn begonnen oder Buchungen, wird das Ghost-Flag
+festgeschrieben, bevor die Mitgliedschaft auf die echte Person wandert.
+Die Kontolöschung schreibt ebenfalls fest (Migration 0063).
 
 Eine Änderung am **Törn**-Flag oder an der Anwesenheit ist dagegen bewusst
 möglich (Korrektur durch den Skipper) und setzt nach der Abrechnung den

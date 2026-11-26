@@ -118,6 +118,22 @@ describe("updateTripDates — Marker + Archiv-Guard", () => {
     expect(marked(fake)).toBe(false);
   });
 
+  it("setzt keinen Marker, wenn sich die Daten nicht ändern", async () => {
+    const fake = setup();
+    const res = await updateTripDates(
+      { status: "idle" } as never,
+      fd({ trip_id: TRIP, start_date: "2026-06-01", end_date: "2026-06-10" }),
+    );
+    expect(res.status).toBe("ok");
+    expect(marked(fake)).toBe(false);
+  });
+
+  it("setzt bei geändertem Enddatum den Marker", async () => {
+    const fake = setup();
+    await updateTripDates({ status: "idle" } as never, fd({ trip_id: TRIP, start_date: "2026-06-01", end_date: "2026-06-12" }));
+    expect(marked(fake)).toBe(true);
+  });
+
   it("lehnt einen archivierten Törn ab und ändert nichts", async () => {
     const fake = setup({ archived: true });
     const res = await updateTripDates({ status: "idle" } as never, form());
@@ -143,6 +159,25 @@ describe("inviteMember — neues Mitglied verdünnt rückwirkend", () => {
     fake.failOn({ table: "trip_members", action: "upsert" });
     const res = await inviteMember({ status: "idle" }, form());
     expect(res.status).toBe("error");
+    expect(marked(fake)).toBe(false);
+  });
+
+  it("weist eine erneute Einladung eines bestehenden Mitglieds ab — überschreibt kein festgeschriebenes Flag", async () => {
+    const fake = setup({
+      extra: {
+        persons_private: [{ person_id: PERSON, email: "crew@example.test" }],
+      },
+    });
+    const tm = fake.rows("trip_members").find((m) => m.id === MEMBER)!;
+    tm.is_alcoholic = true;
+    tm.on_board_from = "2026-06-03";
+    const res = await inviteMember(
+      { status: "idle" },
+      fd({ trip_id: TRIP, email: "crew@example.test", display_name: "", is_alcoholic: "" }),
+    );
+    expect(res.status).toBe("error");
+    expect(tm.is_alcoholic).toBe(true);
+    expect(tm.on_board_from).toBe("2026-06-03");
     expect(marked(fake)).toBe(false);
   });
 
@@ -182,6 +217,13 @@ describe("updateMember — Anwesenheit / Trinker-Flag", () => {
     expect(marked(fake)).toBe(true);
   });
 
+  it("setzt bei geändertem Abreisetag den Marker", async () => {
+    const fake = setup();
+    const res = await updateMember({ status: "idle" }, form({ on_board_to: "2026-06-08" }));
+    expect(res.status).toBe("ok");
+    expect(marked(fake)).toBe(true);
+  });
+
   it("setzt bei geändertem Trinker-Flag den Marker", async () => {
     const fake = setup();
     const res = await updateMember({ status: "idle" }, form({ is_alcoholic: "no" }));
@@ -210,9 +252,21 @@ describe("updateMember — Ghost-Merge", () => {
   const REAL = "aaaaaaaa-0000-4000-8000-000000000022";
   const GHOST_MEMBER = "aaaaaaaa-0000-4000-8000-000000000023";
 
-  function mergeSetup(): Fake {
+  function mergeSetup(
+    opts: { ghostAlcoholic?: boolean; realAlcoholic?: boolean; startDate?: string; bookings?: Row[] } = {},
+  ): Fake {
     const fake = createFakeSupabase({
-      trips: [{ id: TRIP, archived: false, skipper_id: ACTOR, settlement_announced_at: ANNOUNCED, changes_pending_since: null }],
+      trips: [
+        {
+          id: TRIP,
+          archived: false,
+          skipper_id: ACTOR,
+          start_date: opts.startDate ?? "2026-06-01",
+          settlement_announced_at: ANNOUNCED,
+          changes_pending_since: null,
+        },
+      ],
+      transactions: opts.bookings ?? [],
       trip_members: [
         {
           id: GHOST_MEMBER,
@@ -226,8 +280,8 @@ describe("updateMember — Ghost-Merge", () => {
         },
       ],
       persons: [
-        { id: GHOST, display_name: "Ghost", is_alcoholic: true, auth_user_id: null },
-        { id: REAL, display_name: "Real", is_alcoholic: false, auth_user_id: null },
+        { id: GHOST, display_name: "Ghost", is_alcoholic: opts.ghostAlcoholic ?? true, auth_user_id: null },
+        { id: REAL, display_name: "Real", is_alcoholic: opts.realAlcoholic ?? false, auth_user_id: null },
       ],
       persons_private: [
         { person_id: REAL, email: "real@example.test", persons: { display_name: "Real", auth_user_id: null } },
@@ -263,6 +317,57 @@ describe("updateMember — Ghost-Merge", () => {
     // Ohne Festschreiben gälte jetzt das Flag der echten Person (false).
     expect(tm.is_alcoholic).toBe(true);
     expect(marked(fake)).toBe(true);
+  });
+
+  it("realistisch: Ghost trinkt nicht, Zielperson schon — begonnener Törn behält „trinkt nicht“", async () => {
+    const fake = mergeSetup({ ghostAlcoholic: false, realAlcoholic: true });
+    const res = await updateMember({ status: "idle" }, mergeForm());
+    expect(res.status).toBe("ok");
+    expect(fake.rows("trip_members").find((m) => m.id === GHOST_MEMBER)!.is_alcoholic).toBe(false);
+  });
+
+  it("künftiger Törn ohne Buchungen: kein Festschreiben, das Profil der Zielperson gilt als Vorbelegung", async () => {
+    const fake = mergeSetup({ ghostAlcoholic: false, realAlcoholic: true, startDate: "2999-01-01" });
+    const res = await updateMember({ status: "idle" }, mergeForm());
+    expect(res.status).toBe("ok");
+    expect(fake.rows("trip_members").find((m) => m.id === GHOST_MEMBER)!.is_alcoholic).toBeNull();
+  });
+
+  it("künftiger Törn MIT Buchung: Flag des Ghosts wird festgeschrieben", async () => {
+    const fake = mergeSetup({
+      ghostAlcoholic: false,
+      realAlcoholic: true,
+      startDate: "2999-01-01",
+      bookings: [{ id: "tx-1", trip_id: TRIP, deleted_at: null, paid_by: ACTOR }],
+    });
+    const res = await updateMember({ status: "idle" }, mergeForm());
+    expect(res.status).toBe("ok");
+    expect(fake.rows("trip_members").find((m) => m.id === GHOST_MEMBER)!.is_alcoholic).toBe(false);
+  });
+
+  it("künftiger Törn nur mit gelöschter Buchung: kein Festschreiben", async () => {
+    const fake = mergeSetup({
+      ghostAlcoholic: false,
+      realAlcoholic: true,
+      startDate: "2999-01-01",
+      bookings: [{ id: "tx-1", trip_id: TRIP, deleted_at: "2026-01-01T00:00:00Z", paid_by: ACTOR }],
+    });
+    await updateMember({ status: "idle" }, mergeForm());
+    expect(fake.rows("trip_members").find((m) => m.id === GHOST_MEMBER)!.is_alcoholic).toBeNull();
+  });
+
+  it("gleiche Flags: nichts festschreiben", async () => {
+    const fake = mergeSetup({ ghostAlcoholic: true, realAlcoholic: true });
+    await updateMember({ status: "idle" }, mergeForm());
+    expect(fake.rows("trip_members").find((m) => m.id === GHOST_MEMBER)!.is_alcoholic).toBeNull();
+  });
+
+  it("Vorabprüfung scheitert → kein Write, Merge abgebrochen", async () => {
+    const fake = mergeSetup();
+    fake.failOn({ table: "persons", action: "select" });
+    const res = await updateMember({ status: "idle" }, mergeForm());
+    expect(res.status).toBe("error");
+    expect(fake.rows("trip_members").find((m) => m.id === GHOST_MEMBER)!.person_id).toBe(GHOST);
   });
 
   it("setzt den Marker auch, wenn der Merge mittendrin scheitert", async () => {

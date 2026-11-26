@@ -220,6 +220,15 @@ export async function updateTripDates(
   const archivedCheck = await assertTripNotArchived(supabase, tripId);
   if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
 
+  // Bisherige Daten — der Marker soll nur bei einer echten Änderung kommen.
+  // Lesefehler → im Zweifel markieren (ein überflüssiger Banner ist harmlos).
+  const { data: prior, error: priorErr } = await supabase
+    .from("trips")
+    .select("start_date, end_date")
+    .eq("id", tripId)
+    .maybeSingle();
+  if (priorErr) console.error("[bordkasse:db] updateTripDates prior:", priorErr.message);
+
   const { error } = await supabase
     .from("trips")
     .update({
@@ -231,7 +240,11 @@ export async function updateTripDates(
     console.error("[bordkasse:db]", error.message);
     return { status: "error", message: "Speichern fehlgeschlagen. Bitte erneut versuchen." };
   }
-  await markBalancesMayHaveChanged(supabase, tripId);
+  const datesChanged =
+    !prior ||
+    (prior as { start_date: string }).start_date !== parsed.data.start_date ||
+    (prior as { end_date: string }).end_date !== parsed.data.end_date;
+  if (datesChanged) await markBalancesMayHaveChanged(supabase, tripId);
 
   await logAudit(supabase, {
     table_name: "trips",

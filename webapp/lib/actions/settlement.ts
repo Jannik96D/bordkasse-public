@@ -14,6 +14,7 @@ import { pushRecipients } from "@/lib/notify/recipients";
 import { settlementAnnouncedPush, settlementUpdatedPush } from "@/lib/notify/payloads";
 import { formatDate } from "@/lib/utils";
 import { appOrigin } from "@/lib/auth/origin";
+import { markBalancesMayHaveChanged } from "@/lib/db/settlement-marker";
 
 /**
  * Versand-Sperre (Slice 9, Sicherheitsrunde 2026-11). announce/resend
@@ -38,6 +39,45 @@ const SEND_LEASE_MS = 10 * 60 * 1000;
 /** Toleranz für Uhrabweichung App ↔ DB beim Erkennen echter Marker. */
 const CLOCK_SKEW_MS = 60 * 1000;
 const isoShift = (iso: string, ms: number) => new Date(Date.parse(iso) + ms).toISOString();
+
+/**
+ * Knappe SMTP-Timeouts für die Abrechnungs-Mails (Grill zu PR #311): mit den
+ * nodemailer-Defaults (Socket 10 min) könnte ein hängender Mailserver die
+ * Versand-Sperre überdauern — dann dürfte ein zweiter Request claimen und
+ * dieselben Mails noch einmal schicken. Bei ≤ 12 Empfängern über 5 gepoolte
+ * Verbindungen bleibt der Versand so sicher unter SEND_LEASE_MS.
+ */
+const SETTLEMENT_MAIL_TIMEOUTS = { connectionTimeoutMs: 15_000, greetingTimeoutMs: 15_000, socketTimeoutMs: 30_000 } as const;
+
+/**
+ * Audit-Tabellen der Schreibpfade, die `mark_post_settlement_change` rufen
+ * (Buchungen, Crew/Anwesenheit/Trinker-Flag, Posten-Soll). Während einer
+ * laufenden Update-Mail ist der Marker auf einen Zukunftswert gesetzt — die
+ * RPC ist dann ein No-op. Nach dem Abschluss wird deshalb im Audit-Log
+ * nachgesehen, ob in diesem Fenster etwas passiert ist (siehe
+ * `remarkIfChangedDuringSend`).
+ */
+const BALANCE_AUDIT_TABLES = ["transactions", "trip_members", "prepayment_item_obligations"];
+
+/**
+ * Hat sich seit `sinceIso` (minus Uhr-Toleranz) etwas am Saldo geändert,
+ * Marker erneut setzen. Fail-safe: bei einem Lesefehler ebenfalls setzen —
+ * ein überflüssiger Banner ist harmlos, ein fehlender entwertet Häkchen.
+ */
+async function remarkIfChangedDuringSend(
+  supabase: ReturnType<typeof createAdminClient>,
+  tripId: string,
+  sinceIso: string,
+): Promise<void> {
+  const { count, error } = await supabase
+    .from("audit_log")
+    .select("id", { count: "exact", head: true })
+    .eq("trip_id", tripId)
+    .in("table_name", BALANCE_AUDIT_TABLES)
+    .gte("created_at", isoShift(sinceIso, -CLOCK_SKEW_MS));
+  if (error) console.error("[bordkasse:db] resend recheck:", error.message);
+  if (error || (count ?? 0) > 0) await markBalancesMayHaveChanged(supabase, tripId);
+}
 
 type Result =
   // skipped = kein E-Mail-Adresse hinterlegt (z. B. Ghost-Crew); failed =
@@ -111,12 +151,25 @@ export async function announceSettlement(tripId: string): Promise<Result> {
   // Abbruch VOR dem Versand (Lesefehler) → Claim vollständig zurückgeben,
   // der Skipper kann es sofort erneut versuchen.
   const abortBeforeSend = async (message: string): Promise<Result> => {
-    const { error } = await supabase
+    const { data: released, error } = await supabase
       .from("trips")
       .update({ settlement_announced_at: null, settlement_announced_by: null })
       .eq("id", tripId)
-      .eq("settlement_announced_at", claimedAt);
+      .eq("settlement_announced_at", claimedAt)
+      .select("id");
     if (error) console.error("[bordkasse:db] settlement release:", error.message);
+    if (released && released.length > 0) {
+      // Ein Marker, der erst im Claim-Fenster entstand, gehört zu dieser
+      // zurückgenommenen Abrechnung — sonst erschiene beim nächsten announce
+      // sofort ein unbegründeter „Bilanz geändert"-Banner. Ältere Marker
+      // (vor dem Claim) bleiben unberührt.
+      const { error: mErr } = await supabase
+        .from("trips")
+        .update({ changes_pending_since: null })
+        .eq("id", tripId)
+        .gte("changes_pending_since", isoShift(claimedAt, -CLOCK_SKEW_MS));
+      if (mErr) console.error("[bordkasse:db] settlement release marker:", mErr.message);
+    }
     return { ok: false, message };
   };
 
@@ -219,7 +272,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
     jobs.push({ personId: m.person_id, message: { to: email, subject, html, text } });
   }
 
-  const results = await sendMails(jobs.map((j) => j.message));
+  const results = await sendMails(jobs.map((j) => j.message), SETTLEMENT_MAIL_TIMEOUTS);
   let sent = 0;
   let failed = 0;
   results.forEach((res, i) => {
@@ -521,7 +574,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
     jobs.push({ personId: m.person_id, message: { to: email, subject, html, text } });
   }
 
-  const results = await sendMails(jobs.map((j) => j.message));
+  const results = await sendMails(jobs.map((j) => j.message), SETTLEMENT_MAIL_TIMEOUTS);
   let sent = 0;
   let failed = 0;
   results.forEach((res, i) => {
@@ -568,6 +621,11 @@ export async function resendSettlement(tripId: string): Promise<Result> {
         .eq("changes_pending_since", leaseUntil);
       if (error) console.error("[bordkasse:db] resend finish:", error.message);
     }
+    // Beide Pfade: eine Saldo-Änderung, die während des Versands entstand,
+    // konnte den Marker nicht setzen (Update-Pfad: Marker stand auf dem
+    // Zukunftswert; Erstversand mit offenem Marker: Marker war schon
+    // gesetzt) und wurde mit dem Abschluss eben mit gelöscht → nachholen.
+    await remarkIfChangedDuringSend(supabase, tripId, claimedAt);
   } else {
     // Nichts zugestellt → Claim zurückgeben, damit der Versand sofort
     // erneut versucht werden kann.
