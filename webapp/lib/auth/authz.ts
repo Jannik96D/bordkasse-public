@@ -10,6 +10,7 @@
 import { cache } from "react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "./get-current-person";
+import { getAdminEmails } from "./admin-emails";
 
 export type AuthzResult =
   | { ok: true; personId: string }
@@ -22,18 +23,9 @@ export async function requireAuth(): Promise<AuthzResult> {
   return { ok: true, personId: person.id };
 }
 
-/**
- * Liest die Admin-Allowlist aus der Env-Variable ADMIN_EMAILS.
- * Format: komma-separiert, Leerzeichen werden getrimmt, Vergleich
- * lowercase. Wenn die Variable nicht gesetzt ist, ist niemand Admin
- * (fail-closed → niemand darf Törns anlegen).
- */
-export function getAdminEmails(): string[] {
-  return (process.env.ADMIN_EMAILS ?? "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-}
+// Admin-Allowlist aus ADMIN_EMAILS — eigene Datei, damit getCurrentPerson
+// sie ohne Import-Zyklus nutzen kann (Sicherheitsrunde 2026-11, Slice 1).
+export { getAdminEmails };
 
 export const isAdmin = cache(async (): Promise<boolean> => {
   const person = await getCurrentPerson();

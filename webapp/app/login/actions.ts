@@ -1,10 +1,12 @@
 "use server";
 
+import { createHmac } from "node:crypto";
 import { z } from "zod";
 import { cookies, headers } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
+import { createCookielessClient } from "@/lib/supabase/cookieless";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isEmailAllowedToSignIn } from "@/lib/auth/authz";
+import { ensureAuthUser } from "@/lib/auth/ensure-auth-user";
 import { resolveOrigin } from "@/lib/auth/origin";
 import {
   loginIntentCookieName,
@@ -60,6 +62,23 @@ async function withinRateLimit(emailKey: string, ip: string): Promise<boolean> {
 }
 
 /**
+ * Pseudonym einer E-Mail fürs Log: HMAC-SHA256 mit einem serverseitigen
+ * Secret, gekürzt auf 12 Hex-Zeichen. Ein ungesalzener Hash ließe sich für
+ * die kleine Menge bekannter Crew-Adressen per Wörterbuch zurückrechnen.
+ * Schlüssel ist der ohnehin verpflichtende SUPABASE_SERVICE_ROLE_KEY (kein
+ * neues Env; der Schlüssel selbst verlässt den Prozess nicht). Fehlt er,
+ * wird gar nichts zur Adresse geloggt.
+ */
+function emailPseudonym(email: string): string | null {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) return null;
+  return createHmac("sha256", key).update(email.trim().toLowerCase()).digest("hex").slice(0, 12);
+}
+
+const SEND_FAILED_MESSAGE =
+  "Login-Link konnte nicht versandt werden. Bitte später erneut versuchen.";
+
+/**
  * Setzt den Login-Intent-Beleg (HMAC der Adresse, siehe lib/auth/login-intent.ts)
  * im Browser des Anfordernden. NUR hier — Skipper-Einladungen setzen ihn nicht
  * (der Empfänger öffnet den Link in einem Browser ohne Cookie → Fallback).
@@ -106,8 +125,12 @@ export async function signInWithMagicLink(
   // der E-Mails durchprobiert, soll am Antwortverhalten nicht erkennen können,
   // wann er das Limit trifft. Kein Mailversand, aber intern sichtbar geloggt.
   if (!(await withinRateLimit(parsed.data.email.toLowerCase(), ip))) {
+    // E-Mail nur pseudonymisiert (keine PII im Log, Zuordnung gleicher
+    // Adressen bleibt möglich). Die IP bleibt im Klartext: sie ist der Wert,
+    // dessen Ermittlung vor dem Prod-Deploy einen Tag lang geprüft werden
+    // soll (Sanierungsplan 2026-09, PR 8).
     console.warn("[bordkasse:ratelimit] Login-Anfrage rate-limitiert", {
-      email: parsed.data.email.toLowerCase(),
+      emailHash: emailPseudonym(parsed.data.email),
       ip,
     });
     await setLoginIntent(parsed.data.email);
@@ -127,19 +150,37 @@ export async function signInWithMagicLink(
     };
   }
 
-  const supabase = await createClient();
   const origin = resolveOrigin(hdrs.get("origin"));
+  const supabase = createCookielessClient();
+  if (!supabase) {
+    console.error("[bordkasse:auth] Supabase-Config fehlt");
+    return { status: "error", message: SEND_FAILED_MESSAGE };
+  }
 
+  // Sicherheitsrunde 2026-11, Slice 1: das Auth-Konto entsteht NUR hier
+  // (bzw. bei der Einladung) serverseitig — bestätigt und mit Anker in
+  // `app_metadata`, den `getCurrentPerson` für die Ghost-Verknüpfung
+  // verlangt. Fail-closed: ohne Konto keine Mail. Die Meldung ist bewusst
+  // dieselbe wie bei einem Versandfehler (keine Rückschlüsse auf Konten).
+  const ensured = await ensureAuthUser(parsed.data.email);
+  if (!ensured.ok) {
+    return { status: "error", message: SEND_FAILED_MESSAGE };
+  }
+
+  // Cookieloser Client: die Session entsteht erst in /auth/verify.
+  // `shouldCreateUser: false` — Konten legt ausschließlich ensureAuthUser an.
   const { error } = await supabase.auth.signInWithOtp({
     email: parsed.data.email,
     options: {
       emailRedirectTo: `${origin}/auth/callback`,
+      shouldCreateUser: false,
     },
   });
 
   if (error) {
-    console.error("[bordkasse:auth]", error.message);
-    return { status: "error", message: "Login-Link konnte nicht versandt werden. Bitte später erneut versuchen." };
+    // Nur der Code, kein GoTrue-Rohtext (der kann die Adresse enthalten).
+    console.error("[bordkasse:auth] OTP-Versand fehlgeschlagen:", error.code ?? "unknown");
+    return { status: "error", message: SEND_FAILED_MESSAGE };
   }
 
   await setLoginIntent(parsed.data.email);

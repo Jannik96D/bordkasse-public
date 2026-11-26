@@ -6,6 +6,8 @@ import { isAdmin } from "@/lib/auth/authz";
 import { listMyTrips } from "@/lib/queries/trips";
 import { formatDate } from "@/lib/utils";
 import { InstallHint } from "@/components/install-hint";
+import { createClient } from "@/lib/supabase/server";
+import { SignOutButton } from "@/app/profile/sign-out-button";
 
 export default async function Home({
   searchParams,
@@ -19,6 +21,15 @@ export default async function Home({
   const loginCleanupPending = sp.login_cleanup_pending === "1";
 
   if (!person) {
+    // Sicherheitsrunde 2026-11, Slice 1: eine Session kann jetzt ohne Person
+    // bestehen (Konto ohne passenden Anker, z. B. ein vor dem Deploy
+    // verschickter Link). Der Proxy leitet eingeloggte Nutzer von /login auf
+    // / zurück — ohne Abmelde-Knopf wäre das eine Schleife.
+    const cookieClient = await createClient();
+    const {
+      data: { user: sessionUser },
+    } = await cookieClient.auth.getUser();
+    const orphanSession = !!sessionUser;
     return (
       <main className="flex flex-1 flex-col items-center px-6 pb-12 pt-[14vh] text-center">
         <div className="w-full max-w-md space-y-6">
@@ -49,12 +60,22 @@ export default async function Home({
           <p className="text-lg text-ink-soft">
             Faire Kostenaufteilung auf Segeltörns – auch wenn die Crew wechselt.
           </p>
-          <Link
-            href="/login"
-            className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 font-medium text-paper transition-colors hover:bg-navy-dark"
-          >
-            Anmelden
-          </Link>
+          {orphanSession ? (
+            <div role="status" className="space-y-3 rounded-md border border-primary/20 bg-gold-soft p-4 text-left text-sm text-ink">
+              <p>
+                Diese Anmeldung ist noch keinem Crewmitglied zugeordnet. Bitte
+                melde dich ab und fordere einen neuen Login-Link an.
+              </p>
+              <SignOutButton className="inline-flex min-h-touch items-center justify-center rounded-md bg-primary px-6 py-3 font-medium text-paper transition-colors hover:bg-navy-dark focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50" />
+            </div>
+          ) : (
+            <Link
+              href="/login"
+              className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 font-medium text-paper transition-colors hover:bg-navy-dark"
+            >
+              Anmelden
+            </Link>
+          )}
           <p className="text-sm text-ink-soft">
             <Link href="/about" className="inline-block py-2 underline hover:text-primary">
               Über die Bordkassen-App
