@@ -113,6 +113,46 @@ Im Web-Frontend akzeptiert das Eingabefeld auch einfache Rechenausdrücke
 `safeMathEval` in [`lib/utils/math-eval.ts`](../webapp/lib/utils/math-eval.ts).
 Der Alkohol-Modifikator entfällt bei "Pro Person".
 
+## Wer gilt als Trinker? (Törn-Flag vor Profil-Flag)
+
+`v_transaction_shares` liest den Trinker-Status je Mitgliedschaft als
+`COALESCE(trip_members.is_alcoholic, persons.is_alcoholic, FALSE)`
+(Migration 0032). Der Törn-Wert (Crew-Einstellungen des Skippers) gewinnt;
+nur wo er leer ist, greift das Profil-Flag der Person.
+
+**Das Profil-Flag ist nur eine Vorbelegung für künftige Törns**
+(Sicherheitsrunde 2026-11, Slice 9). Weil der Status in jede Buchung des
+Törns eingeht — auch rückwirkend —, hätte ein „Ich trinke nicht" im Profil
+nach dem Törn den eigenen Alkoholanteil auf die übrigen Trinker verschoben.
+Deshalb schreibt `updateProfile` vor jeder Änderung des Profil-Flags den
+**bisherigen** Wert in jede eigene Mitgliedschaft fest, die noch keinen
+Törn-Wert hat und deren Törn **begonnen hat** (`start_date <= heute`) **oder
+schon (nicht gelöschte) Buchungen trägt** (`lib/db/alcohol-pin.ts`,
+fail-closed: scheitert das, bleibt das Profil unverändert). Wirksam wird die
+Änderung damit nur in Törns ohne jeden Saldo. Dieselbe Regel gilt beim
+Ghost-Merge: unterscheidet sich das Flag des Ghosts von dem der echten
+Person und hat der Törn begonnen oder Buchungen, wird das Ghost-Flag
+festgeschrieben, bevor die Mitgliedschaft auf die echte Person wandert.
+Die Kontolöschung schreibt ebenfalls fest (Migration 0063).
+
+Eine Änderung am **Törn**-Flag oder an der Anwesenheit ist dagegen bewusst
+möglich (Korrektur durch den Skipper) und setzt nach der Abrechnung den
+„Bilanz hat sich geändert"-Marker (siehe „Nachträgliche Änderungen").
+
+## Nachträgliche Änderungen nach der Abrechnung
+
+Neben Buchungen verschieben auch diese Schreibpfade Salden, weil
+`v_transaction_shares` die Anteile bei „Gleichmäßig", „An Bord",
+„Zeitanteilig" und „An Alle" allein aus `trip_members` und dem Törndatum
+ableitet: Crewmitglied hinzufügen (`inviteMember`) oder entfernen
+(`removeMember`), Anwesenheit oder Trinker-Flag ändern (`updateMember`),
+Ghost-Merge, Crewwechsel (`replaceMember`) und das Törndatum
+(`updateTripDates`). Alle rufen nach dem erfolgreichen Write
+`markBalancesMayHaveChanged` (`lib/db/settlement-marker.ts` →
+`mark_post_settlement_change`, 0019). Ist die Abrechnung schon verschickt,
+erscheint der Banner „Bilanz hat sich seit der Abrechnung geändert" mit dem
+Knopf für die Update-Mail.
+
 ## Trinkgeld-Verteilung (nur bei „Pro Person")
 
 Feld `tip_amount` (€) auf einer Ausgabe — nur bei `split_type='per_person'`

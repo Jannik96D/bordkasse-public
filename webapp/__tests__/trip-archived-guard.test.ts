@@ -353,7 +353,9 @@ describe("inviteMember — archivierter Törn (D3)", () => {
     const { supabase } = makeSupabase(false, {
       persons_private: { data: null },
       persons: { data: { id: PERSON_ID } },
-      trip_members: { data: { id: MEMBER_ID } },
+      // Noch KEIN Mitglied (Slice 9: eine bestehende Mitgliedschaft wird
+      // abgewiesen statt per Upsert überschrieben).
+      trip_members: {},
     });
     mockedAdminClient.mockReturnValue(supabase as never);
     const res = await inviteMember({ status: "idle" }, inviteFormData());

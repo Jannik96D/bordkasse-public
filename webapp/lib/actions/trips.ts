@@ -6,6 +6,8 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, requireAdminOrTripCreator, requireSkipperOrAdmin, requireTripOwnerOrAdmin, isAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
+import { markBalancesMayHaveChanged } from "@/lib/db/settlement-marker";
+import { assertTripNotArchived } from "@/lib/auth/trip-state";
 import { defaultCategoriesFor } from "@/lib/categories/defaults";
 import { displayNameFromEmail } from "@/lib/utils";
 import { isSupportedCurrency } from "@/lib/rates/currencies";
@@ -190,6 +192,12 @@ export type DateUpdateState =
  * Hinweis: existierende Buchungen werden NICHT verschoben. Wer Buchungen
  * vor dem neuen Start-Datum hat, muss sie manuell anpassen. Anwesenheiten
  * in `trip_members.on_board_from/to` greifen weiter direkt.
+ *
+ * Slice 9 (Sicherheitsrunde 2026-11): das Törndatum ist Teil der
+ * Anteilsrechnung (`COALESCE(on_board_from, start_date) …` in
+ * `v_transaction_shares` → „An Bord"/„Zeitanteilig") — eine Änderung nach
+ * der Abrechnung setzt deshalb den „Bilanz geändert"-Marker. Archivierte
+ * Törns sind schreibgeschützt (D3), auch für das Datum.
  */
 export async function updateTripDates(
   _prev: DateUpdateState,
@@ -209,6 +217,18 @@ export async function updateTripDates(
   }
 
   const supabase = createAdminClient();
+  const archivedCheck = await assertTripNotArchived(supabase, tripId);
+  if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
+  // Bisherige Daten — der Marker soll nur bei einer echten Änderung kommen.
+  // Lesefehler → im Zweifel markieren (ein überflüssiger Banner ist harmlos).
+  const { data: prior, error: priorErr } = await supabase
+    .from("trips")
+    .select("start_date, end_date")
+    .eq("id", tripId)
+    .maybeSingle();
+  if (priorErr) console.error("[bordkasse:db] updateTripDates prior:", priorErr.message);
+
   const { error } = await supabase
     .from("trips")
     .update({
@@ -220,6 +240,11 @@ export async function updateTripDates(
     console.error("[bordkasse:db]", error.message);
     return { status: "error", message: "Speichern fehlgeschlagen. Bitte erneut versuchen." };
   }
+  const datesChanged =
+    !prior ||
+    (prior as { start_date: string }).start_date !== parsed.data.start_date ||
+    (prior as { end_date: string }).end_date !== parsed.data.end_date;
+  if (datesChanged) await markBalancesMayHaveChanged(supabase, tripId);
 
   await logAudit(supabase, {
     table_name: "trips",

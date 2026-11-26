@@ -79,6 +79,8 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
     let action: Action = "select";
     let payload: unknown = null;
     let wantsRows = false;
+    let orderBy: { col: string; ascending: boolean } | null = null;
+    let limitN: number | null = null;
     let count: string | undefined;
     let head = false;
     const preds: Array<(r: Row) => boolean> = [];
@@ -120,9 +122,21 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
     };
     b.eq = (col: string, val: unknown) => add(`${col}=${String(val)}`, (r) => resolveCol(r, col) === val);
     b.neq = (col: string, val: unknown) => add(`${col}!=${String(val)}`, (r) => resolveCol(r, col) !== val);
-    b.gt = (col: string, val: number) => add(`${col}>${val}`, (r) => Number(resolveCol(r, col)) > val);
+    // Zahlen numerisch, sonst (ISO-Zeitstempel) als String — NULL ist nie größer.
+    b.gt = (col: string, val: number | string) =>
+      add(`${col}>${val}`, (r) => {
+        const v = resolveCol(r, col);
+        if (typeof val === "number") return Number(v) > val;
+        return v !== null && v !== undefined && String(v) > val;
+      });
     b.gte = (col: string, val: unknown) => add(`${col}>=${String(val)}`, (r) => String(resolveCol(r, col)) >= String(val));
     b.lte = (col: string, val: unknown) => add(`${col}<=${String(val)}`, (r) => String(resolveCol(r, col)) <= String(val));
+    // NULL ist wie in SQL nie kleiner (sonst verglich "null" als String).
+    b.lt = (col: string, val: unknown) =>
+      add(`${col}<${String(val)}`, (r) => {
+        const v = resolveCol(r, col);
+        return v !== null && v !== undefined && String(v) < String(val);
+      });
     b.is = (col: string, val: unknown) =>
       add(`${col} is ${String(val)}`, (r) => {
         const v = resolveCol(r, col);
@@ -146,8 +160,15 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
       });
       return add(`or(${expr})`, (r) => conds.some((c) => String(resolveCol(r, c.col)) === c.val));
     };
-    b.order = () => b;
-    b.limit = () => b;
+    // Sortierung/Limit wie PostgREST (nur bei SELECT mit Limit ausgewertet).
+    b.order = (col: string, opts?: { ascending?: boolean }) => {
+      orderBy = { col, ascending: opts?.ascending ?? true };
+      return b;
+    };
+    b.limit = (n: number) => {
+      limitN = n;
+      return b;
+    };
 
     const matches = (r: Row) => preds.every((p) => p(r));
 
@@ -158,7 +179,18 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
       if (injected) return { data: null, error: injected };
 
       if (action === "select") {
-        const rows = t(table).filter(matches).map((r) => ({ ...r }));
+        let rows = t(table).filter(matches).map((r) => ({ ...r }));
+        // Sortiert wird nur zusammen mit `.limit()` (Top-N-Abfragen); ohne
+        // Limit bleibt die Einfüge-Reihenfolge, auf die ältere Tests bauen.
+        if (orderBy && limitN !== null) {
+          const { col, ascending } = orderBy;
+          rows.sort((a, z) => {
+            const x = String(resolveCol(a, col));
+            const y = String(resolveCol(z, col));
+            return (x < y ? -1 : x > y ? 1 : 0) * (ascending ? 1 : -1);
+          });
+        }
+        if (limitN !== null) rows = rows.slice(0, limitN);
         if (count) return { data: head ? null : rows, error: null, count: rows.length };
         return { data: rows, error: null };
       }

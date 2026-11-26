@@ -63,7 +63,7 @@ export function ProfileForm({
               Ich trinke Alkohol
               <InfoTooltip
                 label="Wofür ist diese Angabe?"
-                text="Default für neue Törns, pro Törn überschreibbar. Bestimmt, wer den Alkoholanteil einer Ausgabe mitträgt."
+                text="Vorbelegung für Törns, die noch nicht begonnen haben und noch keine Buchungen haben — laufende und vergangene Törns ändert das nicht. Pro Törn überschreibbar. Bestimmt, wer den Alkoholanteil einer Ausgabe mitträgt."
               />
             </span>
           </span>

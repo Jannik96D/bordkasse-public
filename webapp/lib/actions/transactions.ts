@@ -20,6 +20,7 @@ import {
 } from "@/lib/auth/cross-trip";
 import { assertTripNotArchived } from "@/lib/auth/trip-state";
 import { logAudit } from "@/lib/db/audit";
+import { markBalancesMayHaveChanged } from "@/lib/db/settlement-marker";
 import { tripVocab } from "@/lib/trip-vocab";
 import { round2 } from "@/lib/utils";
 import { resolveExpenseCurrency, resolveCreditCurrency } from "@/lib/rates/resolve";
@@ -219,21 +220,10 @@ function dbErrorMessage(error: { message: string } | null, fallback: string): st
   return fallback;
 }
 
-/**
- * Setzt `trips.changes_pending_since` auf NOW, falls die Abrechnung schon
- * verschickt wurde und noch kein offener Änderungs-Hinweis vorliegt. So
- * sieht der Skipper auf der Trip-Übersicht den "Bilanz hat sich geändert"-
- * Banner und kann eine Update-Mail nachschieben.
- *
- * Fire-and-forget: Fehler werden geloggt aber bremsen die Haupt-Action nicht.
- */
-async function markPostSettlementChange(
-  supabase: ReturnType<typeof createAdminClient>,
-  tripId: string,
-): Promise<void> {
-  const { error } = await supabase.rpc("mark_post_settlement_change", { p_trip_id: tripId });
-  if (error) console.error("[bordkasse:settlement-resend]", error.message);
-}
+// Setzt `trips.changes_pending_since` nach der Abrechnung („Bilanz hat sich
+// geändert"-Banner). Geteilter Helfer seit Slice 9, siehe
+// lib/db/settlement-marker.ts — Fehler werden geloggt, bremsen die Action nicht.
+const markPostSettlementChange = markBalancesMayHaveChanged;
 
 /**
  * Hat sich an einer Buchung etwas geändert, das die **Bilanz** beeinflusst?

@@ -327,6 +327,7 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       b.eq = self;
       b.neq = self;
       b.is = self;
+      b.in = self;
       b.ilike = self;
       b.update = self;
       b.upsert = self;
@@ -467,6 +468,11 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       // 7b. PR4a: Ghost als Posten-Empfänger + Posten-Soll des Ghosts (beide leer).
       { table: "prepayment_items", response: { data: [] } },
       { table: "prepayment_item_obligations", response: { data: [] } },
+      // 7c. Slice 9: Trinker-Flag-Vorabprüfung (Törnstart, dann beide Personen;
+      //     maybeSingle wird beim Aufbau, .in() erst im Promise.all konsumiert).
+      //     Gleiche Flags → kein Festschreiben, keine Buchungszählung.
+      { table: "trips", response: { data: { start_date: "2026-01-01" } } },
+      { table: "persons", response: { data: [] } },
       // 8. transactions.update (paid_by) — vier Aufrufe im Merge-Helper
       { table: "transactions", response: { error: null } },
       { table: "transactions", response: { error: null } },
@@ -533,6 +539,11 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       // 7b. PR4a: Ghost als Posten-Empfänger + Posten-Soll des Ghosts (beide leer).
       { table: "prepayment_items", response: { data: [] } },
       { table: "prepayment_item_obligations", response: { data: [] } },
+      // 7c. Slice 9: Trinker-Flag-Vorabprüfung (Törnstart, dann beide Personen;
+      //     maybeSingle wird beim Aufbau, .in() erst im Promise.all konsumiert).
+      //     Gleiche Flags → kein Festschreiben, keine Buchungszählung.
+      { table: "trips", response: { data: { start_date: "2026-01-01" } } },
+      { table: "persons", response: { data: [] } },
       // transactions.update(paid_by) — erfolgreich
       { table: "transactions", response: { error: null } },
       // transactions.update(credit_from) — schlägt fehl
