@@ -385,13 +385,14 @@ export async function resendSettlement(tripId: string): Promise<Result> {
 
   // Jeder Trip-Member darf die Update-Mail auslösen — typischerweise will
   // die Person, die soeben eine nachträgliche Buchung erfasst hat, die Mail
-  // direkt selbst raushauen, ohne den Skipper bemühen zu müssen. Spam ist
-  // ausgeschlossen, weil der Resend nur funktioniert, wenn
-  // `changes_pending_since` gesetzt ist — und das Flag wird nach jedem
-  // erfolgreichen Versand gelöscht (Guard unten, Fund 8 Code-Review 2026-08:
-  // vorher stand genau dieser Satz hier als Kommentar, ohne dass der Code
-  // ihn tatsächlich einhielt — `changes_pending_since` wurde bis dahin nur
-  // als Zeitstempel für die Audit-Zusammenfassung gelesen, nie als Guard).
+  // direkt selbst raushauen, ohne den Skipper bemühen zu müssen. Der Resend
+  // funktioniert nur, wenn `changes_pending_since` gesetzt ist (Guard unten,
+  // Fund 8 Code-Review 2026-08), und ein Doppelklick/paralleler Request wird
+  // durch den atomaren Claim unten abgefangen (Slice 9). Es gibt bewusst KEIN
+  // Zeitlimit (Entscheidung Slice 10): ändert sich die Abrechnung nachträglich,
+  // soll immer eine Update-Mail möglich sein. Jede Buchungs-Änderung setzt den
+  // Marker neu — wer wiederholt anlegt/löscht, kann also wiederholt eine Mail
+  // auslösen; das ist ein bekannter, akzeptierter Restpunkt.
   const auth = await requireMember(tripId);
   if (!auth.ok) return { ok: false, message: auth.message };
 
