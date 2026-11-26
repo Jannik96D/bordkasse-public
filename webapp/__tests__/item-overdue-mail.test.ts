@@ -30,10 +30,11 @@ const sent = () => (sendMail.mock.calls[0] as unknown as [{ subject: string; htm
 beforeEach(() => sendMail.mockClear());
 
 describe("Erinnerung nach verstrichener Frist", () => {
-  it("Crew: „überfällig seit …“ statt einer auf heute geklemmten Crewfrist", async () => {
+  it("Crew: „Frist war …“ im Betreff, „überfällig seit …“ im Text statt einer auf heute geklemmten Crewfrist", async () => {
     await sendItemReminderMail(supabase, crewJob, ctx("2026-09-01", "2026-10-03"));
     const m = sent();
-    expect(m.subject).toContain("überfällig seit 1.9.2026");
+    expect(m.subject).toContain("Frist war 1.9.2026");
+    expect(m.subject.toLowerCase()).not.toContain("überfällig");
     expect(m.subject).not.toContain("bis 3.10.2026");
     expect(m.text).toContain("überfällig seit 1.9.2026");
     expect(m.text).toContain("schnellstmöglich");
@@ -42,7 +43,8 @@ describe("Erinnerung nach verstrichener Frist", () => {
   it("Empfänger: Übersicht nennt „überfällig seit …“", async () => {
     await sendItemReminderMail(supabase, { ...payeeJob }, ctx("2026-09-01", "2026-10-03"));
     const m = sent();
-    expect(m.subject).toContain("überfällig seit 1.9.2026");
+    expect(m.subject).toContain("Frist war 1.9.2026");
+    expect(m.subject.toLowerCase()).not.toContain("überfällig");
     expect(m.text).toContain("überfällig");
   });
   it("Frist heute oder in der Zukunft: unverändert „bis …“ (kein Überfällig-Text)", async () => {

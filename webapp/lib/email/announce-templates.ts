@@ -86,7 +86,7 @@ export function renderItemAnnounceCrewMail(p: ItemAnnounceCrewParams): { html: s
   const pending = Math.max(0, p.pending ?? 0);
   const open = Math.max(0, round2(p.amount - paid - pending));
   const settled = open <= 0.005;
-  const subject = shareSubject({ what: p.item.label, amount: p.amount, due: p.crewDue, isUpdate: p.isUpdate });
+  const subject = shareSubject({ what: p.item.label, due: p.crewDue, isUpdate: p.isUpdate });
   const headline = p.isUpdate ? `Geändert: ${p.item.label}` : `Neu: ${p.item.label}`;
   const introHtml = p.isUpdate
     ? `<strong>${escapeHtml(title)}</strong> für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> hat sich geändert. Hier der aktuelle Stand für dich.`
@@ -156,7 +156,7 @@ export interface ItemAnnouncePayeeParams {
 export function renderItemAnnouncePayeeMail(p: ItemAnnouncePayeeParams): { html: string; text: string; subject: string } {
   const vocab = tripVocab(p.tripType);
   const title = itemMailTitle(p.item);
-  const subject = advanceSubject({ what: p.item.label, amount: p.total, due: p.providerDue, isUpdate: p.isUpdate });
+  const subject = advanceSubject({ what: p.item.label, due: p.providerDue, isUpdate: p.isUpdate });
   const headline = p.isUpdate ? `Geändert: ${p.item.label}` : "Du streckst vor";
   const introHtml = `für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> ${p.isUpdate ? "hat sich" : "gibt es"} <strong>${escapeHtml(title)}</strong> ${p.isUpdate ? "geändert" : "als weitere Zahlung"}. Du zahlst vorab an den Anbieter und bekommst die Anteile der ${escapeHtml(vocab.crew)}.`;
   const introText = `für ${tripPhrase(p.tripType)} ${p.tripName} ${p.isUpdate ? "hat sich" : "gibt es"} ${title} ${p.isUpdate ? "geändert" : "als weitere Zahlung"}. Du zahlst vorab an den Anbieter und bekommst die Anteile der ${vocab.crew}.`;
@@ -232,7 +232,7 @@ export function renderPlanAnnounceCrewMail(p: PlanAnnounceCrewParams): { html: s
   const settled = totalOpen <= 0.005;
   // Betreff-Frist: nächste noch offene Rate, sonst die letzte.
   const subjectDue = (rows.find((t) => t.open > 0.005) ?? rows[rows.length - 1])?.crewDue ?? null;
-  const subject = shareSubject({ what: vocab.prepayment, amount: p.total, due: subjectDue, isUpdate: p.isUpdate });
+  const subject = shareSubject({ what: vocab.prepayment, due: subjectDue, isUpdate: p.isUpdate });
   const headline = p.isUpdate ? `Geändert: ${vocab.prepayment}` : `${vocab.prepayment}: dein Anteil`;
   const introHtml = p.isUpdate
     ? `der Plan der ${escapeHtml(vocab.prepayment)} für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> hat sich geändert. Hier deine aktuellen Raten.`
@@ -318,7 +318,7 @@ export interface PlanAnnounceAdvancerParams {
 export function renderPlanAnnounceAdvancerMail(p: PlanAnnounceAdvancerParams): { html: string; text: string; subject: string } {
   const vocab = tripVocab(p.tripType);
   const subjectDue = p.tranches[0]?.charterDue ?? null;
-  const subject = advanceSubject({ what: vocab.prepayment, amount: p.providerTotal, due: subjectDue, isUpdate: p.isUpdate });
+  const subject = advanceSubject({ what: vocab.prepayment, due: subjectDue, isUpdate: p.isUpdate });
   const headline = p.isUpdate ? `Geändert: ${vocab.prepayment}` : "Du streckst vor";
   const introHtml = `für ${tripPhrase(p.tripType)} <strong>${escapeHtml(p.tripName)}</strong> streckst du die ${escapeHtml(vocab.prepayment)} vor. ${p.isUpdate ? "Der Plan hat sich geändert — hier" : "Hier"} die Übersicht: was du an den Anbieter zahlst und was die ${escapeHtml(vocab.crew)} dir überweist.`;
   const introText = `für ${tripPhrase(p.tripType)} ${p.tripName} streckst du die ${vocab.prepayment} vor. ${p.isUpdate ? "Der Plan hat sich geändert — hier" : "Hier"} die Übersicht: was du an den Anbieter zahlst und was die ${vocab.crew} dir überweist.`;

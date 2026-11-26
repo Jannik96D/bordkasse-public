@@ -13,6 +13,13 @@
  *   SMTP_PASS       Passwort / App-Token
  *   MAIL_FROM       z. B. "Bordkasse <bordkasse@dieter.ms>"
  *
+ * Optional:
+ *   MAIL_REPLY_TO   Antwortadresse (z. B. ein echtes, gelesenes Postfach des
+ *                   Betreibers). Wird allen Mails ohne eigenes `replyTo`
+ *                   mitgegeben. Antworten auf eine Mail sind ein positives
+ *                   Reputationssignal und geben der Crew einen Rückweg;
+ *                   fehlt die Variable, wird kein Reply-To-Header gesetzt.
+ *
  * Einzelversand (`sendMail`) öffnet einen Transport pro Aufruf — stabil und
  * einfach. Für BATCHES an eine ganze Crew (Abrechnung, Schuld-Benachrichtigung)
  * gibt es `sendMails`: EIN gepoolter Transport mit begrenzten, wieder-
@@ -41,6 +48,11 @@ export type SendOptions = { connectionTimeoutMs?: number; socketTimeoutMs?: numb
 export type MailMessage = { to: string; subject: string; html: string; text?: string; replyTo?: string };
 
 const FROM_DEFAULT = process.env.MAIL_FROM ?? "Bordkasse <bordkasse@example.com>";
+/** Leere/Whitespace-Variable (Docker-ARG!) zählt als nicht gesetzt. */
+function defaultReplyTo(): string | undefined {
+  const v = process.env.MAIL_REPLY_TO?.trim();
+  return v ? v : undefined;
+}
 const NOT_CONFIGURED = "Mail-Versand nicht konfiguriert (SMTP_HOST/PORT/USER/PASS fehlen).";
 
 /** SMTP-Grundkonfiguration aus den Env-Vars; null, wenn unvollständig. */
@@ -88,7 +100,7 @@ export async function sendMail(
     ...(opts.socketTimeoutMs !== undefined ? { socketTimeout: opts.socketTimeoutMs } : {}),
   });
   try {
-    const info = await transporter.sendMail({ from: FROM_DEFAULT, to, subject, html, text, replyTo });
+    const info = await transporter.sendMail({ from: FROM_DEFAULT, to, subject, html, text, replyTo: replyTo ?? defaultReplyTo() });
     return { ok: true, id: info.messageId };
   } catch (err) {
     return toSendResult(err);
@@ -121,7 +133,7 @@ export async function sendMails(messages: MailMessage[], opts: SendOptions = {})
     return await Promise.all(
       messages.map(async (m): Promise<SendResult> => {
         try {
-          const info = await transporter.sendMail({ from: FROM_DEFAULT, ...m });
+          const info = await transporter.sendMail({ from: FROM_DEFAULT, ...m, replyTo: m.replyTo ?? defaultReplyTo() });
           return { ok: true, id: info.messageId };
         } catch (err) {
           return toSendResult(err);

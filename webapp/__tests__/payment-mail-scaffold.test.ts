@@ -75,18 +75,26 @@ function allMails(tripType: "sailing" | "other", weroId: string | null): Record<
 }
 
 describe("Gerüst-Helfer: Betreff-Muster", () => {
-  it("Anteil-Mail: „{Was}: dein Anteil {Betrag} bis {Datum}“, ohne Datum „Frist folgt“, Update „Geändert: “", () => {
-    expect(nb(shareSubject({ what: "Flüge", amount: 180, due: "12.10." }))).toBe("Flüge: dein Anteil 180,00 € bis 12.10.");
-    expect(nb(shareSubject({ what: "Flüge", amount: 180, due: null }))).toBe("Flüge: dein Anteil 180,00 € – Frist folgt");
-    expect(nb(shareSubject({ what: "Flüge", amount: 180, due: "12.10.", isUpdate: true }))).toBe("Geändert: Flüge: dein Anteil 180,00 € bis 12.10.");
-    expect(nb(shareSubject({ what: "Flüge", amount: 180, due: "12.10.", isReminder: true }))).toBe("Erinnerung: Flüge: dein Anteil 180,00 € bis 12.10.");
+  it("Anteil-Mail: „{Was}: dein Anteil bis {Datum}“ (ohne Betrag), ohne Datum „Frist folgt“, Update „Geändert: “", () => {
+    expect(nb(shareSubject({ what: "Flüge", due: "12.10." }))).toBe("Flüge: dein Anteil bis 12.10.");
+    expect(nb(shareSubject({ what: "Flüge", due: null }))).toBe("Flüge: dein Anteil – Frist folgt");
+    expect(nb(shareSubject({ what: "Flüge", due: "12.10.", isUpdate: true }))).toBe("Geändert: Flüge: dein Anteil bis 12.10.");
+    expect(nb(shareSubject({ what: "Flüge", due: "12.10.", isReminder: true }))).toBe("Erinnerung: Flüge: dein Anteil bis 12.10.");
+  });
+  it("Zustellbarkeit: kein Geldbetrag und kein „überfällig“ im Betreff (Spam-Muster)", () => {
+    expect(nb(shareSubject({ what: "Flüge", due: "12.10.", overdueSince: "1.9.2026" }))).toBe("Flüge: dein Anteil – Frist war 1.9.2026");
+    expect(nb(advanceSubject({ what: "Flüge", due: "12.10.", overdueSince: "1.9.2026" }))).toBe("Flüge: du streckst vor – Frist war 1.9.2026");
+    for (const m of Object.values(allMails("sailing", "wero@example.com"))) {
+      expect(m.subject).not.toMatch(/€|\d,\d\d/);
+      expect(m.subject.toLowerCase()).not.toContain("überfällig");
+    }
   });
   it("Vorstreck-Mail und Ereignis-Mail", () => {
-    expect(nb(advanceSubject({ what: "Yachtanzahlung", amount: 1000, due: "10.1.2027" }))).toBe("Yachtanzahlung: du streckst 1.000,00 € vor – bis 10.1.2027");
-    expect(nb(advanceSubject({ what: "Flüge", amount: 1, due: null }))).toContain("Frist folgt");
-    expect(nb(eventSubject({ what: "Flüge", kind: "pending", who: "Anna", amount: 180 }))).toBe(`Flüge: 180,00 € von Anna – ${PAYMENT_STATUS.pending}`);
-    expect(nb(eventSubject({ what: "Flüge", kind: "confirmed", who: "Anna", amount: 180 }))).toBe("Flüge: 180,00 € von Anna – bestätigt");
-    expect(nb(eventSubject({ what: "Flüge", kind: "rejected", who: "Anna", amount: 180 }))).toBe("Flüge: 180,00 € von Anna – abgelehnt");
+    expect(nb(advanceSubject({ what: "Yachtanzahlung", due: "10.1.2027" }))).toBe("Yachtanzahlung: du streckst vor – bis 10.1.2027");
+    expect(nb(advanceSubject({ what: "Flüge", due: null }))).toContain("Frist folgt");
+    expect(nb(eventSubject({ what: "Flüge", kind: "pending", who: "Anna" }))).toBe(`Flüge: Zahlung von Anna – ${PAYMENT_STATUS.pending}`);
+    expect(nb(eventSubject({ what: "Flüge", kind: "confirmed", who: "Anna" }))).toBe("Flüge: Zahlung von Anna – bestätigt");
+    expect(nb(eventSubject({ what: "Flüge", kind: "rejected", who: "Anna" }))).toBe("Flüge: Zahlung von Anna – abgelehnt");
   });
 });
 
@@ -157,16 +165,16 @@ describe("Alle Zahlungs-Mails: gleiches Gerüst", () => {
 
   it("Betreffe: gleiches Muster für Plan und weitere Zahlung, Update mit „Geändert: “", () => {
     const m = allMails("sailing", null);
-    expect(nb(m.itemCrew.subject)).toBe("Flüge: dein Anteil 180,00 € bis 9.10.2026");
-    expect(nb(m.planCrew.subject)).toBe("Yachtanzahlung: dein Anteil 500,00 € bis 7.1.2027");
-    expect(nb(m.itemCrewUpdate.subject)).toBe("Geändert: Flüge: dein Anteil 180,00 € – Frist folgt");
-    expect(nb(m.planCrewUpdate.subject)).toBe("Geändert: Yachtanzahlung: dein Anteil 500,00 € bis 7.4.2027");
-    expect(nb(m.itemPayee.subject)).toBe("Flüge: du streckst 540,00 € vor – bis 12.10.2026");
-    expect(nb(m.planAdvancer.subject)).toBe("Yachtanzahlung: du streckst 1.000,00 € vor – bis 10.1.2027");
-    expect(nb(m.itemCrewReminder.subject)).toBe("Erinnerung: Flüge: dein Anteil 180,00 € bis 9.10.2026");
-    expect(nb(m.planReminder.subject)).toBe("Erinnerung: Yachtanzahlung: dein Anteil 200,00 € bis 7.1.2027");
+    expect(nb(m.itemCrew.subject)).toBe("Flüge: dein Anteil bis 9.10.2026");
+    expect(nb(m.planCrew.subject)).toBe("Yachtanzahlung: dein Anteil bis 7.1.2027");
+    expect(nb(m.itemCrewUpdate.subject)).toBe("Geändert: Flüge: dein Anteil – Frist folgt");
+    expect(nb(m.planCrewUpdate.subject)).toBe("Geändert: Yachtanzahlung: dein Anteil bis 7.4.2027");
+    expect(nb(m.itemPayee.subject)).toBe("Flüge: du streckst vor – bis 12.10.2026");
+    expect(nb(m.planAdvancer.subject)).toBe("Yachtanzahlung: du streckst vor – bis 10.1.2027");
+    expect(nb(m.itemCrewReminder.subject)).toBe("Erinnerung: Flüge: dein Anteil bis 9.10.2026");
+    expect(nb(m.planReminder.subject)).toBe("Erinnerung: Yachtanzahlung: dein Anteil bis 7.1.2027");
     // Reise-Typ „other“ über das Vokabular, nichts hartkodiert.
-    expect(nb(allMails("other", null).planCrew.subject)).toBe("Urlaubsanzahlung: dein Anteil 500,00 € bis 7.1.2027");
+    expect(nb(allMails("other", null).planCrew.subject)).toBe("Urlaubsanzahlung: dein Anteil bis 7.1.2027");
   });
 
   it("Status-Wörter einheitlich in Betreff und Faktenkarte (Plan UND weitere Zahlung)", () => {
@@ -275,10 +283,10 @@ describe("Betreff-/Titel-Sicherheit (Header-Injection)", () => {
   it("keine CR/LF/Tabs im Betreff, Länge begrenzt", () => {
     const long = "A".repeat(500);
     const subjects = [
-      shareSubject({ what: evil, amount: 1, due: "1.1.\r\nBcc: a@b.c" }),
-      advanceSubject({ what: evil, amount: 1, due: null }),
-      eventSubject({ what: evil, kind: "pending", who: evil, amount: 1 }),
-      shareSubject({ what: long, amount: 1, due: null }),
+      shareSubject({ what: evil, due: "1.1.\r\nBcc: a@b.c" }),
+      advanceSubject({ what: evil, due: null }),
+      eventSubject({ what: evil, kind: "pending", who: evil }),
+      shareSubject({ what: long, due: null }),
       renderItemPendingMail({ tripName: "T", tripType: "sailing", appUrl: URL, recipientName: "J", reporterName: evil, item: { label: evil, categoryName: null }, amount: 1, date: "1.1.2027" }).subject,
     ];
     for (const s of subjects) {

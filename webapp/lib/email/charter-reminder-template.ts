@@ -95,7 +95,6 @@ export function renderCharterReminderMail(p: CharterReminderParams): {
   return renderPaymentMail({
     subject: advanceSubject({
       what: vocab.prepayment,
-      amount: totalSoll,
       due: nextOpen?.charter_due_date ?? null,
       isReminder: !!p.isAutomated,
     }),

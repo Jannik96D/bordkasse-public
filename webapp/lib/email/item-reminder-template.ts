@@ -80,7 +80,7 @@ export function renderItemCrewReminderMail(p: ItemCrewReminderParams): { html: s
     { label: "An wen", html: `<strong>${escapeHtml(p.payeeName)}</strong>`, text: p.payeeName },
   ];
   return renderPaymentMail({
-    subject: shareSubject({ what: p.item.label, amount: p.amountOpen, due: p.crewDueDate, isReminder: true, overdueSince: p.overdueSince }),
+    subject: shareSubject({ what: p.item.label, due: p.crewDueDate, isReminder: true, overdueSince: p.overdueSince }),
     headline: `Erinnerung: ${p.item.label}`,
     recipientName: p.recipientName,
     tripName: p.tripName,
@@ -118,7 +118,7 @@ export function renderItemPayeeReminderMail(p: ItemPayeeReminderParams): { html:
     extra.push(noteCard(escapeHtml(t), t));
   }
   return renderPaymentMail({
-    subject: advanceSubject({ what: p.item.label, amount: p.providerOpen, due: p.providerDueDate, isReminder: true, overdueSince: p.overdueSince }),
+    subject: advanceSubject({ what: p.item.label, due: p.providerDueDate, isReminder: true, overdueSince: p.overdueSince }),
     headline: `Erinnerung: ${p.item.label}`,
     recipientName: p.recipientName,
     tripName: p.tripName,

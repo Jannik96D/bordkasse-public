@@ -10,11 +10,18 @@
  * Drei Mail-Arten, ein Aufbau (Kopf · Fakten-Karte · „So geht's" · Button ·
  * Hinweis) und eine Betreff-Konvention:
  *
- *   Anteil-Mail (Crew):          „{Was}: dein Anteil {Betrag} bis {Datum}"
- *   Vorstreck-Mail:              „{Was}: du streckst {Betrag} vor – bis {Datum}"
- *   Ereignis-Mail:               „{Was}: {Betrag} von {Name} {Status}"
+ *   Anteil-Mail (Crew):          „{Was}: dein Anteil bis {Datum}"
+ *   Vorstreck-Mail:              „{Was}: du streckst vor – bis {Datum}"
+ *   Ereignis-Mail:               „{Was}: Zahlung von {Name} – {Status}"
  *   Änderung:                    Präfix „Geändert: ", Erinnerung: „Erinnerung: "
  *   Ohne Datum:                  „… – Frist folgt"
+ *   Verstrichene Frist:          „… – Frist war {Datum}"
+ *
+ * ZUSTELLBARKEIT: Betreffzeilen tragen bewusst KEINEN Geldbetrag und kein
+ * „überfällig" — die Kombination aus Betrag + Dringlichkeit ist ein klassisches
+ * Spam-Muster und ließ die Mails (besonders in Firmenpostfächern mit
+ * Absenderdomain ohne Versandhistorie) im Spam-Ordner landen. Der Betrag
+ * steht in der Fakten-Karte im Mailtext.
  *
  * Fakten-Karte der Anteil-Mail: „Dein Anteil" · „Bis wann" · „An wen"; der
  * Zahlungsweg steht im Block „So geht's". Status-Wörter überall gleich:
@@ -42,7 +49,7 @@ export const tripPhrase = (t: TripType) => (t === "other" ? "die Reise" : "den T
 // ── Betreffzeilen ──────────────────────────────────────────────────────────
 
 function dueTail(due: string | null | undefined, overdueSince?: string): string {
-  if (overdueSince) return ` – überfällig seit ${cleanLine(overdueSince, 20)}`;
+  if (overdueSince) return ` – Frist war ${cleanLine(overdueSince, 20)}`;
   return due ? ` bis ${cleanLine(due, 20)}` : ` – ${NO_DUE_TEXT}`;
 }
 
@@ -52,30 +59,28 @@ function subjectPrefix(args: { isUpdate?: boolean; isReminder?: boolean }): stri
   return "";
 }
 
-/** „{Was}: dein Anteil {Betrag} bis {Datum}" (Crew). */
+/** „{Was}: dein Anteil bis {Datum}" (Crew) — ohne Betrag, siehe Kopfkommentar. */
 export function shareSubject(args: {
   what: string;
-  amount: number;
   due: string | null | undefined;
   isUpdate?: boolean;
   isReminder?: boolean;
   /** Frist beim Anbieter schon verstrichen (nur manuelle Erinnerung) — ersetzt „bis {Datum}". */
   overdueSince?: string;
 }): string {
-  return `${subjectPrefix(args)}${cleanLine(args.what)}: dein Anteil ${fmtEuro(args.amount)}${dueTail(args.due, args.overdueSince)}`;
+  return `${subjectPrefix(args)}${cleanLine(args.what)}: dein Anteil${dueTail(args.due, args.overdueSince)}`;
 }
 
-/** „{Was}: du streckst {Betrag} vor – bis {Datum}" (vorstreckende Person). */
+/** „{Was}: du streckst vor – bis {Datum}" (vorstreckende Person) — ohne Betrag. */
 export function advanceSubject(args: {
   what: string;
-  amount: number;
   due: string | null | undefined;
   isUpdate?: boolean;
   isReminder?: boolean;
   overdueSince?: string;
 }): string {
-  const tail = args.overdueSince ? ` – überfällig seit ${cleanLine(args.overdueSince, 20)}` : args.due ? ` – bis ${cleanLine(args.due, 20)}` : ` – ${NO_DUE_TEXT}`;
-  return `${subjectPrefix(args)}${cleanLine(args.what)}: du streckst ${fmtEuro(args.amount)} vor${tail}`;
+  const tail = args.overdueSince ? ` – Frist war ${cleanLine(args.overdueSince, 20)}` : args.due ? ` – bis ${cleanLine(args.due, 20)}` : ` – ${NO_DUE_TEXT}`;
+  return `${subjectPrefix(args)}${cleanLine(args.what)}: du streckst vor${tail}`;
 }
 
 export type PaymentEventKind = "pending" | "recorded" | "confirmed" | "rejected";
@@ -87,9 +92,9 @@ export const EVENT_WORD: Record<PaymentEventKind, string> = {
   rejected: PAYMENT_STATUS.rejected,
 };
 
-/** „{Was}: {Betrag} von {Name} {Status}" (Ereignis-Mails). */
-export function eventSubject(args: { what: string; kind: PaymentEventKind; who: string; amount: number }): string {
-  return `${cleanLine(args.what)}: ${fmtEuro(args.amount)} von ${cleanLine(args.who, 40)} – ${EVENT_WORD[args.kind]}`;
+/** „{Was}: Zahlung von {Name} – {Status}" (Ereignis-Mails) — ohne Betrag. */
+export function eventSubject(args: { what: string; kind: PaymentEventKind; who: string }): string {
+  return `${cleanLine(args.what)}: Zahlung von ${cleanLine(args.who, 40)} – ${EVENT_WORD[args.kind]}`;
 }
 
 // ── Bausteine ──────────────────────────────────────────────────────────────
