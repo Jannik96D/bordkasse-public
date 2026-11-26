@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     console.error("purge_expired_trip_data failed:", error.message);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "purge_expired_trip_data fehlgeschlagen" }, { status: 500 });
   }
 
   // Alte Login-Rate-Limit-Zähler aufräumen (Migration 0036). Nicht fatal —

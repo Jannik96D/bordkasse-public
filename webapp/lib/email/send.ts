@@ -23,6 +23,7 @@
  */
 
 import nodemailer from "nodemailer";
+import { safeMailErrorMessage } from "@/lib/errors";
 
 export type SendResult =
   | { ok: true; id: string }
@@ -55,14 +56,17 @@ function smtpConfig(): { host: string; port: number; secure: boolean; auth: { us
 }
 
 function toSendResult(err: unknown): SendResult {
-  const message = err instanceof Error ? err.message : "unbekannter Fehler";
   const e = (err ?? {}) as { code?: unknown; responseCode?: unknown };
   // Nur Codes loggen — das nodemailer-Fehlerobjekt (und oft auch seine
   // Message) kann Empfängeradressen enthalten (keine PII in Logs).
   console.error("[bordkasse:mail] Versand fehlgeschlagen", { code: e.code, responseCode: e.responseCode });
   return {
     ok: false,
-    error: `Mail-Versand fehlgeschlagen: ${message}`,
+    // Slice 11: nie err.message — nodemailer nennt dort meist die Empfängeradresse.
+    error: safeMailErrorMessage({
+      code: typeof e.code === "string" ? e.code : undefined,
+      responseCode: typeof e.responseCode === "number" ? e.responseCode : undefined,
+    }),
     ...(typeof e.code === "string" ? { code: e.code } : {}),
     ...(typeof e.responseCode === "number" ? { responseCode: e.responseCode } : {}),
   };

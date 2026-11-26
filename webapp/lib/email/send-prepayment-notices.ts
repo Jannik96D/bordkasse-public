@@ -18,6 +18,7 @@
 import "server-only";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { sendMails, type MailMessage } from "@/lib/email/send";
+import { dbErr } from "@/lib/errors";
 import { sendPushToPersons } from "@/lib/notify/web-push";
 import {
   itemAnnouncedPush,
@@ -83,7 +84,7 @@ async function loadTrip(
   tripId: string,
 ): Promise<{ ok: true; name: string; tripType: TripType; skipperId: string | null } | { ok: false; message: string }> {
   const { data, error } = await supabase.from("trips").select("name, trip_type, skipper_id").eq("id", tripId).maybeSingle();
-  if (error) return { ok: false, message: error.message };
+  if (error) return { ok: false, message: dbErr(error, "Törn konnte nicht geladen werden.") };
   if (!data) return { ok: false, message: "trip not found" };
   return {
     ok: true,
@@ -104,8 +105,8 @@ async function loadPeople(
       ? supabase.from("persons_private").select("person_id, email").in("person_id", emailIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
-  if (pRes.error) return { ok: false, message: pRes.error.message };
-  if (eRes.error) return { ok: false, message: eRes.error.message };
+  if (pRes.error) return { ok: false, message: dbErr(pRes.error, "Personen konnten nicht geladen werden.") };
+  if (eRes.error) return { ok: false, message: dbErr(eRes.error, "Personen konnten nicht geladen werden.") };
   const name = new Map<string, string>();
   for (const p of (pRes.data ?? []) as { id: string; display_name: string }[]) name.set(p.id, p.display_name);
   const email = new Map<string, string>();
@@ -177,7 +178,7 @@ async function loadItemContext(
       .maybeSingle(),
   ]);
   if (!trip.ok) return trip;
-  if (itemRes.error) return { ok: false, message: itemRes.error.message };
+  if (itemRes.error) return { ok: false, message: dbErr(itemRes.error, "Weitere Zahlung konnte nicht geladen werden.") };
   if (!itemRes.data) return { ok: false, message: "item not found" };
   const it = itemRes.data;
   let categoryName: string | null = null;

@@ -1,3 +1,4 @@
+import { dbErr } from "@/lib/errors";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { createAdminClient } from "@/lib/supabase/admin";
@@ -55,7 +56,7 @@ export async function resolvePendingReports(
     .is("deleted_at", null);
   q = "plan" in args.pool ? q.not("tranche_id", "is", null) : q.eq("item_id", args.pool.itemId);
   const { data, error } = await q.select("id");
-  if (error) return { resolved: [], error: error.message };
+  if (error) return { resolved: [], error: dbErr(error, "Gemeldete Zahlungen konnten nicht aktualisiert werden.") };
   return { resolved: (data ?? []).map((r) => r.id as string), error: null };
 }
 
