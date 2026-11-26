@@ -1852,11 +1852,13 @@ export async function confirmSelfPayment(
   const supabase = createAdminClient();
   const { data: tx } = await supabase
     .from("transactions")
-    .select("trip_id, tranche_id, credit_from, amount, confirmed_at, deleted_at")
+    .select("trip_id, tranche_id, type, credit_from, amount, confirmed_at, deleted_at")
     .eq("id", parsed.data.transaction_id)
     .maybeSingle();
   if (!tx || tx.deleted_at) return { status: "error", message: "Buchung nicht gefunden." };
-  if (!tx.tranche_id) return { status: "error", message: "Keine Anzahlungsbuchung." };
+  // Slice 7: nur echte Tranchen-Selbstmeldungen (Gutschrift + Tranche) —
+  // Posten-Meldungen (tranche_id NULL) gehören den Posten-Actions.
+  if (!tx.tranche_id || tx.type !== "credit") return { status: "error", message: "Buchung nicht gefunden." };
   if (tx.confirmed_at) return { status: "error", message: "Schon bestätigt." };
 
   // Vorstrecker darf bestätigen — er sieht den Geldeingang auf seinem Konto.
@@ -1926,10 +1928,14 @@ export async function rejectSelfPayment(
   const supabase = createAdminClient();
   const { data: tx } = await supabase
     .from("transactions")
-    .select("trip_id, tranche_id, credit_from, amount, deleted_at, confirmed_at")
+    .select("trip_id, tranche_id, type, credit_from, amount, deleted_at, confirmed_at")
     .eq("id", parsed.data.transaction_id)
     .maybeSingle();
   if (!tx || tx.deleted_at) return { status: "error", message: "Buchung nicht gefunden." };
+  // Slice 7: ohne diese Prüfung konnte ein Vorstrecker (ohne Skipper-Rolle)
+  // offene Posten-Selbstmeldungen oder beliebige unbestätigte Buchungen
+  // ablehnen. Einheitliche Meldung, kein Leck.
+  if (!tx.tranche_id || tx.type !== "credit") return { status: "error", message: "Buchung nicht gefunden." };
   if (tx.confirmed_at) return { status: "error", message: "Schon bestätigt, kann nicht mehr abgelehnt werden." };
 
   // Vorstrecker darf ablehnen — er sieht das Geld NICHT auf seinem Konto.
