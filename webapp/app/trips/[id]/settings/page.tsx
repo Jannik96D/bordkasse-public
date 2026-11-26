@@ -83,7 +83,7 @@ export default async function SettingsPage({
       )}
       <CategorySection tripId={id} categories={categories} canEdit={canEdit} />
       {canEdit && <ArchiveBlock tripId={id} archived={trip.archived} />}
-      {canEdit && !trip.retention_purged_at && <RetentionBlock tripId={id} />}
+      {canEdit && !trip.retention_purged_at && <RetentionBlock tripId={id} canForce={admin || trip.skipper_id === person?.id} />}
     </main>
   );
 }
