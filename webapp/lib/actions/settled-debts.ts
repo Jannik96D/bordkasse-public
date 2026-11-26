@@ -42,7 +42,18 @@ export async function toggleDebtSettled(input: {
   toPersonId: string;
   amount: number;
   settled: boolean;
-}): Promise<{ ok: boolean; message?: string; mailsSent?: number; mailsFailed?: number }> {
+}): Promise<{
+  ok: boolean;
+  message?: string;
+  mailsSent?: number;
+  mailsFailed?: number;
+  /**
+   * false = es ging bewusst KEINE Benachrichtigung raus (Häkchen war schon
+   * gesetzt, Limit `debt-mail` erreicht oder Versand abgebrochen) — die UI
+   * zeigt dann neutral „Als bezahlt markiert" statt „… benachrichtigt".
+   */
+  notified?: boolean;
+}> {
   const parsed = ToggleSchema.safeParse({
     trip_id: input.tripId,
     from_person_id: input.fromPersonId,
@@ -136,7 +147,7 @@ export async function toggleDebtSettled(input: {
     if (!row) {
       // Schon bezahlt: kein Audit-Eintrag, keine Mail, keine Push.
       revalidatePath(`/trips/${trip_id}/debts`);
-      return { ok: true, mailsSent: 0, mailsFailed: 0 };
+      return { ok: true, mailsSent: 0, mailsFailed: 0, notified: false };
     }
     await logAudit(supabase, {
       table_name: "settled_debts",
@@ -154,6 +165,7 @@ export async function toggleDebtSettled(input: {
     // damit ein Teilfehler sichtbar wird (Toast „1 Mail nicht zugestellt").
     let mailsSent = 0;
     let mailsFailed = 0;
+    let notified = false;
     // Slice 10: „bezahlt → offen → bezahlt" wäre ein echter Wechsel und würde
     // jedes Mal mailen. Deshalb zusätzlich 10 Benachrichtigungen pro Stunde je
     // (Akteur, Törn); darüber wird das Häkchen trotzdem gespeichert, nur
@@ -170,6 +182,7 @@ export async function toggleDebtSettled(input: {
       });
       mailsSent = res.sent;
       mailsFailed = res.failed;
+      notified = true;
     } catch (e) {
       if (e instanceof Error && e.message === "debt-mail-limit") {
         console.warn("[bordkasse:debt-settled-mail] Limit erreicht, keine Benachrichtigung");
@@ -179,7 +192,7 @@ export async function toggleDebtSettled(input: {
     }
 
     revalidatePath(`/trips/${trip_id}/debts`);
-    return { ok: true, mailsSent, mailsFailed };
+    return { ok: true, mailsSent, mailsFailed, notified };
   } else {
     const { data: existing } = await supabase
       .from("settled_debts")
