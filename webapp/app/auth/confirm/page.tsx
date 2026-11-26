@@ -75,6 +75,11 @@ export default async function ConfirmPage({
           <p className="text-sm text-ink-soft">
             Klick auf den Button, um dich bei der Bordkasse einzuloggen.
           </p>
+          {email && (
+            <p className="text-sm text-ink-soft">
+              Du meldest dich an als <strong className="break-all">{email}</strong>.
+            </p>
+          )}
         </div>
 
         <form action="/auth/verify" method="POST" className="space-y-3">

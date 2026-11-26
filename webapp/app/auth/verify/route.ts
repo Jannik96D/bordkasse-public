@@ -58,9 +58,33 @@ export async function POST(request: NextRequest) {
   // die Home-Route weitergehen und der Server-Component-Render scheitern.
   const response = NextResponse.redirect(new URL(next, origin), { status: 303 });
   const supabase = await createClient(response);
-  const { error } = await supabase.auth.verifyOtp({ token_hash, type });
+  const { data, error } = await supabase.auth.verifyOtp({ token_hash, type });
   if (error) {
     return redirectWithError(origin, error.code ?? "verify_failed", error.message, email);
+  }
+
+  // Login-CSRF-Schutz: der Link muss für die Adresse gelten, die der Nutzer
+  // erwartet. Ohne diesen Vergleich loggt ein untergeschobener Link (Token des
+  // Angreifers, Same-Origin-POST) das Opfer ins Konto des Angreifers ein. Der
+  // Vergleich geht erst jetzt, weil die Adresse des Token-Inhabers erst nach
+  // verifyOtp bekannt ist (der Token ist dann zwar verbraucht — er gehörte im
+  // Missbrauchsfall aber nicht diesem Nutzer). `email` kommt aus der URL und
+  // ist fälschbar; maßgeblich ist, dass es zur Mail des Link-Empfängers passt,
+  // die der echte Mail-Link immer mitbringt (public/email/magic-link.html).
+  const sessionEmail = data?.user?.email ?? data?.session?.user?.email;
+  if (!email || !sessionEmail || normalizeEmail(email) !== normalizeEmail(sessionEmail)) {
+    // Session widerrufen. Die bisher befüllte `response` (mit Session-Cookies)
+    // wird bewusst VERWORFEN und eine frische Redirect-Response ohne Cookies
+    // zurückgegeben — eine bereits bestehende Session des Browsers bleibt so
+    // unberührt, es landet nichts vom fremden Konto beim Nutzer. Die
+    // übermittelte (womöglich fremde) Adresse wird nicht an /login
+    // weitergereicht.
+    await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+    return redirectWithError(
+      origin,
+      "email_mismatch",
+      "Der Login-Link gehört zu einer anderen E-Mail-Adresse.",
+    );
   }
 
   return response;
@@ -77,4 +101,8 @@ function redirectWithError(
   target.searchParams.set("auth_error_msg", message);
   if (email) target.searchParams.set("email", email);
   return NextResponse.redirect(target, { status: 303 });
+}
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
 }

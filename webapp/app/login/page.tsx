@@ -36,6 +36,10 @@ function translateAuthError(code: string, _rawMessage: string | null): string {
       // wird in Forks genutzt) und mit einem Ausweg, falls der Link erneut auf
       // derselben Adresse landet.
       return "Der Login lief über eine nicht freigegebene Adresse — dein Link wurde nicht verbraucht und gilt noch. Öffne die App über die gewohnte Adresse und klicke den Link dort erneut; falls er wieder hier landet, fordere unten einen neuen an.";
+    case "email_mismatch":
+      // Absichtlich ohne Details zum fremden Konto. Der Login wurde abgebrochen,
+      // es wurde niemand angemeldet.
+      return "Dieser Link gehört nicht zu der E-Mail-Adresse, für die er angezeigt wurde, deshalb wurdest du nicht angemeldet. Falls du den Link nicht selbst angefordert hast, ignoriere ihn. Fordere sonst unten einen neuen Link für deine Adresse an.";
     default:
       return "Bitte fordere einen neuen Magic-Link an.";
   }
