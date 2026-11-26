@@ -18,7 +18,7 @@ Legende Status: `offen` · `in Arbeit` · `PR offen` · `gemergt` · `wartet auf
 | 5 | Kontolöschung ohne Verschiebung | gemergt | [#302](https://github.com/Jannik96D/bordkasse-public/pull/302) | 0063 (auf Prod eingespielt 2026-11-26) | erledigt |
 | 6 | Erzwungene Löschung nur Eigentümer | gemergt | [#304](https://github.com/Jannik96D/bordkasse-public/pull/304) | – | – |
 | 7 | Anzahlungs-Rechte | PR offen | [#305](https://github.com/Jannik96D/bordkasse-public/pull/305) | – | – |
-| 8 | Kategorie an Törn binden | offen | – | 0064 | Migration vor Merge einspielen |
+| 8 | Kategorie an Törn binden | PR offen | [#307](https://github.com/Jannik96D/bordkasse-public/pull/307) | 0064 | Migration vor Merge einspielen |
 | 9 | Nachträgliche Saldo-Änderungen | offen | – | – | – |
 | 10 | Mail drosseln, Auth-Konten aufräumen | offen | – | – | – |
 | 11 | Rohe Fehlertexte | offen | – | – | – |
