@@ -1246,6 +1246,14 @@ NICHT ins Image und bleiben in Coolify als **Runtime**-Variablen. Ändert sich e
 `NEXT_PUBLIC_*`-Werte (z. B. Domainwechsel), muss die Repository-Variable angepasst und das Image neu
 gebaut werden.
 
+⚠️ **Coolify-Buildtime-Werte sind wirkungslos.** Seit der Umstellung auf `Dockerfile.image` wird in
+Coolify nichts mehr gebaut; ein `NEXT_PUBLIC_*`-Wert, der nur in Coolify geändert wird, kommt nie im
+Image an. Alle `NEXT_PUBLIC_*`-Werte (inkl. des optionalen `NEXT_PUBLIC_VAPID_PUBLIC_KEY` für
+Web-Push) müssen als GitHub-Repository-Variablen gesetzt sein. Eine Änderung braucht immer: Variable
+anpassen → Workflow „Image bauen“ neu laufen lassen → in Coolify Redeploy. Der Workflow prüft vor dem
+Build, dass `NEXT_PUBLIC_APP_ORIGIN` und `NEXT_PUBLIC_SUPABASE_URL` die Form `https://host` haben
+(kein Pfad, kein `/` am Ende) und bricht sonst ab.
+
 **Einmalige Umstellung in Coolify (manuell, nach dem ersten erfolgreichen Workflow-Lauf):**
 
 Eine Git-basierte Coolify-App lässt sich nicht auf das Build Pack „Docker Image“ umstellen (die

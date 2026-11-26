@@ -7,6 +7,13 @@
 # Die NEXT_PUBLIC_*-Werte sind öffentlich (stehen im ausgelieferten JS) und liegen
 # deshalb als Repository-VARIABLEN, nicht als Secrets. Geheimnisse (Service-Role-Key,
 # SMTP, CRON_SECRET) gehören NICHT ins Image — sie kommen zur Laufzeit aus Coolify.
+#
+# ⚠️ Alle NEXT_PUBLIC_*-Werte (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
+# NEXT_PUBLIC_APP_ORIGIN, optional NEXT_PUBLIC_VAPID_PUBLIC_KEY) MÜSSEN hier als
+# GitHub-Repository-Variablen gesetzt sein (Settings → Secrets and variables → Actions →
+# Variables). „Available at Buildtime“-Werte in Coolify sind seit der Umstellung auf
+# Dockerfile.image wirkungslos. Änderung eines Werts = Variable anpassen, Workflow neu
+# laufen lassen (neues Image) UND in Coolify neu deployen.
 name: Image bauen
 
 on:
@@ -46,6 +53,15 @@ jobs:
         run: |
           for v in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY NEXT_PUBLIC_APP_ORIGIN; do
             if [ -z "${!v}" ]; then echo "FEHLER: Repository-Variable $v fehlt" >&2; exit 1; fi
+          done
+          # Origins: https://, nur Host (optional Port), kein Pfad, kein Slash am Ende.
+          # Ein falsches Format landet sonst still im Image (Allowlist des Token-Guards,
+          # Magic-Link-/Mail-Links, Supabase-Client).
+          for v in NEXT_PUBLIC_APP_ORIGIN NEXT_PUBLIC_SUPABASE_URL; do
+            if [[ ! "${!v}" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]]; then
+              echo "FEHLER: Repository-Variable $v muss die Form https://host (ohne Pfad, ohne / am Ende) haben" >&2
+              exit 1
+            fi
           done
 
       - name: Bei ghcr.io anmelden
