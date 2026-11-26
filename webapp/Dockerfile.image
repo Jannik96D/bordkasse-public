@@ -1,0 +1,13 @@
+# Zieht das fertige App-Image aus ghcr.io, statt Next.js auf web-1 zu bauen.
+#
+# Coolify bleibt bei Build Pack „Dockerfile“ (eine Git-App lässt sich dort nicht auf
+# „Docker Image“ umstellen); in Coolify steht als „Dockerfile location“
+# `/Dockerfile.image` (Base Directory `/webapp`). Der „Build“ besteht dann nur aus dem
+# Herunterladen und Taggen des Images (Sekunden, kaum RAM). Das Image selbst baut
+# .github/workflows/build-image.yml auf GitHub (aus webapp/Dockerfile).
+#
+# Version festnageln / Rollback: in Coolify die Variable IMAGE_TAG (Buildtime) auf einen
+# Commit-SHA setzen (z. B. a1b2c3d…); ohne Wert gilt `latest`.
+# Healthcheck, Startkommando und Nutzer kommen aus dem Image.
+ARG IMAGE_TAG=latest
+FROM ghcr.io/jannik96d/bordkasse-app:${IMAGE_TAG}
