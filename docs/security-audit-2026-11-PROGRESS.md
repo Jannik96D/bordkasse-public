@@ -16,7 +16,7 @@ Legende Status: `offen` · `in Arbeit` · `PR offen` · `gemergt` · `wartet auf
 | 3 | Geteilte Personen: Name/E-Mail nur mit Zuständigkeit | gemergt | [#300](https://github.com/Jannik96D/bordkasse-public/pull/300) | – | – |
 | 4 | Login-CSRF in `/auth/verify` | gemergt | [#301](https://github.com/Jannik96D/bordkasse-public/pull/301) | – | – |
 | 5 | Kontolöschung ohne Verschiebung | gemergt | [#302](https://github.com/Jannik96D/bordkasse-public/pull/302) | 0063 (auf Prod eingespielt 2026-11-26) | erledigt |
-| 6 | Erzwungene Löschung nur Eigentümer | offen | – | – | – |
+| 6 | Erzwungene Löschung nur Eigentümer | PR offen | PRLINK | – | – |
 | 7 | Anzahlungs-Rechte | offen | – | – | – |
 | 8 | Kategorie an Törn binden | offen | – | 0064 | Migration vor Merge einspielen |
 | 9 | Nachträgliche Saldo-Änderungen | offen | – | – | – |

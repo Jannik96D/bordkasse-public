@@ -15,7 +15,7 @@ import { useTripVocab } from "@/components/trip-vocab-provider";
  *
  * Wird nur eingebunden, wenn der Trip noch nicht gepurged ist.
  */
-export function RetentionBlock({ tripId }: { tripId: string }) {
+export function RetentionBlock({ tripId, canForce }: { tripId: string; canForce: boolean }) {
   const [pending, startTransition] = useTransition();
   const { confirm, confirmDialog } = useConfirm();
   const vocab = useTripVocab();
@@ -48,8 +48,9 @@ export function RetentionBlock({ tripId }: { tripId: string }) {
       const res = await purgeTripNow(tripId, force);
       if (res.ok) {
         setState({ kind: "ok", message: res.message });
-      } else if (res.message.includes("Schulden")) {
-        // "debts_open" → kein Force möglich
+      } else if (force || res.message.includes("Schulden")) {
+        // "debts_open" bzw. Ablehnung im Force-Modus (Berechtigung, offene
+        // Anzahlung/weitere Zahlungen) → kein weiterer Force-Versuch anbieten
         setState({ kind: "hard_blocked", message: res.message });
       } else {
         setState({ kind: "soft_blocked", message: res.message });
@@ -85,7 +86,7 @@ export function RetentionBlock({ tripId }: { tripId: string }) {
         {pending ? "Löschen läuft …" : "Personenbezogene Daten jetzt löschen"}
       </button>
 
-      {state.kind === "soft_blocked" && (
+      {state.kind === "soft_blocked" && canForce && (
         <div className="space-y-2 rounded-md border border-gold/30 bg-gold-soft p-3 text-sm">
           <p className="text-ink">{state.message}</p>
           <button
@@ -96,6 +97,12 @@ export function RetentionBlock({ tripId }: { tripId: string }) {
             Trotzdem jetzt löschen
           </button>
         </div>
+      )}
+
+      {state.kind === "soft_blocked" && !canForce && (
+        <p className="rounded-md border border-gold/30 bg-gold-soft px-3 py-2 text-sm text-ink">
+          {state.message} Sofort löschen vor Ablauf der Frist kann nur der ursprüngliche Skipper oder ein Admin.
+        </p>
       )}
 
       {state.kind === "hard_blocked" && (
