@@ -23,3 +23,6 @@ overrides:
   js-yaml: "^4.3.1"
   sharp: "^0.35.4"
   "minimatch@3.1.5>brace-expansion": "^1.1.16"
+  # Next bündelt postcss 8.4.31 mit angreifbarem nanoid/source-map-js (pnpm audit, Slice 17).
+  "nanoid@<3.3.18": "^3.3.18"
+  "source-map-js@<1.2.2": "^1.2.2"

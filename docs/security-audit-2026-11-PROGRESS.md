@@ -26,8 +26,8 @@ Legende Status: `offen` · `in Arbeit` · `PR offen` · `gemergt` · `wartet auf
 | 13 | Secure-Cookies | offen | – | – | – |
 | 14 | Realtime-Publikation | offen | – | 0065 | Migration vor Merge einspielen |
 | 15 | Backups mit Rechten und Verschlüsselung | offen | – | – | ja: Server-Betreiber, Schlüssel |
-| 16 | CI mit minimalen Rechten | PR offen | [#308](https://github.com/Jannik96D/bordkasse-public/pull/308) | – | – |
-| 17 | Abhängigkeiten | offen | – | – | – |
+| 16 | CI mit minimalen Rechten | gemergt | [#308](https://github.com/Jannik96D/bordkasse-public/pull/308) | – | – |
+| 17 | Abhängigkeiten | PR offen | [#309](https://github.com/Jannik96D/bordkasse-public/pull/309) | – | – |
 | 18 | DB-Härtung (Sammelslice) | offen | – | 0066 | ja |
 
 ## Entscheidungen
