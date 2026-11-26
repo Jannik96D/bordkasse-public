@@ -121,9 +121,13 @@ FULL OUTER JOIN credit_received cr
   ON COALESCE(p.trip_id, s.trip_id, cg.trip_id) = cr.trip_id
   AND COALESCE(p.person_id, s.person_id, cg.person_id) = cr.person_id;
 
--- security_invoker + anon-Entzug aus 0035 explizit erneut setzen (belt &
--- suspenders — CREATE OR REPLACE VIEW behält reloptions zwar bei, aber wir
--- machen die Härtung sichtbar und idempotent).
+-- security_invoker + anon-Entzug aus 0035 explizit erneut setzen. PFLICHT,
+-- nicht Kosmetik: CREATE OR REPLACE VIEW ohne WITH-Klausel ERSETZT die
+-- reloptions durch die (leere) neue Liste — security_invoker wäre danach weg
+-- und die View liefe wieder mit Definer-Rechten an RLS vorbei.
+-- (Kommentar korrigiert in Slice 18 der Sicherheitsrunde 2026-11; vorher
+-- hieß es fälschlich, reloptions blieben erhalten. Wächter:
+-- supabase/tests/db_hardening_test.sql prüft ALLE Views.)
 ALTER VIEW v_balances_bordkasse_only SET (security_invoker = on);
 REVOKE SELECT ON v_balances_bordkasse_only FROM anon;
 GRANT SELECT ON v_balances_bordkasse_only TO authenticated;
