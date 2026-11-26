@@ -497,6 +497,9 @@ const UpdateMemberSchema = z.object({
   note: z.string().max(200).optional().or(z.literal("")),
 });
 
+/** Namensvergleich: trim + Whitespace-Folgen auf ein Leerzeichen, KEIN Case-Folding. */
+const normalizeName = (n: string) => n.trim().replace(/\s+/g, " ");
+
 /** Anzeigename, den die Kontolöschung (SQL: admin_delete_person_data) setzt. */
 // (Als Konkatenation, damit die Begriffs-Konsistenz-Prüfung nicht anschlägt.)
 const ANONYMIZED_DISPLAY_NAME = "Ehemaliges Crew" + "-Mitglied";
@@ -632,7 +635,7 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
       return { status: "error", message: "Prüfung fehlgeschlagen. Bitte erneut versuchen." };
     }
     priorEmail = priorPriv?.email ?? null;
-    nameChanged = !!display_name && display_name !== (personFlat?.display_name ?? null);
+    nameChanged = !!display_name && normalizeName(display_name) !== normalizeName(personFlat?.display_name ?? "");
     emailChanged = !!email && email.toLowerCase() !== (priorEmail ?? "").toLowerCase();
 
     // Per Kontolöschung anonymisierte Personen (admin_delete_person_data /

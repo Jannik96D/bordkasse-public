@@ -200,6 +200,24 @@ describe("updateMember — Name/E-Mail geteilter Personen (Slice 3)", () => {
     expect(writes.map((w) => w.table)).toEqual(["trip_members"]);
   });
 
+  it("Name nur durch Rand-/Mehrfach-Leerzeichen verschieden → keine Änderung, erlaubt", async () => {
+    const { res, writes } = await run(
+      { ghostName: " Max   Muster ", priorEmail: "alt@example.de", otherTrips: [{ id: TRIP_Y, skipper: OTHER }] },
+      { email: "alt@example.de", display_name: "Max Muster", on_board_from: "2026-05-01" },
+    );
+    expect(res.status).toBe("ok");
+    expect(writes.map((w) => w.table)).toEqual(["trip_members"]);
+  });
+
+  it("Name nur in Groß-/Kleinschreibung geändert → gilt als Änderung, abgelehnt", async () => {
+    const { res, writes } = await run(
+      { ghostName: "Max Muster", priorEmail: "alt@example.de", otherTrips: [{ id: TRIP_Y, skipper: OTHER }] },
+      { email: "alt@example.de", display_name: "max muster" },
+    );
+    expect(res.status).toBe("error");
+    expect(writes).toEqual([]);
+  });
+
   it("nur eigene Törns (Inhaber bzw. Co-Skipper) → erlaubt", async () => {
     const { res, writes } = await run(
       {
