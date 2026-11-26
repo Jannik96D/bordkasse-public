@@ -85,6 +85,12 @@ const nextConfig: NextConfig = {
       dynamic: 30,
       static: 300,
     },
+    // Build-Speicher (Server-Betreiber, 2026-11-26): Turbopack baut nativ und
+    // lässt sich nicht per NODE_OPTIONS deckeln, deshalb baut `pnpm build` mit
+    // Webpack (`next build --webpack`, Dev bleibt Turbopack). Diese beiden
+    // Schalter halten den Webpack-Build berechenbar klein.
+    webpackMemoryOptimizations: true,
+    cpus: 2,
   },
   async headers() {
     return [

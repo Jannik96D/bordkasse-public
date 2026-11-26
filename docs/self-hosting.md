@@ -1210,3 +1210,45 @@ Schritt 4a.
 **Seed-UUIDs.** Zod v4 `.uuid()` ist strikt. Platzhalter wie
 `aaaaaaaa-0000-0000-…` werden abgelehnt („Ungültige Auswahl."). Konvention:
 Versions-Nibble `4`, Variant `8`.
+
+## Image aus GitHub Actions (statt Build auf web-1)
+
+**Warum:** Der Next-Build hat web-1 am 2026-11-26 mehrfach eingefroren (RAM). Der Build läuft
+deshalb auf GitHub; Coolify zieht nur noch das fertige Image.
+
+**Ablauf:** Bei jedem Push auf `main` (Änderungen unter `webapp/`) baut
+`.github/workflows/build-image.yml` das Image und pusht es nach
+`ghcr.io/jannik96d/bordkasse-app` mit den Tags `<commit-sha>` und `latest`. Der Workflow lässt sich
+auch von Hand starten (Actions → „Image bauen“ → Run workflow).
+
+**Build-Werte:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+`NEXT_PUBLIC_APP_ORIGIN` (optional `NEXT_PUBLIC_VAPID_PUBLIC_KEY`) liegen als **Repository-Variablen**
+(Settings → Secrets and variables → Actions → Variables). Sie sind öffentlich (stehen im
+ausgelieferten JS). Geheimnisse (Service-Role-Key, SMTP, `CRON_SECRET`, VAPID-Private-Key) gehören
+NICHT ins Image und bleiben in Coolify als **Runtime**-Variablen. Ändert sich einer der
+`NEXT_PUBLIC_*`-Werte (z. B. Domainwechsel), muss die Repository-Variable angepasst und das Image neu
+gebaut werden.
+
+**Einmalige Umstellung in Coolify (manuell, nach dem ersten erfolgreichen Workflow-Lauf):**
+
+Eine Git-basierte Coolify-App lässt sich nicht auf das Build Pack „Docker Image“ umstellen (die
+Auswahl kennt nur Railpack/Nixpacks/Static/Dockerfile/Compose). Deshalb bleibt es bei „Dockerfile“,
+aber mit einer winzigen `webapp/Dockerfile.image` (`FROM ghcr.io/jannik96d/bordkasse-app:${IMAGE_TAG}`):
+
+1. In GitHub: Package `bordkasse-app` auf **Public** stellen (das Image enthält nur gebauten Code und
+   öffentliche Werte; alternativ privat lassen und auf dem Server `docker login ghcr.io` mit einem
+   Token mit `read:packages` hinterlegen).
+2. Coolify: App „Bordkasse App“ → General → Build & deploy → **Dockerfile location** von `/Dockerfile`
+   auf `/Dockerfile.image` ändern (Base Directory bleibt `/webapp`). Alles andere (Port 3000,
+   Container-Name `bordkasse-app`, Domain, Healthcheck, Runtime-Variablen) bleibt unverändert. Die
+   Variablen mit „Available at Buildtime“ sind danach wirkungslos, aber harmlos.
+3. Redeploy; danach `/login` und einen Login prüfen.
+
+**Version festnageln / Rollback:** In Coolify die Buildtime-Variable `IMAGE_TAG` auf einen Commit-SHA
+setzen (Tags `<sha>` stehen in ghcr.io); ohne Wert gilt `latest`.
+
+**Rückweg:** Dockerfile location wieder auf `/Dockerfile` stellen und neu deployen (baut dann wieder auf web-1).
+
+**Deploys:** weiterhin manuell (Redeploy in Coolify) — ein Push baut nur das Image. Mit dem Image
+dauert ein Deploy Sekunden statt Minuten und belastet den Server nicht. Nicht mehrere Redeploys kurz
+hintereinander auslösen.
