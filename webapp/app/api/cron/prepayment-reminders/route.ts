@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error("[bordkasse:cron] tranche part failed:", message);
-    trancheResult = { error: message };
+    trancheResult = { error: "Tranchen-Teil fehlgeschlagen" };
   }
 
   // Posten danach: wirft nie, ein Fehler dort (z. B. Tabelle aus 0061 fehlt)
@@ -338,7 +338,7 @@ async function runTrancheReminders(supabase: SupabaseAdmin, todayIso: string): P
           // machen (die Mail kam an), aber sichtbar als failed melden.
           failed++;
           console.error("[bordkasse:cron] log insert failed:", { job, message: logErr.message });
-          errors.push({ job, message: `Dedup-Log fehlgeschlagen: ${logErr.message}`, kind: "failed" });
+          errors.push({ job, message: "Dedup-Log fehlgeschlagen", kind: "failed" });
         }
       }
 

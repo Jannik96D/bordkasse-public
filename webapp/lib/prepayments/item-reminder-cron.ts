@@ -18,6 +18,7 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { addDays, formatDeDate, toCrewDueDate } from "@/lib/prepayments/dates";
 import { ITEM_CREW_WINDOW_DAYS, planItemReminderJobs, type ItemReminderJob } from "@/lib/prepayments/item-reminders";
+import { safeMailErrorMessage } from "@/lib/errors";
 import { sendItemReminderMail } from "@/lib/email/send-item-reminder";
 import { sendPushToPersons } from "@/lib/notify/web-push";
 import { itemPayeeReminderPush, itemReminderPush } from "@/lib/notify/payloads";
@@ -36,7 +37,7 @@ const empty = (): ItemReminderRunResult => ({ processed: 0, sent: 0, skipped: 0,
 
 function loadFailed(what: string, message: string): ItemReminderRunResult {
   console.error(`[bordkasse:cron] item reminders: ${what} failed:`, message);
-  return { ...empty(), failed: 1, errors: [{ type: "item_load", message: `${what}: ${message}`, kind: "failed" }] };
+  return { ...empty(), failed: 1, errors: [{ type: "item_load", message: `${what} fehlgeschlagen`, kind: "failed" }] };
 }
 
 /**
@@ -52,15 +53,7 @@ export interface ItemReminderRunOptions {
   budgetMs?: number;
 }
 
-/**
- * Text für `errors[].message` im Cron-JSON — OHNE Roh-Text des SMTP-Servers
- * (der nennt oft die Empfängeradresse; Coolify speichert die Antwort unter
- * „Recent executions"). Nur Code/Antwortcode. Der Rohtext steht im Serverlog.
- */
-export function safeMailErrorMessage(r: { code?: string; responseCode?: number }): string {
-  const parts = [r.code, r.responseCode !== undefined ? String(r.responseCode) : undefined].filter(Boolean);
-  return parts.length > 0 ? `Mail-Zustellung fehlgeschlagen (${parts.join(" ")})` : "Mail-Zustellung fehlgeschlagen";
-}
+export { safeMailErrorMessage };
 
 const TIMED_OUT = Symbol("timed_out");
 
@@ -224,7 +217,7 @@ async function runInner(supabase: SupabaseAdmin, todayIso: string, deadline: num
         } else {
           result.failed++;
           console.error("[bordkasse:cron] item log insert failed:", { job: jobRef(job), message: logErr.message });
-          result.errors.push({ type: job.type, message: `Dedup-Log fehlgeschlagen: ${logErr.message}`, kind: "failed" });
+          result.errors.push({ type: job.type, message: "Dedup-Log fehlgeschlagen", kind: "failed" });
         }
       }
 

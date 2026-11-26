@@ -13,6 +13,7 @@
 
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { sendMail } from "@/lib/email/send";
+import { dbErr } from "@/lib/errors";
 import { renderItemCrewReminderMail, renderItemPayeeReminderMail } from "@/lib/email/item-reminder-template";
 import { formatDeDate, toCrewDueDate } from "@/lib/prepayments/dates";
 import type { ItemReminderJob } from "@/lib/prepayments/item-reminders";
@@ -53,8 +54,8 @@ export async function sendItemReminderMail(
   ]);
   // Ein Lesefehler ist kein „hat keine E-Mail" — als echter Fehler melden,
   // sonst sähe ein DB-Aussetzer im Cron wie eine harmlose Auslassung aus.
-  if (personsRes.error) return { ok: false, message: personsRes.error.message, reason: "send_failed" };
-  if (privRes.error) return { ok: false, message: privRes.error.message, reason: "send_failed" };
+  if (personsRes.error) return { ok: false, message: dbErr(personsRes.error, "Empfängerdaten konnten nicht geladen werden."), reason: "send_failed" };
+  if (privRes.error) return { ok: false, message: dbErr(privRes.error, "Empfängerdaten konnten nicht geladen werden."), reason: "send_failed" };
 
   const nameById = new Map((personsRes.data ?? []).map((p) => [p.id as string, p.display_name as string]));
   const recipientName = nameById.get(job.personId);

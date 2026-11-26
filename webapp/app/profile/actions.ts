@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { dbErr } from "@/lib/errors";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
@@ -72,7 +73,7 @@ export async function updateProfile(
     .update(parsed.data)
     .eq("id", person.id);
 
-  if (error) return { status: "error", message: error.message };
+  if (error) return { status: "error", message: dbErr(error, "Profil konnte nicht gespeichert werden. Bitte erneut versuchen.") };
 
   revalidatePath("/profile");
   return { status: "ok" };

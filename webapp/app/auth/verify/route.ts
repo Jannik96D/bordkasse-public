@@ -104,7 +104,8 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await supabase.auth.verifyOtp({ token_hash, type });
   if (error) {
-    return redirectWithError(origin, error.code ?? "verify_failed", error.message, email);
+    console.error("[bordkasse:auth] verifyOtp fehlgeschlagen:", error.code ?? "unknown");
+    return redirectWithError(origin, error.code ?? "verify_failed", "Der Login-Link ist abgelaufen oder wurde bereits verwendet. Fordere einen neuen an.", email);
   }
 
   // Login-CSRF-Schutz: ein untergeschobener Link (Token des Angreifers) darf

@@ -29,6 +29,7 @@ import type { PrepaymentMember, PrepaymentCabin } from "@/lib/calc/prepayment-sh
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
 import { withinInviteLimit } from "@/lib/auth/action-rate-limit";
 import { resolveOrigin, appOrigin } from "@/lib/auth/origin";
+import { dbErr } from "@/lib/errors";
 import { round2, daysBetween, displayNameFromEmail } from "@/lib/utils";
 
 const PG_UNIQUE_VIOLATION = "23505";
@@ -37,11 +38,6 @@ export type PrepaymentState =
   | { status: "idle" }
   | { status: "ok" }
   | { status: "error"; message: string; field?: string };
-
-function dbErr(err: { message: string } | null, fallback: string): string {
-  if (err?.message) console.error("[bordkasse:db]", err.message);
-  return fallback;
-}
 
 // ────────────────────────────────────────────────────────────────────────
 // 1. Plan + Kojen + Soll-Verteilung speichern

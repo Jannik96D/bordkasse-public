@@ -558,7 +558,9 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
 
     expect(res.status).toBe("error");
     if (res.status === "error") {
-      expect(res.message).toContain("connection reset");
+      // Slice 11: kein Roh-Text der Datenbank im Rückgabewert (Schritt-Name genügt).
+      expect(res.message).toContain("transactions.credit_from");
+      expect(res.message).not.toContain("connection reset");
     }
   });
 });

@@ -70,7 +70,8 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient(response);
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
-    return redirectWithError(origin, error.code ?? "exchange_failed", error.message);
+    console.error("[bordkasse:auth] exchangeCodeForSession fehlgeschlagen:", error.code ?? "unknown");
+    return redirectWithError(origin, error.code ?? "exchange_failed", "Der Login-Link ist abgelaufen oder wurde bereits verwendet. Fordere einen neuen an.");
   }
 
   return response;

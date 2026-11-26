@@ -1116,7 +1116,7 @@ async function mergeGhostIntoExistingPerson(
     return {
       ok: false,
       message: `Verschmelzung mittendrin fehlgeschlagen (Schritt „${step}"). Daten können jetzt teilweise ` +
-        `verschmolzen sein — bitte einen Admin kontaktieren, statt es erneut zu versuchen: ${message}`,
+        `verschmolzen sein — bitte einen Admin kontaktieren, statt es erneut zu versuchen.`,
     };
   };
 
@@ -1398,7 +1398,7 @@ async function mergeGhostIntoExistingPerson(
   if (delErr) {
     return {
       ok: false,
-      message: `Ghost-Person konnte nicht gelöscht werden (vermutlich noch unbekannter Foreign-Key-Verweis): ${delErr.message}`,
+      message: `Ghost-Person konnte nicht gelöscht werden (vermutlich noch unbekannter Foreign-Key-Verweis).`,
     };
   }
 

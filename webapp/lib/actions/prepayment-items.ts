@@ -39,6 +39,7 @@
  */
 
 import { revalidatePath } from "next/cache";
+import { dbErr } from "@/lib/errors";
 import { ResolvePendingIds, readResolvePendingIds, resolvePendingReports } from "@/lib/prepayments/resolve-pending";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
@@ -103,11 +104,6 @@ async function isSameItemBooking(
     .maybeSingle();
   if (error || !data) return false;
   return data.item_id === expect.itemId && data.type === expect.type;
-}
-
-function dbErr(err: DbError, fallback: string): string {
-  if (err?.message) console.error("[bordkasse:db]", err.message);
-  return fallback;
 }
 
 /**
