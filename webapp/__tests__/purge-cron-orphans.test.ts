@@ -1,5 +1,6 @@
 // Slice 10: der tägliche Purge-Cron räumt verwaiste Auth-Konten auf und meldet
 // die Zahl (und Fehler getrennt) im JSON — ein Aufräum-Fehler kippt den Purge nie.
+import { randomBytes } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -11,7 +12,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { cleanupOrphanAuthUsers } from "@/lib/auth/orphan-accounts";
 import type { NextRequest } from "next/server";
 
-const SECRET = "test-cron-secret-0123456789-abcdefghij";
+// Zur Laufzeit erzeugt (kein Literal im Repo, kein Secret-Scanner-Fehlalarm).
+const SECRET = randomBytes(24).toString("hex");
 
 function req() {
   return { headers: new Headers({ authorization: `Bearer ${SECRET}` }) } as unknown as NextRequest;
