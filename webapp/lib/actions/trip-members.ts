@@ -4,7 +4,7 @@ import { z } from "zod";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireSkipperOrAdmin } from "@/lib/auth/authz";
+import { isAdmin, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
 import { resolveOrigin } from "@/lib/auth/origin";
@@ -498,6 +498,61 @@ const UpdateMemberSchema = z.object({
 });
 
 /**
+ * Darf der Ausführende Name/E-Mail dieser Person ändern? Ja, wenn sie in keinem
+ * anderen Törn Crew ist, oder er sie selbst ist, globaler Admin ist oder in
+ * JEDEM ihrer anderen Törns Skipper ist (`trips.skipper_id` oder
+ * `trip_members.is_skipper`). Lesefehler → fail-closed. Die Meldung nennt
+ * keine fremden Namen/Törns.
+ */
+async function mayChangeSharedIdentity(
+  supabase: ReturnType<typeof createAdminClient>,
+  personId: string,
+  tripId: string,
+  actorId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const readFail = { ok: false as const, message: "Prüfung auf geteilte Crew fehlgeschlagen. Bitte erneut versuchen." };
+  const { data: others, error: othersErr } = await supabase
+    .from("trip_members")
+    .select("trip_id")
+    .eq("person_id", personId)
+    .neq("trip_id", tripId);
+  if (othersErr || !others) {
+    console.error("[bordkasse:db]", othersErr?.message);
+    return readFail;
+  }
+  const otherTripIds = [...new Set(others.map((r: { trip_id: string }) => r.trip_id))];
+  if (otherTripIds.length === 0) return { ok: true };
+
+  if (actorId === personId) return { ok: true };
+  if (await isAdmin()) return { ok: true };
+
+  const [owned, coSkipper] = await Promise.all([
+    supabase.from("trips").select("id").in("id", otherTripIds).eq("skipper_id", actorId),
+    supabase
+      .from("trip_members")
+      .select("trip_id")
+      .in("trip_id", otherTripIds)
+      .eq("person_id", actorId)
+      .eq("is_skipper", true),
+  ]);
+  if (owned.error || coSkipper.error || !owned.data || !coSkipper.data) {
+    console.error("[bordkasse:db]", owned.error?.message ?? coSkipper.error?.message);
+    return readFail;
+  }
+  const covered = new Set<string>([
+    ...owned.data.map((r: { id: string }) => r.id),
+    ...coSkipper.data.map((r: { trip_id: string }) => r.trip_id),
+  ]);
+  if (otherTripIds.every((id) => covered.has(id))) return { ok: true };
+  return {
+    ok: false,
+    message:
+      "Diese Person ist auch Crew eines anderen Törns, dessen Skipper du nicht bist. " +
+      "Name und E-Mail kann nur ändern, wer in allen ihren Törns Skipper ist — bitte einen Admin einbeziehen.",
+  };
+}
+
+/**
  * Update einer Crewperson:
  *   - on_board_from/to, is_alcoholic, note  → trip_members
  *   - display_name + email                  → persons (nur für Ghost-Personen,
@@ -533,15 +588,46 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
   // Member + zugehörige Person holen — wir brauchen person_id + Ghost-Status.
   const { data: member } = await supabase
     .from("trip_members")
-    .select("person_id, persons!inner(auth_user_id)")
+    .select("person_id, persons!inner(auth_user_id, display_name)")
     .eq("id", member_id)
     .eq("trip_id", trip_id)
     .maybeSingle();
   if (!member) return { status: "error", message: "Crewmitglied nicht gefunden." };
 
-  const personRel = (member as unknown as { persons: { auth_user_id: string | null } | { auth_user_id: string | null }[] }).persons;
+  type PersonRow = { auth_user_id: string | null; display_name: string | null };
+  const personRel = (member as unknown as { persons: PersonRow | PersonRow[] }).persons;
   const personFlat = Array.isArray(personRel) ? personRel[0] : personRel;
   const isGhost = personFlat?.auth_user_id == null;
+
+  // Slice 3 (Sicherheitsrunde 2026-11): Name/E-Mail einer GETEILTEN Ghost-Person
+  // (auch Crew eines anderen Törns) dürfen nur Zuständige für ALLE ihre Törns
+  // ändern — sonst könnte Skipper A einer fremden Person die eigene E-Mail
+  // geben, sich einloggen und sie in Törn Y „sein". Alles Lesen und Prüfen
+  // passiert VOR dem ersten Write, damit eine Ablehnung nichts hinterlässt.
+  // Das Formular schickt Name + E-Mail bei JEDEM Speichern mit, deshalb zählt
+  // nur ein echter Unterschied zum Bestand als Änderung.
+  let priorEmail: string | null = null;
+  let nameChanged = false;
+  let emailChanged = false;
+  if (isGhost && (display_name || email)) {
+    const { data: priorPriv, error: priorPrivErr } = await supabase
+      .from("persons_private")
+      .select("email")
+      .eq("person_id", member.person_id)
+      .maybeSingle();
+    if (priorPrivErr) {
+      console.error("[bordkasse:db]", priorPrivErr.message);
+      return { status: "error", message: "Prüfung fehlgeschlagen. Bitte erneut versuchen." };
+    }
+    priorEmail = priorPriv?.email ?? null;
+    nameChanged = !!display_name && display_name !== (personFlat?.display_name ?? null);
+    emailChanged = !!email && email.toLowerCase() !== (priorEmail ?? "").toLowerCase();
+
+    if (nameChanged || emailChanged) {
+      const allowed = await mayChangeSharedIdentity(supabase, member.person_id, trip_id, auth.personId);
+      if (!allowed.ok) return { status: "error", message: allowed.message };
+    }
+  }
 
   const isAlcoholic =
     is_alcoholic === "yes" ? true :
@@ -570,8 +656,8 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
   });
 
   // 2. persons-Felder — nur bei Ghost (kein Auth-User), und nur falls Werte gesetzt
-  if (isGhost && (display_name || email)) {
-    if (display_name) {
+  if (isGhost && (nameChanged || emailChanged)) {
+    if (nameChanged) {
       const { error: pError } = await supabase
         .from("persons")
         .update({ display_name })
@@ -588,15 +674,10 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
         payload: { name_changed: true },
       });
     }
-    if (email) {
-      // Vorher prüfen, ob das ein NEU eingetragene E-Mail (vorher keine
-      // private-Row) → dann nach dem Upsert eine Einladungs-Mail schicken.
-      const { data: priorPriv } = await supabase
-        .from("persons_private")
-        .select("email")
-        .eq("person_id", member.person_id)
-        .maybeSingle();
-      const isFirstEmail = !priorPriv?.email;
+    if (emailChanged && email) {
+      // Neu eingetragene E-Mail (vorher keine) → nach dem Upsert eine
+      // Einladungs-Mail schicken. priorEmail wurde oben vor dem ersten Write gelesen.
+      const isFirstEmail = !priorEmail;
 
       // Gehört die E-Mail bereits einer anderen Person? Dann versuchen wir
       // automatisch zu mergen: der aktuelle Ghost-Eintrag wird in den
