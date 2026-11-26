@@ -38,7 +38,10 @@
 // gecachten RSC-Payloads/Dokumente der alten Seiten.
 // v17: Wording + einheitliche Zahlungs-Karten (PR7) — Anzahlungs-Seite, Mails
 // und Texte geändert, alte gecachte Seiten müssen raus.
-const CACHE_VERSION = "bordkasse-v19";
+// v20: Sicherheitsrunde 2026-11, Slice 12 — /auth/* und /profile (E-Mail,
+// Nachname) werden nie mehr gecacht (weder Dokument noch RSC); der Bump
+// verwirft bereits gecachte Kopien auf geteilten Geräten.
+const CACHE_VERSION = "bordkasse-v20";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGES_CACHE = `${CACHE_VERSION}-pages`;
 const RSC_CACHE = `${CACHE_VERSION}-rsc`;
@@ -89,6 +92,12 @@ self.addEventListener("fetch", (event) => {
   // Cross-Origin (Supabase API/Realtime, Resend etc.) → bypass.
   if (url.origin !== self.location.origin) return;
 
+  // Personenbezogene Seiten NIE cachen (Slice 12): /auth/* (Token-Seiten) und
+  // /profile (E-Mail, Nachname) blieben sonst auf einem geteilten Gerät
+  // offline für die nächste Person lesbar. Kein respondWith → Browser geht
+  // direkt ans Netz (offline: normale Browser-Fehlerseite).
+  if (isUncacheablePath(url.pathname)) return;
+
   // _next/static + _next/image sind immutable → CacheFirst.
   if (url.pathname.startsWith("/_next/static") || url.pathname.startsWith("/_next/image")) {
     event.respondWith(cacheFirst(request, STATIC_CACHE));
@@ -122,6 +131,15 @@ self.addEventListener("fetch", (event) => {
 
   // Default: einfach durchreichen.
 });
+
+function isUncacheablePath(pathname) {
+  return (
+    pathname === "/auth" ||
+    pathname.startsWith("/auth/") ||
+    pathname === "/profile" ||
+    pathname.startsWith("/profile/")
+  );
+}
 
 async function cacheFirst(request, cacheName) {
   const cache = await caches.open(cacheName);

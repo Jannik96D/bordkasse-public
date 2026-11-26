@@ -4,6 +4,7 @@ import "./globals.css";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
 import { ToastProvider } from "@/components/toast-provider";
 import { Toast } from "@/components/toast";
+import { PersonSwitchGuard } from "@/components/person-switch-guard";
 
 export const metadata: Metadata = {
   title: "Bordkasse",
@@ -66,6 +67,8 @@ export default function RootLayout({
             (IndexedDB-Outbox) hingegen lebt im Trip-Layout — er ist erst
             relevant, sobald offline Buchungen erfasst werden. */}
         <ServiceWorkerRegister />
+        {/* Slice 12: räumt Caches/Push der vorherigen Person bei Personenwechsel */}
+        <PersonSwitchGuard />
         <ToastProvider>
           {/* Global (nicht nur im Trip-Layout), damit ein `?toast=…`-Redirect
               auch auf öffentliche Routen wie /login funktioniert — z.B. der
