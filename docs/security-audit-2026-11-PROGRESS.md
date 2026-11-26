@@ -27,7 +27,7 @@ Legende Status: `offen` · `in Arbeit` · `PR offen` · `gemergt` · `wartet auf
 | 14 | Realtime-Publikation | offen | – | 0065 | Migration vor Merge einspielen |
 | 15 | Backups mit Rechten und Verschlüsselung | offen | – | – | ja: Server-Betreiber, Schlüssel |
 | 16 | CI mit minimalen Rechten | offen | – | – | – |
-| 17 | Abhängigkeiten | PR offen | (PR folgt) | – | – |
+| 17 | Abhängigkeiten | PR offen | [#309](https://github.com/Jannik96D/bordkasse-public/pull/309) | – | – |
 | 18 | DB-Härtung (Sammelslice) | offen | – | 0066 | ja |
 
 ## Entscheidungen
