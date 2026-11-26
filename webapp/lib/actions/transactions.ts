@@ -14,7 +14,9 @@ import {
 import {
   trancheBelongsToTrip,
   personsBelongToTrip,
+  categoryBelongsToTrip,
   CROSS_TRIP_PERSON_MSG,
+  CATEGORY_TRIP_MSG,
 } from "@/lib/auth/cross-trip";
 import { assertTripNotArchived } from "@/lib/auth/trip-state";
 import { logAudit } from "@/lib/db/audit";
@@ -515,6 +517,10 @@ export async function createExpense(_prev: TxState, formData: FormData): Promise
     return { status: "error", message: CROSS_TRIP_PERSON_MSG };
   }
 
+  if (!(await categoryBelongsToTrip(supabase, txData.category_id, txData.trip_id))) {
+    return { status: "error", message: CATEGORY_TRIP_MSG };
+  }
+
   const { data: tx, error } = await supabase
     .from("transactions")
     .insert({
@@ -822,6 +828,10 @@ export async function updateExpense(_prev: TxState, formData: FormData): Promise
     ))
   ) {
     return { status: "error", message: CROSS_TRIP_PERSON_MSG };
+  }
+
+  if (!(await categoryBelongsToTrip(supabase, txData.category_id, txData.trip_id))) {
+    return { status: "error", message: CATEGORY_TRIP_MSG };
   }
 
   // Bilanz-Diff VOR dem Update (für den Posten-Schutz unten und den
@@ -1413,6 +1423,10 @@ export async function replayPendingTransaction(
       ))
     ) {
       return { ok: false, message: CROSS_TRIP_PERSON_MSG };
+    }
+
+    if (!(await categoryBelongsToTrip(supabase, txData.category_id, txData.trip_id))) {
+      return { ok: false, message: CATEGORY_TRIP_MSG };
     }
 
     const { data: tx, error } = await supabase

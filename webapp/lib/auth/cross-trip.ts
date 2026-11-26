@@ -51,6 +51,34 @@ export async function itemBelongsToTrip(
 }
 
 /**
+ * Cross-Trip-Schutz für Kategorien (Migration 0064): gehört categoryId zu
+ * diesem Törn? Die DB erzwingt das per Composite-FK tx_category_fk; der
+ * App-Check liefert eine verständliche Meldung statt eines nackten 23503.
+ * Ohne Kategorie (null) immer ok. FAIL-CLOSED bei Lesefehler.
+ */
+export async function categoryBelongsToTrip(
+  supabase: AdminClient,
+  categoryId: string | null | undefined,
+  tripId: string,
+): Promise<boolean> {
+  if (!categoryId) return true;
+  const { data, error } = await supabase
+    .from("trip_categories")
+    .select("id")
+    .eq("id", categoryId)
+    .eq("trip_id", tripId)
+    .maybeSingle();
+  if (error) {
+    console.error("[bordkasse:db] categoryBelongsToTrip:", error.message);
+    return false;
+  }
+  return !!data;
+}
+
+export const CATEGORY_TRIP_MSG =
+  "Die Kategorie gehört nicht zu diesem Törn. Bitte Seite neu laden.";
+
+/**
  * Cross-Trip-Schutz für Personen-Referenzen: stellt sicher, dass jede
  * angegebene person_id (paid_by / participant_ids / credit_from / credit_to)
  * wirklich Crew dieses Törns ist. Verhindert, dass über eine untergeschobene
