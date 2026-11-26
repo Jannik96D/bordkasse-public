@@ -44,8 +44,9 @@ function makeTripMemberSupabase(opts: {
   participantCount?: number;
   obligationAmount?: number | null;
   advancerId?: string | null;
+  planError?: boolean;
 }) {
-  const { tripRow = null, memberRow = null, txCount = 0, participantCount = 0, obligationAmount = null, advancerId = null } = opts;
+  const { tripRow = null, memberRow = null, txCount = 0, participantCount = 0, obligationAmount = null, advancerId = null, planError = false } = opts;
   const calls: Call[] = [];
   const make = (table: string) => {
     let counting = false;
@@ -77,6 +78,7 @@ function makeTripMemberSupabase(opts: {
         });
       }
       if (table === "prepayment_plan") {
+        if (planError) return Promise.resolve({ data: null, error: { message: "boom" } });
         return Promise.resolve({ data: advancerId ? { advancer_person_id: advancerId } : null });
       }
       return Promise.resolve({ data: null });
@@ -243,6 +245,18 @@ describe("removeMember — Vorstrecker der Anzahlung (Slice 7)", () => {
     const res = await removeMember(MEMBER_ID, TRIP_ID);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.message).toContain("Vorstrecker");
+    expect(calls.some((c) => c.table === "trip_members" && c.method === "delete")).toBe(false);
+  });
+
+  it("Lesefehler beim Plan-Check: fail-closed, Person bleibt, kein Delete", async () => {
+    const { supabase, calls } = makeTripMemberSupabase({
+      tripRow: { skipper_id: OWNER_ID },
+      memberRow: { person_id: PERSON_ID },
+      planError: true,
+    });
+    mockedAdminClient.mockReturnValue(supabase as never);
+    const res = await removeMember(MEMBER_ID, TRIP_ID);
+    expect(res.ok).toBe(false);
     expect(calls.some((c) => c.table === "trip_members" && c.method === "delete")).toBe(false);
   });
 

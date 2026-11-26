@@ -230,11 +230,17 @@ export async function removeMember(
   // Rolle würde ins Leere zeigen und die Eingänge der Crew (credit_to)
   // fielen aus v_balances.
   {
-    const { data: planRow } = await supabase
+    const { data: planRow, error: planErr } = await supabase
       .from("prepayment_plan")
       .select("advancer_person_id")
       .eq("trip_id", tripId)
       .maybeSingle();
+    // Fail-closed: bei einem Lesefehler nicht entfernen (sonst fiele der
+    // Vorstrecker-Schutz bei einem transienten DB-Fehler stillschweigend weg).
+    if (planErr) {
+      console.error("[bordkasse:db] removeMember advancer check:", planErr.message);
+      return { ok: false, message: "Der Anzahlungsplan konnte nicht geprüft werden. Bitte erneut versuchen." };
+    }
     if (planRow?.advancer_person_id === memberRow.person_id) {
       return {
         ok: false,

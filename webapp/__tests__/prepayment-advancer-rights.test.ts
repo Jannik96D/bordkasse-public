@@ -125,11 +125,21 @@ describe("rejectSelfPayment / confirmSelfPayment — nur Tranchen-Gutschriften",
     expect(tx(TX_ITEM).deleted_at).toBeNull();
   });
 
-  it("Nicht-Gutschrift mit Tranche wird weder abgelehnt noch bestätigt", async () => {
+  it("rejectSelfPayment: Nicht-Gutschrift mit Tranche wird nicht abgelehnt", async () => {
     setup({ advancerIsMember: true, transactions: all() });
-    expect((await rejectSelfPayment({ status: "idle" }, form(TX_EXP))).status).toBe("error");
-    expect((await confirmSelfPayment({ status: "idle" }, form(TX_EXP))).status).toBe("error");
+    expect(await rejectSelfPayment({ status: "idle" }, form(TX_EXP))).toEqual({
+      status: "error",
+      message: "Buchung nicht gefunden.",
+    });
     expect(tx(TX_EXP).deleted_at).toBeNull();
+  });
+
+  it("confirmSelfPayment: Nicht-Gutschrift mit Tranche wird nicht bestätigt", async () => {
+    setup({ advancerIsMember: true, transactions: all() });
+    expect(await confirmSelfPayment({ status: "idle" }, form(TX_EXP))).toEqual({
+      status: "error",
+      message: "Buchung nicht gefunden.",
+    });
     expect(tx(TX_EXP).confirmed_at).toBeNull();
   });
 
