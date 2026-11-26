@@ -27,6 +27,7 @@ import {
 import { calculateObligations } from "@/lib/calc/prepayment-shares";
 import type { PrepaymentMember, PrepaymentCabin } from "@/lib/calc/prepayment-shares";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
+import { withinInviteLimit } from "@/lib/auth/action-rate-limit";
 import { resolveOrigin, appOrigin } from "@/lib/auth/origin";
 import { round2, daysBetween, displayNameFromEmail } from "@/lib/utils";
 
@@ -1647,7 +1648,9 @@ export async function replaceMember(
       .select("auth_user_id")
       .eq("id", newPersonId)
       .maybeSingle();
-    if (!newPersonRow?.auth_user_id) {
+    // Slice 10: gleiches Einladungs-Limit wie inviteMember (30/h je Akteur+Törn);
+    // bei Überschreitung bleibt die Person angelegt, nur der Link geht nicht raus.
+    if (!newPersonRow?.auth_user_id && (await withinInviteLimit(person.id, trip_id))) {
       try {
         const hdrs = await headers();
         const origin = resolveOrigin(hdrs.get("origin"));
@@ -1731,6 +1734,12 @@ const SubmitSelfPaymentSchema = z.object({
   ),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum-Format YYYY-MM-DD."),
   note: z.string().trim().max(200).optional().or(z.literal("")),
+  // Slice 10: Pflicht-Idempotency-Key (Formular erzeugt ihn pro Mount) —
+  // Doppelklick/Retry darf weder eine zweite Meldung noch eine zweite Mail
+  // an den Vorstrecker auslösen.
+  idempotency_key: z
+    .string({ error: "Technischer Schlüssel fehlt. Bitte Seite neu laden." })
+    .uuid("Technischer Schlüssel fehlt. Bitte Seite neu laden."),
 });
 
 /**
@@ -1751,11 +1760,12 @@ export async function submitSelfPayment(
     amount: formData.get("amount"),
     date: formData.get("date"),
     note: formData.get("note") || "",
+    idempotency_key: formData.get("idempotency_key") || undefined,
   });
   if (!parsed.success) {
     return { status: "error", message: parsed.error.issues[0]?.message ?? "Ungültige Eingabe." };
   }
-  const { trip_id, tranche_id, amount, date, note } = parsed.data;
+  const { trip_id, tranche_id, amount, date, note, idempotency_key } = parsed.data;
 
   const auth = await requireMember(trip_id);
   if (!auth.ok) return { status: "error", message: auth.message };
@@ -1789,9 +1799,26 @@ export async function submitSelfPayment(
       tranche_id,
       created_by: auth.personId,
       confirmed_at: null, // ← pending
+      idempotency_key,
     })
     .select("id")
     .single();
+  // Retry desselben Submits: die Meldung steht schon → weder zweite Buchung
+  // noch zweite Mail/Push. Nur wenn der Key wirklich zu DIESER Meldung gehört
+  // (gleiche Person, Tranche, Gutschrift), sonst klare Fehlermeldung.
+  if (error?.code === PG_UNIQUE_VIOLATION) {
+    const { data: prior } = await supabase
+      .from("transactions")
+      .select("type, credit_from, tranche_id")
+      .eq("trip_id", trip_id)
+      .eq("idempotency_key", idempotency_key)
+      .maybeSingle();
+    if (prior && prior.type === "credit" && prior.credit_from === auth.personId && prior.tranche_id === tranche_id) {
+      revalidatePath(`/trips/${trip_id}/prepayments`);
+      return { status: "ok" };
+    }
+    return { status: "error", message: "Diese Meldung wurde schon unter einer anderen Buchung gespeichert. Bitte Seite neu laden." };
+  }
   if (error || !tx) return { status: "error", message: dbErr(error, "Meldung konnte nicht gespeichert werden.") };
 
   await logAudit(supabase, {

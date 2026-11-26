@@ -44,6 +44,7 @@ function setup(trip: {
   settlement_announced_at?: string | null;
   settlement_mail_sent_at?: string | null;
   changes_pending_since?: string | null;
+  last_settlement_resend_at?: string | null;
 }) {
   const fake = createFakeSupabase({
     trips: [
@@ -57,7 +58,7 @@ function setup(trip: {
         settlement_announced_by: null,
         settlement_mail_sent_at: trip.settlement_mail_sent_at ?? null,
         changes_pending_since: trip.changes_pending_since ?? null,
-        last_settlement_resend_at: null,
+        last_settlement_resend_at: trip.last_settlement_resend_at ?? null,
       },
     ],
     trip_members: [
@@ -455,5 +456,49 @@ describe("resendSettlement — atomarer Claim", () => {
     const res = await resendSettlement(TRIP);
     expect(res.ok).toBe(true);
     expect(tripRow(fake).settlement_mail_sent_at).toBeNull();
+  });
+});
+
+// Slice 10: Mindestabstand von 1 h zwischen zwei Update-Mails. „Buchung
+// anlegen + löschen" setzt den Marker beliebig oft neu — ohne Abstand wäre die
+// Crew per Klick mit Mails zu fluten.
+describe("resendSettlement — Mindestabstand (Slice 10)", () => {
+  const minutesAgo = (m: number) => new Date(Date.now() - m * 60 * 1000).toISOString();
+
+  it("weist eine zweite Update-Mail binnen einer Stunde ab, ohne zu mailen oder den Marker zu ändern", async () => {
+    const fake = setup({
+      settlement_announced_at: ANNOUNCED,
+      settlement_mail_sent_at: ANNOUNCED,
+      changes_pending_since: PENDING,
+      last_settlement_resend_at: minutesAgo(20),
+    });
+    const res = await resendSettlement(TRIP);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.message).toContain("erst kurz her");
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(tripRow(fake).changes_pending_since).toBe(PENDING);
+  });
+
+  it("erlaubt die Update-Mail nach Ablauf der Stunde", async () => {
+    setup({
+      settlement_announced_at: ANNOUNCED,
+      settlement_mail_sent_at: ANNOUNCED,
+      changes_pending_since: PENDING,
+      last_settlement_resend_at: minutesAgo(61),
+    });
+    const res = await resendSettlement(TRIP);
+    expect(res.ok).toBe(true);
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("der Retry eines komplett gescheiterten Erstversands ist vom Abstand ausgenommen", async () => {
+    setup({
+      settlement_announced_at: ANNOUNCED,
+      settlement_mail_sent_at: null,
+      last_settlement_resend_at: minutesAgo(5),
+    });
+    const res = await resendSettlement(TRIP);
+    expect(res.ok).toBe(true);
+    expect(mockedSend).toHaveBeenCalledTimes(1);
   });
 });

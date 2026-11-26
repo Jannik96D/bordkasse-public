@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyCronAuth } from "@/lib/auth/cron-auth";
+import { cleanupOrphanAuthUsers } from "@/lib/auth/orphan-accounts";
 
 /**
  * Cron-Endpoint für die DSGVO-Datenlöschung.
@@ -53,10 +54,30 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Slice 10: verwaiste Auth-Konten (ohne Person und ohne persons_private-
+  // Eintrag, älter als 7 Tage) über die Admin-API löschen. Nicht fatal — ein
+  // Fehler zählt separat und darf weder den Purge-Erfolg noch die Antwort
+  // kippen (der Purge oben ist da längst durch).
+  let orphanDeleted = 0;
+  let orphanFailed = 0;
+  try {
+    const res = await cleanupOrphanAuthUsers(supabase);
+    orphanDeleted = res.deleted;
+    orphanFailed = res.failed;
+  } catch {
+    orphanFailed = 1;
+    console.error("[bordkasse:purge] cleanupOrphanAuthUsers: exception");
+  }
+  if (orphanFailed > 0) {
+    console.error(`[bordkasse:purge] ${orphanFailed} verwaiste Auth-Konto-Aufräumung(en) fehlgeschlagen.`);
+  }
+
   return NextResponse.json({
     ok: true,
     purged_trips: purged,
     failed_trips: failed,
+    orphan_accounts_deleted: orphanDeleted,
+    orphan_accounts_failed: orphanFailed,
     ranAt: new Date().toISOString(),
   });
 }

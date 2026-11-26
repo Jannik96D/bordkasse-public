@@ -106,7 +106,13 @@ export async function toggleDebtSettled(input: {
     }
     const settledAmount = Number(match.amount);
 
-    const { data: row, error } = await supabase
+    // Slice 10: nur der Wechsel „offen → bezahlt" mailt/pusht. Ein bereits
+    // gesetztes Häkchen (erneutes Setzen, Doppelklick, Auf-/Zu-Klappern per
+    // Zurücknehmen läuft über den else-Zweig und mailt ohnehin nicht) bleibt
+    // unverändert: `ignoreDuplicates` = ON CONFLICT DO NOTHING, das leere
+    // Ergebnis zeigt „war schon bezahlt". Atomar in der DB — zwei parallele
+    // Klicks mailen nicht beide.
+    const { data: inserted, error } = await supabase
       .from("settled_debts")
       .upsert(
         {
@@ -117,13 +123,18 @@ export async function toggleDebtSettled(input: {
           settled_by_person_id: auth.personId,
           settled_at: new Date().toISOString(),
         },
-        { onConflict: "trip_id,from_person_id,to_person_id,amount" },
+        { onConflict: "trip_id,from_person_id,to_person_id,amount", ignoreDuplicates: true },
       )
-      .select("id")
-      .single();
-    if (error || !row) {
-      if (error?.message) console.error("[bordkasse:db]", error.message);
+      .select("id");
+    if (error) {
+      console.error("[bordkasse:db]", error.message);
       return { ok: false, message: "Bezahlt-Status konnte nicht gespeichert werden. Bitte erneut versuchen." };
+    }
+    const row = inserted?.[0];
+    if (!row) {
+      // Schon bezahlt: kein Audit-Eintrag, keine Mail, keine Push.
+      revalidatePath(`/trips/${trip_id}/debts`);
+      return { ok: true, mailsSent: 0, mailsFailed: 0 };
     }
     await logAudit(supabase, {
       table_name: "settled_debts",

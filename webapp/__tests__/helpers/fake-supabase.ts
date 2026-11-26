@@ -86,6 +86,7 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
     const preds: Array<(r: Row) => boolean> = [];
     const filterDesc: string[] = [];
     let upsertConflict: string[] | null = null;
+    let upsertIgnore = false;
 
     const b: Record<string, unknown> = {};
     const add = (desc: string, p: (r: Row) => boolean) => {
@@ -105,8 +106,9 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
       payload = p;
       return b;
     };
-    b.upsert = (p: unknown, opts?: { onConflict?: string }) => {
+    b.upsert = (p: unknown, opts?: { onConflict?: string; ignoreDuplicates?: boolean }) => {
       action = "upsert";
+      upsertIgnore = !!opts?.ignoreDuplicates;
       payload = p;
       upsertConflict = opts?.onConflict ? opts.onConflict.split(",") : ["id"];
       return b;
@@ -219,14 +221,25 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
       }
       if (action === "upsert") {
         const list = (Array.isArray(payload) ? payload : [payload]) as Row[];
+        // `ignoreDuplicates` = ON CONFLICT DO NOTHING: bestehende Zeilen bleiben
+        // unverändert und kommen NICHT im RETURNING zurück.
+        const returned: Row[] = [];
         for (const raw of list) {
           const key = (r: Row) => upsertConflict!.map((k) => String(r[k])).join("|");
           const idx = t(table).findIndex((r) => key(r) === key(raw));
-          if (idx >= 0) t(table)[idx] = { ...t(table)[idx], ...raw };
-          else t(table).push({ ...raw });
+          if (idx >= 0) {
+            if (!upsertIgnore) {
+              t(table)[idx] = { ...t(table)[idx], ...raw };
+              returned.push(t(table)[idx]);
+            }
+          } else {
+            const row = { ...raw };
+            t(table).push(row);
+            returned.push(row);
+          }
         }
         writes.push({ table, action, payload, filters: [] });
-        return { data: wantsRows ? list : null, error: null };
+        return { data: wantsRows ? returned.map((r) => ({ ...r })) : null, error: null };
       }
       if (action === "update") {
         const hit = t(table).filter(matches);
