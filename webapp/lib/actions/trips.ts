@@ -9,6 +9,8 @@ import { logAudit } from "@/lib/db/audit";
 import { defaultCategoriesFor } from "@/lib/categories/defaults";
 import { displayNameFromEmail } from "@/lib/utils";
 import { isSupportedCurrency } from "@/lib/rates/currencies";
+import { getPrepaymentPoolBalances } from "@/lib/queries/prepayments";
+import { getItemPotBalances } from "@/lib/queries/prepayment-items";
 
 const TripSchema = z
   .object({
@@ -369,19 +371,59 @@ export async function updateTripCurrencies(
  * (Retention-Frist + Settlement-Flag + alle Schulden bezahlt). Mit
  * `force=true` überspringt der Skipper Retention + Settlement, aber
  * NICHT die Schulden-Prüfung — sonst gingen offene Zahlungen verloren.
+ *
+ * `force=true` ist unwiderruflich und darf nur der Original-Skipper bzw. ein
+ * Admin auslösen (Sicherheitsrunde 2026-11, Slice 6) und blockt zusätzlich,
+ * solange Anzahlungs-Pool oder weitere Zahlungen nicht ausgeglichen sind —
+ * `all_debts_settled` (SQL) sieht diese beiden Töpfe nicht.
  */
 export type PurgeResult =
   | { ok: true; message: string }
   | { ok: false; message: string };
 
 export async function purgeTripNow(tripId: string, force: boolean): Promise<PurgeResult> {
-  const auth = await requireSkipperOrAdmin(tripId);
-  if (!auth.ok) return { ok: false, message: auth.message };
+  // Server Actions sind per HTTP mit beliebigen Argumenten aufrufbar: nur ein
+  // echtes Boolean zählt. null/undefined/"true" würden sonst den Owner-Guard
+  // umgehen UND als NULL an purge_trip_data gehen, wo `IF NOT p_force` bei NULL
+  // die Frist-/Abrechnungsprüfung überspringt (= Force ohne Guard).
+  if (typeof force !== "boolean") return { ok: false, message: "Ungültige Anfrage." };
+  const isForce = force === true;
+
+  const auth = isForce ? await requireTripOwnerOrAdmin(tripId) : await requireSkipperOrAdmin(tripId);
+  if (!auth.ok) {
+    return {
+      ok: false,
+      message: isForce ? "Sofort löschen darf nur der ursprüngliche Skipper oder ein Admin." : auth.message,
+    };
+  }
+
+  if (isForce) {
+    // Fail-closed: kann der Stand nicht gelesen werden, wird nicht gelöscht.
+    // „Offen" = irgendeine Person mit Saldo ≠ 0 (>0,5 ct) im Pool bzw. in den
+    // weiteren Zahlungen: Soll nicht gedeckt ODER Überzahlung nicht
+    // zurückgegeben — in beiden Fällen ist Geld noch nicht abgerechnet.
+    let poolOpen: boolean;
+    let itemsOpen: boolean;
+    try {
+      const [pool, items] = await Promise.all([getPrepaymentPoolBalances(tripId), getItemPotBalances(tripId)]);
+      poolOpen = pool.some((b) => Math.abs(b.balance) > 0.005);
+      itemsOpen = [...items.values()].some((v) => Math.abs(v) > 0.005);
+    } catch (e) {
+      console.error("[bordkasse:purge]", e instanceof Error ? e.message : "unbekannt");
+      return { ok: false, message: "Der Zahlungsstand konnte nicht geprüft werden. Bitte erneut versuchen." };
+    }
+    if (poolOpen) {
+      return { ok: false, message: "Die Anzahlung ist noch nicht ausgeglichen. Bitte alle Beiträge der Crew erfassen und die Selbstverrechnung der vorstreckenden Person eintragen. Alternativ nach der Abrechnung und 30 Tagen normal löschen." };
+    }
+    if (itemsOpen) {
+      return { ok: false, message: "Bei den weiteren Zahlungen sind noch Beträge offen. Bitte die Zahlungen der Crew und die Überweisung an den Anbieter erfassen, bis alles ausgeglichen ist. Alternativ nach der Abrechnung und 30 Tagen normal löschen." };
+    }
+  }
 
   const supabase = createAdminClient();
   const { data, error } = await supabase.rpc("purge_trip_data", {
     p_trip_id: tripId,
-    p_force: force,
+    p_force: isForce,
   });
   if (error) {
     console.error("[bordkasse:db]", error.message);
@@ -396,7 +438,7 @@ export async function purgeTripNow(tripId: string, force: boolean): Promise<Purg
         record_id: tripId,
         trip_id: tripId,
         actor_person_id: auth.personId,
-        payload: { manual_purge: true, forced: force },
+        payload: { manual_purge: true, forced: isForce },
       });
       revalidatePath("/");
       revalidatePath(`/trips/${tripId}`);
