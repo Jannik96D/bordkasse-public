@@ -940,7 +940,91 @@ passt.
 > **Restrisiko bis Slice 2:** Solange Signup und `PUT /auth/v1/user` offen
 > sind, lässt sich diese Aussperrung über GoTrue gezielt auslösen, sofern es
 > verknüpfte Konten ohne `persons_private`-Zeile gibt. A3 = 0 vor dem Deploy
-> deckt das ab.
+> deckt das ab. Mit Slice 2 (Kong-Allowlist, siehe unten) sind beide Wege für
+> den anon-Key gesperrt.
+
+### Kong-Allowlist, Signup aus, Sitzungsdauer (Sicherheitsrunde 2026-11, Slice 2)
+
+**Befund.** `/auth/v1/*` war für den anon-Consumer (öffentlicher anon-Key aus
+dem Browser-Bundle) komplett offen: `signup` (Konto ohne Postfach), `PUT /user`
+(E-Mail/Passwort ändern; mit `GOTRUE_MAILER_AUTOCONFIRM=true` ohne
+Bestätigung), Passwort-Grant am Magic-Link vorbei, und
+`otp`/`magiclink`/`recover`/`resend` als Mail-Flut gegen das **globale**
+Kontingent `GOTRUE_RATE_LIMIT_EMAIL_SENT` (alle App-Aufrufe kommen über
+dieselbe Server-IP, das App-Rate-Limit schützt GoTrue also nicht).
+Refresh-Tokens liefen unbegrenzt.
+
+**Allowlist in `kong.yml`.** Für den anon-Key erreichbar sind nur noch:
+
+| Methode + Pfad | Wer braucht es (per Grep belegt) |
+| --- | --- |
+| `POST /auth/v1/token?grant_type=refresh_token` | Token-Refresh: `@supabase/ssr` in `proxy.ts`/Server-Clients, Browser-Client in `components/realtime-trip.tsx` |
+| `GET /auth/v1/user` | `getUser` in `proxy.ts`, `app/page.tsx`, `lib/auth/get-current-person.ts`, `/auth/verify` |
+| `POST /auth/v1/logout` | `signOut` (`app/profile/actions.ts`, `/auth/verify`) |
+| `verify`, `callback`, `authorize`, `.well-known/jwks.json`, `sso/saml/*` | wie bisher offen (ohne Key); `verifyOtp` in `/auth/verify` |
+
+Alles andere fällt in die Catch-all `/auth/v1/`, deren ACL nur noch die Gruppe
+`admin` (Service-Role-Key) zulässt → anon bekommt **403**. Über `admin` laufen
+Kontoanlage (`ensureAuthUser`) und der Magic-Link-Versand: `signInWithOtp`
+nutzt seit Slice 2 `lib/supabase/otp-mailer.ts` (Service-Role-Key, cookielos)
+in der Login-Action und in `sendInvitationMagicLink`. Die 403 kommt bewusst
+aus der ACL und nicht aus `request-termination`: Routing passiert vor der
+Authentifizierung, eine Terminierungs-Route würde auch den Service-Role-Key
+aussperren.
+
+Technische Details (Kong 3.9, `KONG_ROUTER_FLAVOR=expressions`): die drei
+anon-Routen sind `expression`s mit `priority: 1000` und exaktem Pfadvergleich
+(`==`); jede Abweichung (Slash am Ende, Großschreibung, Kodierung) landet in
+der Catch-all und ist für anon gesperrt. Die Refresh-Route entfernt per
+`request-transformer` jeden `grant_type` aus Query und Body und setzt genau
+`grant_type=refresh_token` neu — GoTrue liest den Grant per
+`r.FormValue("grant_type")` (erster Wert, auch URL-kodierte Schlüssel wie
+`grant%5Ftype`). ⚠️ Kong-Eigenheit: ein leerer Query-Schlüssel
+(`?grant_type&grant_type=refresh_token`) löst im Router einen Lua-Fehler aus
+(HTTP 500, nur diese Anfrage, nichts wird geöffnet).
+
+**GoTrue-Variablen** (`docker-compose.yml`, `.env.example`):
+
+| Variable | Wert | Anmerkung |
+| --- | --- | --- |
+| `DISABLE_SIGNUP` | `true` | Compose-Default `true`, aber in Coolify steht heute explizit `false` → **von Hand umstellen**. |
+| `GOTRUE_SESSIONS_INACTIVITY_TIMEOUT` | `2160h` (90 Tage) | Compose-Default; in Coolify nichts nötig. ⚠️ Ein **leerer** Wert ließe GoTrue v2.189 beim Start abstürzen (`converting '' to type *time.Duration`, lokal belegt) — deshalb der `:-`-Default. |
+| `GOTRUE_MAILER_OTP_LENGTH` | `10` (fest in Compose) | Grill-Fund: das offene `POST /verify` hat kein Limit pro Adresse; der `token_hash` im Link ist `sha224(email + otp)`. Mit 6 Stellen war ein ausgelöster Link lokal in einer Stunde zu ~40 % erratbar. Die Crew merkt nichts (Mail enthält nur den Link). |
+
+`GOTRUE_MAILER_AUTOCONFIRM` bleibt `true` (sonst englische Signup-Bestätigung
+statt Magic-Link); `PUT /user` ist stattdessen in Kong gesperrt.
+
+**Reihenfolge (Prod).** Slice 1 gemergt und deployt → Anker-Backfill
+(optional, A3 = 0) → **Slice 2 in genau dieser Reihenfolge:**
+
+1. **App zuerst.** PR mergen und warten, bis der Coolify-Build der App fertig
+   und live ist. Die neue App verschickt den OTP mit dem Service-Role-Key und
+   funktioniert auch gegen das alte Kong. Die **alte** App schickt ihn mit dem
+   anon-Key — läuft die Kong-Sperre vor ihr, scheitern alle Login- und
+   Einladungsmails mit 403 (lokal belegt). ⚠️ Hat die Supabase-Ressource in
+   Coolify Auto-Deploy auf `main`, würde sie die neue `kong.yml` beim Merge
+   sofort übernehmen — dann vor dem Merge Auto-Deploy der Supabase-Ressource
+   abschalten oder das Fenster (Build-Dauer der App) bewusst in Kauf nehmen.
+2. **Dann Supabase-Ressource:** in Coolify `DISABLE_SIGNUP=true` setzen,
+   Ressource neu deployen (zieht `kong.yml` + Compose aus dem Repo, startet
+   Kong und GoTrue neu). Kontrolle: `docker exec <auth-container> env | grep
+   -E 'DISABLE_SIGNUP|INACTIVITY|OTP_LENGTH'`.
+3. **Bestehende Sessions** aus der offenen Zeit bleiben gültig (Refresh ist
+   weiter erlaubt). Laut Lagebild gibt es zwei unverknüpfte Konten mit
+   Passwort-Session aus dem Oktober — prüfen und ggf. deren Sessions
+   widerrufen bzw. die Konten löschen (Nutzerentscheidung).
+4. **Manuell prüfen:** Login über die Domain, Erst-Einladung einer
+   Testadresse (gebrandete Mail), Live-Update (Realtime) eines Törns.
+
+**Probe.** `webapp/supabase/self-host/probe-auth-allowlist.mjs` stellt die
+Angriffe gegen einen **lokalen** Self-Host-Stack nach (verweigert alles außer
+127.0.0.1/localhost). Ergebnis lokal (GoTrue v2.189, Kong 3.9.3), ohne → mit
+Fix: Signup 200 mit Session → 403; `PUT /user {email}`/`{password}` 200 →
+403; Passwort-Grant 200 mit Session → 403 (auch `?grant_type=password&grant_type=refresh_token`
+und `grant%5Ftype=password`, ohne Fix je mit Session); Refresh 200 → 200;
+120× `/otp` (anon) 1× 200 + 119× 429 → 120× 403, danach Login über den
+Service-Role-Pfad weiter möglich; `GET /user`, `POST /logout`, `/verify`,
+CORS-Preflights und Realtime unverändert.
 
 ---
 
