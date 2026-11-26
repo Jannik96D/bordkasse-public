@@ -17,6 +17,7 @@
 // grant_type=refresh_token → 403 für den anon-Key; Service-Role-Key → voller
 // Zugriff. Ergebnis ohne/mit Fix: siehe PR #… bzw. docs/self-hosting.md.
 import { readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 
 const env = Object.fromEntries(
   readFileSync(process.argv[2] ?? "lab.env", "utf8")
@@ -30,6 +31,9 @@ if (!/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(B)) {
 }
 const RUN = process.env.RUN ?? String(Date.now());
 const J = { "Content-Type": "application/json" };
+// Wegwerf-Passwörter, je Lauf neu erzeugt (kein Literal im Repo, Secret-Scan).
+const PW1 = `Lab-${randomUUID()}-A1`;
+const PW2 = `Lab-${randomUUID()}-B2`;
 
 async function req(method, path, { key = ANON, bearer, body, headers = {}, raw } = {}) {
   const h = { ...headers };
@@ -48,12 +52,12 @@ const sess = (r) => (r.json?.access_token ? "SESSION" : "keine Session");
 const line = (label, r, extra = "") => console.log(`${label}: HTTP ${r.status}${extra}`);
 
 console.log("== 1. Signup mit anon-Key");
-let r = await req("POST", "/auth/v1/signup", { body: { email: `signup-${RUN}@example.com`, password: "Passw0rd-Lab-123" } });
+let r = await req("POST", "/auth/v1/signup", { body: { email: `signup-${RUN}@example.com`, password: PW1 } });
 line("POST /signup", r, ` / ${sess(r)}`);
 
 console.log("== 2. Testkonto per Admin-API (service_role), Session über /verify (wie die App)");
 const U = `user-${RUN}@example.com`;
-r = await req("POST", "/auth/v1/admin/users", { key: SVC, bearer: SVC, body: { email: U, email_confirm: true, password: "Passw0rd-Lab-123" } });
+r = await req("POST", "/auth/v1/admin/users", { key: SVC, bearer: SVC, body: { email: U, email_confirm: true, password: PW1 } });
 line("admin createUser (service_role)", r);
 r = await req("POST", "/auth/v1/admin/generate_link", { key: SVC, bearer: SVC, body: { type: "magiclink", email: U } });
 line("admin generate_link (service_role)", r);
@@ -62,7 +66,7 @@ line("POST /verify token_hash (anon)", r, ` / ${sess(r)}`);
 const RT = r.json?.refresh_token;
 
 console.log("== 4. Token-Endpunkt");
-const pw = { email: U, password: "Passw0rd-Lab-123" };
+const pw = { email: U, password: PW1 };
 r = await req("POST", "/auth/v1/token?grant_type=password", { body: pw });
 line("grant_type=password", r, ` / ${sess(r)}`);
 line("grant_type=pkce", await req("POST", "/auth/v1/token?grant_type=pkce", { body: { auth_code: "x", code_verifier: "y" } }));
@@ -72,12 +76,12 @@ r = await req("POST", "/auth/v1/token?grant_type=password&grant_type=refresh_tok
 line("Query doppelt (password, refresh_token)", r, ` / ${sess(r)}`);
 r = await req("POST", "/auth/v1/token?grant_type=refresh_token", {
   headers: { "Content-Type": "application/x-www-form-urlencoded" },
-  raw: `grant_type=password&email=${encodeURIComponent(U)}&password=Passw0rd-Lab-123`,
+  raw: `grant_type=password&email=${encodeURIComponent(U)}&password=${encodeURIComponent(PW1)}`,
 });
 line("Query refresh_token + Form-Body grant_type=password", r, ` / ${sess(r)}`);
 r = await req("POST", "/auth/v1/token?grant_type=refresh_token", {
   headers: { "Content-Type": "application/x-www-form-urlencoded" },
-  raw: `grant_type=password&{"email":"${U}","password":"Passw0rd-Lab-123"}`,
+  raw: `grant_type=password&{"email":"${U}","password":"${PW1}"}`,
 });
 line("Query refresh_token + Form/JSON-Mischkörper", r, ` / ${sess(r)}`);
 line("grant_type=REFRESH_TOKEN (Gross)", await req("POST", "/auth/v1/token?grant_type=REFRESH_TOKEN", { body: {} }));
@@ -100,7 +104,7 @@ console.log("== 3. Nutzer-JWT gegen /user");
 line("GET /user", await req("GET", "/auth/v1/user", { bearer: AT2 }));
 r = await req("PUT", "/auth/v1/user", { bearer: AT2, body: { email: `changed-${RUN}@example.com` } });
 line("PUT /user {email}", r);
-line("PUT /user {password}", await req("PUT", "/auth/v1/user", { bearer: AT2, body: { password: "Neu-Passw0rd-456" } }));
+line("PUT /user {password}", await req("PUT", "/auth/v1/user", { bearer: AT2, body: { password: PW2 } }));
 line("PUT /user/ (Slash)", await req("PUT", "/auth/v1/user/", { bearer: AT2, body: { data: { x: 1 } } }));
 line("PUT /USER (Gross)", await req("PUT", "/auth/v1/USER", { bearer: AT2, body: { data: { x: 1 } } }));
 line("PUT /%75ser (kodiert)", await req("PUT", "/auth/v1/%75ser", { bearer: AT2, body: { data: { x: 1 } } }));
