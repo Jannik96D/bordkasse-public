@@ -76,12 +76,12 @@ RUN test -n "$NEXT_PUBLIC_APP_ORIGIN" -o -n "$NEXT_PUBLIC_SITE_URL" || \
       (echo "FEHLER: NEXT_PUBLIC_APP_ORIGIN (oder NEXT_PUBLIC_SITE_URL) fehlt beim Build — Magic-Links wären kaputt." >&2; exit 1)
 
 # Speicher des Builds deckeln: Der Server (Hetzner, mehrere Dienste) hat wenig
-# freien RAM; ein ungedeckelter `next build` hat am 2026-11-26 zweimal den
-# Build abgebrochen bzw. den Host zum Hängen gebracht. Der V8-Heap wird auf
-# 1,5 GB begrenzt (genügt für diese App lokal), Telemetrie aus.
-# ⚠️ Deckelt nur den JS-Heap, nicht den nativen Speicher von Turbopack — wer
-# weiter OOM sieht, muss zusätzlich den Host-Swap prüfen (docs/self-hosting.md).
-ENV NODE_OPTIONS=--max-old-space-size=1536 \
+# freien RAM; am 2026-11-26 hat ein ungedeckelter `next build` den Host zum
+# Hängen gebracht (Kompilieren 11,6 statt ~1 min). Next 16 baut standardmäßig mit
+# Turbopack (nativ, per NODE_OPTIONS NICHT deckelbar) — `pnpm build` nutzt
+# deshalb Webpack (`next build --webpack`), der V8-Heap ist auf 2 GB begrenzt.
+# Bei „JavaScript heap out of memory“ auf 3072 erhöhen. Telemetrie aus.
+ENV NODE_OPTIONS=--max-old-space-size=2048 \
     NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
