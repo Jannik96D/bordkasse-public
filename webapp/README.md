@@ -6,7 +6,7 @@ Next.js 16 + Supabase Web-App-Variante der Bordkasse. Spec: [`../docs/web-app-sp
 
 - **Auth:** Magic-Link per E-Mail (Token-Hash-Flow, Single-Use, 60 Min TTL).
   - **Whitelist-Schutz:** Magic-Link wird nur an E-Mails verschickt, die in `ADMIN_EMAILS` stehen oder bereits in `persons_private` (= per Skipper-Einladung hinterlegt) — Fremde sehen eine Fehlermeldung, es wird kein Auth-User produziert.
-  - **Klick-Bestätigungsseite:** `/auth/confirm` ist eine Page mit „Jetzt einloggen"-Button → POST nach `/auth/verify` → `verifyOtp`. Schützt vor Link-Scannern (Outlook Safe Links, Gmail Spam-Filter), die GET-URLs in eingehenden Mails automatisch im Hintergrund aufrufen würden.
+  - **Klick-Bestätigungsseite:** `/auth/confirm` ist eine Page mit „Jetzt einloggen"-Button → POST nach `/auth/verify` → `verifyOtp`. Gegen Login-CSRF (untergeschobener Link) belegt ein beim Anfordern gesetztes Login-Intent-Cookie die Adresse; fehlt es (Einladung, anderes Gerät), tippt der Nutzer seine Adresse ein — Details in CLAUDE.md. Schützt vor Link-Scannern (Outlook Safe Links, Gmail Spam-Filter), die GET-URLs in eingehenden Mails automatisch im Hintergrund aufrufen würden.
   - **Auto-Resend bei abgelaufenem Link:** die Empfänger-E-Mail wird durch den Flow durchgereicht (`&email={{ .Email }}` im Magic-Link-Template). Bei `otp_expired`/`verify_failed` zeigt die Login-Page direkt einen „Neuen Link an X senden"-Button.
   - **Auto-Invite-Mail:** wenn ein Skipper eine neue Person zur Crew hinzufügt, geht automatisch ein Magic-Link an die E-Mail.
   - **Resend-Button** nach 30 s im normalen Login-Flow.

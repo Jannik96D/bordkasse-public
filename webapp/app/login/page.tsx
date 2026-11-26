@@ -39,7 +39,7 @@ function translateAuthError(code: string, _rawMessage: string | null): string {
     case "email_mismatch":
       // Absichtlich ohne Details zum fremden Konto. Der Login wurde abgebrochen,
       // es wurde niemand angemeldet.
-      return "Dieser Link gehört nicht zu der E-Mail-Adresse, für die er angezeigt wurde, deshalb wurdest du nicht angemeldet. Falls du den Link nicht selbst angefordert hast, ignoriere ihn. Fordere sonst unten einen neuen Link für deine Adresse an.";
+      return "Dieser Link gehört nicht zu deiner E-Mail-Adresse, deshalb wurdest du nicht angemeldet. Falls du den Link nicht selbst angefordert hast, ignoriere ihn. Fordere sonst unten einen neuen Link für deine Adresse an.";
     default:
       return "Bitte fordere einen neuen Magic-Link an.";
   }

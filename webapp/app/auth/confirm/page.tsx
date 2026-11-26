@@ -1,6 +1,8 @@
 import Image from "next/image";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { displayableEmail } from "@/lib/auth/email-param";
+import { LOGIN_INTENT_COOKIE, loginIntentMatches } from "@/lib/auth/login-intent";
 import { safeNextPath } from "@/lib/auth/origin";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +38,13 @@ export default async function ConfirmPage({
   // User sie erneut eintippen muss.
   const email = params.email;
 
-  const shownEmail = displayableEmail(email);
+  // Ein-Klick-Modus nur, wenn der URL-Hinweis durch das Login-Intent-Cookie
+  // gedeckt ist (der Nutzer hat DIESEN Link in diesem Browser angefordert).
+  // Sonst (Skipper-Einladung, anderes Gerät, fremder Link): der Nutzer tippt
+  // seine Adresse selbst — bewusst OHNE Vorbelegung aus der URL.
+  const cookieStore = await cookies();
+  const oneClick = loginIntentMatches(email, cookieStore.get(LOGIN_INTENT_COOKIE)?.value);
+  const shownEmail = oneClick ? displayableEmail(email) : null;
 
   // Fehlt der Token, kommt der User über einen kaputten Link — direkt zur
   // Login-Seite mit Hinweis.
@@ -90,7 +98,28 @@ export default async function ConfirmPage({
           <input type="hidden" name="token_hash" value={token_hash} />
           <input type="hidden" name="type" value={type} />
           <input type="hidden" name="next" value={next} />
-          {email && <input type="hidden" name="email" value={email} />}
+          {oneClick ? (
+            <input type="hidden" name="email" value={email} />
+          ) : (
+            <div className="space-y-1 text-left">
+              <label htmlFor="typed_email" className="text-sm font-medium text-primary">
+                Für welche E-Mail-Adresse gilt dieser Link?
+              </label>
+              <input
+                id="typed_email"
+                name="typed_email"
+                type="email"
+                required
+                autoComplete="email"
+                inputMode="email"
+                className="w-full rounded-md border border-primary/30 bg-paper px-3 py-3 text-ink focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+              <p className="text-xs text-ink-soft">
+                Tippe deine eigene Adresse ein. Zur Sicherheit melden wir dich nur an, wenn sie zum
+                Link passt.
+              </p>
+            </div>
+          )}
           <button
             type="submit"
             className="w-full rounded-md bg-primary px-4 py-3 font-medium text-paper hover:bg-navy-dark"

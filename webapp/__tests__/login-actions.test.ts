@@ -6,7 +6,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-vi.mock("next/headers", () => ({ headers: vi.fn() }));
+const cookieSet = vi.fn();
+vi.mock("next/headers", () => ({
+  headers: vi.fn(),
+  cookies: vi.fn(async () => ({ set: cookieSet })),
+}));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/auth/authz", () => ({ isEmailAllowedToSignIn: vi.fn() }));
@@ -106,5 +110,48 @@ describe("signInWithMagicLink — Rate-Limit-Oracle-Schutz", () => {
 
     expect(result).toEqual({ status: "ok", email: "crew@example.com" });
     expect(signInWithOtp).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("signInWithMagicLink — Login-Intent-Cookie", () => {
+  it("setzt nach erfolgreichem Versand das HMAC-Cookie (ohne Klartext-Adresse)", async () => {
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-secret");
+    mockedHeaders.mockResolvedValue(makeHeaders({ "x-real-ip": "203.0.113.9" }) as never);
+    mockedAdminClient.mockReturnValue(makeAdmin(true) as never);
+
+    await signInWithMagicLink(IDLE, makeFormData("Crew@Example.com"));
+
+    expect(cookieSet).toHaveBeenCalledTimes(1);
+    const [name, value, options] = cookieSet.mock.calls[0];
+    expect(name).toBe("bk_login_intent");
+    expect(value).toMatch(/^[0-9a-f]{64}$/);
+    expect(options).toMatchObject({ httpOnly: true, sameSite: "lax", maxAge: 3600 });
+    vi.unstubAllEnvs();
+  });
+
+  it("setzt das Cookie auch im neutralen Rate-Limit-Zweig (Oracle-Schutz)", async () => {
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-secret");
+    mockedHeaders.mockResolvedValue(makeHeaders({ "x-real-ip": "203.0.113.9" }) as never);
+    mockedAdminClient.mockReturnValue(makeAdmin(false) as never);
+
+    await signInWithMagicLink(IDLE, makeFormData("crew@example.com"));
+
+    expect(cookieSet).toHaveBeenCalledTimes(1);
+    vi.unstubAllEnvs();
+  });
+
+  it("setzt KEIN Cookie, wenn der Versand fehlschlägt oder die Adresse nicht erlaubt ist", async () => {
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-secret");
+    mockedHeaders.mockResolvedValue(makeHeaders({ "x-real-ip": "203.0.113.9" }) as never);
+    mockedAdminClient.mockReturnValue(makeAdmin(true) as never);
+
+    mockedAllowed.mockResolvedValue(false);
+    await signInWithMagicLink(IDLE, makeFormData("fremd@example.com"));
+    mockedAllowed.mockResolvedValue(true);
+    signInWithOtp.mockResolvedValue({ error: { message: "smtp" } });
+    await signInWithMagicLink(IDLE, makeFormData("crew@example.com"));
+
+    expect(cookieSet).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
   });
 });
