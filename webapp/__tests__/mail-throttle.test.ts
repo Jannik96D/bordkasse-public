@@ -24,10 +24,11 @@ vi.mock("@/lib/notify/web-push", () => ({ sendPushToPersons: vi.fn().mockResolve
 vi.mock("@/lib/email/send-payment-pending", () => ({ sendPaymentPendingMail: vi.fn().mockResolvedValue({ ok: true }) }));
 
 import { toggleDebtSettled } from "@/lib/actions/settled-debts";
+import { updateMember } from "@/lib/actions/trip-members";
 import { submitSelfPayment } from "@/lib/actions/prepayments";
 import { inviteMember } from "@/lib/actions/trip-members";
 import { cleanupOrphanAuthUsers } from "@/lib/auth/orphan-accounts";
-import { INVITE_LIMIT_MESSAGE, inviteLimitKey } from "@/lib/auth/action-rate-limit";
+import { INVITE_LIMIT_MESSAGE, inviteGlobalLimitKey, inviteLimitKey } from "@/lib/auth/action-rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdmin, requireMember, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
@@ -64,6 +65,14 @@ describe("toggleDebtSettled — mailt nur beim Wechsel offen → bezahlt", () =>
       audit_log: [],
     });
     fake.onRpc("simplify_debts", () => ({ data: [{ from_person_id: DEBTOR, to_person_id: CREDITOR, amount: 10 }] }));
+    // Benachrichtigungs-Limit: 10 pro Schlüssel (wie die echte Funktion, ein Fenster).
+    const counts = new Map<string, number>();
+    fake.onRpc("bump_login_rate_limit", (args) => {
+      const k = String(args.p_key);
+      const n = (counts.get(k) ?? 0) + 1;
+      counts.set(k, n);
+      return { data: n <= Number(args.p_max) };
+    });
     vi.mocked(createAdminClient).mockReturnValue(fake.client as never);
     vi.mocked(requireMember).mockResolvedValue({ ok: true, personId: DEBTOR } as never);
     vi.mocked(isAdmin).mockResolvedValue(false);
@@ -93,6 +102,64 @@ describe("toggleDebtSettled — mailt nur beim Wechsel offen → bezahlt", () =>
     expect(mailsSent()).toBe(2); // Zurücknehmen mailt nicht
     await toggleDebtSettled(input);
     expect(mailsSent()).toBe(4);
+  });
+});
+
+describe("toggleDebtSettled — Häkchen-Spam (Limit auf Benachrichtigungen)", () => {
+  const input = { tripId: TRIP, fromPersonId: DEBTOR, toPersonId: CREDITOR, amount: 10, settled: true };
+  function setup(allow: boolean) {
+    const fake = createFakeSupabase({
+      trips: [{ id: TRIP, name: "T", start_date: "2026-06-01", end_date: "2026-06-10", skipper_id: CREDITOR, trip_type: "sailing", settlement_announced_at: "2026-06-11T10:00:00Z" }],
+      prepayment_plan: [],
+      persons: [{ id: DEBTOR, display_name: "Anna" }, { id: CREDITOR, display_name: "Ben" }],
+      persons_private: [{ person_id: DEBTOR, email: "anna@example.test" }, { person_id: CREDITOR, email: "ben@example.test" }],
+      settled_debts: [],
+      audit_log: [],
+    });
+    fake.onRpc("simplify_debts", () => ({ data: [{ from_person_id: DEBTOR, to_person_id: CREDITOR, amount: 10 }] }));
+    fake.onRpc("bump_login_rate_limit", () => ({ data: allow }));
+    vi.mocked(createAdminClient).mockReturnValue(fake.client as never);
+    vi.mocked(requireMember).mockResolvedValue({ ok: true, personId: DEBTOR } as never);
+    vi.mocked(isAdmin).mockResolvedValue(false);
+    return fake;
+  }
+
+  it("über dem Limit: Häkchen wird gespeichert, aber keine Mail/Push und kein Fehler", async () => {
+    const fake = setup(false);
+    const res = await toggleDebtSettled(input);
+    expect(res.ok).toBe(true);
+    expect(fake.rows("settled_debts")).toHaveLength(1);
+    expect(sendMails).not.toHaveBeenCalled();
+  });
+
+  it("zählt unter debt-mail:<Akteur>:<Törn> mit 10 pro Stunde", async () => {
+    const fake = setup(true);
+    await toggleDebtSettled(input);
+    const call = fake.rpcCalls.find((c) => c.name === "bump_login_rate_limit");
+    expect(call?.args).toEqual({ p_key: `debt-mail:${DEBTOR}:${TRIP}`, p_max: 10, p_window_seconds: 3600 });
+  });
+
+  it("der 11. echte Wechsel (bezahlt → offen → bezahlt im Kreis) mailt nicht mehr", async () => {
+    const fake = createFakeSupabase({
+      trips: [{ id: TRIP, name: "T", start_date: "2026-06-01", end_date: "2026-06-10", skipper_id: CREDITOR, trip_type: "sailing", settlement_announced_at: "2026-06-11T10:00:00Z" }],
+      prepayment_plan: [],
+      persons: [{ id: DEBTOR, display_name: "Anna" }, { id: CREDITOR, display_name: "Ben" }],
+      persons_private: [{ person_id: DEBTOR, email: "anna@example.test" }, { person_id: CREDITOR, email: "ben@example.test" }],
+      settled_debts: [],
+      audit_log: [],
+    });
+    fake.onRpc("simplify_debts", () => ({ data: [{ from_person_id: DEBTOR, to_person_id: CREDITOR, amount: 10 }] }));
+    let n = 0;
+    fake.onRpc("bump_login_rate_limit", (args) => ({ data: ++n <= Number(args.p_max) }));
+    vi.mocked(createAdminClient).mockReturnValue(fake.client as never);
+    vi.mocked(requireMember).mockResolvedValue({ ok: true, personId: DEBTOR } as never);
+    vi.mocked(isAdmin).mockResolvedValue(false);
+    for (let i = 0; i < 12; i++) {
+      await toggleDebtSettled(input);
+      await toggleDebtSettled({ ...input, settled: false });
+    }
+    const sent = vi.mocked(sendMails).mock.calls.length;
+    expect(sent).toBe(10);
   });
 });
 
@@ -128,6 +195,16 @@ describe("submitSelfPayment — Idempotency-Key", () => {
     expect(b).toEqual({ status: "ok" });
     expect(fake.rows("transactions")).toHaveLength(1);
     expect(sendPaymentPendingMail).toHaveBeenCalledTimes(1);
+  });
+
+  it("derselbe Key mit abweichendem Betrag ist KEIN stilles ok", async () => {
+    const fake = setup();
+    await submitSelfPayment({ status: "idle" }, form(KEY));
+    const fd = form(KEY);
+    fd.set("amount", "60,00");
+    const res = await submitSelfPayment({ status: "idle" }, fd);
+    expect(res.status).toBe("error");
+    expect(fake.rows("transactions")).toHaveLength(1);
   });
 
   it("zwei bewusst getrennte Meldungen (anderer Key) bleiben möglich", async () => {
@@ -200,12 +277,75 @@ describe("inviteMember — Limit pro (Akteur, Törn)", () => {
     expect(sendInvitationMagicLink).toHaveBeenCalledTimes(1);
   });
 
+  it("zählt zusätzlich global je Akteur (invite:<akteur>, 60/h) und blockiert darüber", async () => {
+    const fake = setup(true);
+    fake.onRpc("bump_login_rate_limit", (args) => ({ data: args.p_key !== inviteGlobalLimitKey(CREDITOR) }));
+    const res = await inviteMember({ status: "idle" }, form());
+    expect(res).toEqual({ status: "error", message: INVITE_LIMIT_MESSAGE });
+    const call = fake.rpcCalls.find((c) => (c.args as { p_key: string }).p_key === `invite:${CREDITOR}`);
+    expect(call?.args).toEqual({ p_key: `invite:${CREDITOR}`, p_max: 60, p_window_seconds: 3600 });
+    expect(fake.rows("persons")).toHaveLength(0);
+  });
+
   it("fail-open: scheitert der Zähler, wird die Crew-Anlage NICHT blockiert", async () => {
     const fake = setup(true);
     fake.onRpc("bump_login_rate_limit", () => ({ error: { message: "db down" } }));
     const res = await inviteMember({ status: "idle" }, form());
     expect(res.status).toBe("ok");
     expect(fake.rows("trip_members")).toHaveLength(1);
+  });
+});
+
+describe("updateMember — Einladungs-Limit bei erster E-Mail eines Ghosts", () => {
+  const MEMBER = "aaaaaaaa-0000-4000-8000-0000000000a1";
+  const GHOST = "aaaaaaaa-0000-4000-8000-0000000000a2";
+  function setup(limitAllows: boolean) {
+    const fake = createFakeSupabase({
+      trips: [{ id: TRIP, archived: false, skipper_id: CREDITOR }],
+      trip_members: [
+        {
+          id: MEMBER,
+          trip_id: TRIP,
+          person_id: GHOST,
+          on_board_from: null,
+          on_board_to: null,
+          is_alcoholic: null,
+          persons: { auth_user_id: null, display_name: "Ghost" },
+        },
+      ],
+      persons: [{ id: GHOST, auth_user_id: null, display_name: "Ghost" }],
+      persons_private: [],
+      audit_log: [],
+    });
+    fake.onRpc("bump_login_rate_limit", () => ({ data: limitAllows }));
+    vi.mocked(createAdminClient).mockReturnValue(fake.client as never);
+    vi.mocked(requireSkipperOrAdmin).mockResolvedValue({ ok: true, personId: CREDITOR } as never);
+    vi.mocked(isAdmin).mockResolvedValue(true);
+    return fake;
+  }
+  function form() {
+    const fd = new FormData();
+    fd.set("member_id", MEMBER);
+    fd.set("trip_id", TRIP);
+    fd.set("display_name", "Ghost");
+    fd.set("email", "ghost@example.test");
+    return fd;
+  }
+
+  it("unter dem Limit geht die Einladung raus", async () => {
+    const fake = setup(true);
+    const res = await updateMember({ status: "idle" }, form());
+    expect(res.status).toBe("ok");
+    expect(fake.rows("persons_private")).toHaveLength(1);
+    expect(sendInvitationMagicLink).toHaveBeenCalledTimes(1);
+  });
+
+  it("über dem Limit bleibt die Adresse gespeichert, der Link wird nicht verschickt", async () => {
+    const fake = setup(false);
+    const res = await updateMember({ status: "idle" }, form());
+    expect(res.status).toBe("ok");
+    expect(fake.rows("persons_private")).toHaveLength(1);
+    expect(sendInvitationMagicLink).not.toHaveBeenCalled();
   });
 });
 
@@ -257,6 +397,17 @@ describe("cleanupOrphanAuthUsers", () => {
     expect(res).toEqual({ deleted: 1, failed: 0 });
     expect(deleteUser).toHaveBeenCalledTimes(1);
     expect(deleteUser).toHaveBeenCalledWith("orphan");
+  });
+
+  it("altes Konto OHNE Anker, dessen Konto-Adresse in persons_private steht, bleibt", async () => {
+    const { admin, deleteUser } = setup(
+      [user("noanchor", "Eingeladen@Example.test", { app_metadata: undefined })],
+      [],
+      ["eingeladen@example.test"],
+    );
+    const res = await cleanupOrphanAuthUsers(admin, NOW);
+    expect(res).toEqual({ deleted: 0, failed: 0 });
+    expect(deleteUser).not.toHaveBeenCalled();
   });
 
   it("Konten von ADMIN_EMAILS bleiben auch ohne Person stehen", async () => {

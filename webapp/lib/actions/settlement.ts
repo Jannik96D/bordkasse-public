@@ -38,14 +38,6 @@ import { markBalancesMayHaveChanged } from "@/lib/db/settlement-marker";
 const SEND_LEASE_MS = 10 * 60 * 1000;
 /** Toleranz für Uhrabweichung App ↔ DB beim Erkennen echter Marker. */
 const CLOCK_SKEW_MS = 60 * 1000;
-/**
- * Slice 10: Mindestabstand zwischen zwei Update-Mails. Der Marker
- * `changes_pending_since` lässt sich durch „Buchung anlegen + löschen"
- * beliebig oft neu setzen; ohne Abstand könnte ein Crewmitglied so die
- * ganze Crew mit Update-Mails fluten. Gilt NICHT für den Retry eines
- * komplett gescheiterten Erstversands (dort ist noch keine Mail raus).
- */
-export const RESEND_MIN_INTERVAL_MS = 60 * 60 * 1000;
 const isoShift = (iso: string, ms: number) => new Date(Date.parse(iso) + ms).toISOString();
 
 /**
@@ -395,10 +387,12 @@ export async function resendSettlement(tripId: string): Promise<Result> {
   // die Person, die soeben eine nachträgliche Buchung erfasst hat, die Mail
   // direkt selbst raushauen, ohne den Skipper bemühen zu müssen. Der Resend
   // funktioniert nur, wenn `changes_pending_since` gesetzt ist (Guard unten,
-  // Fund 8 Code-Review 2026-08). Das allein schließt Spam NICHT aus: jede
-  // Buchungs-Änderung setzt den Marker neu, „anlegen + löschen" also
-  // beliebig oft. Deshalb zusätzlich ein Mindestabstand von 1 h zwischen
-  // zwei Update-Mails (`RESEND_MIN_INTERVAL_MS`, Slice 10).
+  // Fund 8 Code-Review 2026-08), und ein Doppelklick/paralleler Request wird
+  // durch den atomaren Claim unten abgefangen (Slice 9). Es gibt bewusst KEIN
+  // Zeitlimit (Entscheidung Slice 10): ändert sich die Abrechnung nachträglich,
+  // soll immer eine Update-Mail möglich sein. Jede Buchungs-Änderung setzt den
+  // Marker neu — wer wiederholt anlegt/löscht, kann also wiederholt eine Mail
+  // auslösen; das ist ein bekannter, akzeptierter Restpunkt.
   const auth = await requireMember(tripId);
   if (!auth.ok) return { ok: false, message: auth.message };
 
@@ -431,20 +425,6 @@ export async function resendSettlement(tripId: string): Promise<Result> {
       ok: false,
       message: "Seit der letzten Abrechnungs-Mail hat sich nichts geändert.",
     };
-  }
-
-  // Slice 10: Mindestabstand zur letzten Update-Mail (nicht beim Retry eines
-  // gescheiterten Erstversands). Der Marker bleibt gesetzt, der Banner
-  // bleibt sichtbar — die Mail geht später raus.
-  if (!neverSuccessfullySent && trip.last_settlement_resend_at) {
-    const sinceLast = Date.now() - Date.parse(trip.last_settlement_resend_at);
-    if (sinceLast >= 0 && sinceLast < RESEND_MIN_INTERVAL_MS) {
-      const mins = Math.max(1, Math.ceil((RESEND_MIN_INTERVAL_MS - sinceLast) / 60000));
-      return {
-        ok: false,
-        message: `Die letzte Update-Mail ist erst kurz her. Bitte in etwa ${mins} Min. erneut versuchen — die Änderungen gehen dann gesammelt raus.`,
-      };
-    }
   }
 
   // Slice 9: atomarer Claim VOR dem Versand (Versand-Sperre, siehe

@@ -459,46 +459,33 @@ describe("resendSettlement — atomarer Claim", () => {
   });
 });
 
-// Slice 10: Mindestabstand von 1 h zwischen zwei Update-Mails. „Buchung
-// anlegen + löschen" setzt den Marker beliebig oft neu — ohne Abstand wäre die
-// Crew per Klick mit Mails zu fluten.
-describe("resendSettlement — Mindestabstand (Slice 10)", () => {
-  const minutesAgo = (m: number) => new Date(Date.now() - m * 60 * 1000).toISOString();
+// Slice 10 (Entscheidung): KEIN Zeitlimit für Update-Mails — ändert sich die
+// Abrechnung nachträglich, muss immer eine Update-Mail möglich sein. Der Schutz
+// gegen Doppelklick bleibt der atomare Claim (siehe oben).
+describe("resendSettlement — kein Zeitlimit (Slice 10)", () => {
+  it("eine zweite Update-Mail direkt nach der ersten ist möglich, sobald ein neuer Marker gesetzt wurde", async () => {
+    const fake = setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: ANNOUNCED, changes_pending_since: PENDING });
+    const first = await resendSettlement(TRIP);
+    expect(first.ok).toBe(true);
+    expect(tripRow(fake).changes_pending_since).toBeNull();
+    expect(tripRow(fake).last_settlement_resend_at).not.toBeNull(); // eben erst verschickt
 
-  it("weist eine zweite Update-Mail binnen einer Stunde ab, ohne zu mailen oder den Marker zu ändern", async () => {
-    const fake = setup({
-      settlement_announced_at: ANNOUNCED,
-      settlement_mail_sent_at: ANNOUNCED,
-      changes_pending_since: PENDING,
-      last_settlement_resend_at: minutesAgo(20),
-    });
-    const res = await resendSettlement(TRIP);
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.message).toContain("erst kurz her");
-    expect(mockedSend).not.toHaveBeenCalled();
-    expect(tripRow(fake).changes_pending_since).toBe(PENDING);
-  });
-
-  it("erlaubt die Update-Mail nach Ablauf der Stunde", async () => {
-    setup({
-      settlement_announced_at: ANNOUNCED,
-      settlement_mail_sent_at: ANNOUNCED,
-      changes_pending_since: PENDING,
-      last_settlement_resend_at: minutesAgo(61),
-    });
-    const res = await resendSettlement(TRIP);
-    expect(res.ok).toBe(true);
+    // Ohne neuen Marker: nichts zu verschicken.
+    const none = await resendSettlement(TRIP);
+    expect(none.ok).toBe(false);
     expect(mockedSend).toHaveBeenCalledTimes(1);
+
+    // Neue Änderung → Marker → sofort wieder möglich.
+    await fake.client.rpc("mark_post_settlement_change", { p_trip_id: TRIP });
+    const second = await resendSettlement(TRIP);
+    expect(second.ok).toBe(true);
+    expect(mockedSend).toHaveBeenCalledTimes(2);
   });
 
-  it("der Retry eines komplett gescheiterten Erstversands ist vom Abstand ausgenommen", async () => {
-    setup({
-      settlement_announced_at: ANNOUNCED,
-      settlement_mail_sent_at: null,
-      last_settlement_resend_at: minutesAgo(5),
-    });
-    const res = await resendSettlement(TRIP);
-    expect(res.ok).toBe(true);
+  it("ein paralleler Doppelklick verschickt weiterhin nur EINE Update-Mail", async () => {
+    setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: ANNOUNCED, changes_pending_since: PENDING });
+    const [a, b] = await Promise.all([resendSettlement(TRIP), resendSettlement(TRIP)]);
+    expect([a.ok, b.ok].sort()).toEqual([false, true]);
     expect(mockedSend).toHaveBeenCalledTimes(1);
   });
 });

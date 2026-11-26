@@ -1805,15 +1805,16 @@ export async function submitSelfPayment(
     .single();
   // Retry desselben Submits: die Meldung steht schon → weder zweite Buchung
   // noch zweite Mail/Push. Nur wenn der Key wirklich zu DIESER Meldung gehört
-  // (gleiche Person, Tranche, Gutschrift), sonst klare Fehlermeldung.
+  // (gleiche Person, Tranche, Betrag, Gutschrift), sonst klare Fehlermeldung
+  // statt eines stillen „ok“ für eine abweichende Meldung.
   if (error?.code === PG_UNIQUE_VIOLATION) {
     const { data: prior } = await supabase
       .from("transactions")
-      .select("type, credit_from, tranche_id")
+      .select("type, credit_from, tranche_id, amount")
       .eq("trip_id", trip_id)
       .eq("idempotency_key", idempotency_key)
       .maybeSingle();
-    if (prior && prior.type === "credit" && prior.credit_from === auth.personId && prior.tranche_id === tranche_id) {
+    if (prior && prior.type === "credit" && prior.credit_from === auth.personId && prior.tranche_id === tranche_id && Math.abs(Number(prior.amount) - amount) < 0.005) {
       revalidatePath(`/trips/${trip_id}/prepayments`);
       return { status: "ok" };
     }

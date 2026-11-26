@@ -7,10 +7,15 @@ import { getAdminEmails } from "@/lib/auth/admin-emails";
  * Sicherheitsrunde 2026-11, Slice 10 — verwaiste Auth-Konten aufräumen.
  *
  * Einladungen und Login-Versuche legen über `ensureAuthUser` ein Konto in
- * `auth.users` an. Wird die Person danach nie angelegt/entfernt
- * (`removeMember`, geänderte E-Mail, Purge) oder der Link nie benutzt, bliebe
- * die Adresse dauerhaft in der Auth-Tabelle stehen (DSGVO-Rest). Der tägliche
- * Purge-Cron ruft deshalb diese Aufräumung.
+ * `auth.users` an. Bleibt dieses Konto ohne Person und ohne `persons_private`-
+ * Eintrag zurück (Link nie benutzt, Login-Versuch ohne Folge, Person samt
+ * Adresse gelöscht, z. B. Kontolöschung/Purge), bliebe die Adresse dauerhaft in
+ * der Auth-Tabelle stehen (DSGVO-Rest). Der tägliche Purge-Cron ruft deshalb
+ * diese Aufräumung.
+ *
+ * Bewusst NICHT abgedeckt (Restpunkt, keine Regression): `removeMember` löscht
+ * weder `persons` noch `persons_private` — ein entfernter, aber eingeladener
+ * Ghost behält Person und Adresse und gilt daher NICHT als verwaist.
  *
  * Gelöscht wird ein Konto NUR, wenn ALLE Bedingungen gelten:
  *   - älter als `ORPHAN_MIN_AGE_DAYS` (Erstellung UND letzte Anmeldung) — ein

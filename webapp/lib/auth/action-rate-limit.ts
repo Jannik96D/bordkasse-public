@@ -36,8 +36,9 @@ export async function withinActionLimit(
   }
 }
 
-/** Einladungen: 30 pro Stunde je (Akteur, Törn) — großzügig für echte Crew-Anlage. */
+/** Einladungen: 30 pro Stunde je (Akteur, Törn) UND 60 pro Stunde je Akteur über alle Törns. */
 export const INVITE_LIMIT_MAX = 30;
+export const INVITE_LIMIT_GLOBAL_MAX = 60;
 export const INVITE_LIMIT_WINDOW_SECONDS = 60 * 60;
 export const INVITE_LIMIT_MESSAGE =
   "Es wurden gerade sehr viele Einladungen verschickt. Bitte in einer Stunde erneut versuchen.";
@@ -46,6 +47,15 @@ export function inviteLimitKey(actorId: string, tripId: string): string {
   return `invite:${actorId}:${tripId}`;
 }
 
+export function inviteGlobalLimitKey(actorId: string): string {
+  return `invite:${actorId}`;
+}
+
+/** Beide Zähler werden immer hochgezählt (kein Kurzschluss), erlaubt nur, wenn beide erlauben. */
 export async function withinInviteLimit(actorId: string, tripId: string): Promise<boolean> {
-  return withinActionLimit(inviteLimitKey(actorId, tripId), INVITE_LIMIT_MAX, INVITE_LIMIT_WINDOW_SECONDS);
+  const [perTrip, global] = await Promise.all([
+    withinActionLimit(inviteLimitKey(actorId, tripId), INVITE_LIMIT_MAX, INVITE_LIMIT_WINDOW_SECONDS),
+    withinActionLimit(inviteGlobalLimitKey(actorId), INVITE_LIMIT_GLOBAL_MAX, INVITE_LIMIT_WINDOW_SECONDS),
+  ]);
+  return perTrip && global;
 }

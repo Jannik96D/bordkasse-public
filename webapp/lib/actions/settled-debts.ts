@@ -13,6 +13,7 @@ import { pushRecipients } from "@/lib/notify/recipients";
 import { debtSettledPush } from "@/lib/notify/payloads";
 import { formatDate } from "@/lib/utils";
 import { appOrigin } from "@/lib/auth/origin";
+import { withinActionLimit } from "@/lib/auth/action-rate-limit";
 
 const ToggleSchema = z.object({
   trip_id: z.string().uuid(),
@@ -152,7 +153,13 @@ export async function toggleDebtSettled(input: {
     // damit ein Teilfehler sichtbar wird (Toast „1 Mail nicht zugestellt").
     let mailsSent = 0;
     let mailsFailed = 0;
+    // Slice 10: „bezahlt → offen → bezahlt" wäre ein echter Wechsel und würde
+    // jedes Mal mailen. Deshalb zusätzlich 10 Benachrichtigungen pro Stunde je
+    // (Akteur, Törn); darüber wird das Häkchen trotzdem gespeichert, nur
+    // Mail/Push entfallen (neutral, kein Fehler). Fail-open bei DB-Fehler.
+    const notifyAllowed = await withinActionLimit(`debt-mail:${auth.personId}:${trip_id}`, 10, 60 * 60);
     try {
+      if (!notifyAllowed) throw new Error("debt-mail-limit");
       const res = await sendDebtSettledMails(supabase, {
         tripId: trip_id,
         fromPersonId: from_person_id,
@@ -163,7 +170,11 @@ export async function toggleDebtSettled(input: {
       mailsSent = res.sent;
       mailsFailed = res.failed;
     } catch (e) {
-      console.error("[bordkasse:debt-settled-mail]", e);
+      if (e instanceof Error && e.message === "debt-mail-limit") {
+        console.warn("[bordkasse:debt-settled-mail] Limit erreicht, keine Benachrichtigung");
+      } else {
+        console.error("[bordkasse:debt-settled-mail]", e);
+      }
     }
 
     revalidatePath(`/trips/${trip_id}/debts`);
