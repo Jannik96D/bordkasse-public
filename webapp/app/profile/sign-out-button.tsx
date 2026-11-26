@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signOut } from "./actions";
 import { cleanupOnLogout } from "@/lib/offline/logout-cleanup";
+import { forgetLastPerson } from "@/lib/offline/person-switch";
 import { count as outboxCount } from "@/lib/offline/outbox";
 
 /**
@@ -28,6 +29,7 @@ export function SignOutButton({ className }: { className?: string } = {}) {
       // auch keinen falschen anzeigen; einfach ohne Hinweis fortfahren.
     }
     await cleanupOnLogout();
+    forgetLastPerson();
     await signOut();
     router.push(hasPendingOutbox ? "/login?toast=logout-pending-outbox" : "/login");
   };

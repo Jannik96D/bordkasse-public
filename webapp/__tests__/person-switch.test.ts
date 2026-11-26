@@ -1,6 +1,17 @@
+// @vitest-environment happy-dom
 // Slice 12 (Sicherheitsrunde 2026-11): Personenwechsel auf geteilten Geraeten.
 import { describe, expect, it, vi } from "vitest";
-import { decidePersonSwitch, reconcilePersonSwitch } from "@/lib/offline/person-switch";
+import {
+  decidePersonSwitch,
+  deleteThenCleanup,
+  forgetLastPerson,
+  LAST_PERSON_KEY,
+  reconcilePersonSwitch,
+  resolveProbe,
+  shouldCheck,
+  withTimeout,
+  type PersonProbe,
+} from "@/lib/offline/person-switch";
 
 describe("decidePersonSwitch", () => {
   it("gleiche Person: nichts", () => expect(decidePersonSwitch("a", "a")).toBe("none"));
@@ -54,5 +65,89 @@ describe("reconcilePersonSwitch", () => {
     x.cleanup.mockRejectedValueOnce(new Error("boom"));
     await expect(reconcilePersonSwitch("b", x.d)).resolves.toBe("cleanup-and-remember");
     expect(x.stored).toBe("a");
+  });
+});
+
+const noPause = async () => {};
+const seq = (...r: (PersonProbe | "throw")[]) => {
+  const fn = vi.fn(async () => {
+    const x = r.shift()!;
+    if (x === "throw") throw new Error("net");
+    return x;
+  });
+  return fn;
+};
+
+describe("resolveProbe", () => {
+  it("error → null, keine Bestaetigung noetig, nie aufraeumen", async () => {
+    const p = seq({ status: "error" });
+    expect(await resolveProbe(p, noPause, true)).toBeNull();
+    expect(p).toHaveBeenCalledTimes(1);
+  });
+  it("Exception → null", async () => {
+    expect(await resolveProbe(seq("throw"), noPause, true)).toBeNull();
+  });
+  it("person → id", async () => {
+    expect(await resolveProbe(seq({ status: "person", id: "a" }), noPause, true)).toBe("a");
+  });
+  it("none + gemerkt: erst nach zweiter Bestaetigung none", async () => {
+    const p = seq({ status: "none" }, { status: "none" });
+    expect(await resolveProbe(p, noPause, true)).toBe("none");
+    expect(p).toHaveBeenCalledTimes(2);
+  });
+  it("none dann person: Person gewinnt", async () => {
+    expect(await resolveProbe(seq({ status: "none" }, { status: "person", id: "a" }), noPause, true)).toBe("a");
+  });
+  it("none dann error: unklar → null", async () => {
+    expect(await resolveProbe(seq({ status: "none" }, { status: "error" }), noPause, true)).toBeNull();
+  });
+  it("none dann Exception: null", async () => {
+    expect(await resolveProbe(seq({ status: "none" }, "throw"), noPause, true)).toBeNull();
+  });
+  it("none ohne gemerkte Person: keine zweite Abfrage", async () => {
+    const p = seq({ status: "none" });
+    expect(await resolveProbe(p, noPause, false)).toBe("none");
+    expect(p).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("shouldCheck / withTimeout", () => {
+  it("Debounce", () => {
+    expect(shouldCheck(1000, null, 30000)).toBe(true);
+    expect(shouldCheck(10000, 1000, 30000)).toBe(false);
+    expect(shouldCheck(31000, 1000, 30000)).toBe(true);
+  });
+  it("Timeout liefert Fallback bei haengender Action", async () => {
+    vi.useFakeTimers();
+    const r = withTimeout(new Promise<string>(() => {}), 8000, "fb");
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(await r).toBe("fb");
+    vi.useRealTimers();
+  });
+  it("schnelle Action gewinnt, Rejection → Fallback", async () => {
+    expect(await withTimeout(Promise.resolve("ok"), 50, "fb")).toBe("ok");
+    expect(await withTimeout(Promise.reject(new Error("x")), 50, "fb")).toBe("fb");
+  });
+});
+
+describe("deleteThenCleanup", () => {
+  it("Ablehnung: kein Cleanup", async () => {
+    const cleanup = vi.fn(async () => {});
+    const r = await deleteThenCleanup(async () => ({ status: "error" as const }), cleanup);
+    expect(r.status).toBe("error");
+    expect(cleanup).not.toHaveBeenCalled();
+  });
+  it("Erfolg: Cleanup danach", async () => {
+    const cleanup = vi.fn(async () => {});
+    await deleteThenCleanup(async () => ({ status: "idle" as const }), cleanup);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("forgetLastPerson", () => {
+  it("loescht den Merkwert", () => {
+    window.localStorage.setItem(LAST_PERSON_KEY, "a");
+    forgetLastPerson();
+    expect(window.localStorage.getItem(LAST_PERSON_KEY)).toBeNull();
   });
 });
