@@ -47,8 +47,12 @@
 --   3. Vorgaben für künftige Objekte der Rolle `postgres`:
 --      - Schema public: Tabellen/Sequenzen/Funktionen ohne Rechte für anon,
 --      - global: Funktionen ohne EXECUTE für PUBLIC.
---      `authenticated`/`service_role` behalten ihre Schema-Vorgaben
---      (u. a. EXECUTE auf neuen Funktionen) — unverändert.
+--      Die Schema-Vorgaben für `authenticated`/`service_role` bleiben
+--      unangetastet — sie sind aber UMGEBUNGSABHÄNGIG: lokal (älterer
+--      CLI-Stack) enthält pg_default_acl EXECUTE für beide, ein frischer
+--      `supabase start` in CI nicht. Ohne sie lebte eine neue Funktion bisher
+--      allein vom PUBLIC-EXECUTE, das jetzt wegfällt → sie ist dann NUR für
+--      den Eigentümer ausführbar, bis sie explizit freigegeben wird.
 --
 -- Bewusst NICHT angefasst:
 --   - Vorgaben der Rolle `supabase_admin` (gelten nur für Objekte, die
@@ -63,10 +67,13 @@
 --     Reihenfolge in docs/self-hosting.md.
 --
 -- ⚠️ Folge-Konvention für neue Migrationen: eine neue Funktion ist für
--- anon/PUBLIC nicht mehr ausführbar, für authenticated/service_role per
--- Schema-Vorgabe weiterhin schon. Policy-Helfer trotzdem explizit
--- `GRANT EXECUTE … TO authenticated` (macht die Abhängigkeit der RLS
--- sichtbar und übersteht eine spätere Verschärfung der Vorgaben);
+-- anon/PUBLIC nicht mehr ausführbar, und ob authenticated/service_role sie
+-- per Vorgabe bekommen, hängt von der Umgebung ab (s. o.). Deshalb JEDE neue
+-- Funktion explizit an die Rollen freigeben, die sie aufrufen:
+-- Policy-Helfer `GRANT EXECUTE … TO authenticated` (sonst scheitert RLS),
+-- per Service-Role-Client gerufene RPCs `GRANT EXECUTE … TO service_role`.
+-- Gilt auch für DROP + CREATE einer bestehenden Funktion (die ACL geht dabei
+-- verloren; CREATE OR REPLACE behält sie);
 -- service-only-Funktionen weiterhin explizit
 -- `REVOKE ALL … FROM PUBLIC, anon, authenticated` + `GRANT … TO service_role`.
 -- Eine bewusst öffentliche Tabelle/Funktion braucht ab jetzt ein

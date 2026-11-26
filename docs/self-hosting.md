@@ -1033,7 +1033,10 @@ Zwei unabhängige Teile, beide heute nicht ausnutzbar, aber Fallen für später:
 - **Migration `0066_anon_default_privileges.sql`:** `anon` verliert jedes
   Recht auf Tabellen/Views/Sequenzen und eigene Funktionen in `public`;
   neue Funktionen der Rolle `postgres` sind nicht mehr für PUBLIC/anon
-  ausführbar. `authenticated` und `service_role` behalten exakt ihren Stand —
+  ausführbar (ob `authenticated`/`service_role` sie per Vorgabe bekommen, ist
+  umgebungsabhängig — neue Funktionen deshalb immer explizit freigeben, siehe
+  CLAUDE.md). Auf bestehenden Funktionen behalten `authenticated` und
+  `service_role` exakt ihren Stand —
   einzige Ausnahme: `cleanup_login_rate_limit()` (SECURITY DEFINER, laut 0036
   „nur service_role“) war über die Schema-Vorgabe auch für `authenticated`
   offen und ist jetzt service-only. Gehört ein Nicht-Extension-Objekt in
@@ -1076,6 +1079,13 @@ select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
  where n.nspname='public'
    and not exists(select 1 from pg_depend d where d.classid='pg_proc'::regclass and d.objid=p.oid and d.deptype='e')
    and has_function_privilege('anon', p.oid, 'EXECUTE');
+-- liest irgendetwas app.settings.*? (erwartet: 0 — sonst NICHT zurücksetzen)
+select (select count(*) from pg_proc where prosrc ilike '%app.settings%')
+     + (select count(*) from pg_views where definition ilike '%app.settings%')
+     + (select count(*) from pg_policies
+         where coalesce(qual,'')||coalesce(with_check,'') ilike '%app.settings%');
+-- Migrationsstand (vorher: muss 0065 sein; nach Schritt 2: 0066)
+select max(version) from supabase_migrations.schema_migrations;
 -- JWT-Secret als Datenbankeinstellung gesetzt? (nur ja/nein, nie den Wert)
 select exists(select 1 from pg_db_role_setting s, unnest(s.setconfig) c
  where s.setrole=0 and c like 'app.settings.jwt_secret=%');
@@ -1083,7 +1093,8 @@ select exists(select 1 from pg_db_role_setting s, unnest(s.setconfig) c
 
 **Reihenfolge Produktion:**
 
-1. **Lese-Abfragen oben** ausführen und notieren (erste muss `0` sein).
+1. **Lese-Abfragen oben** ausführen und notieren (Eigentümer-Abfrage `0`,
+   `app.settings`-Leser `0`, Migrationsstand `0065`).
 2. **Migration 0066** per temporärem Task einspielen (wie „Neue Migration
    einspielen“: `psql -U postgres … --single-transaction`, danach Version
    `0066` / `anon_default_privileges` im Ledger nachtragen). Reihenfolge zur
@@ -1100,9 +1111,10 @@ select exists(select 1 from pg_db_role_setting s, unnest(s.setconfig) c
    zurücksetzen, dann neu starten, dann trägt keine Sitzung den Wert mehr.
    Umgekehrt behielten Pool-Verbindungen, die zwischen Neustart und Reset
    entstehen, den Wert bis zu ihrem Ende.
-5. **Prüfen:** die Lese-Abfragen → `0`, `0`, `0`, `f`; Login über die
-   Domain, Bilanz eines Törns lädt, Live-Update (Realtime) eines Törns
-   kommt an; `curl -s "$URL/rest/v1/trips?select=id" -H "apikey: $ANON"`
+5. **Prüfen:** die Lese-Abfragen → `0`, `0`, `0`, `0`, `0066`, `f`; Login
+   über die Domain, Bilanz eines Törns lädt, Live-Update (Realtime) eines
+   Törns kommt an — auch **nach einem Tab-Reload und nach einem
+   Token-Refresh** (Realtime-Kanal mit neuem JWT); `curl -s "$URL/rest/v1/trips?select=id" -H "apikey: $ANON"`
    → `permission denied` (HTTP 401) statt `[]`.
 
 **Realtime-Nebenwirkung (bewusst):** ein anon-Abo ohne Filter nimmt
@@ -1110,8 +1122,13 @@ Realtime an; nach 0066 bekommt es bei INSERT/UPDATE auf publizierte Tabellen
 nur `{schema, table, type}` + „401 Unauthorized“ (Zeitpunkt einer Änderung,
 keine Daten, keine `trip_id`). Im Gegenzug enthält ein DELETE-Event für anon
 den Primärschlüssel nicht mehr (Spalten ohne SELECT-Recht entfallen) — die in
-Slice 14 befürchtete Lücke ist für anon damit zu. Nicht per
-`GRANT SELECT (id) … TO anon` „reparieren“.
+Slice 14 befürchtete Lücke ist für anon damit zu. Abos MIT Filter
+(`trip_id=eq.…`, wie `realtime-trip.tsx` sie anlegt) lehnt Realtime für eine
+anon-Sitzung jetzt schon beim Abonnieren ab („invalid column for filter“ —
+`realtime.subscription_check_filters` prüft `has_column_privilege`); vorher
+wurde das Abo angenommen, lieferte wegen RLS aber keine Events. Keine
+Regression: die App abonniert erst nach dem Login als `authenticated`.
+Nicht per `GRANT SELECT (id) … TO anon` „reparieren“.
 
 **Lokal belegt** (supabase/postgres 17.6, CLI-Stack, Migration in einer
 zurückgerollten Transaktion): alle pgTAP-Dateien grün; als `anon`

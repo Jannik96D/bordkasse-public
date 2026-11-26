@@ -8,8 +8,8 @@
 --   2. `authenticated`/`service_role` sind unverändert: Lesepfad,
 --      Policy-Helfer, simplify_debts; gesperrte Funktionen bleiben gesperrt.
 --   3. Vorgaben: eine NEU angelegte Tabelle/Funktion/Sequenz ist für anon
---      bzw. PUBLIC nicht freigegeben, für authenticated/service_role wie
---      bisher (funktional geprüft — Objekte im Test anlegen).
+--      bzw. PUBLIC nicht freigegeben (funktional geprüft — Objekte im Test
+--      anlegen); ein expliziter GRANT an authenticated genügt.
 --   4. JEDE eigene View in public trägt security_invoker=on (generisch, damit ein
 --      späteres `CREATE OR REPLACE VIEW` ohne WITH-Klausel auffällt — es
 --      setzt reloptions zurück).
@@ -110,9 +110,21 @@ SELECT ok(
                WHERE p.oid = 'public.zz_slice18_probe_fn()'::regprocedure
                  AND a.grantee = 0),
   'neue Funktion: keine PUBLIC-Freigabe in der ACL');
+-- Ob authenticated/service_role eine NEUE Funktion schon per Vorgabe
+-- ausführen dürfen, hängt von der Umgebung ab (pg_default_acl der Rolle
+-- postgres: lokal mit, in CI nach frischem `supabase start` ohne
+-- authenticated). Garantiert ist nur: anon/PUBLIC nicht (oben) — und dass
+-- der explizite GRANT laut Konvention genügt. Die Vorgaben werden zur
+-- Diagnose ausgegeben.
+SELECT diag('pg_default_acl postgres: ' || COALESCE((
+  SELECT string_agg(COALESCE(d.defaclnamespace::regnamespace::text, '(global)')
+                    || '/' || d.defaclobjtype::text || '=' || d.defaclacl::text, '; ')
+    FROM pg_default_acl d WHERE d.defaclrole = 'postgres'::regrole), '(keine)'));
+GRANT EXECUTE ON FUNCTION public.zz_slice18_probe_fn() TO authenticated, service_role;
 SELECT ok(has_function_privilege('authenticated', 'public.zz_slice18_probe_fn()', 'EXECUTE')
-          AND has_function_privilege('service_role', 'public.zz_slice18_probe_fn()', 'EXECUTE'),
-  'neue Funktion: authenticated/service_role wie bisher per Schema-Vorgabe');
+          AND has_function_privilege('service_role', 'public.zz_slice18_probe_fn()', 'EXECUTE')
+          AND NOT has_function_privilege('anon', 'public.zz_slice18_probe_fn()', 'EXECUTE'),
+  'neue Funktion: expliziter GRANT (Konvention) reicht für authenticated/service_role, anon bleibt draußen');
 
 -- ── 4. Alle Views security_invoker=on ────────────────────────────────
 SELECT is(
