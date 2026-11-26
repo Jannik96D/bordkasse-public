@@ -146,8 +146,9 @@ export type DeleteAccountState =
  * `deleteUser` ungültig, der nächste Request-Roundtrip schickt ihn zum
  * Login.
  *
- * Wenn der User in einem aktiven Trip Buchungen hat, wird die Löschung
- * abgewiesen — Bilanz würde sonst inkonsistent.
+ * Wenn der User Mitglied eines laufenden oder künftigen Trips ist (mit oder
+ * ohne eigene Buchungen), wird die Löschung abgewiesen — die Anteile hängen
+ * an der Mitgliedschaft, die Bilanz würde sich sonst verschieben (0063).
  *
  * ⚠️ Die Function nimmt die zu löschende Person als PARAMETER entgegen
  * statt sie serverseitig aus dem JWT zu bestimmen (die alte
@@ -196,6 +197,18 @@ export async function deleteMyAccount(
       status: "error",
       message:
         "Du streckst in einem laufenden Törn eine weitere Zahlung (z. B. An-/Abreise) vor. Bitte warte bis nach dem Törnende oder lass vorher vom Skipper eine andere Person als vorstreckende Person eintragen.",
+    };
+  }
+  if (result === "is_active_member") {
+    // Migration 0063: Mitglied eines laufenden oder künftigen Törns — auch
+    // ohne eigene Buchung. „Gleichmäßig"/„An Bord"/„Zeitanteilig" verteilen
+    // allein über die Mitgliedschaft; ein Entfernen würde die Anteile auf die
+    // Crew verschieben, ein Verbleiben als anonymisiertes Mitglied würde die
+    // Person an allen künftigen Ausgaben beteiligen.
+    return {
+      status: "error",
+      message:
+        "Du bist noch Crewmitglied in einem laufenden oder geplanten Törn. Bitte warte bis nach dem Törnende. Bei einem geplanten Törn kann dich der Skipper vorher aus der Crew austragen, bei einem laufenden über „Ersetzen“ (⇄) als abgereist eintragen. Bist du selbst Skipper, geht das erst nach dem Törnende.",
     };
   }
   if (result === "not_authenticated") {

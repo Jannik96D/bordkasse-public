@@ -235,7 +235,8 @@ export async function removeMember(
   // oder 'per_person'), ließ sich trotzdem entfernen. Bei 'per_person'
   // bleibt der Anteil dann als unallokierter Rest in v_transaction_shares
   // stehen (Σ balance ≠ 0), ohne jede Fehlermeldung — analog zum Blocker in
-  // delete_my_account() (Migration 0021), der genau das schon verhindert.
+  // admin_delete_person_data (früher delete_my_account, Migration 0021),
+  // der genau das schon verhindert.
   const personId = memberRow.person_id;
 
   // PR4a (Reise-Posten, 0058): Empfänger und offenes Posten-Soll.
@@ -638,8 +639,8 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
     nameChanged = !!display_name && normalizeName(display_name) !== normalizeName(personFlat?.display_name ?? "");
     emailChanged = !!email && email.toLowerCase() !== (priorEmail ?? "").toLowerCase();
 
-    // Per Kontolöschung anonymisierte Personen (admin_delete_person_data /
-    // delete_my_account setzen diesen Namen, auth_user_id bleibt NULL) wirken
+    // Per Kontolöschung anonymisierte Personen (admin_delete_person_data
+    // setzt diesen Namen, auth_user_id bleibt NULL) wirken
     // wie ein Ghost — eine neue E-Mail würde beim Login die gelöschte Identität
     // samt Buchungen übernehmen. Name/E-Mail sind für sie gesperrt (auch Admin).
     if ((nameChanged || emailChanged) && personFlat?.display_name === ANONYMIZED_DISPLAY_NAME) {
