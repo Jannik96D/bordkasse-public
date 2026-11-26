@@ -1127,17 +1127,23 @@ gebaut werden.
 
 **Einmalige Umstellung in Coolify (manuell, nach dem ersten erfolgreichen Workflow-Lauf):**
 
-1. In GitHub: Profil → Packages → `bordkasse-app` → Package settings → Sichtbarkeit auf **Public**
-   stellen (das Image enthält nur den gebauten Code und öffentliche Werte; alternativ privat lassen
-   und auf dem Server `docker login ghcr.io` mit einem Token mit `read:packages` hinterlegen).
-2. Coolify: App „Bordkasse App“ → General → Build Pack von `Dockerfile` auf **Docker Image** stellen,
-   Image `ghcr.io/jannik96d/bordkasse-app`, Tag `latest` (oder einen festen SHA-Tag für
-   reproduzierbare Rollbacks). Port 3000, Container-Name `bordkasse-app`, Domain, Healthcheck und alle
-   Runtime-Env-Variablen bleiben unverändert. Die Variablen mit „Available at Buildtime“ sind danach
-   wirkungslos (das Image ist schon gebaut) — nicht löschen, solange der Rückweg gebraucht wird.
+Eine Git-basierte Coolify-App lässt sich nicht auf das Build Pack „Docker Image“ umstellen (die
+Auswahl kennt nur Railpack/Nixpacks/Static/Dockerfile/Compose). Deshalb bleibt es bei „Dockerfile“,
+aber mit einer winzigen `webapp/Dockerfile.image` (`FROM ghcr.io/jannik96d/bordkasse-app:${IMAGE_TAG}`):
+
+1. In GitHub: Package `bordkasse-app` auf **Public** stellen (das Image enthält nur gebauten Code und
+   öffentliche Werte; alternativ privat lassen und auf dem Server `docker login ghcr.io` mit einem
+   Token mit `read:packages` hinterlegen).
+2. Coolify: App „Bordkasse App“ → General → Build & deploy → **Dockerfile location** von `/Dockerfile`
+   auf `/Dockerfile.image` ändern (Base Directory bleibt `/webapp`). Alles andere (Port 3000,
+   Container-Name `bordkasse-app`, Domain, Healthcheck, Runtime-Variablen) bleibt unverändert. Die
+   Variablen mit „Available at Buildtime“ sind danach wirkungslos, aber harmlos.
 3. Redeploy; danach `/login` und einen Login prüfen.
 
-**Rückweg:** Build Pack wieder auf `Dockerfile` (Base Directory `/webapp`) stellen und neu deployen.
+**Version festnageln / Rollback:** In Coolify die Buildtime-Variable `IMAGE_TAG` auf einen Commit-SHA
+setzen (Tags `<sha>` stehen in ghcr.io); ohne Wert gilt `latest`.
+
+**Rückweg:** Dockerfile location wieder auf `/Dockerfile` stellen und neu deployen (baut dann wieder auf web-1).
 
 **Deploys:** weiterhin manuell (Redeploy in Coolify) — ein Push baut nur das Image. Mit dem Image
 dauert ein Deploy Sekunden statt Minuten und belastet den Server nicht. Nicht mehrere Redeploys kurz
