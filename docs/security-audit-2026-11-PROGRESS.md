@@ -10,12 +10,12 @@ Legende Status: `offen` · `in Arbeit` · `PR offen` · `gemergt` · `wartet auf
 
 | # | Slice | Status | PR | Migration | 🖐-Eingriff |
 | --- | --- | --- | --- | --- | --- |
-| 0 | Lagebild Produktion, Plan ins Repo | PR offen | – | – | ja: `DISABLE_SIGNUP` ablesen, Lagebild-Skript als Task laufen lassen |
-| 1 | Konten serverseitig, Anker, Schritt 3 | offen | – | – | Backfill |
+| 0 | Lagebild Produktion, Plan ins Repo | gemergt | [#298](https://github.com/Jannik96D/bordkasse-public/pull/298) | – | erledigt (Lagebild am 2026-11-26 gelaufen) |
+| 1 | Konten serverseitig, Anker, Schritt 3 | gemergt | [#299](https://github.com/Jannik96D/bordkasse-public/pull/299) | – | Backfill optional (A3 = 0 geprüft), vor Slice 2 sinnvoll |
 | 2 | Kong-Allowlist, Signup aus, Sitzungsdauer | offen | – | – | ja: Coolify-Variablen, Neustart Supabase-Stack |
-| 3 | Geteilte Personen: Name/E-Mail nur mit Zuständigkeit | offen | – | – | – |
-| 4 | Login-CSRF in `/auth/verify` | offen | – | – | – |
-| 5 | Kontolöschung ohne Verschiebung | PR offen | [#302](https://github.com/Jannik96D/bordkasse-public/pull/302) | 0063 | Migration vor Merge einspielen |
+| 3 | Geteilte Personen: Name/E-Mail nur mit Zuständigkeit | gemergt | [#300](https://github.com/Jannik96D/bordkasse-public/pull/300) | – | – |
+| 4 | Login-CSRF in `/auth/verify` | gemergt | [#301](https://github.com/Jannik96D/bordkasse-public/pull/301) | – | – |
+| 5 | Kontolöschung ohne Verschiebung | gemergt | [#302](https://github.com/Jannik96D/bordkasse-public/pull/302) | 0063 (auf Prod eingespielt 2026-11-26) | erledigt |
 | 6 | Erzwungene Löschung nur Eigentümer | offen | – | – | – |
 | 7 | Anzahlungs-Rechte | offen | – | – | – |
 | 8 | Kategorie an Törn binden | offen | – | 0064 | Migration vor Merge einspielen |
@@ -50,14 +50,17 @@ Adressen oder Namen.
 
 | Punkt | Wert |
 | --- | --- |
-| `DISABLE_SIGNUP` der Supabase-Ressource | unbekannt (🖐 in Coolify ablesen) |
-| A Signups nach Provider (`user_signedup`) | ausstehend |
-| A2 Alter der Audit-Historie | ausstehend |
-| B Audit-Aktionen Top 15 | ausstehend |
-| C Konten/Sessions mit Passwort-Login | ausstehend |
-| D `auth.users` gesamt / unbestätigt | ausstehend |
-| E Personen mit Konto, aber ohne Törn | ausstehend |
-| F Auth-Konten ohne Person/`persons_private` | ausstehend |
+| `DISABLE_SIGNUP` der Supabase-Ressource | **false** (Signup offen, bis Slice 2 umgestellt ist) |
+| A Signups nach Provider (`user_signedup`) | 16, alle `email`; 8 im Sep, 8 im Okt 2026 (passt zu Crew-Einladungen) |
+| A2 Alter der Audit-Historie | 524 Einträge, 2026-08-05 bis 2026-11-22 |
+| B Audit-Aktionen Top 15 | token_refreshed 199, token_revoked 169, user_recovery_requested 74, login 63, user_signedup 16, logout 3 |
+| C Konten/Sessions mit Passwort-Login | 16 Konten / 16 Sessions (Sep: 8 verknüpft; Okt: 6 verknüpft, 2 unverknüpft — unauffällig, ggf. nachsehen) |
+| D `auth.users` gesamt / unbestätigt | 34 / 1 |
+| E Personen mit Konto, aber ohne Törn | 11 (Purge löscht `trip_members`; nicht aussagekräftig) |
+| F Auth-Konten ohne Person/`persons_private` | 3, angelegt Mai/Juni 2026 (vor Cutover), ohne Session — Altlasten |
+| A3 verknüpfte Konten mit abweichender/fehlender Personen-Adresse | **0** (kein Blocker für Slice 1) |
+
+**Bewertung:** kein Hinweis auf Missbrauch; ausschließen lässt er sich bei den 2 unverknüpften Oktober-Konten mit Passwort-Session nicht. Die Lücke (`DISABLE_SIGNUP=false`) besteht bis Slice 2.
 | G je Admin-Adresse (Index): Konto / Passwort-Session / `persons_private` | ausstehend |
 
 Deutet etwas auf Missbrauch, entscheidet der Nutzer über das Sperren betroffener Konten
