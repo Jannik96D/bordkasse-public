@@ -1,0 +1,75 @@
+# Baut das App-Image auf GitHub statt auf dem Produktionsserver und legt es in
+# ghcr.io ab. Hintergrund: Der Next-Build hat web-1 am 2026-11-26 mehrfach
+# eingefroren (RAM). Coolify zieht danach nur noch das fertige Image
+# (Build Pack „Docker Image“) — siehe docs/self-hosting.md, Abschnitt „Image aus
+# GitHub Actions“.
+#
+# Die NEXT_PUBLIC_*-Werte sind öffentlich (stehen im ausgelieferten JS) und liegen
+# deshalb als Repository-VARIABLEN, nicht als Secrets. Geheimnisse (Service-Role-Key,
+# SMTP, CRON_SECRET) gehören NICHT ins Image — sie kommen zur Laufzeit aus Coolify.
+name: Image bauen
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "webapp/**"
+      - ".github/workflows/build-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-image
+  cancel-in-progress: false
+
+jobs:
+  image:
+    name: Image bauen und nach ghcr.io pushen
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      NEXT_PUBLIC_APP_ORIGIN: ${{ vars.NEXT_PUBLIC_APP_ORIGIN }}
+      NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ vars.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Pflicht-Variablen prüfen
+        run: |
+          for v in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY NEXT_PUBLIC_APP_ORIGIN; do
+            if [ -z "${!v}" ]; then echo "FEHLER: Repository-Variable $v fehlt" >&2; exit 1; fi
+          done
+
+      - name: Bei ghcr.io anmelden
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Image bauen
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/bordkasse-app"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          docker build \
+            --build-arg NEXT_PUBLIC_SUPABASE_URL \
+            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY \
+            --build-arg NEXT_PUBLIC_APP_ORIGIN \
+            --build-arg NEXT_PUBLIC_VAPID_PUBLIC_KEY \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            -f webapp/Dockerfile \
+            -t "$IMAGE:${GITHUB_SHA}" \
+            -t "$IMAGE:latest" \
+            webapp
+
+      - name: Image pushen
+        run: |
+          docker push "$IMAGE:${GITHUB_SHA}"
+          docker push "$IMAGE:latest"
