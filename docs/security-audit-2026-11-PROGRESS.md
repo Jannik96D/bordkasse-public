@@ -24,7 +24,7 @@ Legende Status: `offen` · `in Arbeit` · `PR offen` · `gemergt` · `wartet auf
 | 11 | Rohe Fehlertexte | PR offen | [#315](https://github.com/Jannik96D/bordkasse-public/pull/315) | – | – |
 | 12 | Geteilte Geräte | PR offen | [#313](https://github.com/Jannik96D/bordkasse-public/pull/313) | – | – |
 | 13 | Secure-Cookies | PR offen | [#310](https://github.com/Jannik96D/bordkasse-public/pull/310) | – | – |
-| 14 | Realtime-Publikation | offen | – | 0065 | Migration vor Merge einspielen |
+| 14 | Realtime-Publikation | PR offen | [#314](https://github.com/Jannik96D/bordkasse-public/pull/314) | 0065 | Migration vor Merge einspielen |
 | 15 | Backups mit Rechten und Verschlüsselung | offen | – | – | ja: Server-Betreiber, Schlüssel |
 | 16 | CI mit minimalen Rechten | gemergt | [#308](https://github.com/Jannik96D/bordkasse-public/pull/308) | – | – |
 | 17 | Abhängigkeiten | PR offen | [#309](https://github.com/Jannik96D/bordkasse-public/pull/309) | – | – |
