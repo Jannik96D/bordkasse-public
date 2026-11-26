@@ -16,6 +16,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendMail } from "@/lib/email/send";
+import { resolveReplyTo } from "@/lib/email/reply-to";
 import {
   renderPrepaymentReminderMail,
   type ReminderTrancheItem,
@@ -51,6 +52,8 @@ export async function sendPrepaymentReminderMail(params: {
   isAutomated?: boolean;
   /** Optional: nur diese Tranche im Reminder behandeln (Cron-Pfad). */
   trancheId?: string;
+  /** Auslösende Person (manuelle Erinnerung); Cron: keine → Antworten an den Original-Skipper. */
+  actorPersonId?: string | null;
 }): Promise<AnyResult> {
   const supabase = createAdminClient();
 
@@ -68,6 +71,7 @@ export async function sendPrepaymentReminderMail(params: {
   const advancerPersonId = plan.advancer_person_id ?? trip.skipper_id;
   const isAdvancerRecipient = params.personId === advancerPersonId;
   const tripType: "sailing" | "other" = trip.trip_type === "other" ? "other" : "sailing";
+  const replyTo = await resolveReplyTo(supabase, params.tripId, params.actorPersonId);
 
   if (isAdvancerRecipient) {
     return sendCharterReminder(supabase, {
@@ -78,6 +82,7 @@ export async function sendPrepaymentReminderMail(params: {
       totalAmount: Number(plan.total_amount ?? 0),
       isAutomated: params.isAutomated ?? false,
       trancheId: params.trancheId,
+      replyTo,
     });
   }
   return sendCrewReminder(supabase, {
@@ -88,6 +93,7 @@ export async function sendPrepaymentReminderMail(params: {
     weroId: plan.wero_id ?? null,
     advancerPersonId,
     trancheId: params.trancheId,
+    replyTo,
   });
 }
 
@@ -106,6 +112,7 @@ async function sendCrewReminder(
     advancerPersonId: string;
     /** Wenn gesetzt, nur diese Tranche in die Mail packen (Cron-Pfad). */
     trancheId?: string;
+    replyTo?: string;
   },
 ): Promise<AnyResult> {
   const [{ data: person }, { data: priv }, { data: advancer }] = await Promise.all([
@@ -174,7 +181,7 @@ async function sendCrewReminder(
     tripType: args.tripType,
   });
 
-  const result = await sendMail({ to: priv.email, subject: mail.subject, html: mail.html, text: mail.text });
+  const result = await sendMail({ to: priv.email, subject: mail.subject, html: mail.html, text: mail.text, replyTo: args.replyTo });
   if (!result.ok) return { ok: false, message: result.error, reason: "send_failed" };
   return { ok: true };
 }
@@ -194,6 +201,7 @@ async function sendCharterReminder(
     isAutomated: boolean;
     /** Wenn gesetzt, nur diese Tranche in der Mail (Cron-Pfad). */
     trancheId?: string;
+    replyTo?: string;
   },
 ): Promise<AnyResult> {
   const [{ data: person }, { data: priv }] = await Promise.all([
@@ -300,6 +308,7 @@ async function sendCharterReminder(
     subject: mail.subject,
     html: mail.html,
     text: mail.text,
+    replyTo: args.replyTo,
   });
   if (!result.ok) return { ok: false, message: result.error, reason: "send_failed" };
   return { ok: true };

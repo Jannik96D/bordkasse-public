@@ -19,6 +19,7 @@ import "server-only";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { sendMails, type MailMessage } from "@/lib/email/send";
 import { dbErr } from "@/lib/errors";
+import { resolveReplyTo } from "@/lib/email/reply-to";
 import { sendPushToPersons } from "@/lib/notify/web-push";
 import {
   itemAnnouncedPush,
@@ -121,16 +122,25 @@ interface Outgoing {
 }
 
 /** Mails gebündelt verschicken, danach Pushes; wirft nie. */
-async function deliver(supabase: AdminClient, email: Map<string, string>, out: Outgoing[], kind: string): Promise<NoticeResult> {
+async function deliver(
+  supabase: AdminClient,
+  email: Map<string, string>,
+  out: Outgoing[],
+  kind: string,
+  /** Für den Reply-To: Törn + auslösende Person (null = Automatik). */
+  reply: { tripId: string; actorId: string | null },
+): Promise<NoticeResult> {
   const result: NoticeResult = { ...EMPTY };
   try {
     const withMail = out.filter((o) => email.has(o.personId));
     result.skipped = out.length - withMail.length;
+    const replyTo = withMail.length > 0 ? await resolveReplyTo(supabase, reply.tripId, reply.actorId) : undefined;
     const messages: MailMessage[] = withMail.map((o) => ({
       to: email.get(o.personId)!,
       subject: o.mail.subject,
       html: o.mail.html,
       text: o.mail.text,
+      replyTo,
     }));
     const sent = await sendMails(messages, NOTICE_MAIL_TIMEOUTS);
     for (const r of sent) {
@@ -272,7 +282,7 @@ export async function sendItemPendingNotice(
         } else console.error(LOG, "Skipper (Fallback):", sk.message);
       }
     }
-    return deliver(supabase, people.email, out, "item-pending");
+    return deliver(supabase, people.email, out, "item-pending", { tripId: args.tripId, actorId: args.actorId });
   } catch (err) {
     console.error(LOG, "item-pending:", err instanceof Error ? err.message : String(err));
     return { ...EMPTY, error: "Benachrichtigung fehlgeschlagen." };
@@ -324,7 +334,7 @@ export async function sendItemPaymentNotices(
         tripId: args.tripId,
       }),
     }));
-    return deliver(supabase, people.email, out, args.kind);
+    return deliver(supabase, people.email, out, args.kind, { tripId: args.tripId, actorId: args.actorId });
   } catch (err) {
     console.error(LOG, args.kind, err instanceof Error ? err.message : String(err));
     return { ...EMPTY, error: "Benachrichtigung fehlgeschlagen." };
@@ -461,7 +471,7 @@ export async function sendItemAnnouncement(
       });
     }
 
-    const result = await deliver(supabase, people.email, out, args.isUpdate ? "item-update" : "item-created");
+    const result = await deliver(supabase, people.email, out, args.isUpdate ? "item-update" : "item-created", { tripId: args.tripId, actorId: args.actorId });
     if (result.sent > 0) {
       const { error } = await supabase
         .from("prepayment_items")
@@ -681,7 +691,7 @@ export async function sendPlanAnnouncement(
       });
     }
 
-    const result = await deliver(supabase, people.email, out, args.isUpdate ? "plan-update" : "plan-created");
+    const result = await deliver(supabase, people.email, out, args.isUpdate ? "plan-update" : "plan-created", { tripId: args.tripId, actorId: args.actorId });
     if (result.sent > 0) {
       const { error } = await supabase
         .from("prepayment_plan")

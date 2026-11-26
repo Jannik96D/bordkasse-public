@@ -464,6 +464,8 @@ describe("saveItem — Mail „Posten angelegt“", () => {
     expect(pushedTo()).toEqual([ANNA, BEN].sort());
     expect(pushedTo()).not.toContain(SKIPPER);
     expect(norm(mails()[0].subject)).toBe("Bahn: dein Anteil bis 7.3.2027");
+    // Reply-To = auslösende Skipper-Person, nie eine Crew-Adresse.
+    expect(mails().every((m) => m.replyTo === EMAIL[SKIPPER])).toBe(true);
     // Push additiv NACH der Mail.
     expect(mockedSendMails.mock.invocationCallOrder[0]).toBeLessThan(mockedPush.mock.invocationCallOrder[0]);
     // „zuletzt informiert" gesetzt.

@@ -14,6 +14,7 @@ import { pushRecipients } from "@/lib/notify/recipients";
 import { settlementAnnouncedPush, settlementUpdatedPush } from "@/lib/notify/payloads";
 import { formatDate } from "@/lib/utils";
 import { appOrigin } from "@/lib/auth/origin";
+import { resolveReplyTo } from "@/lib/email/reply-to";
 import { markBalancesMayHaveChanged } from "@/lib/db/settlement-marker";
 
 /**
@@ -268,6 +269,9 @@ export async function announceSettlement(tripId: string): Promise<Result> {
   // ist der Bilanz-Tab nur einen Tap entfernt.
   const appUrl = `${appOrigin()}/trips/${tripId}/debts`;
 
+  // Antworten gehen an die auslösende Skipper-Person (sonst den Original-Skipper).
+  const replyTo = await resolveReplyTo(supabase, tripId, person.id);
+
   let skipped = 0;
 
   // Erst alle personalisierten Mails aufbauen (rein in-memory), dann in EINEM
@@ -303,7 +307,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
       skipperName,
       tripType,
     });
-    jobs.push({ personId: m.person_id, message: { to: email, subject, html, text } });
+    jobs.push({ personId: m.person_id, message: { to: email, subject, html, text, replyTo } });
   }
 
   const results = await sendMails(jobs.map((j) => j.message), SETTLEMENT_MAIL_TIMEOUTS);
@@ -571,6 +575,9 @@ export async function resendSettlement(tripId: string): Promise<Result> {
   const tripType: "sailing" | "other" = trip.trip_type === "other" ? "other" : "sailing";
   const appUrl = `${appOrigin()}/trips/${tripId}/debts`;
 
+  // Antworten gehen an die auslösende Skipper-Person (sonst den Original-Skipper).
+  const replyTo = await resolveReplyTo(supabase, tripId, person.id);
+
   let skipped = 0;
 
   // Wie announce (Fund E-1): personalisierte Mails sammeln, dann in EINEM
@@ -609,7 +616,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
       changeSummary,
       tripType,
     });
-    jobs.push({ personId: m.person_id, message: { to: email, subject, html, text } });
+    jobs.push({ personId: m.person_id, message: { to: email, subject, html, text, replyTo } });
   }
 
   const results = await sendMails(jobs.map((j) => j.message), SETTLEMENT_MAIL_TIMEOUTS);

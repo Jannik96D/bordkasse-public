@@ -50,6 +50,7 @@ function setup(trip: {
     trips: [
       {
         id: TRIP,
+        skipper_id: SKIPPER,
         name: "Test-Törn",
         start_date: "2026-06-01",
         end_date: "2026-06-10",
@@ -143,6 +144,14 @@ describe("announceSettlement — atomarer Claim", () => {
     expect(retry.ok).toBe(true);
     expect(mockedSend).toHaveBeenCalledTimes(2);
     expect(tripRow(fake).settlement_mail_sent_at).not.toBeNull();
+  });
+
+  it("Antworten gehen an die Skipper-Adresse (Reply-To), nie an die Crew-Adresse", async () => {
+    setup({});
+    await announceSettlement(TRIP);
+    const msgs = mockedSend.mock.calls[0][0] as { to: string; replyTo?: string }[];
+    expect(msgs).toHaveLength(2);
+    for (const m of msgs) expect(m.replyTo).toBe("skipper@example.test");
   });
 
   it("übergibt knappe SMTP-Timeouts (Versand bleibt sicher unter der Sperre)", async () => {

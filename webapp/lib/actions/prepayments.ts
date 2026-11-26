@@ -1709,6 +1709,7 @@ export async function sendPrepaymentReminder(
   const result = await sendPrepaymentReminderMail({
     tripId: parsed.data.trip_id,
     personId: parsed.data.person_id,
+    actorPersonId: auth.personId,
   });
   if (!result.ok) return { status: "error", message: result.message };
 
@@ -2187,6 +2188,8 @@ async function sendPrepaymentNoticeMails(
     "@/lib/email/prepayment-notice-template"
   );
   const { sendMail } = await import("@/lib/email/send");
+  const { resolveReplyTo } = await import("@/lib/email/reply-to");
+  const replyTo = await resolveReplyTo(supabase, args.tripId, args.actorPersonId);
 
   for (const personId of recipientIds) {
     const email = emailById.get(personId);
@@ -2212,6 +2215,7 @@ async function sendPrepaymentNoticeMails(
       subject: mail.subject,
       html: mail.html,
       text: mail.text,
+      replyTo,
     });
     if (!res.ok) {
       console.error("[bordkasse:notice-mail] failed", {
