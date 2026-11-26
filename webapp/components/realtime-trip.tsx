@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/toast-provider";
@@ -26,6 +27,14 @@ import { tripVocab, type TripType } from "@/lib/trip-vocab";
  *     löste auch beim eigenen Anlegen einen Toast aus (genau der gemeldete
  *     Fehlalarm). Lösung: für trip_members nur stilles Refresh, kein Toast.
  *
+ * Abo erst NACH geladener Session (Regressions-Grill 2026-11): seit Migration
+ * 0066 hat `anon` keine Rechte mehr. Abonniert der Kanal, bevor der Browser-
+ * Client die Session aus den Cookies geladen hat, läuft das Abo mit dem
+ * anon-Key — Realtime liefert dann keine verwertbaren Events. Deshalb erst
+ * `auth.getSession()` abwarten, dann abonnieren. NICHT per GRANT an anon
+ * „reparieren“ (siehe CLAUDE.md „DB-Härtung“). Ein Fehlschlag des Abos
+ * (`CHANNEL_ERROR`/`TIMED_OUT`) wird nur mit dem Status geloggt, ohne IDs.
+ *
  * Spec: docs/web-app-spec.md §Realtime-Synchronisation
  */
 export function RealtimeTrip({
@@ -42,6 +51,9 @@ export function RealtimeTrip({
 
   useEffect(() => {
     const supabase = createClient();
+    // Unmount vor dem Ende von getSession(): dann gar nicht erst abonnieren.
+    let cancelled = false;
+    let channel: RealtimeChannel | null = null;
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     // Konkrete Meldung der zuletzt gesehenen Fremd-Änderung (null = keine
     // toast-würdige Änderung seit dem letzten Refresh).
@@ -64,26 +76,27 @@ export function RealtimeTrip({
     const onChange =
       (actorField: string | null, message: string | null) =>
       (payload: { new?: Record<string, unknown> }) => {
-        if (message) {
-          const actor = actorField
-            ? (payload.new?.[actorField] as string | undefined)
-            : undefined;
-          const isForeign = !currentPersonId || !actor || actor !== currentPersonId;
-          if (isForeign) pendingMessage = message;
-        }
-        scheduleRefresh();
-      };
-
-    const channel = supabase
-      .channel(`trip-${tripId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "transactions", filter: `trip_id=eq.${tripId}` },
-        onChange("created_by", `Eine Buchung wurde von ${someone} geändert.`),
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "trip_members", filter: `trip_id=eq.${tripId}` },
+          if (message) {
+            const actor = actorField
+              ? (payload.new?.[actorField] as string | undefined)
+              : undefined;
+            const isForeign = !currentPersonId || !actor || actor !== currentPersonId;
+            if (isForeign) pendingMessage = message;
+          }
+          scheduleRefresh();
+        };
+  
+      const subscribe = () =>
+        supabase
+        .channel(`trip-${tripId}`)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "transactions", filter: `trip_id=eq.${tripId}` },
+          onChange("created_by", `Eine Buchung wurde von ${someone} geändert.`),
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "trip_members", filter: `trip_id=eq.${tripId}` },
         onChange(null, null),
       )
       .on(
@@ -91,11 +104,28 @@ export function RealtimeTrip({
         { event: "*", schema: "public", table: "settled_debts", filter: `trip_id=eq.${tripId}` },
         onChange("settled_by_person_id", `Der Schulden-Status wurde von ${someone} aktualisiert.`),
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.warn("[bordkasse:realtime] Abo fehlgeschlagen:", status);
+        }
+      });
+
+    void (async () => {
+      try {
+        await supabase.auth.getSession();
+      } catch {
+        // Ohne Session trotzdem abonnieren (Verhalten wie vorher); RLS greift
+        // serverseitig ohnehin.
+      }
+      if (cancelled) return;
+      channel = subscribe();
+    })();
 
     return () => {
+      cancelled = true;
       if (refreshTimer) clearTimeout(refreshTimer);
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
+      channel = null;
     };
   }, [tripId, currentPersonId, tripType, router, show]);
 
