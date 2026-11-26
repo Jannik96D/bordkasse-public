@@ -12,23 +12,23 @@ Legende Status: `offen` · `in Arbeit` · `PR offen` · `gemergt` · `wartet auf
 | --- | --- | --- | --- | --- | --- |
 | 0 | Lagebild Produktion, Plan ins Repo | gemergt | [#298](https://github.com/Jannik96D/bordkasse-public/pull/298) | – | erledigt (Lagebild am 2026-11-26 gelaufen) |
 | 1 | Konten serverseitig, Anker, Schritt 3 | gemergt | [#299](https://github.com/Jannik96D/bordkasse-public/pull/299) | – | Backfill optional (A3 = 0 geprüft), vor Slice 2 sinnvoll |
-| 2 | Kong-Allowlist, Signup aus, Sitzungsdauer | PR offen | [#306](https://github.com/Jannik96D/bordkasse-public/pull/306) | – | ja: erst App deployen, dann `DISABLE_SIGNUP=true` + Supabase-Ressource neu deployen (Reihenfolge: `docs/self-hosting.md` „Kong-Allowlist“) |
+| 2 | Kong-Allowlist, Signup aus, Sitzungsdauer | gemergt | [#306](https://github.com/Jannik96D/bordkasse-public/pull/306) | – | erledigt: `DISABLE_SIGNUP=true`, Kong-Allowlist live (2026-11-26) |
 | 3 | Geteilte Personen: Name/E-Mail nur mit Zuständigkeit | gemergt | [#300](https://github.com/Jannik96D/bordkasse-public/pull/300) | – | – |
 | 4 | Login-CSRF in `/auth/verify` | gemergt | [#301](https://github.com/Jannik96D/bordkasse-public/pull/301) | – | – |
 | 5 | Kontolöschung ohne Verschiebung | gemergt | [#302](https://github.com/Jannik96D/bordkasse-public/pull/302) | 0063 (auf Prod eingespielt 2026-11-26) | erledigt |
 | 6 | Erzwungene Löschung nur Eigentümer | gemergt | [#304](https://github.com/Jannik96D/bordkasse-public/pull/304) | – | – |
-| 7 | Anzahlungs-Rechte | PR offen | [#305](https://github.com/Jannik96D/bordkasse-public/pull/305) | – | – |
-| 8 | Kategorie an Törn binden | PR offen | [#307](https://github.com/Jannik96D/bordkasse-public/pull/307) | 0064 | Migration vor Merge einspielen |
-| 9 | Nachträgliche Saldo-Änderungen | PR offen | [#311](https://github.com/Jannik96D/bordkasse-public/pull/311) | – | – |
+| 7 | Anzahlungs-Rechte | gemergt | [#305](https://github.com/Jannik96D/bordkasse-public/pull/305) | – | – |
+| 8 | Kategorie an Törn binden | gemergt | [#307](https://github.com/Jannik96D/bordkasse-public/pull/307) | 0064 | erledigt (0064 auf Prod 2026-11-26) |
+| 9 | Nachträgliche Saldo-Änderungen | gemergt | [#311](https://github.com/Jannik96D/bordkasse-public/pull/311) | – | – |
 | 10 | Mail drosseln, Auth-Konten aufräumen | gemergt | [#312](https://github.com/Jannik96D/bordkasse-public/pull/312) | – | – (kein Zeitlimit für Update-Mails, bewusst; beim ersten Cron-Lauf werden die 3 Altkonten gelöscht, gewollt) |
-| 11 | Rohe Fehlertexte | PR offen | [#315](https://github.com/Jannik96D/bordkasse-public/pull/315) | – | – |
-| 12 | Geteilte Geräte | PR offen | [#313](https://github.com/Jannik96D/bordkasse-public/pull/313) | – | – |
-| 13 | Secure-Cookies | PR offen | [#310](https://github.com/Jannik96D/bordkasse-public/pull/310) | – | – |
-| 14 | Realtime-Publikation | PR offen | [#314](https://github.com/Jannik96D/bordkasse-public/pull/314) | 0065 | Migration vor Merge einspielen |
-| 15 | Backups mit Rechten und Verschlüsselung | offen | – | – | ja: Server-Betreiber, Schlüssel |
+| 11 | Rohe Fehlertexte | gemergt | [#315](https://github.com/Jannik96D/bordkasse-public/pull/315) | – | – |
+| 12 | Geteilte Geräte | gemergt | [#313](https://github.com/Jannik96D/bordkasse-public/pull/313) | – | – |
+| 13 | Secure-Cookies | gemergt | [#310](https://github.com/Jannik96D/bordkasse-public/pull/310) | – | – |
+| 14 | Realtime-Publikation | gemergt | [#314](https://github.com/Jannik96D/bordkasse-public/pull/314) | 0065 | erledigt (0065 auf Prod 2026-11-26) |
+| 15 | Backups mit Rechten und Verschlüsselung | zurückgestellt | – | – | Entscheidung des Nutzers: erstmal nicht |
 | 16 | CI mit minimalen Rechten | gemergt | [#308](https://github.com/Jannik96D/bordkasse-public/pull/308) | – | – |
-| 17 | Abhängigkeiten | PR offen | [#309](https://github.com/Jannik96D/bordkasse-public/pull/309) | – | – |
-| 18 | DB-Härtung (Sammelslice) | PR offen | [#319](https://github.com/Jannik96D/bordkasse-public/pull/319) | 0066 | ja: 0066 per Task, dann `ops/reset-jwt-setting-2026-11.sql` als `supabase_admin`, danach Supabase-Ressource neu deployen (`docs/self-hosting.md` „DB-Härtung“) |
+| 17 | Abhängigkeiten | gemergt | [#309](https://github.com/Jannik96D/bordkasse-public/pull/309) | – | – |
+| 18 | DB-Härtung (Sammelslice) | gemergt | [#319](https://github.com/Jannik96D/bordkasse-public/pull/319) | 0066 | erledigt (0066 + JWT-Reset auf Prod, Supabase neu deployt, 2026-11-26) |
 
 ## Entscheidungen
 
@@ -82,6 +82,17 @@ Deutet etwas auf Missbrauch, entscheidet der Nutzer über das Sperren betroffene
 - **Sessions aus der offenen Zeit (aus Slice 2):** Die Kong-Sperre beendet keine
   bestehenden Sessions. Die 2 unverknüpften Oktober-Konten mit Passwort-Session
   (Lagebild C) prüfen und ggf. Sessions widerrufen/Konten löschen (🖐, Nutzer).
+
+- **Deploy (aus 2026-11-26):** Auto-Deploy in Coolify greift NICHT, alle Deploys sind manuell.
+  Der Build läuft seit dem 2026-11-26 auf GitHub (`.github/workflows/build-image.yml` →
+  `ghcr.io/jannik96d/bordkasse-app`); Coolify zieht es über `webapp/Dockerfile.image`
+  (`docs/self-hosting.md` „Image aus GitHub Actions“). Zwei Builds auf web-1 hatten den Host
+  zuvor eingefroren (RAM).
+- **Slice 15 (Backups verschlüsseln)** bewusst zurückgestellt; Entscheidung steht oben
+  (`openssl` hybrid, privater Schlüssel offline beim Nutzer).
+- **Hilfs-Task in Coolify:** `tmp-apply-0066` (Supabase-Ressource, Zeitplan 1. Januar) ließ sich
+  nicht löschen; harmlos/idempotent, von Hand löschen. Der Branch `security/ops-0066` bleibt, solange
+  er existiert.
 
 ## Bootstrap für Folgesessions
 
