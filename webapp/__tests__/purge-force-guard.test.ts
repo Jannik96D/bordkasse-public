@@ -92,3 +92,36 @@ describe("purgeTripNow force", () => {
     expect(rpc).toHaveBeenCalledWith("purge_trip_data", { p_trip_id: TRIP, p_force: false });
   });
 });
+
+describe("purgeTripNow Nicht-Boolean-Umgehung", () => {
+  for (const bad of [null, undefined, "true", 1, 0, "false"]) {
+    it(`force=${JSON.stringify(bad)} → abgelehnt, kein RPC, nie p_force=null`, async () => {
+      const r = await purgeTripNow(TRIP, bad as never);
+      expect(r.ok).toBe(false);
+      expect(rpc).not.toHaveBeenCalled();
+      expect(requireSkipperOrAdmin).not.toHaveBeenCalled();
+    });
+  }
+
+  it("RPC bekommt immer ein echtes Boolean", async () => {
+    await purgeTripNow(TRIP, false);
+    await purgeTripNow(TRIP, true);
+    for (const call of rpc.mock.calls) expect(typeof call[1].p_force).toBe("boolean");
+  });
+});
+
+describe("purgeTripNow Schwellwert", () => {
+  it("Saldo 0,01 blockt", async () => {
+    vi.mocked(getItemPotBalances).mockResolvedValue(new Map([[P1, 0.01]]));
+    expect((await purgeTripNow(TRIP, true)).ok).toBe(false);
+    vi.mocked(getItemPotBalances).mockResolvedValue(new Map([[P1, 0]]));
+    vi.mocked(getPrepaymentPoolBalances).mockResolvedValue([{ person_id: P1, soll: 1, paid: 0.99, balance: -0.01 }]);
+    expect((await purgeTripNow(TRIP, true)).ok).toBe(false);
+  });
+
+  it("Saldo 0,004 (Rundungsrauschen) lässt durch", async () => {
+    vi.mocked(getItemPotBalances).mockResolvedValue(new Map([[P1, -0.004]]));
+    vi.mocked(getPrepaymentPoolBalances).mockResolvedValue([{ person_id: P1, soll: 1, paid: 1.004, balance: 0.004 }]);
+    expect((await purgeTripNow(TRIP, true)).ok).toBe(true);
+  });
+});

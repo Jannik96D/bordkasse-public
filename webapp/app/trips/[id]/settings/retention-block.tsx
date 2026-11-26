@@ -23,6 +23,7 @@ export function RetentionBlock({ tripId, canForce }: { tripId: string; canForce:
     | { kind: "idle" }
     | { kind: "soft_blocked"; message: string }
     | { kind: "hard_blocked"; message: string }
+    | { kind: "read_error"; message: string }
     | { kind: "ok"; message: string }
   >({ kind: "idle" });
 
@@ -48,6 +49,9 @@ export function RetentionBlock({ tripId, canForce }: { tripId: string; canForce:
       const res = await purgeTripNow(tripId, force);
       if (res.ok) {
         setState({ kind: "ok", message: res.message });
+      } else if (res.message.includes("nicht geprüft werden")) {
+        // Lesefehler: vorübergehend, erneut versuchen statt „blockiert"
+        setState({ kind: "read_error", message: res.message });
       } else if (force || res.message.includes("Schulden")) {
         // "debts_open" bzw. Ablehnung im Force-Modus (Berechtigung, offene
         // Anzahlung/weitere Zahlungen) → kein weiterer Force-Versuch anbieten
@@ -102,6 +106,12 @@ export function RetentionBlock({ tripId, canForce }: { tripId: string; canForce:
       {state.kind === "soft_blocked" && !canForce && (
         <p className="rounded-md border border-gold/30 bg-gold-soft px-3 py-2 text-sm text-ink">
           {state.message} Sofort löschen vor Ablauf der Frist kann nur der ursprüngliche Skipper oder ein Admin.
+        </p>
+      )}
+
+      {state.kind === "read_error" && (
+        <p role="alert" className="rounded-md border border-gold/30 bg-gold-soft px-3 py-2 text-sm text-ink">
+          {state.message}
         </p>
       )}
 

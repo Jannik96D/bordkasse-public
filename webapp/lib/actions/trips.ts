@@ -382,15 +382,22 @@ export type PurgeResult =
   | { ok: false; message: string };
 
 export async function purgeTripNow(tripId: string, force: boolean): Promise<PurgeResult> {
-  const auth = force ? await requireTripOwnerOrAdmin(tripId) : await requireSkipperOrAdmin(tripId);
+  // Server Actions sind per HTTP mit beliebigen Argumenten aufrufbar: nur ein
+  // echtes Boolean zählt. null/undefined/"true" würden sonst den Owner-Guard
+  // umgehen UND als NULL an purge_trip_data gehen, wo `IF NOT p_force` bei NULL
+  // die Frist-/Abrechnungsprüfung überspringt (= Force ohne Guard).
+  if (typeof force !== "boolean") return { ok: false, message: "Ungültige Anfrage." };
+  const isForce = force === true;
+
+  const auth = isForce ? await requireTripOwnerOrAdmin(tripId) : await requireSkipperOrAdmin(tripId);
   if (!auth.ok) {
     return {
       ok: false,
-      message: force ? "Sofort löschen darf nur der ursprüngliche Skipper oder ein Admin." : auth.message,
+      message: isForce ? "Sofort löschen darf nur der ursprüngliche Skipper oder ein Admin." : auth.message,
     };
   }
 
-  if (force) {
+  if (isForce) {
     // Fail-closed: kann der Stand nicht gelesen werden, wird nicht gelöscht.
     // „Offen" = irgendeine Person mit Saldo ≠ 0 (>0,5 ct) im Pool bzw. in den
     // weiteren Zahlungen: Soll nicht gedeckt ODER Überzahlung nicht
@@ -406,17 +413,17 @@ export async function purgeTripNow(tripId: string, force: boolean): Promise<Purg
       return { ok: false, message: "Der Zahlungsstand konnte nicht geprüft werden. Bitte erneut versuchen." };
     }
     if (poolOpen) {
-      return { ok: false, message: "Die Anzahlung ist noch nicht ausgeglichen. Erst wenn alle Beiträge erfasst sind, kann sofort gelöscht werden." };
+      return { ok: false, message: "Die Anzahlung ist noch nicht ausgeglichen. Bitte alle Beiträge der Crew erfassen und die Selbstverrechnung der vorstreckenden Person eintragen. Alternativ nach der Abrechnung und 30 Tagen normal löschen." };
     }
     if (itemsOpen) {
-      return { ok: false, message: "Bei den weiteren Zahlungen sind noch Beträge offen. Erst wenn alles ausgeglichen ist, kann sofort gelöscht werden." };
+      return { ok: false, message: "Bei den weiteren Zahlungen sind noch Beträge offen. Bitte die Zahlungen der Crew und die Überweisung an den Anbieter erfassen, bis alles ausgeglichen ist. Alternativ nach der Abrechnung und 30 Tagen normal löschen." };
     }
   }
 
   const supabase = createAdminClient();
   const { data, error } = await supabase.rpc("purge_trip_data", {
     p_trip_id: tripId,
-    p_force: force,
+    p_force: isForce,
   });
   if (error) {
     console.error("[bordkasse:db]", error.message);
@@ -431,7 +438,7 @@ export async function purgeTripNow(tripId: string, force: boolean): Promise<Purg
         record_id: tripId,
         trip_id: tripId,
         actor_person_id: auth.personId,
-        payload: { manual_purge: true, forced: force },
+        payload: { manual_purge: true, forced: isForce },
       });
       revalidatePath("/");
       revalidatePath(`/trips/${tripId}`);
