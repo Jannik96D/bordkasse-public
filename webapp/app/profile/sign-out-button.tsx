@@ -14,7 +14,7 @@ import { count as outboxCount } from "@/lib/offline/outbox";
  * geleert; steht dort noch etwas, bleibt es unangetastet und der Nutzer
  * bekommt nach dem Abmelden einen Hinweis statt eines stillen Datenverlusts.
  */
-export function SignOutButton() {
+export function SignOutButton({ className }: { className?: string } = {}) {
   const [pending, setPending] = useState(false);
   const router = useRouter();
 
@@ -37,7 +37,7 @@ export function SignOutButton() {
       type="button"
       onClick={handleSignOut}
       disabled={pending}
-      className="text-sm font-medium text-ink-soft hover:text-danger disabled:opacity-50"
+      className={className ?? "text-sm font-medium text-ink-soft hover:text-danger disabled:opacity-50"}
     >
       {pending ? "Abmelden …" : "Abmelden"}
     </button>

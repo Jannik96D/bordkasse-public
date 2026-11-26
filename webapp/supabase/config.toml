@@ -238,6 +238,15 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
+# Magic-Link-Mail lokal wie in Produktion (token_hash → /auth/confirm →
+# /auth/verify). Seit Sicherheitsrunde 2026-11, Slice 1 verschickt die App den
+# Link über einen cookielosen Client (impliziter Flow); mit dem GoTrue-Default-
+# Template ({{ .ConfirmationURL }}) landete der lokale Login sonst mit Tokens
+# im URL-Fragment auf /auth/callback. Greift erst nach `supabase stop/start`.
+[auth.email.template.magic_link]
+subject = "Dein Login-Link für die Bordkasse"
+content_path = "./public/email/magic-link.html"
+
 # Uncomment to customize email template
 # [auth.email.template.invite]
 # subject = "You have been invited"

@@ -1,22 +1,27 @@
 import "server-only";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createCookielessClient } from "@/lib/supabase/cookieless";
+import { ensureAuthUser } from "@/lib/auth/ensure-auth-user";
 
 /**
  * Schickt einer eingeladenen Person die gebrandete Magic-Link-Mail.
  *
- * Wird beim Hinzufügen zur Crew aufgerufen (inviteMember). Nutzt einen
- * frischen anon-Client OHNE Cookies — sonst würde die Skipper-Session
- * des Aufrufers durcheinandergeraten (signInWithOtp setzt sonst die
- * Cookie-basierte Session zurück).
+ * Aufrufer: `inviteMember` + `updateMember` (erste E-Mail eines Ghosts) in
+ * lib/actions/trip-members.ts und `replaceMember` in lib/actions/prepayments.ts.
  *
- * Supabase versendet automatisch das Magic-Link-Template (gebrandetes
- * HTML aus dem Dashboard). Der Empfänger klickt → /auth/confirm → wird
- * eingeloggt UND die Ghost-Person via get-current-person mit dem neuen
- * auth_user_id verlinkt.
+ * Sicherheitsrunde 2026-11, Slice 1: das Auth-Konto wird VOR dem Versand
+ * serverseitig über `ensureAuthUser` angelegt (bestätigt, mit Anker in
+ * `app_metadata`), der OTP-Versand selbst legt mit `shouldCreateUser: false`
+ * kein Konto mehr an. Damit funktioniert die Einladung auch bei
+ * abgeschaltetem GoTrue-Signup (Slice 2).
  *
- * Returns { ok: false } wenn der Versand scheitert, blockt aber nicht
- * die eigentliche Crew-Einladung (Skipper-Workflow bleibt funktional
- * selbst wenn die Mail-Zustellung kurzzeitig hängt).
+ * Der Versand läuft über einen cookielosen anon-Client — sonst würde die
+ * Skipper-Session des Aufrufers berührt. Der Empfänger klickt →
+ * /auth/confirm → /auth/verify → eingeloggt; `getCurrentPerson` verlinkt
+ * die Ghost-Person, weil der Anker zur Adresse passt.
+ *
+ * Returns { ok: false } wenn Kontoanlage oder Versand scheitert, blockt
+ * aber nicht die eigentliche Crew-Einladung (Skipper-Workflow bleibt
+ * funktional, selbst wenn die Mail-Zustellung kurzzeitig hängt).
  */
 export async function sendInvitationMagicLink(
   email: string,
@@ -28,31 +33,32 @@ export async function sendInvitationMagicLink(
   if (!origin) {
     return { ok: false, message: "Kein gültiger App-Origin — Mail nicht verschickt." };
   }
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) {
+  const client = createCookielessClient();
+  if (!client) {
     return { ok: false, message: "Supabase-Config fehlt — Mail nicht verschickt." };
   }
 
-  const client = createSupabaseClient(url, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  // Konto zuerst (fail-closed): ohne Konto + Anker würde der Link mit
+  // `shouldCreateUser: false` ohnehin nicht zugestellt bzw. die Ghost-Person
+  // beim Klick nicht verknüpft.
+  const ensured = await ensureAuthUser(email);
+  if (!ensured.ok) {
+    return { ok: false, message: `Konto konnte nicht vorbereitet werden (${ensured.code}).` };
+  }
 
   const { error } = await client.auth.signInWithOtp({
     email,
     options: {
       emailRedirectTo: `${origin}/auth/callback`,
-      // Bei Erst-Einladung gibt's noch keinen auth.users-Eintrag — Supabase
-      // legt ihn an. Bei bereits existierenden Usern wird einfach ein
-      // frischer Magic-Link geschickt.
-      shouldCreateUser: true,
+      // Konten legt ausschließlich ensureAuthUser an (mit Anker).
+      shouldCreateUser: false,
     },
   });
 
   if (error) {
     // Empfänger-Mail bewusst NICHT loggen (keine PII in die Container-Logs).
-    console.error("[bordkasse:invite] Einladungs-Mail fehlgeschlagen:", error.message);
-    return { ok: false, message: error.message };
+    console.error("[bordkasse:invite] Einladungs-Mail fehlgeschlagen:", error.code ?? "unknown");
+    return { ok: false, message: error.code ?? "Versand fehlgeschlagen." };
   }
   return { ok: true };
 }

@@ -97,7 +97,15 @@ describe("getCurrentPerson — Ghost-Linking nutzt eq statt ilike (Fund 9)", () 
     mockedAdminClient.mockReset();
     mockedCookieClient.mockReset();
     mockedCookieClient.mockResolvedValue({
-      auth: { getUser: () => Promise.resolve({ data: { user: { id: AUTH_UID, email: TARGET_EMAIL } } }) },
+      auth: {
+        getUser: () =>
+          Promise.resolve({
+            data: {
+              // Slice 1 (2026-11): Ghost-Link nur mit passendem Anker.
+              user: { id: AUTH_UID, email: TARGET_EMAIL, app_metadata: { bordkasse_email: TARGET_EMAIL } },
+            },
+          }),
+      },
     } as never);
   });
 

@@ -2,9 +2,10 @@
 
 import { z } from "zod";
 import { headers } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
+import { createCookielessClient } from "@/lib/supabase/cookieless";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isEmailAllowedToSignIn } from "@/lib/auth/authz";
+import { ensureAuthUser } from "@/lib/auth/ensure-auth-user";
 import { resolveOrigin } from "@/lib/auth/origin";
 import { resolveClientIp } from "@/lib/auth/client-ip";
 
@@ -53,6 +54,9 @@ async function withinRateLimit(emailKey: string, ip: string): Promise<boolean> {
     return true; // fail-open
   }
 }
+
+const SEND_FAILED_MESSAGE =
+  "Login-Link konnte nicht versandt werden. Bitte später erneut versuchen.";
 
 export type LoginState =
   | { status: "idle" }
@@ -103,19 +107,37 @@ export async function signInWithMagicLink(
     };
   }
 
-  const supabase = await createClient();
   const origin = resolveOrigin(hdrs.get("origin"));
+  const supabase = createCookielessClient();
+  if (!supabase) {
+    console.error("[bordkasse:auth] Supabase-Config fehlt");
+    return { status: "error", message: SEND_FAILED_MESSAGE };
+  }
 
+  // Sicherheitsrunde 2026-11, Slice 1: das Auth-Konto entsteht NUR hier
+  // (bzw. bei der Einladung) serverseitig — bestätigt und mit Anker in
+  // `app_metadata`, den `getCurrentPerson` für die Ghost-Verknüpfung
+  // verlangt. Fail-closed: ohne Konto keine Mail. Die Meldung ist bewusst
+  // dieselbe wie bei einem Versandfehler (keine Rückschlüsse auf Konten).
+  const ensured = await ensureAuthUser(parsed.data.email);
+  if (!ensured.ok) {
+    return { status: "error", message: SEND_FAILED_MESSAGE };
+  }
+
+  // Cookieloser Client: die Session entsteht erst in /auth/verify.
+  // `shouldCreateUser: false` — Konten legt ausschließlich ensureAuthUser an.
   const { error } = await supabase.auth.signInWithOtp({
     email: parsed.data.email,
     options: {
       emailRedirectTo: `${origin}/auth/callback`,
+      shouldCreateUser: false,
     },
   });
 
   if (error) {
-    console.error("[bordkasse:auth]", error.message);
-    return { status: "error", message: "Login-Link konnte nicht versandt werden. Bitte später erneut versuchen." };
+    // Nur der Code, kein GoTrue-Rohtext (der kann die Adresse enthalten).
+    console.error("[bordkasse:auth] OTP-Versand fehlgeschlagen:", error.code ?? "unknown");
+    return { status: "error", message: SEND_FAILED_MESSAGE };
   }
 
   return { status: "ok", email: parsed.data.email };

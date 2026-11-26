@@ -470,11 +470,14 @@ Nicht abhaken, ohne es wirklich ausprobiert zu haben:
 - [ ] **Neu-Einladung** (eigener Testfall, nicht dasselbe wie oben!): eine
       Adresse als Crew einladen, die noch **keinen** Auth-User hat. Die Mail
       muss gebrandet sein **und** der Link in den eingeloggten Zustand
-      führen. Dieser Pfad läuft über `GOTRUE_MAILER_AUTOCONFIRM`; steht das
-      falsch, verschickt GoTrue statt des Magic-Links eine englische
-      Signup-Bestätigung mit einer URL, die die App nicht verarbeitet — und
-      zwar **nur** für Neu-Einladungen, während bestehende Crew nichts
-      merkt. Ohne diesen Test fällt es erst beim nächsten Törn auf.
+      führen. Seit der Sicherheitsrunde 2026-11 (Slice 1) legt die App das
+      Konto vorher selbst bestätigt an (`lib/auth/ensure-auth-user.ts`) und
+      verschickt den Link mit `shouldCreateUser: false` — der Pfad hängt
+      damit nicht mehr an `GOTRUE_MAILER_AUTOCONFIRM`. Vorher verschickte
+      GoTrue bei falscher Einstellung statt des Magic-Links eine englische
+      Signup-Bestätigung, und zwar **nur** für Neu-Einladungen, während
+      bestehende Crew nichts merkte. Der Test bleibt Pflicht: ohne ihn fällt
+      eine kaputte Kontoanlage erst beim nächsten Törn auf.
 - [ ] **Törn öffnen:** Buchungen, Bilanz, Schulden zeigen die alten Daten.
 - [ ] **Bilanz-Summe je Törn = 0.**
 - [ ] **Realtime:** Törn in zwei Browsern öffnen, in einem eine Buchung
@@ -906,6 +909,26 @@ die Korrektur vorab an denselben Produktionsdaten bewiesen.
 
 > ⚠️ Ohne `rollback;` löscht `purge_trip_data` wirklich. Das Semikolon ist hier
 > kein Stilmittel.
+
+### Konto-Anker (Sicherheitsrunde 2026-11, Slice 1)
+
+Jedes Auth-Konto, das die App anlegt oder für einen Login vorbereitet, trägt
+in `app_metadata.bordkasse_email` einen **Anker** (nur per Service-Role
+schreibbar). `getCurrentPerson` verknüpft eine Ghost-Person nur bei
+passendem Anker und legt neue Personen nur für `ADMIN_EMAILS` an. Für
+Bestandskonten gibt es einen einmaligen Backfill:
+`webapp/supabase/ops/backfill-auth-anchor-2026-11.sql` (keine Migration).
+
+Reihenfolge: **Slice 0** (Lagebild, kein Missbrauch) → **Slice 1** gemergt
+und deployt → **Backfill** (Lauf 1 ohne Variable liest nur; Lauf 2 mit
+`-v expect=<zu_ankern aus Lauf 1>` schreibt und bricht ab, wenn sich die
+Zahl inzwischen geändert hat; als temporärer Task im `db`-Container,
+`psql -U supabase_admin … --single-transaction -f`)
+→ **Slice 2** (`DISABLE_SIGNUP=true`, Kong-Allowlist). Der Backfill gibt nur
+Zahlen aus. Geankert werden nur verknüpfte Konten, deren Adresse zur Person
+passt. Ein verknüpftes Konto mit abweichender Adresse (Zeile A3) hat seine
+Adresse über GoTrue geändert — die App setzt es zurück, sobald die besetzte
+Adresse angefragt wird, ansehen sollte man es trotzdem.
 
 ---
 
