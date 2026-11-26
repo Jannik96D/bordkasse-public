@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
+import { pinAlcoholFlagInStartedTrips } from "@/lib/db/alcohol-pin";
+import { todayIso } from "@/lib/utils";
 
 const ProfileSchema = z.object({
   display_name: z
@@ -37,6 +39,34 @@ export async function updateProfile(
   }
 
   const supabase = createAdminClient();
+
+  // Slice 9 (Sicherheitsrunde 2026-11): das Profil-Flag ist nur noch
+  // Vorbelegung für künftige Törns. Ändert es sich, wird der BISHERIGE Wert
+  // vorher in alle Mitgliedschaften festgeschrieben, die keinen eigenen Wert
+  // haben und deren Törn begonnen hat oder Buchungen trägt — sonst zahlte
+  // man mit „trinke nicht" nach dem Törn rückwirkend weniger (siehe
+  // lib/db/alcohol-pin.ts). Fail-closed: scheitert das Lesen/Festschreiben,
+  // wird das Profil NICHT geändert.
+  const { data: current, error: curErr } = await supabase
+    .from("persons")
+    .select("is_alcoholic")
+    .eq("id", person.id)
+    .maybeSingle();
+  if (curErr || !current) {
+    if (curErr) console.error("[bordkasse:db] updateProfile read:", curErr.message);
+    return { status: "error", message: "Profil konnte nicht geladen werden. Bitte erneut versuchen." };
+  }
+  const previous = (current as { is_alcoholic: boolean | null }).is_alcoholic ?? false;
+  if (previous !== parsed.data.is_alcoholic) {
+    const pin = await pinAlcoholFlagInStartedTrips(supabase, person.id, previous, todayIso());
+    if (!pin.ok) {
+      return {
+        status: "error",
+        message: "Die Angabe zum Alkohol konnte nicht gespeichert werden. Bitte erneut versuchen.",
+      };
+    }
+  }
+
   const { error } = await supabase
     .from("persons")
     .update(parsed.data)

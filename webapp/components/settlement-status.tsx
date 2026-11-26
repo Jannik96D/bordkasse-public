@@ -18,6 +18,11 @@ import { SettlementResendButton } from "./settlement-resend-button";
  *    Button drücken, typischerweise die Person, die soeben eine nachträgliche
  *    Buchung erfasst hat.
  *
+ * 6. Angekündigt, aber noch keine Mail zugestellt (settlement_mail_sent_at
+ *    NULL, 0052 — z. B. SMTP komplett ausgefallen oder Abbruch mitten im
+ *    Versand) → Hinweis mit „Abrechnung erneut verschicken" (Slice 9; der
+ *    Retry war vorher nur serverseitig möglich).
+ *
  * Wird sowohl in der Trip-Übersicht als auch in der Schulden-Seite
  * eingebunden, damit der Hinweis sichtbar ist, wo er gebraucht wird.
  */
@@ -25,6 +30,7 @@ export function SettlementStatus({
   tripId,
   endDate,
   announcedAt,
+  mailSentAt,
   changesPendingSince = null,
   lastResendAt = null,
   canAnnounce,
@@ -34,6 +40,8 @@ export function SettlementStatus({
   tripId: string;
   endDate: string;
   announcedAt: string | null;
+  /** Erste tatsächlich zugestellte Abrechnungs-Mail (0052); `undefined` = unbekannt. */
+  mailSentAt?: string | null;
   /** Zeitstempel der ersten Buchungs-Änderung seit dem letzten Mailversand. */
   changesPendingSince?: string | null;
   /** Zeitstempel der letzten Update-Mail (für „zuletzt aktualisiert am …"). */
@@ -46,6 +54,23 @@ export function SettlementStatus({
   vocab: TripVocab;
 }) {
   if (announcedAt) {
+    if (mailSentAt === null) {
+      return (
+        <div className="mb-4 rounded-md border border-gold/30 bg-gold-soft p-3 text-sm" role="status">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gold" aria-hidden />
+            <div className="flex-1">
+              <p className="font-medium text-primary">Abrechnungs-Mail noch nicht angekommen</p>
+              <p className="mt-1 text-xs text-ink-soft">
+                Die Abrechnung ist freigegeben, aber bisher wurde keine Mail zugestellt. Läuft der
+                Versand gerade noch, bitte ein paar Minuten warten und dann erneut versuchen.
+              </p>
+              <SettlementResendButton tripId={tripId} firstSend />
+            </div>
+          </div>
+        </div>
+      );
+    }
     if (changesPendingSince) {
       // Jedes Crew-Mitglied darf den Resend auslösen — bewusst kein
       // canAnnounce-Gate. Wer nachträglich etwas eingetragen hat, soll die

@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdmin, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
+import { markBalancesMayHaveChanged } from "@/lib/db/settlement-marker";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
 import { resolveOrigin } from "@/lib/auth/origin";
 import { daysBetween, displayNameFromEmail } from "@/lib/utils";
@@ -150,6 +151,11 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
     .single();
 
   if (tmError) return { status: "error", message: tmError.message };
+
+  // Slice 9: ein neues Mitglied verdünnt rückwirkend jede „Gleichmäßig"-/
+  // „An Alle"-Buchung; ein Upsert auf ein bestehendes Mitglied kann
+  // Anwesenheit/Trinker-Flag überschreiben → nach der Abrechnung Banner.
+  await markBalancesMayHaveChanged(supabase, trip_id);
 
   if (member) {
     // Grill-Review-Fund (PR 7, Fund 4): `note` ist ein Freitextfeld und kann
@@ -444,6 +450,10 @@ export async function removeMember(
       return failRestoring("Crewmitglied konnte nicht entfernt werden. Bitte erneut versuchen.");
     }
   }
+  // Slice 9: ohne Mitgliedschaft fällt die Person aus allen
+  // mitgliedschaftsgetriebenen Anteilen (Gleichmäßig/An Bord/Zeitanteilig/
+  // An Alle) → die übrige Crew trägt mehr. Nach der Abrechnung: Banner.
+  await markBalancesMayHaveChanged(supabase, tripId);
   if (redistributed.length > 0) {
     await logAudit(supabase, {
       table_name: "prepayment_item_obligations",
@@ -629,11 +639,19 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
   // Member + zugehörige Person holen — wir brauchen person_id + Ghost-Status.
   const { data: member } = await supabase
     .from("trip_members")
-    .select("person_id, persons!inner(auth_user_id, display_name)")
+    .select("person_id, on_board_from, on_board_to, is_alcoholic, persons!inner(auth_user_id, display_name)")
     .eq("id", member_id)
     .eq("trip_id", trip_id)
     .maybeSingle();
   if (!member) return { status: "error", message: "Crewmitglied nicht gefunden." };
+  // Bisherige saldorelevante Werte — für den „Bilanz geändert"-Marker unten
+  // (Slice 9). Das Formular schickt bei jedem Speichern alle Felder mit, eine
+  // reine Notiz-Änderung soll den Banner nicht auslösen.
+  const prior = member as unknown as {
+    on_board_from?: string | null;
+    on_board_to?: string | null;
+    is_alcoholic?: boolean | null;
+  };
 
   type PersonRow = { auth_user_id: string | null; display_name: string | null };
   const personRel = (member as unknown as { persons: PersonRow | PersonRow[] }).persons;
@@ -696,6 +714,14 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
     })
     .eq("id", member_id);
   if (tmError) return { status: "error", message: tmError.message };
+
+  // Slice 9: Anwesenheit und Trinker-Flag gehen direkt in
+  // v_transaction_shares ein → nach der Abrechnung Banner setzen.
+  const shareInputsChanged =
+    (prior.on_board_from ?? null) !== (on_board_from || null) ||
+    (prior.on_board_to ?? null) !== (on_board_to || null) ||
+    (prior.is_alcoholic ?? null) !== isAlcoholic;
+  if (shareInputsChanged) await markBalancesMayHaveChanged(supabase, trip_id);
 
   await logAudit(supabase, {
     table_name: "trip_members",
@@ -812,6 +838,11 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
           trip_id,
           auth.personId,
         );
+        // Der Ghost geht in einer anderen Person auf — deren Saldo übernimmt
+        // seine Anteile, der Zahlungsplan ändert sich (Slice 9). Auch bei
+        // einem Fehlschlag: der Merge schreibt ohne Rollback, es kann schon
+        // ein Teil umgehängt sein (vor der Abrechnung ein No-op).
+        await markBalancesMayHaveChanged(supabase, trip_id);
         if (!mergeResult.ok) return { status: "error", message: mergeResult.message };
 
         revalidatePath(`/trips/${trip_id}/settings`);
@@ -1209,6 +1240,27 @@ async function mergeGhostIntoExistingPerson(
   // 4. trip_members: Ghost-Eintrag auf real umhängen. Der Pre-Check oben
   //    hat sichergestellt, dass real noch nicht Mitglied dieses Trips ist —
   //    UNIQUE (trip_id, person_id) ist daher safe.
+  //
+  //    Slice 9: VORHER das Trinker-Flag des Ghosts festschreiben, falls die
+  //    Mitgliedschaft keinen eigenen Wert hat — sonst gälte nach dem
+  //    Umhängen das Personen-Flag der ECHTEN Person (COALESCE in
+  //    v_transaction_shares) und der Alkoholanteil wanderte rückwirkend.
+  {
+    const { data: ghostRow, error: ghostErr } = await supabase
+      .from("persons")
+      .select("is_alcoholic")
+      .eq("id", ghostId)
+      .maybeSingle();
+    if (ghostErr) return mergeStepFailed("persons.ghost_alcohol_read", ghostErr.message);
+    const ghostAlcoholic = (ghostRow as { is_alcoholic?: boolean | null } | null)?.is_alcoholic ?? false;
+    const { error } = await supabase
+      .from("trip_members")
+      .update({ is_alcoholic: ghostAlcoholic })
+      .eq("trip_id", tripId)
+      .eq("person_id", ghostId)
+      .is("is_alcoholic", null);
+    if (error) return mergeStepFailed("trip_members.pin_alcohol", error.message);
+  }
   {
     const { error } = await supabase
       .from("trip_members")

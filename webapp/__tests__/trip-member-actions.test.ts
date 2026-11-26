@@ -477,6 +477,9 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       // 10. prepayment_obligations: Ghost-Obligation + real-Obligation (beide leer)
       { table: "prepayment_obligations", response: { data: null } },
       { table: "prepayment_obligations", response: { data: null } },
+      // 11a. Slice 9: Trinker-Flag des Ghosts lesen + in der Mitgliedschaft festschreiben
+      { table: "persons", response: { data: { is_alcoholic: false } } },
+      { table: "trip_members", response: { error: null } },
       // 11. trip_members: Ghost-Membership auf real umhängen
       { table: "trip_members", response: { error: null } },
       // 12. trips: skipper_id-FK

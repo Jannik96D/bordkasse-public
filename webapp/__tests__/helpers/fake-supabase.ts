@@ -123,6 +123,12 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
     b.gt = (col: string, val: number) => add(`${col}>${val}`, (r) => Number(resolveCol(r, col)) > val);
     b.gte = (col: string, val: unknown) => add(`${col}>=${String(val)}`, (r) => String(resolveCol(r, col)) >= String(val));
     b.lte = (col: string, val: unknown) => add(`${col}<=${String(val)}`, (r) => String(resolveCol(r, col)) <= String(val));
+    // NULL ist wie in SQL nie kleiner (sonst verglich "null" als String).
+    b.lt = (col: string, val: unknown) =>
+      add(`${col}<${String(val)}`, (r) => {
+        const v = resolveCol(r, col);
+        return v !== null && v !== undefined && String(v) < String(val);
+      });
     b.is = (col: string, val: unknown) =>
       add(`${col} is ${String(val)}`, (r) => {
         const v = resolveCol(r, col);

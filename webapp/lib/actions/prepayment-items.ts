@@ -46,6 +46,7 @@ import { requireMember, requireSkipperOrAdmin, requireSkipperAdminOrItemPayee } 
 import { assertTripNotArchived } from "@/lib/auth/trip-state";
 import { CROSS_TRIP_PERSON_MSG, itemBelongsToTrip, personsBelongToTrip } from "@/lib/auth/cross-trip";
 import { logAudit } from "@/lib/db/audit";
+import { markBalancesMayHaveChanged } from "@/lib/db/settlement-marker";
 import {
   DeleteItemSchema,
   RecordItemPaymentSchema,
@@ -148,10 +149,8 @@ function itemDbErrorMessage(err: DbError, fallback: string): string {
   return dbErr(err, fallback);
 }
 
-async function markPostSettlementChange(supabase: AdminClient, tripId: string): Promise<void> {
-  const { error } = await supabase.rpc("mark_post_settlement_change", { p_trip_id: tripId });
-  if (error) console.error("[bordkasse:settlement-resend]", error.message);
-}
+// Geteilter Helfer seit Slice 9 (lib/db/settlement-marker.ts).
+const markPostSettlementChange = markBalancesMayHaveChanged;
 
 /** Benachrichtigung nach erfolgreicher Aktion — darf das Ergebnis nie kippen. */
 async function notifySafely(kind: string, run: () => Promise<NoticeResult>): Promise<void> {

@@ -15,6 +15,30 @@ import { settlementAnnouncedPush, settlementUpdatedPush } from "@/lib/notify/pay
 import { formatDate } from "@/lib/utils";
 import { appOrigin } from "@/lib/auth/origin";
 
+/**
+ * Versand-Sperre (Slice 9, Sicherheitsrunde 2026-11). announce/resend
+ * claimen den Versand atomar VOR dem Mailversand, damit ein Doppelklick
+ * (zwei parallele Requests) die Mails nicht zweimal verschickt. Ohne eigene
+ * Spalte (keine Migration) dient ein Zeitstempel als befristete Sperre:
+ * bricht ein Request zwischen Claim und Versand ab (Container-Neustart beim
+ * Auto-Deploy, Wurf im Mailer), läuft die Sperre nach SEND_LEASE_MS aus und
+ * der Versand bleibt wiederholbar — statt für immer „schon verschickt" zu
+ * gelten.
+ *
+ *  • Erstversand (announce / Retry nach komplettem Fehlschlag, 0052):
+ *    `settlement_announced_at` = Claim-Zeit; ein Retry ist nur erlaubt,
+ *    solange `settlement_mail_sent_at IS NULL` und `settlement_announced_at`
+ *    älter als die Sperre ist.
+ *  • Update-Mail: `changes_pending_since` wird auf Claim-Zeit + Sperre in die
+ *    ZUKUNFT gesetzt. Der Marker bleibt dadurch gesetzt (Banner bleibt,
+ *    crash-sicher), ein zweiter Request sieht einen Zukunfts-Wert und darf
+ *    nicht claimen. Echte Marker setzt die DB mit NOW() — immer ≤ jetzt.
+ */
+const SEND_LEASE_MS = 10 * 60 * 1000;
+/** Toleranz für Uhrabweichung App ↔ DB beim Erkennen echter Marker. */
+const CLOCK_SKEW_MS = 60 * 1000;
+const isoShift = (iso: string, ms: number) => new Date(Date.parse(iso) + ms).toISOString();
+
 type Result =
   // skipped = kein E-Mail-Adresse hinterlegt (z. B. Ghost-Crew); failed =
   // Adresse vorhanden, aber Zustellung schlug fehl. Getrennt, damit die UI
@@ -63,6 +87,39 @@ export async function announceSettlement(tripId: string): Promise<Result> {
     return { ok: false, message: "Abrechnung wurde bereits verschickt." };
   }
 
+  // Slice 9: atomarer Claim VOR allem anderen. Vorher wurde das GATE erst
+  // NACH dem Versand gesetzt — ein Doppelklick (beide Requests sehen
+  // settlement_announced_at = NULL) verschickte alle Mails zweimal. Jetzt
+  // gewinnt genau ein `UPDATE … WHERE settlement_announced_at IS NULL
+  // RETURNING`; der zweite bekommt 0 Zeilen (Muster crew_notified_at, 0062).
+  // Claim vor dem Lesen der Bilanz: eine Buchung, die währenddessen
+  // entsteht, setzt so (Gate schon gesetzt) sauber den Änderungs-Marker.
+  const claimedAt = new Date().toISOString();
+  const { data: claimed, error: claimErr } = await supabase
+    .from("trips")
+    .update({ settlement_announced_at: claimedAt, settlement_announced_by: person.id })
+    .eq("id", tripId)
+    .is("settlement_announced_at", null)
+    .select("id");
+  if (claimErr) {
+    console.error("[bordkasse:db]", claimErr.message);
+    return { ok: false, message: "Konnte Abrechnungs-Flag nicht setzen." };
+  }
+  if (!claimed || claimed.length === 0) {
+    return { ok: false, message: "Abrechnung wurde bereits verschickt." };
+  }
+  // Abbruch VOR dem Versand (Lesefehler) → Claim vollständig zurückgeben,
+  // der Skipper kann es sofort erneut versuchen.
+  const abortBeforeSend = async (message: string): Promise<Result> => {
+    const { error } = await supabase
+      .from("trips")
+      .update({ settlement_announced_at: null, settlement_announced_by: null })
+      .eq("id", tripId)
+      .eq("settlement_announced_at", claimedAt);
+    if (error) console.error("[bordkasse:db] settlement release:", error.message);
+    return { ok: false, message };
+  };
+
   // Aktuelle Bilanz + Schulden-Plan ziehen.
   //
   // Entscheidung M1 (PR4a-Review): der Saldo in der Mail ist der
@@ -81,7 +138,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
     ]);
   } catch (e) {
     console.error("[bordkasse:settlement] balances:", e);
-    return { ok: false, message: "Bilanz konnte nicht geladen werden — es wurde keine Mail verschickt. Bitte erneut versuchen." };
+    return abortBeforeSend("Bilanz konnte nicht geladen werden — es wurde keine Mail verschickt. Bitte erneut versuchen.");
   }
   const mailBalances = splitMailBalances(totalBalances, kittyBalances);
 
@@ -101,7 +158,7 @@ export async function announceSettlement(tripId: string): Promise<Result> {
   // Delta-Review 4: leere Bilanz trotz Crew = Lesefehler o. ä. — nie eine
   // Mail mit „Du bist quitt" an alle schicken.
   if (members.length > 0 && totalBalances.length === 0) {
-    return { ok: false, message: "Bilanz ist leer, obwohl es eine Crew gibt — es wurde keine Mail verschickt." };
+    return abortBeforeSend("Bilanz ist leer, obwohl es eine Crew gibt — es wurde keine Mail verschickt.");
   }
   const displayName = (m: MemberRow) =>
     (Array.isArray(m.person) ? m.person[0]?.display_name : m.person?.display_name) ?? "";
@@ -174,30 +231,27 @@ export async function announceSettlement(tripId: string): Promise<Result> {
     }
   });
 
-  // GATE setzen — auch wenn manche/alle Mails fehlschlugen (UI kann's später
-  // re-triggern, aber der Schulden-Toggle soll jetzt freigeschaltet sein;
-  // settlement_announced_at steuert außerdem Purge-Blocker + Checkliste und
-  // bleibt deshalb bewusst unverändert bei jedem announceSettlement-Aufruf).
-  //
-  // settlement_mail_sent_at ist davon GETRENNT und wird nur gesetzt, wenn
-  // mindestens eine Mail tatsächlich zugestellt wurde (sent > 0) — sonst
-  // bliebe ein komplett fehlgeschlagener Erstversand für immer unsichtbar
-  // (Fund 2, PR 6): resendSettlement erlaubt einen erneuten Versuch genau
-  // dann, wenn diese Spalte noch NULL ist (siehe dort).
-  const updatePayload: Record<string, unknown> = {
-    settlement_announced_at: new Date().toISOString(),
-    settlement_announced_by: person.id,
-  };
+  // Das GATE (settlement_announced_at: Häkchen, Purge-Blocker, Checkliste)
+  // bleibt gesetzt, auch wenn alle Mails scheitern. settlement_mail_sent_at
+  // (0052) nur bei mindestens einer zugestellten Mail — sonst bleibt der
+  // Erstversand über resendSettlement wiederholbar (Fund 2, PR 6).
   if (sent > 0) {
-    updatePayload.settlement_mail_sent_at = new Date().toISOString();
-  }
-  const { error: updateErr } = await supabase
-    .from("trips")
-    .update(updatePayload)
-    .eq("id", tripId);
-  if (updateErr) {
-    console.error("[bordkasse:db]", updateErr.message);
-    return { ok: false, message: "Konnte Abrechnungs-Flag nicht setzen." };
+    const { error } = await supabase
+      .from("trips")
+      .update({ settlement_mail_sent_at: new Date().toISOString() })
+      .eq("id", tripId);
+    // Nur geloggt: die Mails sind raus. Folge wäre ein Retry-Knopf, der erst
+    // nach Ablauf der Versand-Sperre greift.
+    if (error) console.error("[bordkasse:db] settlement mail_sent_at:", error.message);
+  } else {
+    // Nichts zugestellt → Versand-Sperre sofort aufheben (Gate vordatieren),
+    // damit der Retry nicht erst nach SEND_LEASE_MS möglich ist.
+    const { error } = await supabase
+      .from("trips")
+      .update({ settlement_announced_at: isoShift(claimedAt, -SEND_LEASE_MS - 1000) })
+      .eq("id", tripId)
+      .eq("settlement_announced_at", claimedAt);
+    if (error) console.error("[bordkasse:db] settlement release:", error.message);
   }
 
   await logAudit(supabase, {
@@ -210,12 +264,15 @@ export async function announceSettlement(tripId: string): Promise<Result> {
   });
 
   // Push zusätzlich zur Mail (additiv, wirft nie). Den Auslöser selbst pushen
-  // wir nicht — er hat die Abrechnung gerade ausgelöst.
-  await sendPushToPersons(
-    supabase,
-    pushRecipients(members.map((m) => m.person_id), { excludeActorId: person.id }),
-    settlementAnnouncedPush(trip.name, tripId),
-  );
+  // wir nicht — er hat die Abrechnung gerade ausgelöst. Kam keine Mail an,
+  // auch kein Push „Abrechnung verschickt" (Slice 9).
+  if (sent > 0) {
+    await sendPushToPersons(
+      supabase,
+      pushRecipients(members.map((m) => m.person_id), { excludeActorId: person.id }),
+      settlementAnnouncedPush(trip.name, tripId),
+    );
+  }
 
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/balance`);
@@ -282,6 +339,58 @@ export async function resendSettlement(tripId: string): Promise<Result> {
     };
   }
 
+  // Slice 9: atomarer Claim VOR dem Versand (Versand-Sperre, siehe
+  // SEND_LEASE_MS oben). Vorher wurde der Marker erst NACH dem Versand
+  // gelöscht — ein Doppelklick verschickte die Mail zweimal.
+  const claimedAt = new Date().toISOString();
+  const leaseUntil = isoShift(claimedAt, SEND_LEASE_MS);
+  const { data: claimed, error: claimErr } = neverSuccessfullySent
+    ? // Erstversand-Retry: nur, wenn kein Erstversand gerade läuft (announce
+      // setzt settlement_announced_at beim Claim auf „jetzt").
+      await supabase
+        .from("trips")
+        .update({ settlement_announced_at: claimedAt })
+        .eq("id", tripId)
+        .is("settlement_mail_sent_at", null)
+        .lt("settlement_announced_at", isoShift(claimedAt, -SEND_LEASE_MS))
+        .select("id")
+    : // Update-Mail: echter Marker (≤ jetzt) → in die Zukunft verschieben.
+      await supabase
+        .from("trips")
+        .update({ changes_pending_since: leaseUntil })
+        .eq("id", tripId)
+        .lte("changes_pending_since", isoShift(claimedAt, CLOCK_SKEW_MS))
+        .select("id");
+  if (claimErr) {
+    console.error("[bordkasse:db]", claimErr.message);
+    return { ok: false, message: "Konnte Resend-Marker nicht aktualisieren." };
+  }
+  if (!claimed || claimed.length === 0) {
+    return {
+      ok: false,
+      message: neverSuccessfullySent
+        ? "Die Abrechnung wird gerade verschickt. Bitte in ein paar Minuten erneut versuchen."
+        : "Die Update-Mail wird gerade verschickt oder wurde schon verschickt. Bitte Seite neu laden.",
+    };
+  }
+  // Claim zurückgeben (Lesefehler vor dem Versand oder keine Mail
+  // zugestellt): ursprünglichen Zustand wiederherstellen — nur, solange
+  // noch UNSER Claim drinsteht.
+  const releaseClaim = async (): Promise<void> => {
+    const { error } = neverSuccessfullySent
+      ? await supabase
+          .from("trips")
+          .update({ settlement_announced_at: trip.settlement_announced_at })
+          .eq("id", tripId)
+          .eq("settlement_announced_at", claimedAt)
+      : await supabase
+          .from("trips")
+          .update({ changes_pending_since: trip.changes_pending_since })
+          .eq("id", tripId)
+          .eq("changes_pending_since", leaseUntil);
+    if (error) console.error("[bordkasse:db] resend release:", error.message);
+  };
+
   // Diff-Hinweis aus dem Audit-Log: alle Transaktions-Änderungen seit dem
   // Marker (oder seit dem letzten Resend / der initialen Abrechnung). Ist
   // der Erstversand noch nie erfolgreich zugestellt worden, ist das hier
@@ -331,6 +440,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
     ]);
   } catch (e) {
     console.error("[bordkasse:settlement] balances:", e);
+    await releaseClaim();
     return { ok: false, message: "Bilanz konnte nicht geladen werden — es wurde keine Mail verschickt. Bitte erneut versuchen." };
   }
   const mailBalances = splitMailBalances(totalBalances, kittyBalances);
@@ -350,6 +460,7 @@ export async function resendSettlement(tripId: string): Promise<Result> {
   // Delta-Review 4: leere Bilanz trotz Crew = Lesefehler o. ä. — nie eine
   // Mail mit „Du bist quitt" an alle schicken.
   if (members.length > 0 && totalBalances.length === 0) {
+    await releaseClaim();
     return { ok: false, message: "Bilanz ist leer, obwohl es eine Crew gibt — es wurde keine Mail verschickt." };
   }
   const displayName = (m: MemberRow) =>
@@ -421,26 +532,46 @@ export async function resendSettlement(tripId: string): Promise<Result> {
     }
   });
 
-  // Marker zurücksetzen + Audit. Bei Mail-Fehlern bleibt der Marker bestehen,
-  // damit der Skipper es erneut versuchen kann. settlement_mail_sent_at wird
-  // nur beim ALLERERSTEN erfolgreichen Versand gesetzt (Fund 2, PR 6) — ist
-  // sie schon gesetzt, bleibt sie unangetastet (kein Rollback/Reset mehr).
   if (sent > 0) {
-    const resendUpdatePayload: Record<string, unknown> = {
-      last_settlement_resend_at: new Date().toISOString(),
-      changes_pending_since: null,
-    };
+    // Erfolg → Claim abschließen. Die Mails sind raus; ein Schreibfehler hier
+    // wird nur geloggt (Folge: der Banner bleibt bzw. der Retry greift nach
+    // Ablauf der Versand-Sperre erneut).
+    const nowIso = new Date().toISOString();
     if (neverSuccessfullySent) {
-      resendUpdatePayload.settlement_mail_sent_at = new Date().toISOString();
+      // Gate zurück auf den ursprünglichen Zeitpunkt (der Claim hatte es auf
+      // „jetzt" gesetzt), Erstversand als zugestellt markieren.
+      const { error } = await supabase
+        .from("trips")
+        .update({
+          settlement_announced_at: trip.settlement_announced_at,
+          settlement_mail_sent_at: nowIso,
+          last_settlement_resend_at: nowIso,
+        })
+        .eq("id", tripId)
+        .eq("settlement_announced_at", claimedAt);
+      if (error) console.error("[bordkasse:db] resend finish:", error.message);
+      if (trip.changes_pending_since) {
+        // Ein schon vorher offener Marker ist mit dieser Mail erledigt; ein
+        // währenddessen NEU gesetzter (anderer Zeitstempel) bleibt stehen.
+        const { error: mErr } = await supabase
+          .from("trips")
+          .update({ changes_pending_since: null })
+          .eq("id", tripId)
+          .eq("changes_pending_since", trip.changes_pending_since);
+        if (mErr) console.error("[bordkasse:db] resend finish marker:", mErr.message);
+      }
+    } else {
+      const { error } = await supabase
+        .from("trips")
+        .update({ changes_pending_since: null, last_settlement_resend_at: nowIso })
+        .eq("id", tripId)
+        .eq("changes_pending_since", leaseUntil);
+      if (error) console.error("[bordkasse:db] resend finish:", error.message);
     }
-    const { error: updateErr } = await supabase
-      .from("trips")
-      .update(resendUpdatePayload)
-      .eq("id", tripId);
-    if (updateErr) {
-      console.error("[bordkasse:db]", updateErr.message);
-      return { ok: false, message: "Konnte Resend-Marker nicht aktualisieren." };
-    }
+  } else {
+    // Nichts zugestellt → Claim zurückgeben, damit der Versand sofort
+    // erneut versucht werden kann.
+    await releaseClaim();
   }
 
   await logAudit(supabase, {
@@ -460,11 +591,13 @@ export async function resendSettlement(tripId: string): Promise<Result> {
 
   // Push zusätzlich zur Update-Mail (gleicher Collapse-Tag wie die
   // Ankündigung → ersetzt sie). Auslöser ausgenommen.
-  await sendPushToPersons(
-    supabase,
-    pushRecipients(members.map((m) => m.person_id), { excludeActorId: person.id }),
-    settlementUpdatedPush(trip.name, tripId),
-  );
+  if (sent > 0) {
+    await sendPushToPersons(
+      supabase,
+      pushRecipients(members.map((m) => m.person_id), { excludeActorId: person.id }),
+      settlementUpdatedPush(trip.name, tripId),
+    );
+  }
 
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/balance`);
