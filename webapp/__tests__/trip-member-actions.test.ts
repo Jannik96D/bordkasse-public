@@ -43,8 +43,10 @@ function makeTripMemberSupabase(opts: {
   txCount?: number;
   participantCount?: number;
   obligationAmount?: number | null;
+  advancerId?: string | null;
+  planError?: boolean;
 }) {
-  const { tripRow = null, memberRow = null, txCount = 0, participantCount = 0, obligationAmount = null } = opts;
+  const { tripRow = null, memberRow = null, txCount = 0, participantCount = 0, obligationAmount = null, advancerId = null, planError = false } = opts;
   const calls: Call[] = [];
   const make = (table: string) => {
     let counting = false;
@@ -74,6 +76,10 @@ function makeTripMemberSupabase(opts: {
         return Promise.resolve({
           data: obligationAmount == null ? null : { total_amount: obligationAmount },
         });
+      }
+      if (table === "prepayment_plan") {
+        if (planError) return Promise.resolve({ data: null, error: { message: "boom" } });
+        return Promise.resolve({ data: advancerId ? { advancer_person_id: advancerId } : null });
       }
       return Promise.resolve({ data: null });
     };
@@ -219,6 +225,49 @@ describe("removeMember — trip_id-Filter + transaction_participants-Check (Fund
 
     const res = await removeMember(MEMBER_ID, TRIP_ID);
     expect(res.ok).toBe(true);
+  });
+});
+
+describe("removeMember — Vorstrecker der Anzahlung (Slice 7)", () => {
+  beforeEach(() => {
+    mockedRequireSkipperOrAdmin.mockReset();
+    mockedAdminClient.mockReset();
+    mockedRequireSkipperOrAdmin.mockResolvedValue({ ok: true, personId: OWNER_ID });
+  });
+
+  it("lehnt das Entfernen des Vorstreckers ab", async () => {
+    const { supabase, calls } = makeTripMemberSupabase({
+      tripRow: { skipper_id: OWNER_ID },
+      memberRow: { person_id: PERSON_ID },
+      advancerId: PERSON_ID,
+    });
+    mockedAdminClient.mockReturnValue(supabase as never);
+    const res = await removeMember(MEMBER_ID, TRIP_ID);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.message).toContain("Vorstrecker");
+    expect(calls.some((c) => c.table === "trip_members" && c.method === "delete")).toBe(false);
+  });
+
+  it("Lesefehler beim Plan-Check: fail-closed, Person bleibt, kein Delete", async () => {
+    const { supabase, calls } = makeTripMemberSupabase({
+      tripRow: { skipper_id: OWNER_ID },
+      memberRow: { person_id: PERSON_ID },
+      planError: true,
+    });
+    mockedAdminClient.mockReturnValue(supabase as never);
+    const res = await removeMember(MEMBER_ID, TRIP_ID);
+    expect(res.ok).toBe(false);
+    expect(calls.some((c) => c.table === "trip_members" && c.method === "delete")).toBe(false);
+  });
+
+  it("entfernt ein normales Mitglied weiter, auch wenn ein anderer Vorstrecker eingetragen ist", async () => {
+    const { supabase } = makeTripMemberSupabase({
+      tripRow: { skipper_id: OWNER_ID },
+      memberRow: { person_id: PERSON_ID },
+      advancerId: OWNER_ID,
+    });
+    mockedAdminClient.mockReturnValue(supabase as never);
+    expect((await removeMember(MEMBER_ID, TRIP_ID)).ok).toBe(true);
   });
 });
 

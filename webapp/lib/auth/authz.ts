@@ -150,7 +150,11 @@ export async function requireSkipperAdminOrAdvancer(tripId: string): Promise<Aut
   ]);
   if (member?.is_skipper) return auth;
   const advancerId = plan?.advancer_person_id || trip?.skipper_id;
-  if (advancerId && advancerId === auth.personId) return auth;
+  // Sicherheitsrunde 2026-11 (Slice 7): der Vorstrecker-Zweig verlangt eine
+  // trip_members-Zeile. Ein entfernter Ex-Vorstrecker (advancer_person_id
+  // zeigt noch auf ihn) dürfte sonst weiter Zahlungen erfassen/löschen/
+  // bestätigen; Gutschriften an ein Nicht-Mitglied fielen aus v_balances (Σ ≠ 0).
+  if (advancerId && advancerId === auth.personId && member) return auth;
   return {
     ok: false,
     message: "Nur Skipper, Admin oder der Vorstrecker der Anzahlung dürfen das.",

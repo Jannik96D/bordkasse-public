@@ -568,7 +568,7 @@ describe("confirmSelfPayment — archivierter Törn (D3)", () => {
   it("lehnt die Bestätigung ab", async () => {
     const { supabase } = makeSupabase(true, {
       transactions: {
-        data: { trip_id: TRIP_ID, tranche_id: TRANCHE_ID, credit_from: PERSON_ID, amount: 10, confirmed_at: null, deleted_at: null },
+        data: { trip_id: TRIP_ID, tranche_id: TRANCHE_ID, type: "credit", credit_from: PERSON_ID, amount: 10, confirmed_at: null, deleted_at: null },
       },
     });
     mockedAdminClient.mockReturnValue(supabase as never);
@@ -587,7 +587,7 @@ describe("rejectSelfPayment — archivierter Törn (D3)", () => {
   it("lehnt das Ablehnen ab", async () => {
     const { supabase } = makeSupabase(true, {
       transactions: {
-        data: { trip_id: TRIP_ID, tranche_id: TRANCHE_ID, credit_from: PERSON_ID, amount: 10, confirmed_at: null, deleted_at: null },
+        data: { trip_id: TRIP_ID, tranche_id: TRANCHE_ID, type: "credit", credit_from: PERSON_ID, amount: 10, confirmed_at: null, deleted_at: null },
       },
     });
     mockedAdminClient.mockReturnValue(supabase as never);
