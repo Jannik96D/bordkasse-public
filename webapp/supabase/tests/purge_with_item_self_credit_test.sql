@@ -19,8 +19,9 @@
 --   3. admin_delete_person_data löscht das Posten-Soll der Person, lässt den
 --      Posten (Empfänger = anonymisierte Person) und dessen Selbstverrechnung
 --      stehen.
---   4. delete_my_account (Altpfad) ebenso.
---   5. Beide Konto-Löschungen blocken einen Posten-Empfänger in einem
+--   4. Ebenso für eine zweite Person ohne Empfänger-Rolle (früher über den
+--      Altpfad delete_my_account, der seit 0063 entfernt ist).
+--   5. Die Kontolöschung blockt jeden Posten-Empfänger in einem
 --      LAUFENDEN Törn (`is_active_item_payee`, Review-Fund M1), auch ohne
 --      jede Buchung; nach Törnende nicht mehr — dann bleibt der Empfänger
 --      aber (anonymisiert) Crew, damit späte Rückzahlungen Σ = 0 halten.
@@ -162,16 +163,14 @@ SELECT is(
   (SELECT count(*) FROM prepayment_item_obligations WHERE person_id = '58590000-0000-4000-8000-000000000004'),
   1::bigint, 'Posten-Soll anderer Personen bleibt unberührt');
 
--- ── 4. delete_my_account (Altpfad über auth.uid()) ────────────────────
-SELECT set_config('request.jwt.claims',
-  json_build_object('sub', '58590000-0000-4000-8000-0000000000f4')::text, TRUE);
-
+-- ── 4. zweite Person (früher Altpfad delete_my_account, in 0063 gedroppt) ─
 SELECT is(
-  delete_my_account(), 'ok', 'delete_my_account läuft für eine Person mit Posten-Soll durch');
+  admin_delete_person_data('58590000-0000-4000-8000-000000000004'),
+  'ok', 'admin_delete_person_data läuft für eine Person mit Posten-Soll (ohne Empfänger-Rolle) durch');
 
 SELECT is(
   (SELECT count(*) FROM prepayment_item_obligations WHERE person_id = '58590000-0000-4000-8000-000000000004'),
-  0::bigint, 'delete_my_account löscht das Posten-Soll der Person');
+  0::bigint, 'admin_delete_person_data löscht auch deren Posten-Soll');
 
 -- ── 5. Posten-Empfänger in einem LAUFENDEN Törn (Review-Fund M1) ───────
 -- Bewusst OHNE jede Buchung: genau dann greift has_active_bookings nicht.
@@ -209,18 +208,15 @@ SELECT ok(
   AND (SELECT display_name FROM persons WHERE id = '58590000-0000-4000-8000-000000000005') = 'Aktiv Empfänger',
   'Blockierter Empfänger bleibt unverändert (Mitgliedschaft, Kontaktdaten, Name)');
 
-SELECT set_config('request.jwt.claims',
-  json_build_object('sub', '58590000-0000-4000-8000-0000000000f6')::text, TRUE);
-
 SELECT is(
-  delete_my_account(), 'is_active_item_payee',
-  'delete_my_account (Altpfad) blockt einen Posten-Empfänger in einem laufenden Törn');
+  admin_delete_person_data('58590000-0000-4000-8000-000000000006'), 'is_active_item_payee',
+  'admin_delete_person_data blockt auch den zweiten Posten-Empfänger im laufenden Törn');
 
 SELECT ok(
   EXISTS (SELECT 1 FROM trip_members
            WHERE trip_id = '58590000-0000-4000-8000-0000000000dd'
              AND person_id = '58590000-0000-4000-8000-000000000006'),
-  'Blockierter Empfänger (Altpfad) bleibt Crew');
+  'Blockierter zweiter Empfänger bleibt Crew');
 
 -- Gegenprobe: derselbe Törn abgelaufen → kein Blocker (Abschnitt 3 deckt
 -- den Normalfall ab; hier dieselbe Person, nur das Datum ändert sich).

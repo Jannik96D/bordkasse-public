@@ -586,9 +586,9 @@ ist der Posten-Topf je Person 0 (Gesamtbilanz = Bordkasse-Bilanz) — pgTAP
 `item_id` (VOR dem Löschen, Lehre aus 0048) und löscht dann Posten-Soll und
 Posten; der Orphan-Cleanup lässt Personen stehen, die in einem anderen Törn
 noch Posten-Empfänger sind oder dort ein Posten-Soll haben.
-`admin_delete_person_data` (und der Altpfad `delete_my_account`) löschen das
-Posten-Soll der Person. Ist die Person **Empfänger eines Postens in einem
-laufenden Törn** (`end_date >= heute`, nicht gepurged), lehnen beide mit
+`admin_delete_person_data` löscht das Posten-Soll der Person (der Altpfad
+`delete_my_account` ist seit Migration 0063 entfernt). Ist die Person **Empfänger eines Postens in einem
+laufenden Törn** (`end_date >= heute`, nicht gepurged), lehnt sie mit
 `is_active_item_payee` ab — auch ohne jede Buchung (dann greift
 `has_active_bookings` nicht). Sonst würde sie anonymisiert und aus
 `trip_members` entfernt, und spätere Crew-Gutschriften an sie fielen aus der
@@ -1026,7 +1026,8 @@ wird (Pendant `rejectSelfPayment`).
 
 **DSGVO.** `purge_trip_data` (Log des Törns, vor dem Posten-Delete),
 `admin_delete_person_data` und `delete_my_account` (Log der Person) — in 0061
-per `CREATE OR REPLACE` aus 0058 erweitert, Rechte unverändert.
+per `CREATE OR REPLACE` aus 0058 erweitert, Rechte unverändert. Seit 0063 gibt
+es nur noch `admin_delete_person_data` (siehe CLAUDE.md „Self-Service-Kontolöschung“).
 
 **Zurücksetzen** (alles best effort, ein Fehler bricht die Aktion nicht ab):
 - `saveItem` löscht den Log des Postens, wenn sich die Fälligkeit, das Soll

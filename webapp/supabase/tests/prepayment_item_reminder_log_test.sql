@@ -9,8 +9,8 @@
 --      Composite-FK (kein Log auf einen Posten eines fremden Törns).
 --   3. CASCADE: ein gelöschter Posten nimmt seine Log-Zeilen mit.
 --   4. DSGVO: purge_trip_data (force=FALSE, wie der Cron) räumt das Log des
---      Törns ab; admin_delete_person_data und delete_my_account räumen das
---      Log der Person ab und lassen fremde Zeilen stehen.
+--      Törns ab; admin_delete_person_data räumt das Log der Person ab und
+--      lässt fremde Zeilen stehen (delete_my_account ist seit 0063 entfernt).
 --
 -- Lauf: cd webapp && supabase test db
 -- ═══════════════════════════════════════════════════════════════════════
@@ -27,7 +27,8 @@ INSERT INTO persons(id, display_name, auth_user_id) VALUES
   ('61610000-0000-4000-8000-000000000002', 'Rem Crew A', '61610000-0000-4000-8000-0000000000f1'),
   ('61610000-0000-4000-8000-000000000003', 'Rem Crew B', '61610000-0000-4000-8000-0000000000f2');
 
--- Törn L: zukünftig (für Zugriff, Integrität, Konto-Löschung).
+-- Törn L: zukünftig (für Zugriff, Integrität); vor der Konto-Löschung (4b)
+--         wird er in die Vergangenheit verlegt (0063: is_active_member).
 -- Törn P: abgelaufen + abgerechnet (für den Purge).
 INSERT INTO trips(id, name, start_date, end_date, skipper_id, settlement_announced_at) VALUES
   ('61610000-0000-4000-8000-0000000000aa', 'pgTAP Rem laufend', '2099-04-01', '2099-04-10',
@@ -148,7 +149,11 @@ SELECT is(
   4::bigint, 'Log anderer Törns bleibt beim Purge unberührt');
 
 -- ── 4b. admin_delete_person_data ──────────────────────────────────────
+-- Seit 0063 blockt die Kontolöschung jedes Mitglied eines laufenden oder
+-- künftigen Törns (`is_active_member`). Törn L wird deshalb hier beendet;
 -- Crew A hat keine Buchungen und ist kein Empfänger → Löschung erlaubt.
+UPDATE trips SET start_date = '2020-05-01', end_date = '2020-05-10'
+ WHERE id = '61610000-0000-4000-8000-0000000000aa';
 SELECT is(
   admin_delete_person_data('61610000-0000-4000-8000-000000000002'),
   'ok', 'admin_delete_person_data läuft durch');
@@ -156,16 +161,16 @@ SELECT is(
   (SELECT count(*) FROM prepayment_item_reminder_log WHERE person_id = '61610000-0000-4000-8000-000000000002'),
   0::bigint, 'admin_delete_person_data löscht das Posten-Erinnerungs-Log der Person');
 
--- ── 4c. delete_my_account (Altpfad über auth.uid()) ───────────────────
-SELECT set_config('request.jwt.claims',
-  json_build_object('sub', '61610000-0000-4000-8000-0000000000f2')::text, TRUE);
+-- ── 4c. zweite Person (früher Altpfad delete_my_account, in 0063 gedroppt) ─
 -- Eigene Statements: Unterabfragen im SELECT des Aufrufs sähen noch den
 -- Snapshot von VOR dem Löschen.
-SELECT is(delete_my_account(), 'ok', 'delete_my_account läuft durch');
+SELECT is(
+  admin_delete_person_data('61610000-0000-4000-8000-000000000003'),
+  'ok', 'admin_delete_person_data läuft auch für Crew B durch');
 SELECT ok(
   (SELECT count(*) FROM prepayment_item_reminder_log WHERE person_id = '61610000-0000-4000-8000-000000000003') = 0
   AND (SELECT count(*) FROM prepayment_item_reminder_log WHERE person_id = '61610000-0000-4000-8000-000000000001') = 1,
-  'delete_my_account löscht das Log der Person, das des Empfängers bleibt');
+  'Kontolöschung löscht das Log der Person, das des Empfängers bleibt');
 
 SELECT * FROM finish();
 ROLLBACK;

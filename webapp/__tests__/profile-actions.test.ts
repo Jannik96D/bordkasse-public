@@ -102,6 +102,39 @@ describe("deleteMyAccount", () => {
     expect(mockedRedirect).not.toHaveBeenCalled();
   });
 
+  it("meldet is_active_member (Mitglied eines laufenden/künftigen Törns, Migration 0063) als eigene Fehlermeldung", async () => {
+    mockedPerson.mockResolvedValue({ id: PERSON_ID, auth_user_id: AUTH_USER_ID } as never);
+    const admin = makeAdmin({ data: "is_active_member", error: null });
+    mockedAdminClient.mockReturnValue(admin as never);
+
+    const result = await deleteMyAccount({ status: "idle" }, new FormData());
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") throw new Error("unreachable");
+    expect(result.message).toMatch(/laufenden oder geplanten Törn/);
+    expect(result.message).toMatch(/aus der Crew austragen/);
+    expect(result.message).toMatch(/als abgereist eintragen/);
+    expect(result.message).not.toMatch(/Unerwartete Antwort/);
+    expect(admin.auth.admin.deleteUser).not.toHaveBeenCalled();
+    expect(mockedRedirect).not.toHaveBeenCalled();
+  });
+
+  it("zeigt einen unbekannten Rückgabecode generisch als Fehler, ohne das Konto zu löschen", async () => {
+    // Deploy-Reihenfolge: Migrationen laufen VOR dem App-Deploy. Ein neuer
+    // Code einer künftigen Migration darf nie als Erfolg durchrutschen.
+    mockedPerson.mockResolvedValue({ id: PERSON_ID, auth_user_id: AUTH_USER_ID } as never);
+    const admin = makeAdmin({ data: "some_future_code", error: null });
+    mockedAdminClient.mockReturnValue(admin as never);
+
+    const result = await deleteMyAccount({ status: "idle" }, new FormData());
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") throw new Error("unreachable");
+    expect(result.message).toMatch(/Unerwartete Antwort/);
+    expect(admin.auth.admin.deleteUser).not.toHaveBeenCalled();
+    expect(mockedRedirect).not.toHaveBeenCalled();
+  });
+
   it("leitet mit login_cleanup_pending=1 um, wenn das Auth-Konto nicht gelöscht werden konnte", async () => {
     mockedPerson.mockResolvedValue({ id: PERSON_ID, auth_user_id: AUTH_USER_ID } as never);
     const admin = makeAdmin({ data: "ok", error: null });

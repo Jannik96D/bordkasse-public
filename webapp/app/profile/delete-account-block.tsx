@@ -10,7 +10,8 @@ const initial: DeleteAccountState = { status: "idle" };
  * Self-Service-Kontolöschung im Profil. Ausgeklappter `<details>`-Block
  * mit Warntext + Bestätigungs-Checkbox + Lösch-Button. Die Bestätigung
  * verhindert versehentliche Klicks; die Server-Action prüft zusätzlich
- * serverseitig, ob noch Buchungen in aktiven Trips offen sind.
+ * serverseitig, ob die Person noch Mitglied eines laufenden oder künftigen
+ * Trips ist (Rückgabecode `is_active_member`, Migration 0063).
  *
  * Nach erfolgreicher Löschung redirected die Action auf
  * `/?account_deleted=1` — der User landet auf der Startseite, ist
@@ -34,14 +35,15 @@ export function DeleteAccountBlock() {
             <p className="font-medium text-danger">Endgültig — keine Wiederherstellung.</p>
             <p className="mt-1 text-ink-soft">
               Beim Löschen werden deine E-Mail-Adresse, dein Nachname und dein Login
-              entfernt. In Törns mit Buchungen, an denen du beteiligt warst, bleibt
-              dein <em>Vorname</em> bestehen, damit die Bilanz nicht zerbricht.
-              Er wird durch „Ehemaliges Crewmitglied“ ersetzt.
+              entfernt. In vergangenen Törns mit Buchungen bleibst du als
+              „Ehemaliges Crewmitglied“ in der Crew, damit sich die Bilanz der
+              anderen nicht verschiebt.
             </p>
             <p className="mt-2 text-ink-soft">
-              <strong>Voraussetzung:</strong> Du hast in <em>aktiven</em> Törns
-              (noch nicht zu Ende) keine Buchungen erfasst. Sonst zuerst Törnende
-              abwarten oder deinen Skipper bitten, deine Buchungen umzubuchen.
+              <strong>Voraussetzung:</strong> Du bist in keinem laufenden oder
+              geplanten Törn mehr Crewmitglied. Sonst zuerst das Törnende abwarten
+              oder deinen Skipper bitten, dich auszutragen (geplanter Törn) bzw.
+              per „Ersetzen“ (⇄) als abgereist einzutragen (laufender Törn).
             </p>
           </div>
         </div>

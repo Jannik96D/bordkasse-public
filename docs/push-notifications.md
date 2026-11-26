@@ -54,7 +54,8 @@
   (`person_id` FK CASCADE, `endpoint` UNIQUE, `p256dh`, `auth`, `user_agent`).
   RLS an, **ohne Policy** → nur Service-Role (wie `prepayment_reminder_log`); der
   Client kennt seinen Abo-Status lokal via `pushManager.getSubscription()`.
-- **DSGVO:** `delete_my_account()` löscht `push_subscriptions` **explizit** — die
+- **DSGVO:** die Kontolöschung (`admin_delete_person_data`, bis 0063 auch
+  `delete_my_account()`) löscht `push_subscriptions` **explizit** — die
   `persons`-Row wird beim Self-Delete nur anonymisiert (nicht gelöscht), daher
   feuert `ON DELETE CASCADE` dort nicht. Der `search_path`-Pin aus 0033 wird in
   0038 inline neu gesetzt.

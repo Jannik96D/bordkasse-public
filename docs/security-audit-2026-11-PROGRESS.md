@@ -15,7 +15,7 @@ Legende Status: `offen` · `in Arbeit` · `PR offen` · `gemergt` · `wartet auf
 | 2 | Kong-Allowlist, Signup aus, Sitzungsdauer | offen | – | – | ja: Coolify-Variablen, Neustart Supabase-Stack |
 | 3 | Geteilte Personen: Name/E-Mail nur mit Zuständigkeit | offen | – | – | – |
 | 4 | Login-CSRF in `/auth/verify` | offen | – | – | – |
-| 5 | Kontolöschung ohne Verschiebung | offen | – | 0063 | Migration vor Merge einspielen |
+| 5 | Kontolöschung ohne Verschiebung | PR offen | [#302](https://github.com/Jannik96D/bordkasse-public/pull/302) | 0063 | Migration vor Merge einspielen |
 | 6 | Erzwungene Löschung nur Eigentümer | offen | – | – | – |
 | 7 | Anzahlungs-Rechte | offen | – | – | – |
 | 8 | Kategorie an Törn binden | offen | – | 0064 | Migration vor Merge einspielen |
