@@ -114,7 +114,7 @@ async function runTrancheReminders(supabase: SupabaseAdmin, todayIso: string): P
     .lte("due_date", windowEnd);
   if (trancheErr) {
     console.error("[bordkasse:cron] tranche query failed:", trancheErr.message);
-    return { error: trancheErr.message };
+    return { error: "Tranchen-Abfrage fehlgeschlagen" };
   }
   if (!tranches || tranches.length === 0) {
     return { processed: 0, sent: 0, skipped: 0, failed: 0, errors: [] };

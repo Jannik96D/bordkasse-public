@@ -11,6 +11,7 @@ import { assertTripNotArchived } from "@/lib/auth/trip-state";
 import { defaultCategoriesFor } from "@/lib/categories/defaults";
 import { displayNameFromEmail } from "@/lib/utils";
 import { isSupportedCurrency } from "@/lib/rates/currencies";
+import { dbErr } from "@/lib/errors";
 import { getPrepaymentPoolBalances } from "@/lib/queries/prepayments";
 import { getItemPotBalances } from "@/lib/queries/prepayment-items";
 
@@ -96,14 +97,14 @@ export async function createTrip(_prev: TripState, formData: FormData): Promise<
         .select("id")
         .single();
       if (pErr || !created) {
-        return { status: "error", message: pErr?.message ?? "Skipperperson konnte nicht angelegt werden." };
+        return { status: "error", message: dbErr(pErr, "Skipperperson konnte nicht angelegt werden.") };
       }
       skipperId = created.id;
       const { error: privErr } = await supabase
         .from("persons_private")
         .insert({ person_id: created.id, email });
       if (privErr) {
-        return { status: "error", message: privErr.message };
+        return { status: "error", message: dbErr(privErr, "E-Mail-Adresse konnte nicht gespeichert werden.") };
       }
     }
   }

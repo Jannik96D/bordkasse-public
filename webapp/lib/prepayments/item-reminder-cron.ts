@@ -37,7 +37,7 @@ const empty = (): ItemReminderRunResult => ({ processed: 0, sent: 0, skipped: 0,
 
 function loadFailed(what: string, message: string): ItemReminderRunResult {
   console.error(`[bordkasse:cron] item reminders: ${what} failed:`, message);
-  return { ...empty(), failed: 1, errors: [{ type: "item_load", message: `${what} fehlgeschlagen`, kind: "failed" }] };
+  return { ...empty(), failed: 1, errors: [{ type: "item_load", message: "Laden der Daten fehlgeschlagen", kind: "failed" }] };
 }
 
 /**

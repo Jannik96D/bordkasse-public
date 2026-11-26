@@ -14,6 +14,7 @@ import { daysBetween, displayNameFromEmail, todayIso } from "@/lib/utils";
 import { calculateItemObligations } from "@/lib/calc/prepayment-item-shares";
 import { personHasBookingTrace } from "@/lib/auth/cross-trip";
 import { assertTripNotArchived } from "@/lib/auth/trip-state";
+import { dbErr } from "@/lib/errors";
 
 const InviteSchema = z.object({
   trip_id: z.string().uuid(),
@@ -108,7 +109,7 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
         .from("persons_private")
         .insert({ person_id: personId, email });
       if (privErr) {
-        return { status: "error", message: privErr.message };
+        return { status: "error", message: dbErr(privErr, "E-Mail-Adresse konnte nicht gespeichert werden.") };
       }
     }
   } else {
@@ -174,7 +175,7 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
     .select()
     .single();
 
-  if (tmError) return { status: "error", message: tmError.message };
+  if (tmError) return { status: "error", message: dbErr(tmError, "Crewmitglied konnte nicht gespeichert werden.") };
 
   // Slice 9: ein neues Mitglied verdünnt rückwirkend jede „Gleichmäßig"-/
   // „An Alle"-Buchung → nach der Abrechnung Banner.
@@ -736,7 +737,7 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
       note: note || null,
     })
     .eq("id", member_id);
-  if (tmError) return { status: "error", message: tmError.message };
+  if (tmError) return { status: "error", message: dbErr(tmError, "Crewmitglied konnte nicht gespeichert werden.") };
 
   // Slice 9: Anwesenheit und Trinker-Flag gehen direkt in
   // v_transaction_shares ein → nach der Abrechnung Banner setzen.
@@ -762,7 +763,7 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
         .from("persons")
         .update({ display_name })
         .eq("id", member.person_id);
-      if (pError) return { status: "error", message: pError.message };
+      if (pError) return { status: "error", message: dbErr(pError, "Name konnte nicht gespeichert werden.") };
       await logAudit(supabase, {
         table_name: "persons",
         operation: "UPDATE",
@@ -878,7 +879,7 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
       const { error: privError } = await supabase
         .from("persons_private")
         .upsert({ person_id: member.person_id, email }, { onConflict: "person_id" });
-      if (privError) return { status: "error", message: privError.message };
+      if (privError) return { status: "error", message: dbErr(privError, "E-Mail-Adresse konnte nicht gespeichert werden.") };
       await logAudit(supabase, {
         table_name: "persons_private",
         operation: "UPDATE",
@@ -1115,7 +1116,7 @@ async function mergeGhostIntoExistingPerson(
     console.error(`[bordkasse:db] mergeGhostIntoExistingPerson step "${step}" failed:`, message);
     return {
       ok: false,
-      message: `Verschmelzung mittendrin fehlgeschlagen (Schritt „${step}"). Daten können jetzt teilweise ` +
+      message: `Verschmelzung mittendrin fehlgeschlagen. Daten können jetzt teilweise ` +
         `verschmolzen sein — bitte einen Admin kontaktieren, statt es erneut zu versuchen.`,
     };
   };
