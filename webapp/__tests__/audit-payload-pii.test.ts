@@ -123,12 +123,20 @@ describe("Audit-Log-Payloads enthalten keine PII im Klartext mehr (Sanierungspla
         // assertTripNotArchived (Sanierungsplan D3) — erster Supabase-Aufruf
         // direkt nach dem Auth-Guard, vor dem Member-Lookup.
         { data: { archived: false } },
+        // Slice 3: Törns, deren Inhaber der Ghost ist (keine).
+        { data: [] },
       ],
       trip_members: [
         // 1. Member-Lookup (Ghost, kein auth_user_id).
-        { data: { person_id: GHOST_PERSON_ID, persons: { auth_user_id: null } } },
+        { data: { person_id: GHOST_PERSON_ID, persons: { auth_user_id: null, display_name: "Alt" } } },
+        // 1b. Slice 3: andere Törns des Ghosts (keine).
+        { data: [] },
         // 2. trip_members-Felder-Update (on_board_from/to, is_alcoholic, note).
         { error: null },
+      ],
+      persons_private: [
+        // Slice 3: bisherige E-Mail, vor dem ersten Write gelesen.
+        { data: null },
       ],
       persons: [
         // persons-UPDATE({ display_name }).
@@ -160,10 +168,14 @@ describe("Audit-Log-Payloads enthalten keine PII im Klartext mehr (Sanierungspla
       trips: [
         // assertTripNotArchived (Sanierungsplan D3).
         { data: { archived: false } },
+        // Slice 3: Törns, deren Inhaber der Ghost ist (keine).
+        { data: [] },
       ],
       trip_members: [
         // 1. Member-Lookup (Ghost, kein auth_user_id).
-        { data: { person_id: GHOST_PERSON_ID, persons: { auth_user_id: null } } },
+        { data: { person_id: GHOST_PERSON_ID, persons: { auth_user_id: null, display_name: "Alt" } } },
+        // 1b. Slice 3: andere Törns des Ghosts (keine).
+        { data: [] },
         // 2. trip_members-Felder-Update.
         { error: null },
       ],

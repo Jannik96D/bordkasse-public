@@ -14,6 +14,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/auth/authz", () => ({
   requireSkipperOrAdmin: vi.fn(),
+  isAdmin: vi.fn(),
 }));
 
 import { removeMember, setSkipperRole, updateMember } from "@/lib/actions/trip-members";
@@ -314,10 +315,14 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       { table: "trips", response: { data: { archived: false } } },
       // 1. Member-Lookup (Ghost, kein auth_user_id)
       { table: "trip_members", response: { data: { person_id: GHOST_ID, persons: { auth_user_id: null } } } },
-      // 2. trip_members-Felder-Update (on_board_from/to, is_alcoholic, note)
-      { table: "trip_members", response: { error: null } },
-      // 3. persons_private: bisherige E-Mail des Ghosts (isFirstEmail-Check)
+      // 2. Slice 3: bisherige E-Mail des Ghosts, VOR dem ersten Write gelesen
       { table: "persons_private", response: { data: null } },
+      // 2b. Slice 3: andere Törns des Ghosts (keine) → keine Zuständigkeitsprüfung nötig
+      { table: "trip_members", response: { data: [] } },
+      // 2c. Slice 3: Törns, deren Inhaber der Ghost ist (keine)
+      { table: "trips", response: { data: [] } },
+      // 3. trip_members-Felder-Update
+      { table: "trip_members", response: { error: null } },
       // 4. persons_private: gehört NEW_EMAIL schon zu einer anderen Person?
       //    Ja — REAL_ID, ebenfalls ein Ghost (auth_user_id null, sonst
       //    würde der Consent-Schutz vorher schon abbrechen).
@@ -356,10 +361,14 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       { table: "trips", response: { data: { archived: false } } },
       // 1. Member-Lookup (Ghost, kein auth_user_id)
       { table: "trip_members", response: { data: { person_id: GHOST_ID, persons: { auth_user_id: null } } } },
-      // 2. trip_members-Felder-Update
-      { table: "trip_members", response: { error: null } },
-      // 3. persons_private: bisherige E-Mail des Ghosts (isFirstEmail-Check)
+      // 2. Slice 3: bisherige E-Mail des Ghosts, VOR dem ersten Write gelesen
       { table: "persons_private", response: { data: null } },
+      // 2b. Slice 3: andere Törns des Ghosts (keine) → keine Zuständigkeitsprüfung nötig
+      { table: "trip_members", response: { data: [] } },
+      // 2c. Slice 3: Törns, deren Inhaber der Ghost ist (keine)
+      { table: "trips", response: { data: [] } },
+      // 3. trip_members-Felder-Update
+      { table: "trip_members", response: { error: null } },
       // 4. persons_private: NEW_EMAIL gehört REAL_ID, ebenfalls Ghost (kein auth_user_id)
       {
         table: "persons_private",
@@ -387,10 +396,14 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       { table: "trips", response: { data: { archived: false } } },
       // 1. Member-Lookup (Ghost, kein auth_user_id)
       { table: "trip_members", response: { data: { person_id: GHOST_ID, persons: { auth_user_id: null } } } },
-      // 2. trip_members-Felder-Update
-      { table: "trip_members", response: { error: null } },
-      // 3. persons_private: bisherige E-Mail des Ghosts
+      // 2. Slice 3: bisherige E-Mail des Ghosts, VOR dem ersten Write gelesen
       { table: "persons_private", response: { data: null } },
+      // 2b. Slice 3: andere Törns des Ghosts (keine) → keine Zuständigkeitsprüfung nötig
+      { table: "trip_members", response: { data: [] } },
+      // 2c. Slice 3: Törns, deren Inhaber der Ghost ist (keine)
+      { table: "trips", response: { data: [] } },
+      // 3. trip_members-Felder-Update
+      { table: "trip_members", response: { error: null } },
       // 4. persons_private: NEW_EMAIL gehört REAL_ID, ebenfalls Ghost
       {
         table: "persons_private",
@@ -453,8 +466,14 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
     const supabase = makeScriptedSupabase([
       { table: "trips", response: { data: { archived: false } } },
       { table: "trip_members", response: { data: { person_id: GHOST_ID, persons: { auth_user_id: null } } } },
-      { table: "trip_members", response: { error: null } },
+      // 2. Slice 3: bisherige E-Mail des Ghosts, VOR dem ersten Write gelesen
       { table: "persons_private", response: { data: null } },
+      // 2b. Slice 3: andere Törns des Ghosts (keine) → keine Zuständigkeitsprüfung nötig
+      { table: "trip_members", response: { data: [] } },
+      // 2c. Slice 3: Törns, deren Inhaber der Ghost ist (keine)
+      { table: "trips", response: { data: [] } },
+      // 3. trip_members-Felder-Update
+      { table: "trip_members", response: { error: null } },
       {
         table: "persons_private",
         response: { data: { person_id: REAL_ID, persons: { display_name: "Real Person", auth_user_id: null } } },
