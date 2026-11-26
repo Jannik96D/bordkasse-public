@@ -24,6 +24,8 @@ const MESSAGES: Record<string, string> = {
   "draft-deleted": "Entwurf verworfen.",
   "login-session-exists":
     "In diesem Browser ist bereits jemand angemeldet. Dein Link wurde nicht verbraucht — melde dich zuerst ab und klicke ihn dann erneut.",
+  "login-email-mismatch":
+    "Dieser Link gehört nicht zu deinem Konto, deshalb wurdest du nicht umgemeldet. Falls du ihn nicht selbst angefordert hast, ignoriere ihn.",
   "logout-pending-outbox":
     "Abgemeldet. Ungesendete Buchungen bleiben auf diesem Gerät gespeichert und werden nach dem nächsten Login übertragen.",
 };

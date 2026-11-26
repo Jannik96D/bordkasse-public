@@ -123,9 +123,9 @@ describe("signInWithMagicLink — Login-Intent-Cookie", () => {
 
     expect(cookieSet).toHaveBeenCalledTimes(1);
     const [name, value, options] = cookieSet.mock.calls[0];
-    expect(name).toBe("bk_login_intent");
-    expect(value).toMatch(/^[0-9a-f]{64}$/);
-    expect(options).toMatchObject({ httpOnly: true, sameSite: "lax", maxAge: 3600 });
+    expect(name).toBe("bk_login_intent"); // NODE_ENV=test → ohne __Host-
+    expect(value).toMatch(/^\d+\.[0-9a-f]{64}$/);
+    expect(options).toMatchObject({ httpOnly: true, sameSite: "lax", maxAge: 3600, path: "/" });
     vi.unstubAllEnvs();
   });
 

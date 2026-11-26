@@ -3,8 +3,8 @@ import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeEmail } from "@/lib/auth/email-param";
 import {
-  LOGIN_INTENT_COOKIE,
   LOGIN_INTENT_PATH,
+  loginIntentCookieName,
   loginIntentMatches,
 } from "@/lib/auth/login-intent";
 import { requestMayRedeemToken, resolveRedirectOrigin, safeNextPath } from "@/lib/auth/origin";
@@ -62,6 +62,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Tippfehler-Schutz im Fallback: nennen URL-Hinweis und getippte Adresse
+  // VERSCHIEDENE Adressen, brechen wir VOR dem Einlösen ab — der Token bleibt
+  // gültig und der Nutzer kann am selben Link erneut tippen. (Der eigentliche
+  // Sicherheitsvergleich mit dem Token-Inhaber nach verifyOtp bleibt davon
+  // unberührt.) Der Hinweis wird in der Meldung nicht gespiegelt.
+  if (typed && hint && normalizeEmail(typed) !== normalizeEmail(hint)) {
+    const back = new URL("/auth/confirm", origin);
+    back.searchParams.set("token_hash", token_hash);
+    back.searchParams.set("type", type);
+    back.searchParams.set("next", next);
+    back.searchParams.set("email", hint);
+    back.searchParams.set("typed_error", "1");
+    return NextResponse.redirect(back, { status: 303 });
+  }
+
   // Response zuerst, damit der Cookie-Adapter aus createClient(response)
   // die Set-Cookie-Header direkt auf den Redirect schreibt.
   // 303 (See Other) zwingt den Browser auf GET — sonst würde ein POST auf
@@ -104,7 +119,7 @@ export async function POST(request: NextRequest) {
     if (typed) {
       proven = normalizeEmail(owner) === normalizeEmail(typed);
     } else {
-      proven = loginIntentMatches(owner, request.cookies.get(LOGIN_INTENT_COOKIE)?.value);
+      proven = loginIntentMatches(owner, request.cookies.get(loginIntentCookieName())?.value);
     }
   }
   if (!proven) {
@@ -114,6 +129,13 @@ export async function POST(request: NextRequest) {
     // unberührt. Die übermittelte (womöglich fremde) Adresse wird nicht an
     // /login weitergereicht.
     await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+    // Bei bestehender Session würde der Proxy /login ohne Query auf "/" umleiten
+    // und die Meldung ginge verloren → dort über den globalen Toast.
+    if (existingEmail) {
+      const target = new URL("/", origin);
+      target.searchParams.set("toast", "login-email-mismatch");
+      return NextResponse.redirect(target, { status: 303 });
+    }
     return redirectWithError(
       origin,
       "email_mismatch",
@@ -122,7 +144,13 @@ export async function POST(request: NextRequest) {
   }
 
   // Beleg ist verbraucht.
-  response.cookies.delete({ name: LOGIN_INTENT_COOKIE, path: LOGIN_INTENT_PATH });
+  response.cookies.delete({
+    name: loginIntentCookieName(),
+    path: LOGIN_INTENT_PATH,
+    secure: process.env.NODE_ENV === "production",
+    httpOnly: true,
+    sameSite: "lax",
+  });
   return response;
 }
 

@@ -12,7 +12,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { LOGIN_INTENT_COOKIE, loginIntentValue } from "@/lib/auth/login-intent";
+import { loginIntentCookieName, loginIntentValue } from "@/lib/auth/login-intent";
 
 const verifyOtp = vi.fn();
 const exchangeCodeForSession = vi.fn();
@@ -127,11 +127,13 @@ describe("/auth/verify — Guard läuft vor dem Einlösen", () => {
 
 describe("/auth/verify — Login-CSRF: Cookie-Beleg + Fallback „Adresse tippen“", () => {
   /** Header inkl. Login-Intent-Cookie für `cookieFor` (oder ohne Cookie). */
-  const headersFor = (cookieFor?: string) => ({
+  const headersFor = (cookieFor?: string, cookieValue?: string | null) => ({
     "x-forwarded-host": "bordkasse.example.com",
     "x-forwarded-proto": "https",
     origin: APP_ORIGIN,
-    ...(cookieFor ? { cookie: `${LOGIN_INTENT_COOKIE}=${loginIntentValue(cookieFor)}` } : {}),
+    ...(cookieFor
+      ? { cookie: `${loginIntentCookieName()}=${cookieValue ?? loginIntentValue(cookieFor)}` }
+      : {}),
   });
   const noSession = (r: Response & { cookies: { getAll: () => unknown[] } }) => {
     expect(r.cookies.getAll()).toHaveLength(0);
@@ -146,7 +148,7 @@ describe("/auth/verify — Login-CSRF: Cookie-Beleg + Fallback „Adresse tippen
 
     expect(response.cookies.get("sb-access-token")?.value).toBe("session-secret");
     expect(new URL(response.headers.get("location") ?? "").pathname).toBe("/");
-    expect(response.headers.get("set-cookie")).toMatch(new RegExp(`${LOGIN_INTENT_COOKIE}=;`));
+    expect(response.headers.get("set-cookie")).toMatch(new RegExp(`${loginIntentCookieName()}=;`));
     expect(signOut).not.toHaveBeenCalled();
   });
 
@@ -242,6 +244,99 @@ describe("/auth/verify — Login-CSRF: Cookie-Beleg + Fallback „Adresse tippen
 
     expect(verifyOtp).toHaveBeenCalledTimes(1);
     expect(response.cookies.get("sb-access-token")?.value).toBe("session-secret");
+  });
+
+  it("Cookie-Name ist in Production __Host-präfixiert und wird so gelesen/gelöscht", async () => {
+    expect(loginIntentCookieName()).toBe("__Host-bk_login_intent");
+    const { POST } = await import("@/app/auth/verify/route");
+    const response = await POST(verifyRequest(headersFor("crew@example.com")));
+    const setCookie = response.headers.get("set-cookie") ?? "";
+    expect(setCookie).toMatch(/__Host-bk_login_intent=;/);
+    expect(setCookie).toMatch(/Path=\//);
+    expect(setCookie).toMatch(/Secure/i);
+    expect(setCookie).not.toMatch(/Domain=/i);
+  });
+
+  it("abgelaufenes Cookie (älter als 60 Min) zählt nicht als Beleg", async () => {
+    const old = loginIntentValue("crew@example.com", Date.now() - 61 * 60 * 1000);
+    const { POST } = await import("@/app/auth/verify/route");
+    const response = await POST(verifyRequest(headersFor("crew@example.com", old)));
+
+    noSession(response);
+    expect(errorCode(response)).toBe("email_mismatch");
+  });
+
+  it("verschiedene getippte und Hinweis-Adresse → Abbruch VOR dem Einlösen, Token bleibt gültig", async () => {
+    const { POST } = await import("@/app/auth/verify/route");
+    const response = await POST(
+      verifyRequest(headersFor(), "angreifer@example.com", { typed: "opfer@example.com" }),
+    );
+
+    expect(verifyOtp).not.toHaveBeenCalled();
+    noSession(response);
+    const location = new URL(response.headers.get("location") ?? "");
+    expect(location.pathname).toBe("/auth/confirm");
+    expect(location.searchParams.get("typed_error")).toBe("1");
+    expect(location.searchParams.get("token_hash")).toBe("tokenhash123");
+  });
+
+  it("getippte Adresse nur mit anderer Schreibweise des Hinweises → kein Vorab-Abbruch", async () => {
+    const { POST } = await import("@/app/auth/verify/route");
+    const response = await POST(
+      verifyRequest(headersFor(), "Crew@Example.com", { typed: " crew@example.com " }),
+    );
+
+    expect(verifyOtp).toHaveBeenCalledTimes(1);
+    expect(response.cookies.get("sb-access-token")?.value).toBe("session-secret");
+  });
+
+  it("bestehende Session ohne E-Mail → kein 500, regulärer Ablauf", async () => {
+    getUser.mockResolvedValue({ data: { user: {} }, error: null });
+    const { POST } = await import("@/app/auth/verify/route");
+    const response = await POST(verifyRequest(headersFor("crew@example.com")));
+
+    expect(response.status).toBe(303);
+    expect(response.cookies.get("sb-access-token")?.value).toBe("session-secret");
+  });
+
+  it("bestehende Session + keinerlei beanspruchte Adresse → abgelehnt ohne Fehler", async () => {
+    getUser.mockResolvedValue({ data: { user: { email: "andere@example.com" } }, error: null });
+    const { POST } = await import("@/app/auth/verify/route");
+    const response = await POST(verifyRequest(headersFor(), null));
+
+    expect(response.status).toBe(303);
+    expect(verifyOtp).not.toHaveBeenCalled();
+  });
+
+  it("nur getippte Adresse (kein Hinweis) wird für den Session-Guard herangezogen", async () => {
+    getUser.mockResolvedValue({ data: { user: { email: "crew@example.com" } }, error: null });
+    const { POST } = await import("@/app/auth/verify/route");
+    const response = await POST(verifyRequest(headersFor(), null, { typed: "crew@example.com" }));
+
+    expect(verifyOtp).toHaveBeenCalledTimes(1);
+    expect(response.cookies.get("sb-access-token")?.value).toBe("session-secret");
+  });
+
+  it("abgelaufener Link im Fallback reicht die getippte Adresse an /login (Resend)", async () => {
+    verifyOtp.mockResolvedValue({ data: {}, error: { code: "otp_expired", message: "expired" } });
+    const { POST } = await import("@/app/auth/verify/route");
+    const response = await POST(verifyRequest(headersFor(), null, { typed: "crew@example.com" }));
+
+    expect(new URL(response.headers.get("location") ?? "").searchParams.get("email")).toBe(
+      "crew@example.com",
+    );
+  });
+
+  it("email_mismatch bei bestehender Session → Toast auf / statt verlorener /login-Meldung", async () => {
+    getUser.mockResolvedValue({ data: { user: { email: "opfer@example.com" } }, error: null });
+    verifyOtp.mockResolvedValue({ data: { user: { email: "angreifer@example.com" } }, error: null });
+    const { POST } = await import("@/app/auth/verify/route");
+    const response = await POST(verifyRequest(headersFor(), null, { typed: "opfer@example.com" }));
+
+    noSession(response);
+    const location = new URL(response.headers.get("location") ?? "");
+    expect(location.pathname).toBe("/");
+    expect(location.searchParams.get("toast")).toBe("login-email-mismatch");
   });
 
   it("lässt bei abgelaufenem Link den Resend-Pfad (email an /login) unverändert", async () => {

@@ -2,7 +2,7 @@ import Image from "next/image";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { displayableEmail } from "@/lib/auth/email-param";
-import { LOGIN_INTENT_COOKIE, loginIntentMatches } from "@/lib/auth/login-intent";
+import { loginIntentCookieName, loginIntentMatches } from "@/lib/auth/login-intent";
 import { safeNextPath } from "@/lib/auth/origin";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +26,13 @@ export const dynamic = "force-dynamic";
 export default async function ConfirmPage({
   searchParams,
 }: {
-  searchParams: Promise<{ token_hash?: string; type?: string; next?: string; email?: string }>;
+  searchParams: Promise<{
+    token_hash?: string;
+    type?: string;
+    next?: string;
+    email?: string;
+    typed_error?: string;
+  }>;
 }) {
   const params = await searchParams;
   const token_hash = params.token_hash;
@@ -43,7 +49,7 @@ export default async function ConfirmPage({
   // Sonst (Skipper-Einladung, anderes Gerät, fremder Link): der Nutzer tippt
   // seine Adresse selbst — bewusst OHNE Vorbelegung aus der URL.
   const cookieStore = await cookies();
-  const oneClick = loginIntentMatches(email, cookieStore.get(LOGIN_INTENT_COOKIE)?.value);
+  const oneClick = loginIntentMatches(email, cookieStore.get(loginIntentCookieName())?.value);
   const shownEmail = oneClick ? displayableEmail(email) : null;
 
   // Fehlt der Token, kommt der User über einen kaputten Link — direkt zur
@@ -94,6 +100,13 @@ export default async function ConfirmPage({
           )}
         </div>
 
+        {params.typed_error && !oneClick && (
+          <p role="alert" className="rounded-md bg-gold-soft px-3 py-2 text-sm text-primary">
+            Die eingegebene Adresse passt nicht zu diesem Link. Dein Link wurde noch nicht
+            verbraucht — versuche es erneut und tippe nur deine eigene Adresse ein.
+          </p>
+        )}
+
         <form action="/auth/verify" method="POST" className="space-y-3">
           <input type="hidden" name="token_hash" value={token_hash} />
           <input type="hidden" name="type" value={type} />
@@ -115,8 +128,8 @@ export default async function ConfirmPage({
                 className="w-full rounded-md border border-primary/30 bg-paper px-3 py-3 text-ink focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
               <p className="text-xs text-ink-soft">
-                Tippe deine eigene Adresse ein. Zur Sicherheit melden wir dich nur an, wenn sie zum
-                Link passt.
+                Nur deine eigene Adresse eintippen – nie eine, die dir jemand nennt. Zur Sicherheit
+                melden wir dich nur an, wenn sie zum Link passt.
               </p>
             </div>
           )}

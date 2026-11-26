@@ -7,7 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isEmailAllowedToSignIn } from "@/lib/auth/authz";
 import { resolveOrigin } from "@/lib/auth/origin";
 import {
-  LOGIN_INTENT_COOKIE,
+  loginIntentCookieName,
   loginIntentCookieOptions,
   loginIntentValue,
 } from "@/lib/auth/login-intent";
@@ -68,7 +68,7 @@ async function setLoginIntent(email: string) {
   const value = loginIntentValue(email);
   if (!value) return; // ohne Secret: Fallback (Adresse eintippen)
   try {
-    (await cookies()).set(LOGIN_INTENT_COOKIE, value, loginIntentCookieOptions());
+    (await cookies()).set(loginIntentCookieName(), value, loginIntentCookieOptions());
   } catch (e) {
     console.error(
       "[bordkasse:auth] Login-Intent-Cookie nicht gesetzt",
