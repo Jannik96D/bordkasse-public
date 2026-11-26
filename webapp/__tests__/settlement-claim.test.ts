@@ -44,6 +44,7 @@ function setup(trip: {
   settlement_announced_at?: string | null;
   settlement_mail_sent_at?: string | null;
   changes_pending_since?: string | null;
+  last_settlement_resend_at?: string | null;
 }) {
   const fake = createFakeSupabase({
     trips: [
@@ -57,7 +58,7 @@ function setup(trip: {
         settlement_announced_by: null,
         settlement_mail_sent_at: trip.settlement_mail_sent_at ?? null,
         changes_pending_since: trip.changes_pending_since ?? null,
-        last_settlement_resend_at: null,
+        last_settlement_resend_at: trip.last_settlement_resend_at ?? null,
       },
     ],
     trip_members: [
@@ -455,5 +456,36 @@ describe("resendSettlement — atomarer Claim", () => {
     const res = await resendSettlement(TRIP);
     expect(res.ok).toBe(true);
     expect(tripRow(fake).settlement_mail_sent_at).toBeNull();
+  });
+});
+
+// Slice 10 (Entscheidung): KEIN Zeitlimit für Update-Mails — ändert sich die
+// Abrechnung nachträglich, muss immer eine Update-Mail möglich sein. Der Schutz
+// gegen Doppelklick bleibt der atomare Claim (siehe oben).
+describe("resendSettlement — kein Zeitlimit (Slice 10)", () => {
+  it("eine zweite Update-Mail direkt nach der ersten ist möglich, sobald ein neuer Marker gesetzt wurde", async () => {
+    const fake = setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: ANNOUNCED, changes_pending_since: PENDING });
+    const first = await resendSettlement(TRIP);
+    expect(first.ok).toBe(true);
+    expect(tripRow(fake).changes_pending_since).toBeNull();
+    expect(tripRow(fake).last_settlement_resend_at).not.toBeNull(); // eben erst verschickt
+
+    // Ohne neuen Marker: nichts zu verschicken.
+    const none = await resendSettlement(TRIP);
+    expect(none.ok).toBe(false);
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+
+    // Neue Änderung → Marker → sofort wieder möglich.
+    await fake.client.rpc("mark_post_settlement_change", { p_trip_id: TRIP });
+    const second = await resendSettlement(TRIP);
+    expect(second.ok).toBe(true);
+    expect(mockedSend).toHaveBeenCalledTimes(2);
+  });
+
+  it("ein paralleler Doppelklick verschickt weiterhin nur EINE Update-Mail", async () => {
+    setup({ settlement_announced_at: ANNOUNCED, settlement_mail_sent_at: ANNOUNCED, changes_pending_since: PENDING });
+    const [a, b] = await Promise.all([resendSettlement(TRIP), resendSettlement(TRIP)]);
+    expect([a.ok, b.ok].sort()).toEqual([false, true]);
+    expect(mockedSend).toHaveBeenCalledTimes(1);
   });
 });

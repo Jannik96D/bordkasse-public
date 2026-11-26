@@ -8,6 +8,7 @@ import { isAdmin, requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { logAudit } from "@/lib/db/audit";
 import { markBalancesMayHaveChanged } from "@/lib/db/settlement-marker";
 import { sendInvitationMagicLink } from "@/lib/auth/invite";
+import { INVITE_LIMIT_MESSAGE, withinInviteLimit } from "@/lib/auth/action-rate-limit";
 import { resolveOrigin } from "@/lib/auth/origin";
 import { daysBetween, displayNameFromEmail, todayIso } from "@/lib/utils";
 import { calculateItemObligations } from "@/lib/calc/prepayment-item-shares";
@@ -59,6 +60,14 @@ export async function inviteMember(_prev: MemberState, formData: FormData): Prom
 
   const archivedCheck = await assertTripNotArchived(supabase, trip_id);
   if (!archivedCheck.ok) return { status: "error", message: archivedCheck.message };
+
+  // Slice 10: Einladungen lösen Magic-Link-Mails an beliebige Adressen aus —
+  // „einladen + entfernen" im Wechsel hätte sonst kein Limit. 30/h je
+  // (Akteur, Törn), gezählt VOR jeder Schreiboperation (nur mit E-Mail;
+  // Ghosts ohne Adresse verschicken nichts).
+  if (email && !(await withinInviteLimit(auth.personId, trip_id))) {
+    return { status: "error", message: INVITE_LIMIT_MESSAGE };
+  }
 
   // Person mit dieser E-Mail finden (über persons_private) oder als Ghost
   // anlegen. E-Mail liegt seit Migration 0013 ausschließlich in
@@ -881,7 +890,9 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
         payload: { email_changed: true },
       });
 
-      if (isFirstEmail) {
+      // Slice 10: gleiches Einladungs-Limit; bei Überschreitung bleibt die
+      // Adresse gespeichert, nur der Link geht nicht raus (wie ein Mailfehler).
+      if (isFirstEmail && (await withinInviteLimit(auth.personId, trip_id))) {
         try {
           const hdrs = await headers();
           const origin = resolveOrigin(hdrs.get("origin"));

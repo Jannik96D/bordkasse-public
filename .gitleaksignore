@@ -17,3 +17,7 @@
 # Seit dem Folge-Commit erzeugt das Skript die Passwörter zur Laufzeit; der Eintrag
 # deckt nur den Treffer in der Historie ab.
 6673f626ec2b1f67407bfbeef79675209095f9d6:webapp/supabase/self-host/probe-auth-allowlist.mjs:generic-api-key:103
+
+# Slice 10 (PR #312): Test-Dummy für CRON_SECRET in purge-cron-orphans.test.ts, kein echtes Secret.
+# Seit dem Folge-Commit wird der Wert zur Laufzeit erzeugt; der Eintrag deckt nur den Treffer in der Historie ab.
+0d26380a3fc2962249f0177b1f3c969f004a6cea:webapp/__tests__/purge-cron-orphans.test.ts:generic-api-key:14

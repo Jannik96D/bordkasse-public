@@ -157,10 +157,13 @@ function SelfPaymentModal({
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // Pro Modal-Mount ein Schlüssel: Doppelklick/Retry meldet nicht doppelt.
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
 
   function submit() {
     setError(null);
     const fd = new FormData();
+    fd.set("idempotency_key", idempotencyKey);
     fd.set("trip_id", tripId);
     fd.set("tranche_id", trancheId);
     fd.set("amount", amount);

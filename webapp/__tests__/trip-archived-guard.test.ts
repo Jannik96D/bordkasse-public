@@ -538,6 +538,7 @@ describe("submitSelfPayment — archivierter Törn (D3)", () => {
     fd.set("tranche_id", TRANCHE_ID);
     fd.set("amount", "10,00");
     fd.set("date", "2026-06-07");
+    fd.set("idempotency_key", "bbbbbbbb-0000-4000-8000-000000000001");
     return fd;
   }
 

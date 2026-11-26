@@ -41,6 +41,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/headers", () => ({ headers: vi.fn() }));
+vi.mock("@/lib/auth/invite", () => ({ sendInvitationMagicLink: vi.fn().mockResolvedValue({ ok: true }) }));
+vi.mock("@/lib/auth/action-rate-limit", () => ({ withinInviteLimit: vi.fn().mockResolvedValue(true) }));
+vi.mock("@/lib/auth/origin", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/origin")>()),
+  resolveOrigin: vi.fn().mockReturnValue("https://example.test"),
+}));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
 vi.mock("@/lib/auth/authz", () => ({
   requireSkipperOrAdmin: vi.fn(),
@@ -53,6 +59,9 @@ import { replaceMember } from "@/lib/actions/prepayments";
 import { getCurrentPerson } from "@/lib/auth/get-current-person";
 import { requireSkipperOrAdmin } from "@/lib/auth/authz";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { headers } from "next/headers";
+import { sendInvitationMagicLink } from "@/lib/auth/invite";
+import { withinInviteLimit } from "@/lib/auth/action-rate-limit";
 
 const mockedPerson = vi.mocked(getCurrentPerson);
 const mockedAuth = vi.mocked(requireSkipperOrAdmin);
@@ -1003,5 +1012,36 @@ describe("replaceMember — Variante b: Wechsel mitten im Törn", () => {
     );
     expect(res.status).toBe("error");
     if (res.status === "error") expect(res.message).toMatch(/Anwesenheitszeitraum/i);
+  });
+});
+
+// Slice 10: Einladungs-Limit auch beim Crewwechsel mit neuer E-Mail.
+describe("replaceMember — Einladungs-Limit (Slice 10)", () => {
+  beforeEach(() => {
+    mockedPerson.mockReset();
+    mockedAuth.mockReset();
+    mockedAdminClient.mockReset();
+    mockedPerson.mockResolvedValue({ id: ACTOR_ID, display_name: "Skipper" } as never);
+    mockedAuth.mockResolvedValue({ ok: true, personId: ACTOR_ID } as never);
+    vi.mocked(headers).mockResolvedValue(new Map() as never);
+    vi.mocked(sendInvitationMagicLink).mockClear();
+    vi.mocked(withinInviteLimit).mockReset();
+  });
+
+  it("unter dem Limit geht die Einladung raus (Zähler für Akteur + Törn)", async () => {
+    vi.mocked(withinInviteLimit).mockResolvedValue(true);
+    mockedAdminClient.mockReturnValue(makeSupabase([], [CONFIRMED_PAYMENT]) as never);
+    const res = await replaceMember({ status: "idle" }, replaceFormData({ new_email: "neu@example.com" }));
+    expect(res).toEqual({ status: "ok" });
+    expect(withinInviteLimit).toHaveBeenCalledWith(ACTOR_ID, TRIP_ID);
+    expect(sendInvitationMagicLink).toHaveBeenCalledTimes(1);
+  });
+
+  it("über dem Limit bleibt der Wechsel gespeichert, nur der Link wird nicht verschickt", async () => {
+    vi.mocked(withinInviteLimit).mockResolvedValue(false);
+    mockedAdminClient.mockReturnValue(makeSupabase([], [CONFIRMED_PAYMENT]) as never);
+    const res = await replaceMember({ status: "idle" }, replaceFormData({ new_email: "neu@example.com" }));
+    expect(res).toEqual({ status: "ok" });
+    expect(sendInvitationMagicLink).not.toHaveBeenCalled();
   });
 });

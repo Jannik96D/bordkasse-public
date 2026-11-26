@@ -13,6 +13,7 @@ import { pushRecipients } from "@/lib/notify/recipients";
 import { debtSettledPush } from "@/lib/notify/payloads";
 import { formatDate } from "@/lib/utils";
 import { appOrigin } from "@/lib/auth/origin";
+import { withinActionLimit } from "@/lib/auth/action-rate-limit";
 
 const ToggleSchema = z.object({
   trip_id: z.string().uuid(),
@@ -106,7 +107,13 @@ export async function toggleDebtSettled(input: {
     }
     const settledAmount = Number(match.amount);
 
-    const { data: row, error } = await supabase
+    // Slice 10: nur der Wechsel „offen → bezahlt" mailt/pusht. Ein bereits
+    // gesetztes Häkchen (erneutes Setzen, Doppelklick, Auf-/Zu-Klappern per
+    // Zurücknehmen läuft über den else-Zweig und mailt ohnehin nicht) bleibt
+    // unverändert: `ignoreDuplicates` = ON CONFLICT DO NOTHING, das leere
+    // Ergebnis zeigt „war schon bezahlt". Atomar in der DB — zwei parallele
+    // Klicks mailen nicht beide.
+    const { data: inserted, error } = await supabase
       .from("settled_debts")
       .upsert(
         {
@@ -117,13 +124,18 @@ export async function toggleDebtSettled(input: {
           settled_by_person_id: auth.personId,
           settled_at: new Date().toISOString(),
         },
-        { onConflict: "trip_id,from_person_id,to_person_id,amount" },
+        { onConflict: "trip_id,from_person_id,to_person_id,amount", ignoreDuplicates: true },
       )
-      .select("id")
-      .single();
-    if (error || !row) {
-      if (error?.message) console.error("[bordkasse:db]", error.message);
+      .select("id");
+    if (error) {
+      console.error("[bordkasse:db]", error.message);
       return { ok: false, message: "Bezahlt-Status konnte nicht gespeichert werden. Bitte erneut versuchen." };
+    }
+    const row = inserted?.[0];
+    if (!row) {
+      // Schon bezahlt: kein Audit-Eintrag, keine Mail, keine Push.
+      revalidatePath(`/trips/${trip_id}/debts`);
+      return { ok: true, mailsSent: 0, mailsFailed: 0 };
     }
     await logAudit(supabase, {
       table_name: "settled_debts",
@@ -141,7 +153,13 @@ export async function toggleDebtSettled(input: {
     // damit ein Teilfehler sichtbar wird (Toast „1 Mail nicht zugestellt").
     let mailsSent = 0;
     let mailsFailed = 0;
+    // Slice 10: „bezahlt → offen → bezahlt" wäre ein echter Wechsel und würde
+    // jedes Mal mailen. Deshalb zusätzlich 10 Benachrichtigungen pro Stunde je
+    // (Akteur, Törn); darüber wird das Häkchen trotzdem gespeichert, nur
+    // Mail/Push entfallen (neutral, kein Fehler). Fail-open bei DB-Fehler.
+    const notifyAllowed = await withinActionLimit(`debt-mail:${auth.personId}:${trip_id}`, 10, 60 * 60);
     try {
+      if (!notifyAllowed) throw new Error("debt-mail-limit");
       const res = await sendDebtSettledMails(supabase, {
         tripId: trip_id,
         fromPersonId: from_person_id,
@@ -152,7 +170,11 @@ export async function toggleDebtSettled(input: {
       mailsSent = res.sent;
       mailsFailed = res.failed;
     } catch (e) {
-      console.error("[bordkasse:debt-settled-mail]", e);
+      if (e instanceof Error && e.message === "debt-mail-limit") {
+        console.warn("[bordkasse:debt-settled-mail] Limit erreicht, keine Benachrichtigung");
+      } else {
+        console.error("[bordkasse:debt-settled-mail]", e);
+      }
     }
 
     revalidatePath(`/trips/${trip_id}/debts`);
