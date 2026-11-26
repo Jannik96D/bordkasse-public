@@ -114,20 +114,17 @@ describe("ensureAuthUser — Bestandskonto (email_exists)", () => {
     expect(createUser).toHaveBeenCalledTimes(2);
   });
 
-  it("verknüpftes Konto ohne hinterlegte Personen-Adresse → geparkt, dann neu", async () => {
+  it("PR #299/1: verknüpftes Konto OHNE hinterlegte Personen-Adresse → fail-closed, weder parken noch löschen", async () => {
     listUsers.mockResolvedValue({ data: { users: [existing({})] }, error: null });
     personsResp = { data: { id: "p-1" }, error: null };
     privResp = { data: null, error: null };
 
     const res = await ensureAuthUser(EMAIL);
 
-    expect(res).toEqual({ ok: true });
-    expect(updateUserById).toHaveBeenCalledTimes(1);
-    expect(updateUserById).toHaveBeenCalledWith("u-alt", {
-      email: "displaced+u-alt@bordkasse.invalid",
-      email_confirm: true,
-    });
-    expect(createUser).toHaveBeenCalledTimes(2);
+    expect(res).toEqual({ ok: false, code: "linked_without_address" });
+    expect(updateUserById).not.toHaveBeenCalled();
+    expect(deleteUser).not.toHaveBeenCalled();
+    expect(createUser).toHaveBeenCalledTimes(1);
   });
 
   it("Lesefehler bei der Verknüpfungsprüfung → fail-closed", async () => {
@@ -239,6 +236,64 @@ describe("ensureAuthUser — Bestandskonto (email_exists)", () => {
       data: { users: [existing({ bordkasse_email: EMAIL })] },
       error: { code: "unexpected_failure" },
     });
+
+    const res = await ensureAuthUser(EMAIL);
+
+    expect(res.ok).toBe(false);
+  });
+});
+
+describe("ensureAuthUser — freie Adresse, aber App-Konto mit diesem Anker hat sie weggeändert (PR #299/2)", () => {
+  beforeEach(() => {
+    createUser.mockReset().mockResolvedValue({ data: { user: { id: "u-zwilling" } }, error: null });
+  });
+
+  it("löscht den frischen Zwilling und setzt das Anker-Konto auf die Adresse zurück", async () => {
+    listUsers.mockResolvedValue({
+      data: {
+        users: [
+          { id: "u-zwilling", email: EMAIL, app_metadata: { bordkasse_email: EMAIL } },
+          { id: "u-alt", email: "woanders@example.test", app_metadata: { bordkasse_email: EMAIL } },
+        ],
+      },
+      error: null,
+    });
+
+    const res = await ensureAuthUser(EMAIL);
+
+    expect(res).toEqual({ ok: true });
+    expect(deleteUser).toHaveBeenCalledWith("u-zwilling");
+    expect(updateUserById).toHaveBeenCalledWith("u-alt", { email: EMAIL, email_confirm: true });
+  });
+
+  it("kein anderes Konto mit diesem Anker → nichts weiter (normales Neukonto)", async () => {
+    listUsers.mockResolvedValue({
+      data: { users: [{ id: "u-zwilling", email: EMAIL, app_metadata: { bordkasse_email: EMAIL } }] },
+      error: null,
+    });
+
+    const res = await ensureAuthUser(EMAIL);
+
+    expect(res).toEqual({ ok: true });
+    expect(deleteUser).not.toHaveBeenCalled();
+    expect(updateUserById).not.toHaveBeenCalled();
+  });
+
+  it("Suche scheitert → Neukonto bleibt (fail-open nur für diese Reparatur)", async () => {
+    listUsers.mockResolvedValue({ data: { users: [] }, error: { code: "unexpected_failure" } });
+
+    const res = await ensureAuthUser(EMAIL);
+
+    expect(res).toEqual({ ok: true });
+    expect(deleteUser).not.toHaveBeenCalled();
+  });
+
+  it("Zurücksetzen scheitert → fail-closed (keine Mail an ein personenloses Konto)", async () => {
+    listUsers.mockResolvedValue({
+      data: { users: [{ id: "u-alt", email: "woanders@example.test", app_metadata: { bordkasse_email: EMAIL } }] },
+      error: null,
+    });
+    updateUserById.mockResolvedValue({ data: null, error: { code: "23505" } });
 
     const res = await ensureAuthUser(EMAIL);
 

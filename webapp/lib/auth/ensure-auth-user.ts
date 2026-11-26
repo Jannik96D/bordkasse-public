@@ -41,6 +41,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
  *      - Verknüpft, aber mit ABWEICHENDER Personen-Adresse (Altkonto ohne
  *        Anker hat die Adresse besetzt): wie „fremder Anker" — zurück auf
  *        die Personen-Adresse (mit Anker) bzw. parken, dann neu anlegen.
+ *      - Verknüpft, aber OHNE hinterlegte Personen-Adresse: fail-closed
+ *        (rechtmäßige Adresse unbekannt; Parken würde das Konto von seiner
+ *        Person trennen).
+ *   War die Adresse frei, prüft `restoreDriftedAnchorHolder`, ob ein
+ *   App-Konto mit genau diesem Anker seine Adresse weggeändert hat, und holt
+ *   es zurück, statt einen personenlosen Zwilling stehen zu lassen.
  *      Bestätigen ist nötig, weil GoTrue `/otp` für ein UNBESTÄTIGTES Konto
  *      wie eine Registrierung behandelt — bei abgeschaltetem Signup
  *      (Slice 2) wäre das Konto sonst ausgesperrt.
@@ -168,6 +174,47 @@ async function displaceAccount(
   return parkErr ? fail("anchor-park", parkErr.code) : { ok: true };
 }
 
+/**
+ * Die Adresse war frei — aber vielleicht nur, weil ein App-Konto mit genau
+ * diesem Anker seine Adresse per `PUT /auth/v1/user` woandershin geändert hat.
+ * Dann wäre das frisch angelegte Konto ein Zwilling ohne Person (die gehört
+ * dem alten Konto), und der Inhaber käme nie wieder an seine Person. In dem
+ * Fall: Zwilling löschen, altes Konto auf seine Anker-Adresse zurücksetzen.
+ *
+ * Bewusst fail-open, wenn die Suche selbst scheitert: für echte Neukonten
+ * (der Normalfall) wäre ein Abbruch ein Ausfall, und der Schaden des
+ * Sonderfalls trifft nur den Kontoinhaber selbst (Grill-Fund PR #299, 2).
+ */
+async function restoreDriftedAnchorHolder(
+  admin: Admin,
+  newUserId: string | null,
+  email: string,
+): Promise<EnsureAuthUserResult> {
+  if (!newUserId) return { ok: true };
+  let holder: string | null = null;
+  for (let page = 1; page <= MAX_LIST_PAGES && !holder; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: PER_PAGE });
+    if (error) {
+      console.error("[bordkasse:ensure-auth-user] Anker-Suche übersprungen:", error.code ?? "unknown");
+      return { ok: true };
+    }
+    const users = data?.users ?? [];
+    const hit = users.find((u) => u.id !== newUserId && authAnchorOf(u.app_metadata) === email);
+    if (hit) holder = hit.id;
+    if (users.length < PER_PAGE) break;
+  }
+  if (!holder) return { ok: true };
+
+  console.error("[bordkasse:ensure-auth-user] Konto mit diesem Anker hatte seine Adresse geändert — wird zurückgesetzt");
+  const { error: delErr } = await admin.auth.admin.deleteUser(newUserId);
+  if (delErr) return fail("twin-delete", delErr.code);
+  const { error: resetErr } = await admin.auth.admin.updateUserById(holder, {
+    email,
+    email_confirm: true,
+  });
+  return resetErr ? fail("anchor-restore", resetErr.code) : { ok: true };
+}
+
 export async function ensureAuthUser(rawEmail: string): Promise<EnsureAuthUserResult> {
   const email = rawEmail.trim().toLowerCase();
   if (!email) return { ok: false, code: "empty_email" };
@@ -179,8 +226,8 @@ export async function ensureAuthUser(rawEmail: string): Promise<EnsureAuthUserRe
     return fail("admin-client", "config_missing");
   }
 
-  const { error: createErr } = await createAnchored(admin, email);
-  if (!createErr) return { ok: true };
+  const { data: created, error: createErr } = await createAnchored(admin, email);
+  if (!createErr) return restoreDriftedAnchorHolder(admin, created?.user?.id ?? null, email);
   if (createErr.code !== "email_exists") return fail("createUser", createErr.code);
 
   const found = await findUserByEmail(admin, email);
@@ -210,6 +257,14 @@ export async function ensureAuthUser(rawEmail: string): Promise<EnsureAuthUserRe
   if (link.state === "error") return fail("link-lookup", "db_error");
 
   if (link.state === "linked") {
+    // Verknüpft, aber ohne hinterlegte Personen-Adresse (z. B. ein alter
+    // Admin, dessen persons_private-Insert damals scheiterte): wir kennen die
+    // rechtmäßige Adresse nicht. Parken würde das Konto beim EIGENEN Login
+    // von seiner Person trennen (Schritt 3 legte danach eine zweite an),
+    // automatisches Nachtragen hieße, einer womöglich per PUT /auth/v1/user
+    // geänderten Adresse zu vertrauen. Deshalb fail-closed: Fall von Hand
+    // klären (Backfill-Abfrage A3, Erwartung 0).
+    if (link.stored === null) return fail("link-lookup", "linked_without_address");
     // Legitimes Altkonto: Konto-Adresse = Adresse der verknüpften Person.
     if (link.stored === email) {
       const { error } = await admin.auth.admin.updateUserById(existing.id, {

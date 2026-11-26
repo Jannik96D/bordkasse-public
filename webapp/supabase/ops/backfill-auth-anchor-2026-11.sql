@@ -8,8 +8,8 @@
 --   1. Slice 0 (Lagebild) ist gelaufen und hat KEINEN Hinweis auf Missbrauch
 --      gezeigt (Signups am App-Login vorbei, Passwort-Logins, Fremdkonten).
 --   2. Slice 1 ist gemergt und deployt.
---   3. Lauf 1 (ohne Variable) liest nur und gibt Zahlen aus. A3 sollte 0 sein
---      (sonst vorher klären, siehe unten).
+--   3. Lauf 1 (ohne Variable) liest nur und gibt Zahlen aus. A3 muss 0 sein —
+--      und zwar schon VOR dem Deploy von Slice 1 geprüft (siehe unten).
 --   4. Lauf 2 mit `-v expect=<Zahl "zu_ankern" aus Lauf 1>` schreibt — aber
 --      nur, wenn die Kandidatenzahl unverändert ist; sonst bricht er ohne
 --      Änderung ab (seit Lauf 1 neu entstandene Konten würden sonst
@@ -43,11 +43,18 @@
 --     sie sind nicht von einem am App-Login vorbei per Signup angelegten
 --     Konto zu unterscheiden. Die App löscht sie beim nächsten Login bzw. der
 --     nächsten Einladung und legt sie geankert neu an (ensureAuthUser).
---   * Verknüpfte Konten mit ABWEICHENDER Adresse (A3): die App ändert
---     Konto-Adressen nie, das Konto hat seine Adresse per
---     `PUT /auth/v1/user` geändert. ensureAuthUser setzt es zurück, sobald
---     seine besetzte Adresse angefragt wird; die Person selbst findet es
---     weiter über `auth_user_id`. Treffer trotzdem ansehen (Missbrauch?).
+--   * Verknüpfte Konten mit ABWEICHENDER oder FEHLENDER Personen-Adresse (A3):
+--     - abweichend: die App ändert Konto-Adressen nie, das Konto hat seine
+--       Adresse per `PUT /auth/v1/user` geändert. ensureAuthUser setzt es auf
+--       die Personen-Adresse zurück, sobald seine besetzte Adresse angefragt
+--       wird (Missbrauch? ansehen).
+--     - fehlend (`persons_private` ohne Zeile, z. B. alter Admin mit damals
+--       gescheitertem Insert): ensureAuthUser kennt die rechtmäßige Adresse
+--       nicht und bricht für die Konto-Adresse fail-closed ab
+--       (`linked_without_address`) — dieser Nutzer bekommt keinen neuen
+--       Login-Link, bis die Zeile von Hand nachgetragen ist.
+--     A3 deshalb VOR dem Deploy von Slice 1 lesend gegen Prod laufen lassen
+--     (nur diese Abfrage, Erwartung 0) und Treffer vorher klären.
 --
 -- WARUM ÜBERHAUPT (Slice 1 funktioniert auch ohne): verknüpfte Konten finden
 -- ihre Person über `auth_user_id` ohne Anker. Der Anker unterscheidet aber in
@@ -77,7 +84,7 @@ WHERE u.email IS NOT NULL
     WHERE p.auth_user_id = u.id AND lower(pp.email::text) = lower(u.email)
   );
 
-\echo 'A3: AUFFÄLLIG — verknüpfte Konten, deren Konto-Adresse NICHT zur Personen-Adresse passt'
+\echo 'A3: AUFFÄLLIG — verknüpfte Konten mit abweichender oder fehlender Personen-Adresse (Erwartung 0)'
 SELECT count(*) AS adresse_abweichend
 FROM auth.users u
 JOIN public.persons p ON p.auth_user_id = u.id

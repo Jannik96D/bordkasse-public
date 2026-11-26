@@ -926,9 +926,16 @@ Zahl inzwischen geändert hat; als temporärer Task im `db`-Container,
 `psql -U supabase_admin … --single-transaction -f`)
 → **Slice 2** (`DISABLE_SIGNUP=true`, Kong-Allowlist). Der Backfill gibt nur
 Zahlen aus. Geankert werden nur verknüpfte Konten, deren Adresse zur Person
-passt. Ein verknüpftes Konto mit abweichender Adresse (Zeile A3) hat seine
-Adresse über GoTrue geändert — die App setzt es zurück, sobald die besetzte
-Adresse angefragt wird, ansehen sollte man es trotzdem.
+passt.
+
+> ⚠️ **Abfrage A3 vor dem Deploy von Slice 1 lesend gegen Prod laufen lassen
+> (Erwartung 0).** A3 zählt verknüpfte Konten mit abweichender oder fehlender
+> Personen-Adresse. Abweichend heißt: das Konto hat seine Adresse über GoTrue
+> geändert — die App setzt es auf die Personen-Adresse zurück, sobald die
+> besetzte Adresse angefragt wird. Fehlend (keine `persons_private`-Zeile)
+> heißt: die App kennt die rechtmäßige Adresse nicht und verweigert für die
+> Konto-Adresse den Login-Link (`linked_without_address`), bis die Zeile von
+> Hand nachgetragen ist.
 
 ---
 

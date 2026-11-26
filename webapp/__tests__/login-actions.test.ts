@@ -139,6 +139,21 @@ describe("signInWithMagicLink — Rate-Limit-Oracle-Schutz", () => {
     expect(updateUserById).not.toHaveBeenCalled();
   });
 
+  it("loggt bei Rate-Limit-Treffer die E-Mail nur als gekürzten Hash, nie im Klartext", async () => {
+    mockedHeaders.mockResolvedValue(makeHeaders({ "x-real-ip": "203.0.113.9" }) as never);
+    mockedAdminClient.mockReturnValue(makeAdmin(false) as never);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await signInWithMagicLink(IDLE, makeFormData("Crew@Example.com"));
+
+    const logged = JSON.stringify(warn.mock.calls);
+    warn.mockRestore();
+    expect(logged.toLowerCase()).not.toContain("crew@example.com");
+    expect(logged).toMatch(/"emailHash":"[0-9a-f]{12}"/);
+    // Die IP bleibt sichtbar (Prüfung der IP-Ermittlung, Sanierungsplan PR 8).
+    expect(logged).toContain("203.0.113.9");
+  });
+
   it("verschickt normal eine Mail, wenn das Rate-Limit nicht überschritten ist", async () => {
     mockedHeaders.mockResolvedValue(makeHeaders({ "x-real-ip": "203.0.113.9" }) as never);
     mockedAdminClient.mockReturnValue(makeAdmin(true) as never);

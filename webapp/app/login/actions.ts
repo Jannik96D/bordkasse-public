@@ -1,5 +1,6 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { headers } from "next/headers";
 import { createCookielessClient } from "@/lib/supabase/cookieless";
@@ -87,8 +88,12 @@ export async function signInWithMagicLink(
   // der E-Mails durchprobiert, soll am Antwortverhalten nicht erkennen können,
   // wann er das Limit trifft. Kein Mailversand, aber intern sichtbar geloggt.
   if (!(await withinRateLimit(parsed.data.email.toLowerCase(), ip))) {
+    // E-Mail nur als gekürzter Hash (keine PII im Log, Zuordnung gleicher
+    // Adressen bleibt möglich). Die IP bleibt im Klartext: sie ist der Wert,
+    // dessen Ermittlung vor dem Prod-Deploy einen Tag lang geprüft werden
+    // soll (Sanierungsplan 2026-09, PR 8).
     console.warn("[bordkasse:ratelimit] Login-Anfrage rate-limitiert", {
-      email: parsed.data.email.toLowerCase(),
+      emailHash: createHash("sha256").update(parsed.data.email.toLowerCase()).digest("hex").slice(0, 12),
       ip,
     });
     return { status: "ok", email: parsed.data.email };
