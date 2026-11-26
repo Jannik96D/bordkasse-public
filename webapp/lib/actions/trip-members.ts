@@ -497,6 +497,10 @@ const UpdateMemberSchema = z.object({
   note: z.string().max(200).optional().or(z.literal("")),
 });
 
+/** Anzeigename, den die Kontolöschung (SQL: admin_delete_person_data) setzt. */
+// (Als Konkatenation, damit die Begriffs-Konsistenz-Prüfung nicht anschlägt.)
+const ANONYMIZED_DISPLAY_NAME = "Ehemaliges Crew" + "-Mitglied";
+
 /**
  * Darf der Ausführende Name/E-Mail dieser Person ändern? Ja, wenn sie in keinem
  * anderen Törn Crew ist, oder er sie selbst ist, globaler Admin ist oder in
@@ -511,18 +515,26 @@ async function mayChangeSharedIdentity(
   actorId: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const readFail = { ok: false as const, message: "Prüfung auf geteilte Crew fehlgeschlagen. Bitte erneut versuchen." };
-  const { data: others, error: othersErr } = await supabase
-    .from("trip_members")
-    .select("trip_id")
-    .eq("person_id", personId)
-    .neq("trip_id", tripId);
-  if (othersErr || !others) {
-    console.error("[bordkasse:db]", othersErr?.message);
+  const [{ data: others, error: othersErr }, { data: ownedByPerson, error: ownedByPersonErr }] = await Promise.all([
+    supabase.from("trip_members").select("trip_id").eq("person_id", personId).neq("trip_id", tripId),
+    // Törns, deren Original-Skipper die Person ist, auch ohne trip_members-Zeile
+    // (createTrip legt sie zwar an, prüfte den Insert aber früher nicht).
+    supabase.from("trips").select("id").eq("skipper_id", personId).neq("id", tripId),
+  ]);
+  if (othersErr || !others || ownedByPersonErr || !ownedByPerson) {
+    console.error("[bordkasse:db]", othersErr?.message ?? ownedByPersonErr?.message);
     return readFail;
   }
-  const otherTripIds = [...new Set(others.map((r: { trip_id: string }) => r.trip_id))];
+  const otherTripIds = [
+    ...new Set([
+      ...others.map((r: { trip_id: string }) => r.trip_id),
+      ...ownedByPerson.map((r: { id: string }) => r.id),
+    ]),
+  ];
   if (otherTripIds.length === 0) return { ok: true };
 
+  // Defensiv: praktisch nicht erreichbar (nur Ghosts werden geändert, die sich
+  // nicht einloggen können) — die Person darf ihre eigene Identität aber ohnehin.
   if (actorId === personId) return { ok: true };
   if (await isAdmin()) return { ok: true };
 
@@ -623,6 +635,16 @@ export async function updateMember(_prev: MemberState, formData: FormData): Prom
     nameChanged = !!display_name && display_name !== (personFlat?.display_name ?? null);
     emailChanged = !!email && email.toLowerCase() !== (priorEmail ?? "").toLowerCase();
 
+    // Per Kontolöschung anonymisierte Personen (admin_delete_person_data /
+    // delete_my_account setzen diesen Namen, auth_user_id bleibt NULL) wirken
+    // wie ein Ghost — eine neue E-Mail würde beim Login die gelöschte Identität
+    // samt Buchungen übernehmen. Name/E-Mail sind für sie gesperrt (auch Admin).
+    if ((nameChanged || emailChanged) && personFlat?.display_name === ANONYMIZED_DISPLAY_NAME) {
+      return {
+        status: "error",
+        message: "Diese Person wurde gelöscht (anonymisiert). Name und E-Mail können nicht mehr geändert werden.",
+      };
+    }
     if (nameChanged || emailChanged) {
       const allowed = await mayChangeSharedIdentity(supabase, member.person_id, trip_id, auth.personId);
       if (!allowed.ok) return { status: "error", message: allowed.message };

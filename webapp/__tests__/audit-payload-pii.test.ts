@@ -123,6 +123,8 @@ describe("Audit-Log-Payloads enthalten keine PII im Klartext mehr (Sanierungspla
         // assertTripNotArchived (Sanierungsplan D3) — erster Supabase-Aufruf
         // direkt nach dem Auth-Guard, vor dem Member-Lookup.
         { data: { archived: false } },
+        // Slice 3: Törns, deren Inhaber der Ghost ist (keine).
+        { data: [] },
       ],
       trip_members: [
         // 1. Member-Lookup (Ghost, kein auth_user_id).
@@ -166,6 +168,8 @@ describe("Audit-Log-Payloads enthalten keine PII im Klartext mehr (Sanierungspla
       trips: [
         // assertTripNotArchived (Sanierungsplan D3).
         { data: { archived: false } },
+        // Slice 3: Törns, deren Inhaber der Ghost ist (keine).
+        { data: [] },
       ],
       trip_members: [
         // 1. Member-Lookup (Ghost, kein auth_user_id).

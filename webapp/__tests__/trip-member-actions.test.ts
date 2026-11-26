@@ -319,6 +319,8 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       { table: "persons_private", response: { data: null } },
       // 2b. Slice 3: andere Törns des Ghosts (keine) → keine Zuständigkeitsprüfung nötig
       { table: "trip_members", response: { data: [] } },
+      // 2c. Slice 3: Törns, deren Inhaber der Ghost ist (keine)
+      { table: "trips", response: { data: [] } },
       // 3. trip_members-Felder-Update
       { table: "trip_members", response: { error: null } },
       // 4. persons_private: gehört NEW_EMAIL schon zu einer anderen Person?
@@ -363,6 +365,8 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       { table: "persons_private", response: { data: null } },
       // 2b. Slice 3: andere Törns des Ghosts (keine) → keine Zuständigkeitsprüfung nötig
       { table: "trip_members", response: { data: [] } },
+      // 2c. Slice 3: Törns, deren Inhaber der Ghost ist (keine)
+      { table: "trips", response: { data: [] } },
       // 3. trip_members-Felder-Update
       { table: "trip_members", response: { error: null } },
       // 4. persons_private: NEW_EMAIL gehört REAL_ID, ebenfalls Ghost (kein auth_user_id)
@@ -396,6 +400,8 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       { table: "persons_private", response: { data: null } },
       // 2b. Slice 3: andere Törns des Ghosts (keine) → keine Zuständigkeitsprüfung nötig
       { table: "trip_members", response: { data: [] } },
+      // 2c. Slice 3: Törns, deren Inhaber der Ghost ist (keine)
+      { table: "trips", response: { data: [] } },
       // 3. trip_members-Felder-Update
       { table: "trip_members", response: { error: null } },
       // 4. persons_private: NEW_EMAIL gehört REAL_ID, ebenfalls Ghost
@@ -464,6 +470,8 @@ describe("updateMember — Ghost-Merge lehnt Törn-übergreifende Mitgliedschaft
       { table: "persons_private", response: { data: null } },
       // 2b. Slice 3: andere Törns des Ghosts (keine) → keine Zuständigkeitsprüfung nötig
       { table: "trip_members", response: { data: [] } },
+      // 2c. Slice 3: Törns, deren Inhaber der Ghost ist (keine)
+      { table: "trips", response: { data: [] } },
       // 3. trip_members-Felder-Update
       { table: "trip_members", response: { error: null } },
       {

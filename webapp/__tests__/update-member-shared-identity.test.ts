@@ -1,8 +1,10 @@
 // Slice 3 (Sicherheitsrunde 2026-11): updateMember darf Name/E-Mail einer
 // Ghost-Person, die auch Crew eines ANDEREN Törns ist, nur ändern, wenn der
 // Ausführende Admin, die Person selbst oder in JEDEM ihrer Törns Skipper ist.
-// Der Mock bildet die Tabellen ab und protokolliert jeden Write.
+// Läuft gegen den filternden In-Memory-Fake: ein entfernter `.eq`/`.in`-Filter
+// im Produktivcode ändert die Treffer und lässt einen Test rot werden.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createFakeSupabase, type Row } from "./helpers/fake-supabase";
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -18,74 +20,48 @@ import { createAdminClient } from "@/lib/supabase/admin";
 const TRIP_X = "aaaaaaaa-0000-4000-8000-000000000001";
 const TRIP_Y = "aaaaaaaa-0000-4000-8000-000000000011";
 const TRIP_Z = "aaaaaaaa-0000-4000-8000-000000000012";
+const TRIP_W = "aaaaaaaa-0000-4000-8000-000000000013"; // Törn ohne Bezug zum Ghost
 const ACTOR = "aaaaaaaa-0000-4000-8000-000000000002";
+const OTHER = "aaaaaaaa-0000-4000-8000-000000000003"; // fremder Skipper
 const GHOST = "aaaaaaaa-0000-4000-8000-000000000005";
 const MEMBER_ID = "aaaaaaaa-0000-4000-8000-000000000004";
+const ANON = "Ehemaliges Crew-Mitglied";
 
 type Scenario = {
   ghostName?: string;
   priorEmail?: string | null;
-  otherTrips?: string[]; // weitere Törns des Ghosts
-  ownedTrips?: string[]; // trips.skipper_id = Ausführender
-  coSkipperTrips?: string[]; // trip_members.is_skipper des Ausführenden
-  failRead?: "others" | "prior" | "owned" | "co";
+  /** Törns, in denen der Ghost Crew ist (trip_members-Zeile), jeweils mit Inhaber. */
+  otherTrips?: Array<{ id: string; skipper: string }>;
+  /** Zusätzliche trips-Zeilen (Inhaber), die keine Ghost-Mitgliedschaft haben. */
+  extraTrips?: Array<{ id: string; skipper: string }>;
+  /** trip_members-Zeilen des Ausführenden (oder anderer) als Skipper-Flag. */
+  memberships?: Array<{ trip_id: string; person_id: string; is_skipper: boolean }>;
 };
 
-const FAIL = { data: null, error: { message: "boom" } };
-
-function makeSupabase(sc: Scenario) {
-  const writes: { table: string; method: string }[] = [];
-  const make = (table: string) => {
-    const hasFilter = new Set<string>();
-    let method = "select";
-    const b: Record<string, unknown> = {};
-    const chain =
-      (name: string) =>
-      (..._args: unknown[]) => {
-        if (name === "update" || name === "upsert" || name === "delete") {
-          method = name;
-          writes.push({ table, method: name });
-        } else {
-          hasFilter.add(name);
-        }
-        return b;
-      };
-    for (const n of ["select", "eq", "neq", "in", "is", "update", "upsert", "delete"]) b[n] = chain(n);
-    b.insert = () => Promise.resolve({ error: null }); // logAudit
-
-    const read = (single: boolean): unknown => {
-      if (method !== "select") return { error: null };
-      if (table === "trips") {
-        if (single) return { data: { archived: false }, error: null };
-        if (sc.failRead === "owned") return FAIL;
-        return { data: (sc.ownedTrips ?? []).map((id) => ({ id })), error: null };
-      }
-      if (table === "persons_private") {
-        if (hasFilter.has("neq")) return { data: null, error: null }; // E-Mail-Kollisionsprüfung: frei
-        if (sc.failRead === "prior") return FAIL;
-        return { data: sc.priorEmail ? { email: sc.priorEmail } : null, error: null };
-      }
-      if (table === "trip_members") {
-        if (single) {
-          return {
-            data: { person_id: GHOST, persons: { auth_user_id: null, display_name: sc.ghostName ?? "Ghost" } },
-            error: null,
-          };
-        }
-        if (hasFilter.has("neq")) {
-          if (sc.failRead === "others") return FAIL;
-          return { data: (sc.otherTrips ?? []).map((trip_id) => ({ trip_id })), error: null };
-        }
-        if (sc.failRead === "co") return FAIL;
-        return { data: (sc.coSkipperTrips ?? []).map((trip_id) => ({ trip_id })), error: null };
-      }
-      return { data: null, error: null };
-    };
-    b.maybeSingle = () => Promise.resolve(read(true));
-    b.then = (ok: (v: unknown) => unknown) => Promise.resolve(read(false)).then(ok);
-    return b;
-  };
-  return { supabase: { from: make }, writes };
+function setup(sc: Scenario) {
+  const trips: Row[] = [{ id: TRIP_X, archived: false, skipper_id: ACTOR }];
+  const members: Row[] = [
+    {
+      id: MEMBER_ID,
+      trip_id: TRIP_X,
+      person_id: GHOST,
+      persons: { auth_user_id: null, display_name: sc.ghostName ?? "Ghost" },
+    },
+  ];
+  for (const t of [...(sc.otherTrips ?? []), ...(sc.extraTrips ?? [])]) {
+    trips.push({ id: t.id, archived: false, skipper_id: t.skipper });
+  }
+  for (const t of sc.otherTrips ?? []) {
+    members.push({ id: `m-${t.id}`, trip_id: t.id, person_id: GHOST, is_skipper: false });
+  }
+  for (const m of sc.memberships ?? []) members.push({ id: `s-${m.trip_id}-${m.person_id}`, ...m });
+  const fake = createFakeSupabase({
+    trips,
+    trip_members: members,
+    persons_private: sc.priorEmail ? [{ person_id: GHOST, email: sc.priorEmail }] : [],
+  });
+  vi.mocked(createAdminClient).mockReturnValue(fake.client as never);
+  return fake;
 }
 
 function fd(over: Record<string, string>) {
@@ -96,12 +72,14 @@ function fd(over: Record<string, string>) {
   return d;
 }
 
+const dataWrites = (fake: ReturnType<typeof createFakeSupabase>) =>
+  fake.writes.filter((w) => w.table !== "audit_log");
+
 async function run(sc: Scenario, form: Record<string, string>, admin = false) {
-  const { supabase, writes } = makeSupabase(sc);
-  vi.mocked(createAdminClient).mockReturnValue(supabase as never);
+  const fake = setup(sc);
   vi.mocked(isAdmin).mockResolvedValue(admin);
   const res = await updateMember({ status: "idle" }, fd(form));
-  return { res, writes };
+  return { res, fake, writes: dataWrites(fake) };
 }
 
 describe("updateMember — Name/E-Mail geteilter Personen (Slice 3)", () => {
@@ -111,7 +89,7 @@ describe("updateMember — Name/E-Mail geteilter Personen (Slice 3)", () => {
 
   it("fremder Skipper + neue E-Mail → abgelehnt, kein Write", async () => {
     const { res, writes } = await run(
-      { priorEmail: "alt@example.de", otherTrips: [TRIP_Y] },
+      { priorEmail: "alt@example.de", otherTrips: [{ id: TRIP_Y, skipper: OTHER }] },
       { email: "neu@example.de", display_name: "Ghost" },
     );
     expect(res.status).toBe("error");
@@ -120,7 +98,7 @@ describe("updateMember — Name/E-Mail geteilter Personen (Slice 3)", () => {
 
   it("fremder Skipper + erste E-Mail für Ghost ohne Adresse → abgelehnt, kein Write", async () => {
     const { res, writes } = await run(
-      { priorEmail: null, otherTrips: [TRIP_Y] },
+      { priorEmail: null, otherTrips: [{ id: TRIP_Y, skipper: OTHER }] },
       { email: "neu@example.de", display_name: "Ghost" },
     );
     expect(res.status).toBe("error");
@@ -129,7 +107,7 @@ describe("updateMember — Name/E-Mail geteilter Personen (Slice 3)", () => {
 
   it("fremder Skipper + neuer Name → abgelehnt, kein Write, keine fremden Namen in der Meldung", async () => {
     const { res, writes } = await run(
-      { priorEmail: "alt@example.de", otherTrips: [TRIP_Y] },
+      { priorEmail: "alt@example.de", otherTrips: [{ id: TRIP_Y, skipper: OTHER }] },
       { email: "alt@example.de", display_name: "Anderer Name" },
     );
     expect(res.status).toBe("error");
@@ -139,7 +117,74 @@ describe("updateMember — Name/E-Mail geteilter Personen (Slice 3)", () => {
 
   it("Skipper nur eines von zwei fremden Törns → abgelehnt", async () => {
     const { res, writes } = await run(
-      { priorEmail: "alt@example.de", otherTrips: [TRIP_Y, TRIP_Z], ownedTrips: [TRIP_Y] },
+      {
+        priorEmail: "alt@example.de",
+        otherTrips: [
+          { id: TRIP_Y, skipper: ACTOR },
+          { id: TRIP_Z, skipper: OTHER },
+        ],
+      },
+      { email: "neu@example.de" },
+    );
+    expect(res.status).toBe("error");
+    expect(writes).toEqual([]);
+  });
+
+  it("Akteur ist Inhaber eines ANDEREN Törns (nicht von Y) → abgelehnt", async () => {
+    const { res, writes } = await run(
+      {
+        priorEmail: "alt@example.de",
+        otherTrips: [{ id: TRIP_Y, skipper: OTHER }],
+        extraTrips: [{ id: TRIP_W, skipper: ACTOR }],
+      },
+      { email: "neu@example.de" },
+    );
+    expect(res.status).toBe("error");
+    expect(writes).toEqual([]);
+  });
+
+  it("Akteur ist Co-Skipper eines ANDEREN Törns (nicht von Y) → abgelehnt", async () => {
+    const { res, writes } = await run(
+      {
+        priorEmail: "alt@example.de",
+        otherTrips: [{ id: TRIP_Y, skipper: OTHER }],
+        memberships: [{ trip_id: TRIP_W, person_id: ACTOR, is_skipper: true }],
+      },
+      { email: "neu@example.de" },
+    );
+    expect(res.status).toBe("error");
+    expect(writes).toEqual([]);
+  });
+
+  it("Akteur ist in Y nur gewöhnliches Mitglied (kein Skipper) → abgelehnt", async () => {
+    const { res, writes } = await run(
+      {
+        priorEmail: "alt@example.de",
+        otherTrips: [{ id: TRIP_Y, skipper: OTHER }],
+        memberships: [{ trip_id: TRIP_Y, person_id: ACTOR, is_skipper: false }],
+      },
+      { email: "neu@example.de" },
+    );
+    expect(res.status).toBe("error");
+    expect(writes).toEqual([]);
+  });
+
+  it("eine ANDERE Person ist Co-Skipper in Y → abgelehnt", async () => {
+    const { res, writes } = await run(
+      {
+        priorEmail: "alt@example.de",
+        otherTrips: [{ id: TRIP_Y, skipper: OTHER }],
+        memberships: [{ trip_id: TRIP_Y, person_id: OTHER, is_skipper: true }],
+      },
+      { email: "neu@example.de" },
+    );
+    expect(res.status).toBe("error");
+    expect(writes).toEqual([]);
+  });
+
+  it("Ghost steht nur als trips.skipper_id eines anderen Törns (ohne trip_members-Zeile) → abgelehnt", async () => {
+    const { res, writes } = await run(
+      { priorEmail: "alt@example.de", extraTrips: [{ id: TRIP_Y, skipper: GHOST }] },
       { email: "neu@example.de" },
     );
     expect(res.status).toBe("error");
@@ -148,7 +193,7 @@ describe("updateMember — Name/E-Mail geteilter Personen (Slice 3)", () => {
 
   it("unveränderte Werte + neue Anwesenheit → erlaubt, Name/E-Mail nicht neu geschrieben", async () => {
     const { res, writes } = await run(
-      { ghostName: "Ghost", priorEmail: "Alt@Example.de", otherTrips: [TRIP_Y] },
+      { ghostName: "Ghost", priorEmail: "Alt@Example.de", otherTrips: [{ id: TRIP_Y, skipper: OTHER }] },
       { email: "alt@example.de", display_name: "Ghost", on_board_from: "2026-05-01" },
     );
     expect(res.status).toBe("ok");
@@ -157,44 +202,79 @@ describe("updateMember — Name/E-Mail geteilter Personen (Slice 3)", () => {
 
   it("nur eigene Törns (Inhaber bzw. Co-Skipper) → erlaubt", async () => {
     const { res, writes } = await run(
-      { priorEmail: "alt@example.de", otherTrips: [TRIP_Y, TRIP_Z], ownedTrips: [TRIP_Y], coSkipperTrips: [TRIP_Z] },
+      {
+        priorEmail: "alt@example.de",
+        otherTrips: [
+          { id: TRIP_Y, skipper: ACTOR },
+          { id: TRIP_Z, skipper: OTHER },
+        ],
+        memberships: [{ trip_id: TRIP_Z, person_id: ACTOR, is_skipper: true }],
+      },
       { email: "neu@example.de" },
     );
     expect(res.status).toBe("ok");
-    expect(writes.some((w) => w.table === "persons_private" && w.method === "upsert")).toBe(true);
+    expect(writes.some((w) => w.table === "persons_private" && w.action === "upsert")).toBe(true);
   });
 
   it("Ghost nur in diesem Törn → erlaubt", async () => {
-    const { res } = await run({ priorEmail: "alt@example.de", otherTrips: [] }, { email: "neu@example.de" });
+    const { res } = await run({ priorEmail: "alt@example.de" }, { email: "neu@example.de" });
     expect(res.status).toBe("ok");
   });
 
   it("globaler Admin → erlaubt", async () => {
-    const { res } = await run({ priorEmail: "alt@example.de", otherTrips: [TRIP_Y] }, { email: "neu@example.de" }, true);
+    const { res } = await run(
+      { priorEmail: "alt@example.de", otherTrips: [{ id: TRIP_Y, skipper: OTHER }] },
+      { email: "neu@example.de" },
+      true,
+    );
     expect(res.status).toBe("ok");
   });
 
   it("die Person selbst → erlaubt", async () => {
     vi.mocked(requireSkipperOrAdmin).mockResolvedValue({ ok: true, personId: GHOST });
-    const { res } = await run({ priorEmail: "alt@example.de", otherTrips: [TRIP_Y] }, { email: "neu@example.de" });
+    const { res } = await run(
+      { priorEmail: "alt@example.de", otherTrips: [{ id: TRIP_Y, skipper: OTHER }] },
+      { email: "neu@example.de" },
+    );
     expect(res.status).toBe("ok");
   });
 
-  it.each(["others", "prior", "owned", "co"] as const)("Lesefehler (%s) → abgelehnt, kein Write", async (failRead) => {
-    const { res, writes } = await run(
-      { priorEmail: "alt@example.de", otherTrips: [TRIP_Y], failRead },
-      { email: "neu@example.de" },
-    );
+  it("anonymisierte Person (Kontolöschung) → Name/E-Mail gesperrt, auch für Admin", async () => {
+    for (const admin of [false, true]) {
+      const { res, writes } = await run({ ghostName: ANON }, { email: "neu@example.de" }, admin);
+      expect(res.status).toBe("error");
+      expect(writes).toEqual([]);
+    }
+  });
+
+  it("anonymisierte Person: Anwesenheit ohne Name/E-Mail-Änderung bleibt möglich", async () => {
+    const { res } = await run({ ghostName: ANON }, { on_board_from: "2026-05-01" });
+    expect(res.status).toBe("ok");
+  });
+
+  // Lesefehler: n-te select-Operation je Tabelle scheitert → fail-closed.
+  const reads: Array<[string, string, number]> = [
+    ["bisherige E-Mail", "persons_private", 1],
+    ["andere Törns (trip_members)", "trip_members", 2],
+    ["eigene Törns der Person (trips)", "trips", 2],
+    ["Inhaber-Abfrage (trips)", "trips", 3],
+    ["Co-Skipper-Abfrage (trip_members)", "trip_members", 3],
+  ];
+  it.each(reads)("Lesefehler (%s) → abgelehnt, kein Write", async (_n, table, nth) => {
+    const fake = setup({ priorEmail: "alt@example.de", otherTrips: [{ id: TRIP_Y, skipper: OTHER }] });
+    fake.failOn({ table, action: "select", nth });
+    vi.mocked(isAdmin).mockResolvedValue(false);
+    const res = await updateMember({ status: "idle" }, fd({ email: "neu@example.de" }));
     expect(res.status).toBe("error");
-    expect(writes).toEqual([]);
+    expect(dataWrites(fake)).toEqual([]);
   });
 
   it("Lesefehler bei der bisherigen E-Mail → abgelehnt, auch wenn der Ghost sonst nirgends Crew ist", async () => {
-    const { res, writes } = await run(
-      { priorEmail: "alt@example.de", otherTrips: [], failRead: "prior" },
-      { email: "neu@example.de" },
-    );
+    const fake = setup({ priorEmail: "alt@example.de" });
+    fake.failOn({ table: "persons_private", action: "select", nth: 1 });
+    vi.mocked(isAdmin).mockResolvedValue(false);
+    const res = await updateMember({ status: "idle" }, fd({ email: "neu@example.de" }));
     expect(res.status).toBe("error");
-    expect(writes).toEqual([]);
+    expect(dataWrites(fake)).toEqual([]);
   });
 });
